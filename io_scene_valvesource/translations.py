@@ -12,6 +12,9 @@ _data = {
 'vertmap_group_props': {
 	'en': "Vertex Maps",
 },
+'vertmap_group_props_float': {
+	'en': "Float Maps",
+},
 'action_selection_filter_tip': {
 	'en': "All actions that match the armature's filter term and have users",
 },
@@ -46,6 +49,9 @@ _data = {
 },
 'controllers_advanced_tip': {
 	'en': "Insert the flex controllers of an existing DMX file",
+},
+'controllers_strict_tip': {
+	'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored.",
 },
 'triangulate_tip': {
 	'en': "Avoids concave DMX faces, which are not supported by Source",
@@ -444,9 +450,6 @@ _data = {
 'exporter_warn_weightlinks_excess': {
 	'en': "{0} verts on \"{1}\" have over {2} weight links. Source does not support this!",
 },
-'exporter_err_noframes': {
-	'en': "Armature {0} has no animation frames to export",
-},
 'exporter_report_menu': {
 	'ja': "レポート：Source Tools エラー",
 	'en': "Source Tools Error Report",
@@ -783,12 +786,12 @@ _data = {
 	'ja': "エクスポートから、みんあがコンパイル",
 	'en': "Compile all on export",
 },
-'dmx_weightlinkcull': {
+'weightlinkcull': {
 	'ja': "ウェイト・リンクの間引きのしきい値",
 	'en': "Weight Link Cull Threshold",
 },
-'dmx_weightlinkcull_tip': {
-	'en': "The maximum strength at which a weight link can be removed to comply with Source's per-vertex link limit",
+'weightlinkcull_tip': {
+    'en': "The minimum weight value below which vertex weights are removed to eliminate noise.",
 },
 'dmx_encoding_tip': {
 	'en': "Manual override for binary DMX encoding version",
@@ -833,6 +836,39 @@ _data = {
 'update_alreadylatest': {
 	'en': "The latest Source Tools ({0}) are already installed.",
 },
+'maxvertexinfluence': {
+    'en': "Max Vertex Influence",
+},
+'maxvertexinfluence_tip': {
+    'en': "The maximum number of bones that can influence a single vertex.",
+},
+'exportname': {
+    'en': "Export Name",
+},
+'ignore_bone_exportnames': {
+    'en': "Ignore Bone Export Names",
+},
+'offset_rotation': {
+    'en': "Rotation",
+},
+'offset_location': {
+    'en': "location",
+},
+'bake_shapekey_as_basis_normals': {
+    'en': "Use Basis Normals For Shapekeys",
+},
+'bake_shapekey_as_basis_normals_tip': {
+    'en': "Preserve the basis shape normals when exporting, applying them to all shapekeys (useful for anime-style models)",
+},
+'panel_context_object': {
+    'en': "Object Properties",
+},
+'materials_prop': {
+    'en': "Materials Properties",
+},
+'bone_prop': {
+    'en': "Bone Properties",
+}
 }
 
 def _get_ids():	

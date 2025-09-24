@@ -13,7 +13,7 @@
     <Name>Blender Source Tools</Name>
     <LaunchProvider>Standard Python launcher</LaunchProvider>
     <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>
-    <InterpreterId>Global|PythonCore|3.11</InterpreterId>
+    <InterpreterId>MSBuild|env|$(MSBuildProjectFullPath)</InterpreterId>
     <TestFramework>unittest</TestFramework>
     <UnitTestPattern>test*.py</UnitTestPattern>
     <UnitTestRootDirectory>.\Tests</UnitTestRootDirectory>
@@ -28,6 +28,11 @@
   </PropertyGroup>
   <PropertyGroup />
   <ItemGroup>
+    <Compile Include="io_scene_valvesource\core\armature.py" />
+    <Compile Include="io_scene_valvesource\core\bone.py" />
+    <Compile Include="io_scene_valvesource\core\common.py" />
+    <Compile Include="io_scene_valvesource\core\object.py" />
+    <Compile Include="io_scene_valvesource\core\scene.py" />
     <Compile Include="io_scene_valvesource\datamodel.py" />
     <Compile Include="io_scene_valvesource\export_smd.py" />
     <Compile Include="io_scene_valvesource\flex.py" />
@@ -44,10 +49,22 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="io_scene_valvesource\" />
+    <Folder Include="io_scene_valvesource\core\" />
     <Folder Include="Tests\" />
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="Global|PythonCore|3.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <Interpreter Include="env\">
+      <Id>env</Id>
+      <Version>0.0</Version>
+      <Description>env (Python 3.12 (64-bit))</Description>
+      <InterpreterPath>Scripts\python.exe</InterpreterPath>
+      <WindowsInterpreterPath>Scripts\pythonw.exe</WindowsInterpreterPath>
+      <PathEnvironmentVariable>PYTHONPATH</PathEnvironmentVariable>
+      <Architecture>X64</Architecture>
+    </Interpreter>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
 </Project>
