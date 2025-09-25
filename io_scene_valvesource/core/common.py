@@ -252,47 +252,47 @@ MODE_MAP = {
 @contextmanager
 def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
     """
-    Temporarily switch `obj` to the given mode (EDIT, POSE, WEIGHT_PAINT, etc.).
+    Temporarily switch `obj` to the given mode and restore full context after.
 
     Preserves:
-        - Object selection
+        - Selection
         - Active object
         - Active mode
         - Active vertex group
-        - Active bone/pose/edit bone
+        - Active bone (pose/edit/data)
 
     Notes:
         - Deleted objects are skipped during restore.
         - Deleted or renamed bones/vertex groups are not restored.
         - Mode restore may fallback to OBJECT/POSE if original mode is invalid.
     """
-    view_layer = bpy.context.view_layer
+    ctx = bpy.context
+    view_layer = ctx.view_layer
 
-    # Save state
-    prev_selected = [o for o in view_layer.objects.selected]
+    prev_selected = list(view_layer.objects.selected)
     prev_active = view_layer.objects.active
-    prev_mode = bpy.context.mode
+    prev_mode = ctx.mode
 
-    # Sub-data state
     prev_vgroup_index = None
     prev_bone_name = None
 
-    if obj and obj.type == "MESH":
-        prev_vgroup_index = obj.vertex_groups.active_index
-    elif obj and obj.type == "ARMATURE":
-        if prev_mode == "POSE" and obj.data.bones.active:
-            prev_bone_name = obj.data.bones.active.name
-        elif prev_mode == "EDIT_ARMATURE" and obj.data.edit_bones.active:
-            prev_bone_name = obj.data.edit_bones.active.name
-        elif obj.data.bones.active:
-            prev_bone_name = obj.data.bones.active.name
+    if obj:
+        if obj.type == "MESH":
+            prev_vgroup_index = obj.vertex_groups.active_index
+        elif obj.type == "ARMATURE":
+            data = obj.data
+            if data.bones.active:
+                prev_bone_name = data.bones.active.name
+            elif prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
+                prev_bone_name = data.edit_bones.active.name
 
-    # Switch target object to OBJECT mode first
+    # --- Switch to target object and mode ---
     if obj and obj.name in bpy.data.objects:
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
         except RuntimeError:
             pass
+
         view_layer.objects.active = obj
         obj.select_set(True)
 
@@ -301,31 +301,32 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
         except RuntimeError:
             pass
 
+    # --- Yield appropriate data ---
     try:
-        if mode == "EDIT":
-            yield obj.data.edit_bones if obj and obj.type == "ARMATURE" else None
-        elif mode == "POSE":
-            yield obj.pose.bones if obj and obj.type == "ARMATURE" else None
+        if mode == "EDIT" and obj and obj.type == "ARMATURE":
+            yield obj.data.edit_bones
+        elif mode == "POSE" and obj and obj.type == "ARMATURE":
+            yield obj.pose.bones
         else:
             yield obj
     finally:
-        # Back to object mode
+        # --- Restore mode back to OBJECT before restoring state ---
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
         except RuntimeError:
             pass
 
-        # Restore selection
+        # --- Restore selection ---
         bpy.ops.object.select_all(action="DESELECT")
         for sel in prev_selected:
             if sel and sel.name in bpy.data.objects:
                 sel.select_set(True)
 
-        # Restore active
+        # --- Restore active ---
         if prev_active and prev_active.name in bpy.data.objects:
             view_layer.objects.active = prev_active
 
-        # Restore mode
+        # --- Restore mode ---
         mapped_mode = MODE_MAP.get(prev_mode, "OBJECT")
         try:
             bpy.ops.object.mode_set(mode=mapped_mode)
@@ -335,20 +336,18 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
             elif prev_active and prev_active.type == "MESH":
                 bpy.ops.object.mode_set(mode="OBJECT")
 
-        # Restore sub-data
-        if prev_active and prev_active.type == "MESH" and prev_vgroup_index is not None:
-            if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
-                prev_active.vertex_groups.active_index = prev_vgroup_index
-        elif prev_active and prev_active.type == "ARMATURE" and prev_bone_name:
-            if mapped_mode == "POSE":
-                bone = prev_active.data.bones.get(prev_bone_name)
+        # --- Restore sub-data ---
+        if prev_active:
+            if prev_active.type == "MESH" and prev_vgroup_index is not None:
+                if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
+                    prev_active.vertex_groups.active_index = prev_vgroup_index
+
+            elif prev_active.type == "ARMATURE" and prev_bone_name:
+                data = prev_active.data
+                bone = (
+                    data.edit_bones.get(prev_bone_name)
+                    if mapped_mode == "EDIT"
+                    else data.bones.get(prev_bone_name)
+                )
                 if bone:
-                    prev_active.data.bones.active = bone
-            elif mapped_mode == "EDIT":
-                bone = prev_active.data.edit_bones.get(prev_bone_name)
-                if bone:
-                    prev_active.data.edit_bones.active = bone
-            else:
-                bone = prev_active.data.bones.get(prev_bone_name)
-                if bone:
-                    prev_active.data.bones.active = bone
+                    data.bones.active = bone

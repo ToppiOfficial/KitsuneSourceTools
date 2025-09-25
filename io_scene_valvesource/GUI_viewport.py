@@ -1020,11 +1020,9 @@ class JSONBONE_OT_LoadJson(Operator):
             self.report({"ERROR"}, "Please select a JSON file")
             return {"CANCELLED"}
 
-        # --- Load JSON ---
         with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Convert list to dict for quick lookup by BoneName
         boneElems = {entry["BoneName"]: entry for entry in data}
 
         arm = getArmature(context.object)
@@ -1034,7 +1032,6 @@ class JSONBONE_OT_LoadJson(Operator):
         
         def remapped_humanoid_armature_bones(arm: bpy.types.Object):
             vs_arm = getattr(arm, "vs", None)
-            
             if not vs_arm:
                 return False
 
@@ -1047,12 +1044,9 @@ class JSONBONE_OT_LoadJson(Operator):
             # --- Conflict check ---
             bone_props = [attr for attr in dir(vs_arm) if attr.startswith("retarget_armature_")]
             bone_values = [getattr(vs_arm, prop) for prop in bone_props]
-            
             if all(not v for v in bone_values):
                 return True
-            
             selected_bones = [v for v in bone_values if is_valid_bone(v)]
-
             seen, duplicates = set(), set()
             for b in selected_bones:
                 if b in seen:
@@ -1071,7 +1065,6 @@ class JSONBONE_OT_LoadJson(Operator):
                 start_bone = bones[start_name]
                 end_bone = bones[end_name]
 
-                # Recursive DFS to find path
                 def dfs(bone, target, path):
                     path.append(bone)
                     if bone == target:
@@ -1083,25 +1076,35 @@ class JSONBONE_OT_LoadJson(Operator):
                     return False
 
                 chain = []
-                found = dfs(start_bone, end_bone, chain)
-                if not found:
-                    return []  # No path found
-                return chain
+                if dfs(start_bone, end_bone, chain):
+                    return chain
+                return []
 
+            def realign_chain_tails(chain):
+                if len(chain) < 2:
+                    return
+                # Must be in EDIT mode
+                prev_mode = arm.mode
+                if bpy.context.object != arm:
+                    bpy.context.view_layer.objects.active = arm
+                bpy.ops.object.mode_set(mode='EDIT')
+
+                edit_bones = arm.data.edit_bones
+                for i in range(len(chain) - 1):
+                    a = edit_bones.get(chain[i].name)
+                    b = edit_bones.get(chain[i + 1].name)
+                    if a and b:
+                        a.tail = b.head
+
+                bpy.ops.object.mode_set(mode=prev_mode)
 
             def build_torso_chain(pelvis_name, chest_name):
                 chain = collect_chain(pelvis_name, chest_name)
-                count = len(chain)
-                if count < 2:
+                if len(chain) < 2:
                     return
-
-                # Always first = Hips, last = Chest
                 names = ["Hips"]
-                middle_count = count - 2
-
-                if middle_count == 0:
-                    pass
-                elif middle_count == 1:
+                middle_count = len(chain) - 2
+                if middle_count == 1:
                     names.append("Spine")
                 elif middle_count == 2:
                     names.extend(["Waist", "Spine"])
@@ -1109,48 +1112,43 @@ class JSONBONE_OT_LoadJson(Operator):
                     names.extend(["Waist", "Spine", "Stomach"])
                 elif middle_count > 3:
                     names.extend(["Waist", "Spine", "Stomach"])
-                    extra = middle_count - 3
-                    for i in range(extra):
-                        names.append(f"Spine_{i+1}")
-
+                    names.extend([f"Spine_{i+1}" for i in range(middle_count - 3)])
                 names.append("Chest")
 
                 for bone, new_name in zip(chain, names):
                     rename_map[bone.name] = new_name
 
+                realign_chain_tails(chain)
+
             def build_neck_chain(chest_name, head_name):
                 chain = collect_chain(chest_name, head_name)
                 if len(chain) < 2:
                     return
-
-                # First is Chest (already handled in torso), last is Head
                 for i, bone in enumerate(chain[1:-1], 1):
                     rename_map[bone.name] = "Neck" if i == 1 else f"Neck_{i-1}"
                 rename_map[head_name] = "Head"
+
+                realign_chain_tails(chain)
 
             def build_chain_mapping(start_name, end_name, base_names, side=None):
                 chain = collect_chain(start_name, end_name)
                 if not chain:
                     return
-
-                count = len(chain)
                 target_count = len(base_names)
-
                 for i, bone in enumerate(chain):
                     idx = min(i, target_count - 1)
                     name = base_names[idx]
-
                     if side == "L":
                         new_name = f"Left {name}"
                     elif side == "R":
                         new_name = f"Right {name}"
                     else:
                         new_name = name
-
-                    if count > target_count and i >= target_count:
+                    if len(chain) > target_count and i >= target_count:
                         new_name += f"_{i - target_count + 1}"
-
                     rename_map[bone.name] = new_name
+
+                realign_chain_tails(chain)
 
             def build_finger_mapping(start_name, base, side, start_index=1):
                 if not is_valid_bone(start_name):
@@ -1162,6 +1160,9 @@ class JSONBONE_OT_LoadJson(Operator):
                     bone = bone.children[0] if bone.children else None
                 for i, bone in enumerate(chain):
                     rename_map[bone.name] = f"{base}{i+start_index}_{side}"
+
+                realign_chain_tails(chain)
+
 
             # ===== Spine (Pelvis → Chest) =====
             build_torso_chain(vs_arm.retarget_armature_pelvis, vs_arm.retarget_armature_chest)
@@ -1275,6 +1276,9 @@ class JSONBONE_OT_LoadJson(Operator):
                 return {'CANCELLED'}
         
         with PreserveContextMode(arm, 'EDIT'):
+            arm.show_in_front = True
+            arm.data.display_type == 'WIRE'
+            
             for bone_name, bone_data in boneElems.items():
                 bone = arm.data.edit_bones.get(bone_name)
 
@@ -1307,7 +1311,6 @@ class JSONBONE_OT_LoadJson(Operator):
                         twistbone.roll = bone.roll
                         twistbone.length = bone.length * 0.5
                         twistbone.parent = bone
-                        twistbone.align_orientation()
                     else:
                         twistbone.head = bone.head
                         twistbone.tail = bone.tail
@@ -1319,12 +1322,13 @@ class JSONBONE_OT_LoadJson(Operator):
             
             for bone_name, bone_data in boneElems.items():
                 pb = arm.pose.bones.get(bone_name)
-                if bone_data.get("ExportRotationOffset"):
-                    pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
-                    pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
-                    pb.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
-                else:
-                    pb.bone.vs.ignore_rotation_offset = True
+                if pb:
+                    if bone_data.get("ExportRotationOffset"):
+                        pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
+                        pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
+                        pb.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
+                    else:
+                        pb.bone.vs.ignore_rotation_offset = True
                     
                 pbtwist = arm.pose.bones.get(bone_name + " twist")
                 if pbtwist:
@@ -1354,10 +1358,7 @@ class JSONBONE_OT_LoadJson(Operator):
                         
                     for col in pb.bone.collections:
                         col.assign(pbtwist.bone)
-                    
-                
-                
-                    
+                     
         self.report({"INFO"}, "Armature Converted successfully.")
         return {"FINISHED"}
 
@@ -2073,7 +2074,6 @@ class TOOLS_OT_RemoveUnusedVertexGroups(bpy.types.Operator):
         self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
         return {'FINISHED'}
 
-
 class SMD_PT_Tools_VertexGroup(ToolsSubPanel):
     bl_label = "VertexGroup Tools"
     
@@ -2083,7 +2083,7 @@ class SMD_PT_Tools_VertexGroup(ToolsSubPanel):
     @classmethod
     def poll(cls, context):
         ob = context.object
-        return (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT')
+        return (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE')
     
     def draw(self, context):
         l = self.layout
@@ -2092,12 +2092,13 @@ class SMD_PT_Tools_VertexGroup(ToolsSubPanel):
         col = bx.column()
         col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
         col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
+        col.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname,icon='SPLIT_VERTICAL')
         
-        col = bx.column(align=True)
-        tool_settings = context.tool_settings
-        brush = tool_settings.weight_paint.brush
-        
-        if brush:
+        if context.object.mode == 'WEIGHT_PAINT':
+            col = bx.column(align=True)
+            tool_settings = context.tool_settings
+            brush = tool_settings.weight_paint.brush
+            
             col.operator(TOOLS_OT_curve_ramp_weights.bl_idname)
             row = col.row(align=True)
                 
@@ -2183,17 +2184,13 @@ class TOOLS_OT_WeightMath(bpy.types.Operator):
 
     def execute(self, context):
         
-        ob = getArmature(context.object)
-        
-        if ob is None or not ob.select_get(): return {'CANCELLED'}
-        
+        arm = getArmature(context.object)
         meshes = getArmatureMeshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
         
         if not meshes:
             self.report({'WARNING'}, "No meshes bound to armature")
             return {'CANCELLED'}
 
-        # Determine active and selected bones
         curr_bone = arm.data.bones.active
         if not curr_bone:
             self.report({'WARNING'}, "No active bone")
@@ -2206,12 +2203,10 @@ class TOOLS_OT_WeightMath(bpy.types.Operator):
         active_name = curr_bone.name
         other_names = [b.name for b in selected_bones if b != curr_bone]
         
-        prev_mode = ob.mode
+        prev_mode = arm.mode
         
         for mesh in meshes:
-            # Temporarily ensure object mode for weight edits
-            bpy.ops.object.mode_set(mode='OBJECT')
-            
+
             vg_active = mesh.vertex_groups.get(active_name)
             if not vg_active:
                 continue
@@ -2247,9 +2242,6 @@ class TOOLS_OT_WeightMath(bpy.types.Operator):
                 new_w = max(0.0, min(1.0, new_w))
                 vg_active.add([v.index], new_w, 'REPLACE')
 
-        if prev_mode:
-            bpy.ops.object.mode_set(mode=prev_mode)
-
         return {'FINISHED'}
     
 class TOOLS_OT_SwapVertexGroups(bpy.types.Operator):
@@ -2277,7 +2269,6 @@ class TOOLS_OT_SwapVertexGroups(bpy.types.Operator):
     
     def execute(self,context):
         arm = getArmature(context.object)
-        
         currBone = arm.data.bones.active
         otherBone = getBones(arm, False, exclude_active= True)[0]
         
@@ -2285,16 +2276,13 @@ class TOOLS_OT_SwapVertexGroups(bpy.types.Operator):
             self.report({'WARNING'}, "Bones selected are not in the same armature")
             return {'CANCELLED'}
         
-        meshes = getArmatureMeshes(arm)
+        meshes = getArmatureMeshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
         
         if not meshes:
             self.report({'WARNING'}, "Armature doesn't have any Meshes")
             return {'CANCELLED'}
         
-        for mesh in meshes:
-            if context.scene.vs.visible_mesh_only:
-                if not mesh.visible_get(): continue
-        
+        for mesh in meshes:        
             group1 = mesh.vertex_groups.get(currBone.name)
             group2 = mesh.vertex_groups.get(otherBone.name)
             
@@ -2335,16 +2323,13 @@ class TOOLS_OT_CopyVisPosture(bpy.types.Operator):
     @classmethod
     def poll(cls,context):
         currob = context.object
-        
         if not is_armature(currob): return False
         
         obs = {ob for ob in context.view_layer.objects if ob.select_get() and not ob.hide_get() and ob != currob}
-        
         return obs
     
     def execute(self, context):
         currArm = context.object
-        
         obs = {ob for ob in context.view_layer.objects if ob.select_get() and not ob.hide_get() and ob != currArm}
 
         copiedcount = 0
@@ -2990,6 +2975,132 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
         
         self.report({'INFO'}, f'Processed {len(selected_bones)} Bones')
         return {'FINISHED'}
+
+class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
+    bl_idname = 'tools.split_active_weights_linear'
+    bl_label = 'Split Active Weights Linearly'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    smoothness: FloatProperty(
+        name="Smoothness",
+        description="Smoothness of the weight split (0 = hard cut, 1 = full smooth blend)",
+        min=0.0, max=1.0,
+        default=0.6
+    )
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
+        
+        arm = getArmature(ob)
+        if arm is None: return False
+        
+        return arm.data.bones.active 
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def get_vgroup_index(self, mesh, name):
+        for i, vg in enumerate(mesh.vertex_groups):
+            if vg.name == name:
+                return i
+        return None
+
+    def clamp(self, x, a, b):
+        return max(a, min(x, b))
+
+    def remap(self, value, minval, maxval):
+        if maxval - minval == 0:
+            return 0.5
+        return (value - minval) / (maxval - minval)
+
+    def project_point_onto_line(self, p, a, b):
+        ap = p - a
+        ab = b - a
+        ab_len_sq = ab.length_squared
+        if ab_len_sq == 0.0:
+            return 0.0
+        return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
+
+    def execute(self, context):
+        arm = getArmature(context.object)
+        bones = [b for b in context.selected_pose_bones if b != context.active_pose_bone]
+        active_bone = arm.data.bones.active
+
+        if not bones or len(bones) != 2 or not active_bone:
+            self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
+            return {'CANCELLED'}
+        
+        og_arm_pose_mode = arm.data.pose_position
+        arm.data.pose_position = 'REST'
+        bpy.context.view_layer.update()
+
+        bone1 = bones[0]
+        bone2 = bones[1]
+        active = active_bone
+
+        bone1_name = bone1.name
+        bone2_name = bone2.name
+        active_name = active.name
+
+        arm_matrix = arm.matrix_world
+        p1 = arm_matrix @ ((bone1.head + bone1.tail) * 0.5)
+        p2 = arm_matrix @ ((bone2.head + bone2.tail) * 0.5)
+
+        meshes = getArmatureMeshes(arm, visible_only=context.scene.vs.visible_mesh_only)
+
+        for mesh in meshes:
+            vg_active = self.get_vgroup_index(mesh, active_name)
+            vg1 = mesh.vertex_groups.get(bone1_name)
+            if vg1 is None:
+                vg1 = mesh.vertex_groups.new(name=bone1_name)
+
+            # Ensure vg2 exists
+            vg2 = mesh.vertex_groups.get(bone2_name)
+            if vg2 is None:
+                vg2 = mesh.vertex_groups.new(name=bone2_name)
+
+            if vg_active is None or vg1 is None or vg2 is None:
+                continue
+
+            vtx_weights = {}
+            for v in mesh.data.vertices:
+                for g in v.groups:
+                    if g.group == vg_active:
+                        vtx_weights[v.index] = g.weight
+                        break
+
+            for vidx, weight in vtx_weights.items():
+                vertex = mesh.data.vertices[vidx]
+                world_pos = mesh.matrix_world @ vertex.co
+
+                t = self.project_point_onto_line(world_pos, p1, p2)
+
+                if self.smoothness == 0.0:
+                    w1 = weight if t < 0.5 else 0.0
+                    w2 = weight if t >= 0.5 else 0.0
+                else:
+                    s = self.smoothness
+                    edge0 = 0.0 + s * 0.5
+                    edge1 = 1.0 - s * 0.5
+                    smooth_t = self.remap(t, edge0, edge1)
+                    smooth_t = self.clamp(smooth_t, 0.0, 1.0)
+                    w1 = weight * (1.0 - smooth_t)
+                    w2 = weight * smooth_t
+
+                vg1.add([vidx], w1, 'ADD')
+                vg2.add([vidx], w2, 'ADD')
+
+            mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
+        
+        with PreserveContextMode(arm, 'EDIT'):
+            removeBone(arm,active_bone.name)
+        
+        arm.data.pose_position = og_arm_pose_mode
+
+        self.report({'INFO'}, f"Split {active_name} between {bone1_name} and {bone2_name}")
+        return {'FINISHED'} 
 
 class SMD_PT_Developer(SMD_PT_toolpanel, bpy.types.Panel):
     bl_label = 'Developer Tools'

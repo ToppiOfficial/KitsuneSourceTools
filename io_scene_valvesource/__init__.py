@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Kitsune Source Tools (Blender Source Tools)",
     "author": "Tom Edwards & Toppi",
-    "version": (0, 0, 2),
+    "version": (0, 0, 4),
     "blender": (4, 2, 0),
     "category": "Import-Export",
     "location": "File > Import/Export, Scene properties",
@@ -452,6 +452,7 @@ _classes = (
     GUI_viewport.TOOLS_OT_AddToonEdgeLine,
     GUI_viewport.TOOLS_OT_init_weight_brush,
     GUI_viewport.TOOLS_OT_curve_ramp_weights,
+    GUI_viewport.TOOLS_OT_SplitActiveWeightLinear,
     
     GUI_viewport.SMD_PT_ValveModel,
     GUI_viewport.SMD_PT_Jigglebones,
