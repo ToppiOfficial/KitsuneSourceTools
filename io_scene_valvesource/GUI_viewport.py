@@ -1732,92 +1732,125 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
     bl_idname = 'tools.create_proportion_actions'
     bl_label = 'Create Delta Proportion Pose'
     bl_options = {'REGISTER', 'UNDO'}
-    
-    ProportionName : StringProperty(name='Action Proportion Name', default='proportion')
-    ReferenceName : StringProperty(name='Action Reference Name', default='reference')
-    
+
+    ProportionName: StringProperty(name='Proportion Slot Name', default='proportion')
+    ReferenceName: StringProperty(name='Reference Slot Name', default='reference')
+
     @classmethod
     def poll(cls, context):
         ob = context.object
-        return context.mode == 'OBJECT' and is_armature(ob) and {ob for ob in context.view_layer.objects if ob != context.object and ob.select_get()}
-    
+        return (
+            context.mode == 'OBJECT'
+            and is_armature(ob)
+            and {o for o in context.view_layer.objects if o != context.object and o.select_get()}
+        )
+
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
-    
+
     def execute(self, context):
         currArm = context.object
-        otherArms = {ob for ob in context.view_layer.objects if ob.select_get() and ob.type == 'ARMATURE'}
-        
+        otherArms = {o for o in context.view_layer.objects if o.select_get() and o.type == 'ARMATURE'}
         otherArms.discard(currArm)
-        
-        if not self.ReferenceName.strip() or not self.ProportionName.strip() : return {'CANCELLED'}
-        
+
+        if not self.ReferenceName.strip() or not self.ProportionName.strip():
+            return {'CANCELLED'}
+
         last_pose_state = currArm.data.pose_position
         currArm.data.pose_position = 'REST'
-        
         context.scene.frame_set(0)
         context.view_layer.update()
-        
-        for arm in otherArms:  
+
+        use_new_api = bpy.app.version >= (4, 4, 0)
+
+        for arm in otherArms:
             if arm.animation_data is None:
                 arm.animation_data_create()
-                
-            arm.animation_data.action = None
 
-            for bone in arm.pose.bones:
-                bone.matrix_basis.identity()
-            
-            ActionReference = None
-            ActionProportion = None
-            
-            if len(otherArms) > 1:
-                ActionReferenceName = f"{self.ReferenceName}_{arm.name}"
-                ActionProportionName = f"{self.ProportionName}_{arm.name}"
+            if use_new_api:
+                # 4.4 +
+                action_name = "proportion-delta"
+                action = bpy.data.actions.get(action_name)
+                if action is None:
+                    action = bpy.data.actions.new(action_name)
+                action.use_fake_user = True
+
+                slot_ref = action.slots.get(self.ReferenceName)
+                if slot_ref is None:
+                    slot_ref = action.slots.new(id_type='OBJECT', name=self.ReferenceName)
+
+                slot_prop = action.slots.get(self.ProportionName)
+                if slot_prop is None:
+                    slot_prop = action.slots.new(id_type='OBJECT', name=self.ProportionName)
+
+                if len(action.layers) == 0:
+                    layer = action.layers.new("BaseLayer")
+                else:
+                    layer = action.layers[0]
+
+                if len(layer.strips) == 0:
+                    strip = layer.strips.new(type='KEYFRAME')
+                else:
+                    strip = layer.strips[0]
+
+                arm.animation_data.action = action
+                arm.animation_data.action_slot = slot_ref
+
+                success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                if success:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                context.view_layer.update()
+
+                arm.animation_data.action_slot = slot_prop
+                success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
+
+                if success1 and success2:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                arm.animation_data.action_slot = slot_ref
+                context.view_layer.update()
+
             else:
-                ActionReferenceName = self.ReferenceName
-                ActionProportionName = self.ProportionName
-            
-            ActionReference = bpy.data.actions.get(ActionReferenceName)
-            ActionProportion = bpy.data.actions.get(ActionProportionName)
-            
-            if ActionReference is None:
-                ActionReference = bpy.data.actions.new(ActionReferenceName)
-            else:
-                ActionReference.fcurves.clear()
-            
-            arm.animation_data.action = ActionReference
-            ActionReference.use_fake_user = True
-                
-            success = copyArmatureVisualPose(currArm,arm,copy_type='ANGLES')
-            
-            if success:
-                for pbone in arm.pose.bones:
-                    pbone.keyframe_insert(data_path="location", group=pbone.name)
-                    pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
-                    pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
-                
-            arm.animation_data.action = None
-            context.view_layer.update()
-                
-            if ActionProportion is None:
-                ActionProportion = bpy.data.actions.new(ActionProportionName)
-            else:
-                ActionProportion.fcurves.clear()
-            
-            arm.animation_data.action = ActionProportion
-            ActionProportion.use_fake_user = True
-            success1 = copyArmatureVisualPose(currArm,arm,copy_type='ANGLES')
-            success2 = copyArmatureVisualPose(currArm,arm,copy_type='ORIGIN')
-            
-            if success1 and success2:
-                for pbone in arm.pose.bones:
-                    pbone.keyframe_insert(data_path="location", group=pbone.name)
-                    pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
-                    pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
-            
-            arm.animation_data.action = ActionReference
-            context.view_layer.update()
-        
+                # 4.3
+                action_ref_name = self.ReferenceName
+                action_prop_name = self.ProportionName
+
+                action_ref = bpy.data.actions.get(action_ref_name)
+                if action_ref is None:
+                    action_ref = bpy.data.actions.new(action_ref_name)
+
+                arm.animation_data.action = action_ref
+                success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                if success:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                action_prop = bpy.data.actions.get(action_prop_name)
+                if action_prop is None:
+                    action_prop = bpy.data.actions.new(action_prop_name)
+
+                arm.animation_data.action = action_prop
+                success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
+                if success1 and success2:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                arm.animation_data.action = action_ref
+                context.view_layer.update()
+
         currArm.data.pose_position = last_pose_state
         return {'FINISHED'}
 
