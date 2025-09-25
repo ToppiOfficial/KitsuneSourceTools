@@ -9,6 +9,10 @@
 > Some panels and tools lack translation support, and most labels are in English.  
 > Additionally, many tools do not have tooltips.
 
+## Versions
+
+Blender 4.5+ (4.3 or 4.2 Untested)
+
 ## Features
 
 ### KeyValue3
