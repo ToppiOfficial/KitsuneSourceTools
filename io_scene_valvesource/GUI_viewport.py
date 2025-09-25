@@ -1463,7 +1463,7 @@ class TOOLS_OT_CleanUnWeightedBones(bpy.types.Operator):
             bx.label(text='Cleaning will break constraints and IK!', icon='ERROR')
 
     def execute(self, context):
-        armature = getArmature()
+        armature = getArmature(context.object)
         bones = armature.pose.bones
         meshes = getArmatureMeshes(armature)
         
@@ -1474,29 +1474,22 @@ class TOOLS_OT_CleanUnWeightedBones(bpy.types.Operator):
             self.report({'WARNING'}, "No meshes or bones associated with the armature.")
             return {'CANCELLED'}
 
-        vgroup_used = {mesh: {i: False for i, _ in enumerate(mesh.vertex_groups)} for mesh in meshes}
-        for mesh in meshes:
-            for v in mesh.data.vertices:
-                for g in v.groups:
-                    if g.weight > 0.001:
-                        vgroup_used[mesh][g.group] = True
+        removed_vgroups = clean_vertex_groups(armature, armature.data.bones)
 
-        total_count = 0
+        remaining_vgroups = {
+            mesh: set(vg.name for vg in mesh.vertex_groups)
+            for mesh in meshes
+        }
+
+        total_bones_removed = 0
 
         while True:
             bones_to_remove = set()
             for b in bones:
                 if b.children and not self.aggressive_cleaning:
                     continue
-                
-                #if any(f.strip().lower() in b.name.lower() for f in bone_name_filters):
-                #    continue
 
-                has_weight = any(
-                    vgroup_used[mesh].get(mesh.vertex_groups.get(b.name, None).index, False)
-                    for mesh in meshes if b.name in mesh.vertex_groups
-                )
-
+                has_weight = any(b.name in remaining_vgroups[mesh] for mesh in meshes)
                 if has_weight:
                     continue
 
@@ -1508,15 +1501,21 @@ class TOOLS_OT_CleanUnWeightedBones(bpy.types.Operator):
 
             if bones_to_remove:
                 with PreserveContextMode(armature, 'EDIT'):
-                    total_count += len(bones_to_remove)
                     removeBone(armature, bones_to_remove)
+                    
+                    total_bones_removed += len(bones_to_remove)
                     bones = armature.pose.bones
+                    
+                    remaining_vgroups = {
+                        mesh: set(vg.name for vg in mesh.vertex_groups)
+                        for mesh in meshes
+                    }
             else:
                 break
 
-        unused_vgroup_count = clean_unused_vertexgroups(ob=armature)
+        total_vgroups_removed = sum(len(vgs) for vgs in removed_vgroups.values())
 
-        self.report({'INFO'}, f'{total_count} bones removed with {unused_vgroup_count} empty vertex groups removed.')
+        self.report({'INFO'}, f'{total_bones_removed} bones removed with {total_vgroups_removed} empty vertex groups removed.')
         return {'FINISHED'}
 
     def bone_has_animation(self, armature, bone_name):
@@ -2061,17 +2060,19 @@ class TOOLS_OT_RemoveUnusedVertexGroups(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return {ob for ob in context.view_layer.objects if ob.select_get()}
+        return any(ob.select_get() for ob in context.view_layer.objects)
     
     def execute(self, context):
-        obs = {ob for ob in context.view_layer.objects if ob.select_get()}
-        
-        removed_count = 0
+        obs = [ob for ob in context.view_layer.objects if ob.select_get()]
+        total_removed = 0
+
         for ob in obs:
-            removed_count += clean_unused_vertexgroups(ob)
-            
-        self.report({'INFO'}, f"Removed {removed_count} unused vertex groups.")
+            removed_vgroups = clean_vertex_groups(ob)
+            total_removed += sum(len(vgs) for vgs in removed_vgroups.values())
+
+        self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
         return {'FINISHED'}
+
 
 class SMD_PT_Tools_VertexGroup(ToolsSubPanel):
     bl_label = "VertexGroup Tools"

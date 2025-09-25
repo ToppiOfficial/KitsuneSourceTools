@@ -104,12 +104,14 @@ class SMD_PT_Scene(bpy.types.Panel):
             if State.exportFormat == ExportFormat.DMX:
                 col = l.column()
                 col.prop(scene.vs,"material_path")
-                col.prop(scene.vs,"weightlink_threshold",slider=True)
-                col.prop(scene.vs,"vertex_influence_limit",slider=True)
         else:
             row = l.split(factor=0.33)
             row.label(text=get_id("smd_format") + ":")
             row.row().prop(scene.vs,"smd_format", expand=True)
+        
+        col = l.column()
+        col.prop(scene.vs,"weightlink_threshold",slider=True)
+        col.prop(scene.vs,"vertex_influence_limit",slider=True)
         
         col = l.column(align=True)
         row = col.row(align=True)
