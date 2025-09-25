@@ -1037,7 +1037,7 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             def is_valid_bone(name: str) -> bool:
                 return bool(name) and isinstance(name, str) and name in arm.data.bones.keys()
 
-            # --- Conflict check ---
+            # Conflict check
             bone_props = [attr for attr in dir(vs_arm) if attr.startswith("armature_map_")]
             bone_values = [getattr(vs_arm, prop) for prop in bone_props]
             if all(not v for v in bone_values):
@@ -1053,7 +1053,7 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 print(f"[Humanoid Rename] Conflicting assignments: {duplicates}")
                 return False
 
-            # --- Helpers ---
+            # Helpers
             def collect_chain(start_name, end_name):
                 if not (is_valid_bone(start_name) and is_valid_bone(end_name)):
                     return []
@@ -1291,9 +1291,9 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 
                 rot = bone_data.get("Rotation")
                 roll = bone_data.get("Roll")
-                if rot and roll:
+                if rot is not None and roll is not None:
                     rotatedbones = assignBoneAngles(arm, [(bone_name, rot[0], rot[1], rot[2], roll)])
-                elif not rot and roll:
+                elif rot is None and roll is not None:
                     rotatedbones = assignBoneAngles(arm, [(bone_name, None, None, None, roll)])
                 else:
                     pass
@@ -1322,7 +1322,7 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             for bone_name, bone_data in boneElems.items():
                 pb = arm.pose.bones.get(bone_name)
                 if pb:
-                    if bone_data.get("ExportRotationOffset"):
+                    if bone_data.get("ExportRotationOffset") is not None:
                         pb.bone.vs.ignore_rotation_offset = False
                         pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
                         pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
@@ -1330,14 +1330,14 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                     else:
                         pb.bone.vs.ignore_rotation_offset = True
                         
-                    if bone_data.get("ExportName"):
+                    if bone_data.get("ExportName") is not None:
                         pb.bone.vs.export_name = bone_data.get("ExportName")
                     
                 pbtwist = arm.pose.bones.get(bone_name + " twist")
                 if pbtwist:
                     twisttarget = bone_data.get("TwistBones")
                     
-                    if bone_data.get("ExportRotationOffset"):
+                    if bone_data.get("ExportRotationOffset") is not None:
                         pbtwist.bone.vs.ignore_rotation_offset = False
                         pbtwist.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
                         pbtwist.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
