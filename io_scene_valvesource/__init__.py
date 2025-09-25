@@ -201,7 +201,7 @@ class LocationOffset():
     export_location_offset_y : FloatProperty(name=f'{get_id("offset_location")} Y', default=0, precision=4, update=scene.make_update('export_location_offset_y'))
     export_location_offset_z : FloatProperty(name=f'{get_id("offset_location")} Z', default=0, precision=4, update=scene.make_update('export_location_offset_z'))
 
-class JsonBoneKeyValue(PropertyGroup):
+class ArmatureMapperKeyValue(PropertyGroup):
     boneExportName : EnumProperty(
         name='Bone',
         items=enum_bones,
@@ -224,33 +224,35 @@ class JsonBoneKeyValue(PropertyGroup):
     writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=True)
     parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
     
-class RetargetArmatureProps():
-    retarget_armature_ishumanoid : BoolProperty(name='Is Humanoid', default=True)
-    retarget_armature_pelvis : bpy.props.StringProperty(name="Pelvis")
-    retarget_armature_chest  : bpy.props.StringProperty(name="Chest")
-    retarget_armature_head   : bpy.props.StringProperty(name="Head")
-    retarget_armature_thigh_l : bpy.props.StringProperty(name="Left Thigh")
-    retarget_armature_ankle_l : bpy.props.StringProperty(name="Left Ankle")
-    retarget_armature_toe_l   : bpy.props.StringProperty(name="Left Toe")
-    retarget_armature_thigh_r : bpy.props.StringProperty(name="Right Thigh")
-    retarget_armature_ankle_r : bpy.props.StringProperty(name="Right Ankle")
-    retarget_armature_toe_r   : bpy.props.StringProperty(name="Right Toe")
-    retarget_armature_shoulder_l : bpy.props.StringProperty(name="Left Shoulder")
-    retarget_armature_wrist_l    : bpy.props.StringProperty(name="Left Wrist")
-    retarget_armature_index_f_l  : bpy.props.StringProperty(name="Left Index Finger")
-    retarget_armature_middle_f_l : bpy.props.StringProperty(name="Left Middle Finger")
-    retarget_armature_ring_f_l   : bpy.props.StringProperty(name="Left Ring Finger")
-    retarget_armature_pinky_f_l  : bpy.props.StringProperty(name="Left Pinky Finger")
-    retarget_armature_thumb_f_l  : bpy.props.StringProperty(name="Left Thumb Finger")
-    retarget_armature_shoulder_r : bpy.props.StringProperty(name="Right Shoulder")
-    retarget_armature_wrist_r    : bpy.props.StringProperty(name="Right Wrist")
-    retarget_armature_index_f_r  : bpy.props.StringProperty(name="Right Index Finger")
-    retarget_armature_middle_f_r : bpy.props.StringProperty(name="Right Middle Finger")
-    retarget_armature_ring_f_r   : bpy.props.StringProperty(name="Right Ring Finger")
-    retarget_armature_pinky_f_r  : bpy.props.StringProperty(name="Right Pinky Finger")
-    retarget_armature_thumb_f_r  : bpy.props.StringProperty(name="Right Thumb Finger")
+class ArmatureMapperProps():
+    armature_map_ishumanoid : BoolProperty(name='Is Humanoid', default=True)
+    armature_map_pelvis : bpy.props.StringProperty(name="Pelvis")
+    armature_map_chest  : bpy.props.StringProperty(name="Chest")
+    armature_map_head   : bpy.props.StringProperty(name="Head")
+    armature_map_thigh_l : bpy.props.StringProperty(name="Left Thigh")
+    armature_map_ankle_l : bpy.props.StringProperty(name="Left Ankle")
+    armature_map_toe_l   : bpy.props.StringProperty(name="Left Toe")
+    armature_map_thigh_r : bpy.props.StringProperty(name="Right Thigh")
+    armature_map_ankle_r : bpy.props.StringProperty(name="Right Ankle")
+    armature_map_toe_r   : bpy.props.StringProperty(name="Right Toe")
+    armature_map_shoulder_l : bpy.props.StringProperty(name="Left Shoulder")
+    armature_map_wrist_l    : bpy.props.StringProperty(name="Left Wrist")
+    armature_map_index_f_l  : bpy.props.StringProperty(name="Left Index Finger")
+    armature_map_middle_f_l : bpy.props.StringProperty(name="Left Middle Finger")
+    armature_map_ring_f_l   : bpy.props.StringProperty(name="Left Ring Finger")
+    armature_map_pinky_f_l  : bpy.props.StringProperty(name="Left Pinky Finger")
+    armature_map_thumb_f_l  : bpy.props.StringProperty(name="Left Thumb Finger")
+    armature_map_shoulder_r : bpy.props.StringProperty(name="Right Shoulder")
+    armature_map_wrist_r    : bpy.props.StringProperty(name="Right Wrist")
+    armature_map_index_f_r  : bpy.props.StringProperty(name="Right Index Finger")
+    armature_map_middle_f_r : bpy.props.StringProperty(name="Right Middle Finger")
+    armature_map_ring_f_r   : bpy.props.StringProperty(name="Right Ring Finger")
+    armature_map_pinky_f_r  : bpy.props.StringProperty(name="Right Pinky Finger")
+    armature_map_thumb_f_r  : bpy.props.StringProperty(name="Right Thumb Finger")
+    armature_map_eye_l  : bpy.props.StringProperty(name="Left Eye")
+    armature_map_eye_r  : bpy.props.StringProperty(name="Right Eye")
 
-class ValveSource_ObjectProps(ExportableProps,LocationOffset,RotationOffset,RetargetArmatureProps, PropertyGroup,):
+class ValveSource_ObjectProps(ExportableProps,LocationOffset,RotationOffset,ArmatureMapperProps, PropertyGroup,):
     action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"))
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=VertexMapRemap)
@@ -260,8 +262,8 @@ class ValveSource_ObjectProps(ExportableProps,LocationOffset,RotationOffset,Reta
     
     dmx_attachment : BoolProperty(name='DMX Attachment',default=False, update=scene.make_update('dmx_attachment'))
     
-    json_bonecollections : CollectionProperty(name='JSON Bone Collection',type=JsonBoneKeyValue)
-    json_bonecollections_index : IntProperty()
+    armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=ArmatureMapperKeyValue)
+    armature_map_bonecollections_index : IntProperty()
 
 class ValveSource_ArmatureProps(PropertyGroup):
     implicit_zero_bone : BoolProperty(name=get_id("dummy_bone"),default=True,description=get_id("dummy_bone_tip"))
@@ -380,7 +382,7 @@ class ValveSource_MaterialProps(PropertyGroup):
 _classes = (
     VertexMapRemap,
     DMEflexcontrollers,
-    JsonBoneKeyValue,
+    ArmatureMapperKeyValue,
 
     ValveSource_Exportable,
     ValveSource_SceneProps,
@@ -457,12 +459,13 @@ _classes = (
     GUI_viewport.SMD_PT_ValveModel,
     GUI_viewport.SMD_PT_Jigglebones,
     GUI_viewport.TOOLS_OT_WriteJiggleBone,
-    GUI_viewport.JSONBONE_PT_RetargetArmature,
-    GUI_viewport.JSONBONE_UL_BoneList,
-    GUI_viewport.JSONBONE_OT_AddItem,
-    GUI_viewport.JSONBONE_OT_RemoveItem,
-    GUI_viewport.JSONBONE_OT_WriteJson,
-    GUI_viewport.JSONBONE_OT_LoadJson,
+    GUI_viewport.ARMATUREMAPPER_PT_ArmatureMapper,
+    GUI_viewport.ARMATUREMAPPER_UL_BoneList,
+    GUI_viewport.ARMATUREMAPPER_OT_AddItem,
+    GUI_viewport.ARMATUREMAPPER_OT_RemoveItem,
+    GUI_viewport.ARMATUREMAPPER_OT_WriteJson,
+    GUI_viewport.ARMATUREMAPPER_OT_LoadJson,
+    GUI_viewport.ARMATUREMAPPER_OT_LoadPreset,
     
     GUI_viewport.SMD_PT_Developer,
     GUI_viewport.SMD_OT_ImportLegacyDatas,
