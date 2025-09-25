@@ -25,7 +25,7 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
     states = {}
     armature_names = []
 
-    # --- Save state ---
+    # Save state
     for armature in armatures:
         if armature.type != 'ARMATURE':
             raise TypeError(f"{armature.name} is not an armature")
@@ -43,12 +43,10 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
             "pose_was_reset": bool(reset_pose),
         }
 
-        # Bone visibility
         for bone in armature.data.bones:
             state["bones"][bone.name] = bone.hide
             bone.hide = False
 
-        # Bone collections
         for bcoll in getattr(armature.data, "collections", []):
             state["bone_collections"][bcoll.name] = {
                 "is_visible": getattr(bcoll, "is_visible", True),
@@ -57,7 +55,6 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
             bcoll.is_visible = True
             bcoll.is_solo = False
 
-        # Pose reset
         if reset_pose:
             for pbone in armature.pose.bones:
                 pb_state = {
@@ -77,7 +74,6 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
             for pbone in armature.pose.bones:
                 pbone.matrix_basis.identity()
 
-        # Reset some global armature flags
         if hasattr(armature.data, "use_mirror_x"):
             armature.data.use_mirror_x = False
         if hasattr(armature.pose, "use_mirror_x"):
@@ -90,36 +86,29 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
     try:
         yield armatures
     finally:
-        # --- Restore ---
         for armature_name in armature_names:
             if armature_name not in bpy.data.objects:
-                continue  # object deleted, skip
-
+                continue 
             armature = bpy.data.objects[armature_name]
             state = states.get(armature.name, {})
 
-            # pose/rest toggle
             if "pose_position" in state:
                 armature.data.pose_position = state["pose_position"]
-
             if "edit_mirror_x" in state and hasattr(armature.data, "use_mirror_x"):
                 armature.data.use_mirror_x = state["edit_mirror_x"]
             if "pose_mirror_x" in state and hasattr(armature.pose, "use_mirror_x"):
                 armature.pose.use_mirror_x = state["pose_mirror_x"]
 
-            # restore action
             if state.get("action"):
                 if armature.animation_data is None:
                     armature.animation_data_create()
                 armature.animation_data.action = state["action"]
 
-            # restore bone visibility
             for bone_name, hidden in state.get("bones", {}).items():
                 bone = armature.data.bones.get(bone_name)
                 if bone:
                     bone.hide = hidden
 
-            # restore bone collections
             for bcoll_name, values in state.get("bone_collections", {}).items():
                 bcoll = next((c for c in armature.data.collections if c.name == bcoll_name), None)
                 if not bcoll:
@@ -127,7 +116,6 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                 bcoll.is_visible = values.get("is_visible", True)
                 bcoll.is_solo = values.get("is_solo", False)
 
-            # restore pose bones
             if state.get("pose_was_reset", False):
                 for name, values in state.get("pose_bones", {}).items():
                     pbone = armature.pose.bones.get(name)
@@ -215,7 +203,6 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
 
     target_bones = list(target_armature.data.bones)
 
-    # Clear selections
     for bone in base_armature.data.bones:
         bone.select = False
     for bone in target_armature.data.bones:
@@ -246,14 +233,12 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
     })
 
     try:
-        # Force unhide everything to allow selection
         for b in original_bone_states:
             b.hide = False
         for col in original_collection_states:
             col.is_solo = False
             col.is_visible = True
 
-        # Perform copy
         for b in target_bones:
             export_name = getBoneExportName(b)
             target_bone = base_bones.get(export_name) or base_bones.get(b.name)
@@ -271,7 +256,6 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
             b.select = target_bone.select = False
 
     finally:
-        # Always restore visibility & solo states
         for b, h in original_bone_states.items():
             b.hide = h
         for c, (solo_state, visible_state) in original_collection_states.items():
@@ -292,7 +276,6 @@ def mergeArmatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, m
         try:
             target_meshes = getArmatureMeshes(target_arm)
 
-            # Match posture
             if match_posture:
                 copied_rot = copyArmatureVisualPose(source_arm, target_arm, 'ANGLES')
                 copied_pos = copyArmatureVisualPose(source_arm, target_arm, 'ORIGIN')
@@ -433,7 +416,6 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
     if not keep_bone:
         keep_original_weight = False
 
-    # If target is iterable (multiple bones)
     if isinstance(target, typing.Iterable) and not isinstance(target, str):
         for entry in target:
             entry_source = source
@@ -457,7 +439,6 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
 
         return (bones_to_remove, merged_pairs) if centralize_bone else bones_to_remove
 
-    # If target is a single bone
     if source is None:
         parent = target.parent
         while parent and parent.name in bones_to_remove:
@@ -466,7 +447,6 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
         if not source:
             return (bones_to_remove, merged_pairs) if centralize_bone else bones_to_remove
 
-    # Merge vertex groups between source and target
     for child in getArmatureMeshes(armature):
         if visible_mesh_only and not child.visible_get():
             continue
@@ -488,7 +468,6 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
             if not keep_original_weight:
                 child.vertex_groups.remove(target_group)
 
-    # Update constraints + mark bone for removal
     if not keep_bone:
         if armature.pose:
             for pbone in armature.pose.bones:
@@ -570,11 +549,9 @@ def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 
             src_bone = edit_bones[src_name]
             tgt_bone = edit_bones[tgt_name]
 
-            # Compute midpoints
             mid_head = (src_bone.head + tgt_bone.head) * 0.5
             mid_tail = (src_bone.tail + tgt_bone.tail) * 0.5
 
-            # Check length
             if (mid_tail - mid_head).length < min_length:
                 direction = (
                     (src_bone.tail - src_bone.head).normalized()
@@ -583,7 +560,6 @@ def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 
                 )
                 mid_tail = mid_head + direction * min_length
 
-            # Move source bone
             src_bone.head = mid_head
             src_bone.tail = mid_tail
 

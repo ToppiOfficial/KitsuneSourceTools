@@ -122,14 +122,8 @@ def normalize_weights(ob: bpy.types.Object, vgroup_limit: int = 4, clean_toleran
     
     bones = arm.data.bones
     
-    # Only run cleaning if threshold > 0
-    if clean_tolerance > 0:
-        clean_vertex_groups(ob, weight_limit=clean_tolerance)
-
-    # Only run limiting if limit > 0
-    if vgroup_limit > 0:
-        limit_vertex_groups(ob, bones, limit=vgroup_limit)
-
+    clean_vertex_groups(ob, weight_limit=clean_tolerance)
+    limit_vertex_groups(ob, bones, limit=vgroup_limit)
     normalize_vertex_weights(ob, bones)
     
 def get_flexcontrollers(ob):

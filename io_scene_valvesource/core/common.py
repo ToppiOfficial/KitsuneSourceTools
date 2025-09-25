@@ -119,14 +119,12 @@ def getBones(
         if not b.collections:
             return True
 
-        arm = b.id_data  # the Armature datablock
+        arm = b.id_data
         any_solo = any(col.is_solo for col in arm.collections_all)
 
         if any_solo:
-            # Only collections with solo are visible
             return any(col.is_solo for col in b.collections)
         else:
-            # No solo, fall back to visibility
             return any(col.is_visible for col in b.collections)
 
     sel_bones = []
@@ -220,7 +218,6 @@ def draw_wrapped_text_col(
     col = layout.column()
     col.alert = alert
 
-    # choose container based on boxed flag
     container = col.box() if boxed else col
 
     if icon:
@@ -234,7 +231,7 @@ def draw_wrapped_text_col(
         col_lines.label(text=line)
 
 
-# Blender’s mode name mapping (context.mode → operator arg)
+# Blender’s mode name mapping (context.mode -> operator arg)
 MODE_MAP = {
     "OBJECT": "OBJECT",
     "EDIT_ARMATURE": "EDIT",
@@ -286,7 +283,6 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
             elif prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
                 prev_bone_name = data.edit_bones.active.name
 
-    # --- Switch to target object and mode ---
     if obj and obj.name in bpy.data.objects:
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -301,7 +297,6 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
         except RuntimeError:
             pass
 
-    # --- Yield appropriate data ---
     try:
         if mode == "EDIT" and obj and obj.type == "ARMATURE":
             yield obj.data.edit_bones
@@ -310,23 +305,21 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
         else:
             yield obj
     finally:
-        # --- Restore mode back to OBJECT before restoring state ---
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
         except RuntimeError:
             pass
 
-        # --- Restore selection ---
         bpy.ops.object.select_all(action="DESELECT")
         for sel in prev_selected:
             if sel and sel.name in bpy.data.objects:
                 sel.select_set(True)
 
-        # --- Restore active ---
+        # Restore active
         if prev_active and prev_active.name in bpy.data.objects:
             view_layer.objects.active = prev_active
 
-        # --- Restore mode ---
+        # Restore mode
         mapped_mode = MODE_MAP.get(prev_mode, "OBJECT")
         try:
             bpy.ops.object.mode_set(mode=mapped_mode)
@@ -336,7 +329,7 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
             elif prev_active and prev_active.type == "MESH":
                 bpy.ops.object.mode_set(mode="OBJECT")
 
-        # --- Restore sub-data ---
+        # Restore sub-data
         if prev_active:
             if prev_active.type == "MESH" and prev_vgroup_index is not None:
                 if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):

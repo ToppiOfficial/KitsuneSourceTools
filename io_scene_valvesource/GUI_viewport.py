@@ -1159,20 +1159,20 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
 
                 realign_chain_tails(chain)
 
-            # ===== Eyes =====
+            # Eyes
             if is_valid_bone(vs_arm.armature_map_eye_l):
                 rename_map[vs_arm.armature_map_eye_l] = "Left eye"
             if is_valid_bone(vs_arm.armature_map_eye_r):
                 rename_map[vs_arm.armature_map_eye_r] = "Right eye"
 
-            # ===== Spine (Pelvis to Chest) =====
+            # Hips to Chest
             build_torso_chain(vs_arm.armature_map_pelvis, vs_arm.armature_map_chest)
 
-            # ===== Neck (Chest to Head) =====
+            # Neck to Head
             if is_valid_bone(vs_arm.armature_map_chest) and is_valid_bone(vs_arm.armature_map_head):
                 build_neck_chain(vs_arm.armature_map_chest, vs_arm.armature_map_head)
 
-            # ===== Legs =====
+            # Legs
             build_chain_mapping(vs_arm.armature_map_thigh_l, vs_arm.armature_map_ankle_l,
                                 ["leg", "knee", "ankle"], side="L")
             if is_valid_bone(vs_arm.armature_map_toe_l):
@@ -1183,13 +1183,13 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             if is_valid_bone(vs_arm.armature_map_toe_r):
                 rename_map[vs_arm.armature_map_toe_r] = "Right toe"
 
-            # ===== Arms =====
+            # Arms
             build_chain_mapping(vs_arm.armature_map_shoulder_l, vs_arm.armature_map_wrist_l,
                                 ["shoulder", "arm", "elbow", "wrist"], side="L")
             build_chain_mapping(vs_arm.armature_map_shoulder_r, vs_arm.armature_map_wrist_r,
                                 ["shoulder", "arm", "elbow", "wrist"], side="R")
 
-            # ===== Fingers =====
+            # Fingers
             build_finger_mapping(vs_arm.armature_map_index_f_l, "IndexFinger", "L", start_index=1)
             build_finger_mapping(vs_arm.armature_map_middle_f_l, "MiddleFinger", "L", start_index=1)
             build_finger_mapping(vs_arm.armature_map_ring_f_l, "RingFinger", "L", start_index=1)
@@ -1202,7 +1202,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             build_finger_mapping(vs_arm.armature_map_pinky_f_r, "LittleFinger", "R", start_index=1)
             build_finger_mapping(vs_arm.armature_map_thumb_f_r, "Thumb", "R", start_index=0)
 
-            # ===== Apply renames =====
             old_to_new = {}
             for old_name, new_name in rename_map.items():
                 if old_name in bones:
@@ -1223,7 +1222,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             """Create a missing bone and its parent if needed.
             child_hint = existing child bone name (used to position the new bone)."""
 
-            # If already exists, return it
             existing = arm.data.edit_bones.get(bone_name)
             if existing:
                 return existing
@@ -1233,7 +1231,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 print(f"[WARN] No JSON entry for '{bone_name}', skipping.")
                 return None
 
-            # Create the new bone
             new_bone = arm.data.edit_bones.new(bone_name)
 
             # Position based on the child if available
@@ -1677,7 +1674,6 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
             with PreserveContextMode(arm, 'EDIT'):
                 centralize_b = vs_sce.recenter_bone
 
-                # run merge with centralize option if needed
                 if centralize_b:
                     bones_to_remove, merged_pairs = mergeBones(
                         arm,
@@ -1688,10 +1684,8 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                         vs_sce.keep_original_weight,
                         centralize_bone=True
                     )
-
-                    # centralize before removing
+                    
                     CentralizeBonePairs(arm, merged_pairs)
-
                     removeBone(arm, bones_to_remove, arm.data.bones.active.name)
 
                 else:
@@ -1759,7 +1753,7 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
         if not self.ReferenceName.strip() or not self.ProportionName.strip() : return {'CANCELLED'}
         
         last_pose_state = currArm.data.pose_position
-        currArm.data.pose_position = 'REST' # reset to rest pose for first
+        currArm.data.pose_position = 'REST'
         
         context.scene.frame_set(0)
         context.view_layer.update()
@@ -1791,7 +1785,6 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
             else:
                 ActionReference.fcurves.clear()
             
-            # do the reference pose that has rotation match only
             arm.animation_data.action = ActionReference
             ActionReference.use_fake_user = True
                 
@@ -1806,7 +1799,6 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
             arm.animation_data.action = None
             context.view_layer.update()
                 
-            # now do the proportion that has the exact match of location and rotation
             if ActionProportion is None:
                 ActionProportion = bpy.data.actions.new(ActionProportionName)
             else:
@@ -1823,7 +1815,6 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
                     pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
                     pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
             
-            # set back to reference as that is the cleaner pose
             arm.animation_data.action = ActionReference
             context.view_layer.update()
         
@@ -2118,14 +2109,12 @@ class TOOLS_OT_SelectShapekeyVets(bpy.types.Operator):
 
         basis_coords = basis.data
 
-        # Collect affected vertices (shapekey deltas)
         affected_indices = {
             i for kb in keyblocks
             for i, (v_basis, v_shape) in enumerate(zip(basis_coords, kb.data))
             if (v_basis.co - v_shape.co).length > self.threshold
         }
 
-        # Apply selection
         inv = self.select_inverse
         for i, v in enumerate(bm.verts):
             v.select_set((i in affected_indices) != inv)  # XOR
@@ -2190,52 +2179,6 @@ class SMD_PT_Tools_VertexGroup(ToolsSubPanel):
             row.operator("brush.curve_preset", icon='SHARPCURVE', text="").shape = 'SHARP'
             row.operator("brush.curve_preset", icon='LINCURVE', text="").shape = 'LINE'
             row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
-            
-class TOOLS_OT_init_weight_brush(bpy.types.Operator):
-    bl_idname = "tools.init_weight_brush"
-    bl_label = "Initialize Weight Brush"
-
-    def execute(self, context):
-        tool_settings = context.tool_settings
-        prev_obj = context.object
-        prev_mode = prev_obj.mode if prev_obj else 'OBJECT'
-        temp_obj = None
-
-        # This is the best way I can initialize the brush curve as it is not initialize on blender startup.
-        # this is very stupid but too bad.
-        if not prev_obj or prev_obj.type != 'MESH':
-            mesh = bpy.data.meshes.new("TempMesh")
-            temp_obj = bpy.data.objects.new("TempObj", mesh)
-            context.collection.objects.link(temp_obj)
-            bpy.context.view_layer.objects.active = temp_obj
-            bpy.ops.object.mode_set(mode='OBJECT')  # ensure safe switch
-
-        bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
-        brush = tool_settings.weight_paint.brush
-
-        if brush is None:
-            brush = bpy.data.brushes.new(name="WeightBrush", mode='WEIGHT_PAINT')
-
-        if brush.curve is None:
-            brush.curve = bpy.types.CurveMapping()
-            brush.curve.initialize()
-
-        if prev_obj and prev_obj != temp_obj:
-            bpy.context.view_layer.objects.active = prev_obj
-            try:
-                bpy.ops.object.mode_set(mode=prev_mode)
-            except RuntimeError:
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-        if temp_obj:
-            temp_data = temp_obj.data
-            bpy.data.objects.remove(temp_obj, do_unlink=True)
-            if temp_data and temp_data.users == 0:
-                bpy.data.meshes.remove(temp_data, do_unlink=True)
-            temp_obj = None
-
-        self.report({'INFO'}, "Weight brush ready (curve initialized)")
-        return {'FINISHED'}
 
 class TOOLS_OT_WeightMath(bpy.types.Operator):
     bl_idname = "tools.weight_math"
@@ -2466,7 +2409,7 @@ class TOOLS_OT_AddToonEdgeLine(bpy.types.Operator):
             bpy.context.view_layer.objects.active = ob
 
             scene = context.scene
-            unit_scale = scene.unit_settings.scale_length or 1.0  # meters
+            unit_scale = scene.unit_settings.scale_length or 1.0
 
             edgeline_mat = None
             for mat in bpy.data.materials:
@@ -2712,7 +2655,6 @@ class TOOLS_OT_WriteJiggleBone(bpy.types.Operator):
     
     def draw(self, context):
         l = self.layout
-        # Draw scaled icon
         if not self.clipboard: l.box().label(text='It will overwrite existing file', icon='WARNING_LARGE')
 
         l.prop(self, 'clipboard')
@@ -3027,7 +2969,6 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
             self.report({'ERROR'}, "No bones selected.")
             return {'CANCELLED'}
         
-        # Save and switch to rest pose
         og_arm_pose_mode = arm_obj.data.pose_position
         arm_obj.data.pose_position = 'REST'
         bpy.context.view_layer.update()
@@ -3042,7 +2983,6 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
                     else:
                         target_vg = self.vertex_group_target if self.vertex_group_target else None
 
-                    # Use the global brush curve for example
                     curve = context.tool_settings.weight_paint.brush.curve
 
                     convert_weight_to_curve_ramp(
@@ -3145,7 +3085,6 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
             if vg1 is None:
                 vg1 = mesh.vertex_groups.new(name=bone1_name)
 
-            # Ensure vg2 exists
             vg2 = mesh.vertex_groups.get(bone2_name)
             if vg2 is None:
                 vg2 = mesh.vertex_groups.new(name=bone2_name)
