@@ -20,7 +20,7 @@ class SMD_PT_toolpanel(object):
     bl_order = 1
     
 class SMD_PT_ContextObject(SMD_PT_toolpanel, Panel):
-    bl_label = 'Object Properties'
+    bl_label = get_id("panel_context_object")
     
     def draw_header(self, context):
         self.layout.label(icon='OBJECT_DATA')
@@ -61,12 +61,12 @@ class SMD_PT_ContextObject(SMD_PT_toolpanel, Panel):
             bx.box().label(text='Select an Object', icon='HELP')
         
 class ExportableConfigurationPanel(SMD_PT_toolpanel, Panel):
-    bl_label = "Exportable Config"
+    bl_label = get_id("panel_context_exportable")
     bl_parent_id = "SMD_PT_ContextObject"
     bl_options = {'DEFAULT_CLOSED'}
 
 class SMD_PT_Armature(ExportableConfigurationPanel):
-    bl_label = "Armature"
+    bl_label = get_id("panel_context_armature")
     bl_options = set()
     
     def draw_header(self, context):
@@ -97,16 +97,6 @@ class SMD_PT_Armature(ExportableConfigurationPanel):
 
         if armature.animation_data and not State.useActionSlots:
             col.template_ID(armature.animation_data, "action", new="action.new")
-            
-        bx = l.box()
-        col = bx.column()
-        
-        currBCOL = armature.data.collections.active
-        
-        if currBCOL:
-            col.label(text=f'Active BoneCollection: {currBCOL.name}', icon='GROUP_BONE')
-            col.prop(currBCOL.vs, "anim_control_bones")
-            draw_wrapped_text_col(col,'Animated Bone tag is deprecated at this point, it just makes the bone non exportable as a jigglebone',icon='HELP')
 
 class DME_UL_FlexControllers(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
@@ -555,6 +545,12 @@ class SMD_PT_Bones(ExportableConfigurationPanel):
                 col.prop(bone.vs, 'export_rotation_offset_x')
                 col.prop(bone.vs, 'export_rotation_offset_y')
                 col.prop(bone.vs, 'export_rotation_offset_z')
+                
+                col = bx.column()
+                draw_wrapped_text_col(
+                    col,
+                    'Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
+                    max_chars=36)
                 
                 col = bx.column()
                 col.prop(bone, 'use_deform', toggle=True)
@@ -1365,8 +1361,6 @@ class JSONBONE_OT_LoadJson(Operator):
         self.report({"INFO"}, "Armature Converted successfully.")
         return {"FINISHED"}
 
-
-     
 class SMD_PT_Tools_Bone(ToolsSubPanel):
     bl_label = "Bone Tools"
     
@@ -1784,26 +1778,33 @@ class TOOLS_OT_ReAlignBones(bpy.types.Operator):
         original_bone_roll = bone.roll
 
         new_tail = None
-        if self.alignment_mode == 'AVERAGE_ALL' and child_positions:
-            avg_position = sum(child_positions, Vector((0, 0, 0))) / len(child_positions)
 
-            new_tail = Vector((
-                bone.tail.x if exclude_x else avg_position.x,
-                bone.tail.y if exclude_y else avg_position.y,
-                bone.tail.z if exclude_z else avg_position.z
-            ))
+        if child_positions:
+            if self.alignment_mode == 'AVERAGE_ALL':
+                avg_position = sum(child_positions, Vector((0, 0, 0))) / len(child_positions)
+                new_tail = Vector((
+                    bone.tail.x if exclude_x else avg_position.x,
+                    bone.tail.y if exclude_y else avg_position.y,
+                    bone.tail.z if exclude_z else avg_position.z
+                ))
 
-            bone.tail = new_tail
+            elif self.alignment_mode == 'ONLY_SINGLE_CHILD' and len(child_positions) == 1:
+                child_position = child_positions[0]
+                new_tail = Vector((
+                    bone.tail.x if exclude_x else child_position.x,
+                    bone.tail.y if exclude_y else child_position.y,
+                    bone.tail.z if exclude_z else child_position.z
+                ))
 
-        elif self.alignment_mode == 'ONLY_SINGLE_CHILD' and len(child_positions) == 1:
-            child_position = child_positions[0]
-            new_tail = Vector(
-                (bone.tail.x if exclude_x else child_position.x,
-                bone.tail.y if exclude_y else child_position.y,
-                bone.tail.z if exclude_z else child_position.z)
-            )
-
-            bone.tail = new_tail
+            if all([exclude_x, exclude_y, exclude_z]):
+                if self.alignment_mode == 'AVERAGE_ALL':
+                    avg_vec = sum((pos - bone.head for pos in child_positions), Vector((0,0,0))) / len(child_positions)
+                    bone.length = avg_vec.length
+                elif self.alignment_mode == 'ONLY_SINGLE_CHILD' and len(child_positions) == 1:
+                    vec_to_child = child_positions[0] - bone.head
+                    bone.length = vec_to_child.length
+            else:
+                bone.tail = new_tail
 
         if not exclude_roll:
             bone.align_roll(bone.tail - bone.head)
@@ -2534,25 +2535,10 @@ class SMD_PT_Jigglebones(ValveModelConfig):
             
             col = bx.column()
             sub_box = col.box()  
-            
-            is_animator = False
-            if bone.collections:
-                for col in bone.collections:
-                    if col.vs.anim_control_bones:
-                        is_animator = True
-                        break
                     
-            if not is_animator:
-                sub_box.prop(vs_bone, 'bone_is_jigglebone', toggle=True)
+            sub_box.prop(vs_bone, 'bone_is_jigglebone', toggle=True)
             
-            if not vs_bone.bone_is_jigglebone or is_animator:
-                
-                if is_animator:
-                    draw_wrapped_text_col(sub_box,'Bone is tagged as Animation Driven', alert=True, icon='ERROR')
-                    
-                pass
-            
-            else:
+            if vs_bone.bone_is_jigglebone:
                 row = sub_box.row(align=True)
                 row.prop(vs_bone, 'jiggle_flex_type')
                 
@@ -2718,16 +2704,6 @@ class TOOLS_OT_WriteJiggleBone(bpy.types.Operator):
         
         for bone in bones:
             if bone.vs.bone_is_jigglebone:
-                
-                is_animator = False
-                if bone.collections:
-                    for col in bone.collections:
-                        if col.vs.anim_control_bones:
-                            is_animator = True
-                            break
-                        
-                if is_animator: continue
-                
                 jigglebones.append(bone)
         
         if not jigglebones:

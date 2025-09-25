@@ -609,7 +609,6 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
     for bone_entry in bone_data:
         bone_ref, x, y, z, roll = bone_entry
 
-        # Resolve bone reference
         if isinstance(bone_ref, bpy.types.EditBone):
             bone = bone_ref
         else:
@@ -621,7 +620,6 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
         initial_distance = (bone.tail - bone.head).length
         bone.use_connect = False
 
-        # --- Only do rotation if all components are not None ---
         if None not in (x, y, z):
             relative_tail_pos = Vector([x, y, z])
             head_world_pos = arm.matrix_world @ bone.head
@@ -629,13 +627,11 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
             new_tail_local_pos = arm.matrix_world.inverted() @ new_tail_world_pos
             bone.tail = new_tail_local_pos
 
-            # Preserve original bone length
             new_distance = (bone.tail - bone.head).length
             if new_distance != initial_distance:
                 direction = (bone.tail - bone.head).normalized()
                 bone.tail = bone.head + direction * initial_distance
 
-        # --- Roll is always applied if it's not None ---
         if roll is not None:
             bone.roll = roll
 

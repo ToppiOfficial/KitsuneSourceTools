@@ -13,7 +13,6 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone]) ->
     if not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
         return bone.name if hasattr(bone, "name") else str(bone)
 
-    # Resolve to data bone if PoseBone is given
     if isinstance(bone, bpy.types.PoseBone):
         data_bone = bone.bone
     else:
@@ -22,8 +21,10 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone]) ->
     bone_prop = data_bone.vs
     armature = getArmature(data_bone)
     arm_prop = armature.data.vs
+    
+    if arm_prop.ignore_bone_exportnames:
+        return bone.name
 
-    # Safer future-proof: use matrix_local translation
     bone_head_local = data_bone.matrix_local.to_translation()
     side = (
         arm_prop.bone_direction_naming_right
@@ -31,7 +32,6 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone]) ->
         else arm_prop.bone_direction_naming_left
     )
 
-    # Base name (skip custom export name for jiggle bones)
     if getattr(bone_prop, "bone_is_jigglebone", False):
         name = data_bone.name
     else:

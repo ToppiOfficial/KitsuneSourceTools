@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Kitsune Source Tools (Blender Source Tools)",
     "author": "Tom Edwards & Toppi",
-    "version": (0, 0, 1),
+    "version": (0, 0, 2),
     "blender": (4, 2, 0),
     "category": "Import-Export",
     "location": "File > Import/Export, Scene properties",
@@ -217,11 +217,11 @@ class JsonBoneKeyValue(PropertyGroup):
         ('NONE', 'Do Not Write', ''),
         ('ROTATION', 'Rotation', ''),
         ('ROLL', 'Roll Only', '')
-    ], default='NONE')
+    ], default='ROLL')
     
     writeTwistBone : BoolProperty(name='Write TwistBone', default=False)
     twistBoneTarget : StringProperty(name='TwistBone Target Bone')
-    writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=False)
+    writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=True)
     parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
     
 class RetargetArmatureProps():
@@ -309,7 +309,7 @@ class ValveSource_TextProps(CurveTypeProps,PropertyGroup):
     pass
 
 class ValveSource_BoneCollectionProps(PropertyGroup):
-    anim_control_bones : BoolProperty(name='Animation Controlled', default=False)
+    pass
 
 class JiggleBones():
     bone_is_jigglebone : BoolProperty(name='Bone is JiggleBone', default=False, update=scene.make_update('bone_is_jigglebone'))

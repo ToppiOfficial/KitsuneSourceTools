@@ -3,7 +3,7 @@
 > **ALPHA RELEASE – PARTIALLY FINISHED & EXPERIMENTAL**  
 > This is in early development and partially tested. Some features may be incomplete or broken, and more features will be added in future updates. Use at your own risk.
 
-**Version Alpha 1.0** – A fork of BlenderSourceTool that adds small features for DMX models and incorporates utilities adapted from **AvatarToolkit** and **CATS**.
+**Version Alpha 1.1** – A fork of BlenderSourceTool that adds small features for DMX models and incorporates utilities adapted from **AvatarToolkit** and **CATS**.
 
 > [!WARNING]
 > Some panels and tools lack translation support, and most labels are in English.  

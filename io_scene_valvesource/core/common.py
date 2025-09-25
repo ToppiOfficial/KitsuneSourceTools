@@ -352,4 +352,3 @@ def PreserveContextMode(obj: bpy.types.Object, mode: str = "EDIT"):
                 bone = prev_active.data.bones.get(prev_bone_name)
                 if bone:
                     prev_active.data.bones.active = bone
-
