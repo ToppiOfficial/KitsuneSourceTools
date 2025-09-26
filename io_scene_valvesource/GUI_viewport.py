@@ -1663,43 +1663,46 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
 
         return bool(bones)
     
-    def execute(self,context):
+    def execute(self, context):
         
-        armatures = set()
-        for ob in context.selected_objects:
-            armatures.add(getArmature(ob))
-                    
+        if context.mode == 'PAINT_WEIGHT':
+            armatures = {getArmature(context.object)}
+        else:
+            armatures = {getArmature(ob) for ob in context.selected_objects if getArmature(ob)}
+            
         vs_sce = context.scene.vs
+        bones_to_remove_map = {}
 
-        with PreserveContextMode(mode='EDIT'):
+        with PreserveContextMode(mode='OBJECT'):
             for arm in armatures:
+                bpy.context.view_layer.objects.active = arm
+                
                 if self.mode == 'TO_ACTIVE':
-                    sel_bones = getBones(arm, sorted=True,reverse_sort=True, bonetype='EDITBONE', exclude_active=True)
-                    if sel_bones is None: continue
-                    if not arm.data.bones.active.select:
+                    sel_bones = getBones(arm, sorted=True, reverse_sort=True, bonetype='BONE', exclude_active=True)
+                    if not sel_bones: 
+                        continue
+
+                    if not context.active_bone:
                         self.report({'WARNING'}, 'No active selected bone')
                         return {'CANCELLED'}
-                    
+
                     centralize_b = vs_sce.recenter_bone
 
                     if centralize_b:
                         bones_to_remove, merged_pairs = mergeBones(
                             arm,
-                            arm.data.bones.active,
+                            context.active_bone,
                             sel_bones,
                             vs_sce.merge_keep_bone,
                             vs_sce.visible_mesh_only,
                             vs_sce.keep_original_weight,
                             centralize_bone=True
                         )
-                        
                         CentralizeBonePairs(arm, merged_pairs)
-                        removeBone(arm, bones_to_remove, arm.data.bones.active.name)
-
                     else:
                         bones_to_remove = mergeBones(
                             arm,
-                            arm.data.bones.active,
+                            context.active_bone,
                             sel_bones,
                             vs_sce.merge_keep_bone,
                             vs_sce.visible_mesh_only,
@@ -1707,15 +1710,30 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                             centralize_bone=False
                         )
 
-                        removeBone(arm, bones_to_remove, arm.data.bones.active.name)
-                        
+                    bones_to_remove_map[arm] = bones_to_remove
+
                 else:
-                    sel_bones = getBones(arm, sorted=True,reverse_sort=True, bonetype='EDITBONE', exclude_active=False)
-                    if sel_bones is None: continue
-                    merged_bones = mergeBones(arm, None, sel_bones, vs_sce.merge_keep_bone, vs_sce.visible_mesh_only, vs_sce.keep_original_weight)
-                    removeBone(arm, merged_bones, match_parent_to_head=vs_sce.snap_parent_tip)
-        
-        self.report({'INFO'}, f'{len(sel_bones)} Weights merged')
+                    sel_bones = getBones(arm, sorted=True, reverse_sort=True, bonetype='BONE', exclude_active=False)
+                    if not sel_bones:
+                        continue
+                    merged_bones = mergeBones(
+                        arm,
+                        None,
+                        sel_bones,
+                        vs_sce.merge_keep_bone,
+                        vs_sce.visible_mesh_only,
+                        vs_sce.keep_original_weight
+                    )
+                    bones_to_remove_map[arm] = merged_bones
+
+            bpy.ops.object.mode_set(mode='EDIT')
+            for arm, bones_to_remove in bones_to_remove_map.items():
+                removeBone(arm,
+                           bones_to_remove,
+                           match_parent_to_head=vs_sce.snap_parent_tip if self.mode != 'TO_ACTIVE' else None,
+                           source=context.active_bone.name if self.mode == 'TO_ACTIVE' else None)
+
+        self.report({'INFO'}, f'{sum(len(b) for b in bones_to_remove_map.values())} Weights merged')
         return {'FINISHED'}
 
 class TOOLS_OT_MergeArmatures(bpy.types.Operator):

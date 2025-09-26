@@ -497,34 +497,33 @@ def removeBone(
     arm.data.use_mirror_x = False
 
     if isinstance(bone, str):
-        if bone in arm.data.bones:
-            edit_bone = arm.data.edit_bones.get(bone)
-            if edit_bone:
+        edit_bone = arm.data.edit_bones.get(bone)
+        if edit_bone:
+            edit_bone.use_connect = False
+
+            if edit_bone.children:
+                for child in edit_bone.children:
+                    child.use_connect = False
+
+            if match_parent_to_head and edit_bone.parent:
+                parent = edit_bone.parent
                 edit_bone.use_connect = False
+                parent.use_connect = False
+                if len(parent.children) == 1:
+                    parent.tail = edit_bone.tail
+                elif len(parent.children) > 1:
+                    for cbone in edit_bone.children:
+                        if (cbone.head - edit_bone.tail).length <= tolerance:
+                            parent.tail = edit_bone.tail
+                            break
 
-                if edit_bone.children:
+            if source:
+                source_bone = arm.data.edit_bones.get(source)
+                if source_bone:
                     for child in edit_bone.children:
-                        child.use_connect = False
+                        child.parent = source_bone
 
-                if match_parent_to_head and edit_bone.parent:
-                    parent = edit_bone.parent
-                    edit_bone.use_connect = False
-                    parent.use_connect = False
-                    if len(parent.children) == 1:
-                        parent.tail = edit_bone.tail
-                    elif len(parent.children) > 1:
-                        for cbone in edit_bone.children:
-                            if (cbone.head - edit_bone.tail).length <= tolerance:
-                                parent.tail = edit_bone.tail
-                                break
-
-                if source:
-                    source_bone = arm.data.edit_bones.get(source)
-                    if source_bone:
-                        for child in edit_bone.children:
-                            child.parent = source_bone
-
-                arm.data.edit_bones.remove(edit_bone)
+            arm.data.edit_bones.remove(edit_bone)
 
     elif isinstance(bone, typing.Iterable):
         for entry in bone:

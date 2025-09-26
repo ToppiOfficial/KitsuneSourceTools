@@ -119,7 +119,7 @@ def getBones(
     """
     if not arm or arm.type != 'ARMATURE':
         return []
-
+    
     def is_visible(b) -> bool:
         if b.hide:
             return False
