@@ -1,6 +1,6 @@
 import bpy
 import numpy as np
-from typing import Optional, Any, List, Union
+from typing import Optional, Any
 
 def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
                 execution_context: Optional[str] = None, undo: Optional[bool] = None, **operator_args) -> set[str]:

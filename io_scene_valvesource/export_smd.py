@@ -29,7 +29,6 @@ from bpy.props import CollectionProperty, StringProperty, BoolProperty
 from .utils import *
 from . import datamodel, ordered_set, flex
 from .core.bone import getBoneExportName, getBoneMatrix
-from .core.common import getArmatureMeshes, getArmature, sanitizeString
 from .core.object import applyModifier
 from .core.mesh import normalize_weights, get_flexcontrollers
 
@@ -196,6 +195,9 @@ class SmdExporter(bpy.types.Operator, Logger):
         
         for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'ARMATURE' and len(ob.vs.subdir) == 0]:
             ob.vs.subdir = "anims"
+            
+        for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'MESH' and len(ob.vs.subdir) == 0]:
+            ob.vs.subdir = "meshes"
         
         ops.ed.undo_push(message=self.bl_label)
                 

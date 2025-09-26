@@ -1,5 +1,5 @@
 import bpy, re, math, typing, math, collections, mathutils
-from .common import sanitizeString, getArmature, sortBonesByHierachy, PreserveContextMode
+from .common import sanitizeString, getArmature, sortBonesByHierachy
 
 _shortcut_pattern = re.compile(r"!(\w+)")
 

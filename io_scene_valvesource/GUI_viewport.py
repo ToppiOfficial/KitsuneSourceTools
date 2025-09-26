@@ -1810,6 +1810,13 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
                 if action is None:
                     action = bpy.data.actions.new(action_name)
                 action.use_fake_user = True
+                
+                actionslots = {s for s in action.slots}
+                for slot in actionslots:
+                    action.slots.remove(slot)
+                    
+                for pb in arm.pose.bones:
+                    pb.matrix_basis.identity()
 
                 slot_ref = action.slots.get(self.ReferenceName)
                 if slot_ref is None:
@@ -1862,6 +1869,9 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
                 action_ref = bpy.data.actions.get(action_ref_name)
                 if action_ref is None:
                     action_ref = bpy.data.actions.new(action_ref_name)
+                    
+                for pb in arm.pose.bones:
+                    pb.matrix_basis.identity()
 
                 arm.animation_data.action = action_ref
                 success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')

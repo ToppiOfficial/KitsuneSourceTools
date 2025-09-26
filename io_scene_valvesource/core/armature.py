@@ -1,10 +1,10 @@
 import bpy, math
 from .bone import *
-from .object import op_override, applyModifier, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys
-from .common import sanitizeString, getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
+from .object import op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys
+from .common import getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
 from .scene import ExposeAllObjects
 from contextlib import contextmanager
-from mathutils import Vector, Euler, Quaternion
+from mathutils import Vector
 
 @contextmanager
 def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
@@ -132,8 +132,7 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                         pbone.rotation_euler = values["rotation"]
 
 def applyCurrPoseAsRest(armature: bpy.types.Object):
-    if not armature:
-        return False
+    if armature is None: return False
 
     with PreserveArmatureState(armature, reset_pose=False):
         try:
@@ -191,13 +190,11 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
     if not base_armature or not target_armature:
         return False
     
-    # Deselect everything first
     bpy.ops.object.select_all(action='DESELECT')
     base_armature.select_set(True)
     target_armature.select_set(True)
     bpy.context.view_layer.objects.active = base_armature
 
-    # Build base bone lookup by name/export name
     base_bones = {getBoneExportName(b): b for b in base_armature.data.bones}
     base_bones.update({b.name: b for b in base_armature.data.bones})
 
