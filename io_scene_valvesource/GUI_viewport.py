@@ -1963,73 +1963,58 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
         return is_armature(context.object)
 
     def execute(self, context):
-        og_mode = context.object.mode
-        armature = context.object
         vs_sce = context.scene.vs
-        
-        bpy.ops.object.mode_set(mode='EDIT')
 
         error = 0
-        bones: list[bpy.types.Bone] = getBones(
-            arm=armature, 
-            sorted=True, 
-            reverse_sort=True, 
-            bonetype='EDITBONE'
-        )
+        with PreserveContextMode(None, 'EDIT'):
+            bones = {}
+            for ob in bpy.data.objects:
+                if not ob.select_get() or not ob.visible_get() or ob.type != 'ARMATURE': continue
+                for b in getBones(arm=ob, sorted=True, reverse_sort=True, bonetype='EDITBONE'):
+                    bones[b.name] = ob
 
-        if not bones:
-            bpy.ops.object.mode_set(mode=og_mode)
-            self.report({'WARNING'}, 'No selected bone to process')
-            return {'CANCELLED'}
+            active_bone = context.active_bone
 
-        active_bone = armature.data.edit_bones.active
+            for bone_name, armature in bones.items():
+                try:
+                    editbone = armature.data.edit_bones.get(bone_name)
+                    if self.copy_source == 'PARENT':
+                        reference_bone = editbone.parent
+                    else: 
+                        reference_bone = active_bone if active_bone else None
 
-        for bone in bones:
-            edit_bone = armature.data.edit_bones.get(bone.name)
-            try:
-                if not edit_bone:
+                    if not reference_bone:
+                        continue
+
+                    editbone.use_connect = False
+
+                    ref_head_world = armature.matrix_world @ reference_bone.head
+                    ref_tail_world = armature.matrix_world @ reference_bone.tail
+
+                    ref_direction = (ref_tail_world - ref_head_world).normalized()
+
+                    original_head_world = armature.matrix_world @ editbone.head
+                    new_head_local = armature.matrix_world.inverted() @ original_head_world
+                    editbone.head = new_head_local
+
+                    original_length = (editbone.tail - editbone.head).length
+
+                    if 'EXCLUDE_X' in vs_sce.alignment_exclude_axes: ref_direction.x = ref_direction.x
+                    if 'EXCLUDE_Y' in vs_sce.alignment_exclude_axes: ref_direction.y = ref_direction.y
+                    if 'EXCLUDE_Z' in vs_sce.alignment_exclude_axes: ref_direction.z = ref_direction.z
+
+                    ref_direction.normalize()
+                    editbone.tail = editbone.head + (ref_direction * original_length)
+
+                    if 'EXCLUDE_ROLL' not in vs_sce.alignment_exclude_axes:
+                        editbone.roll = reference_bone.roll
+                    if 'EXCLUDE_SCALE' not in vs_sce.alignment_exclude_axes:
+                        editbone.length = reference_bone.length
+
+                except Exception as e:
+                    print(f'Failed to re-orient bone: {e}')
+                    error += 1
                     continue
-
-                # Determine reference bone
-                if self.copy_source == 'PARENT':
-                    reference_bone = edit_bone.parent
-                else:  # ACTIVE
-                    reference_bone = active_bone if active_bone else None
-
-                if not reference_bone:
-                    continue
-
-                edit_bone.use_connect = False
-
-                ref_head_world = armature.matrix_world @ reference_bone.head
-                ref_tail_world = armature.matrix_world @ reference_bone.tail
-
-                ref_direction = (ref_tail_world - ref_head_world).normalized()
-
-                original_head_world = armature.matrix_world @ edit_bone.head
-                new_head_local = armature.matrix_world.inverted() @ original_head_world
-                edit_bone.head = new_head_local
-
-                original_length = (edit_bone.tail - edit_bone.head).length
-
-                if 'EXCLUDE_X' in vs_sce.alignment_exclude_axes: ref_direction.x = ref_direction.x
-                if 'EXCLUDE_Y' in vs_sce.alignment_exclude_axes: ref_direction.y = ref_direction.y
-                if 'EXCLUDE_Z' in vs_sce.alignment_exclude_axes: ref_direction.z = ref_direction.z
-
-                ref_direction.normalize()
-                edit_bone.tail = edit_bone.head + (ref_direction * original_length)
-
-                if 'EXCLUDE_ROLL' not in vs_sce.alignment_exclude_axes:
-                    edit_bone.roll = reference_bone.roll
-                if 'EXCLUDE_SCALE' not in vs_sce.alignment_exclude_axes:
-                    edit_bone.length = reference_bone.length
-
-            except Exception as e:
-                print(f'Failed to re-orient bone: {e}')
-                error += 1
-                continue
-
-        bpy.ops.object.mode_set(mode=og_mode)
 
         if error == 0:
             self.report({'INFO'}, "Orientation copied successfully")
@@ -2378,6 +2363,7 @@ class TOOLS_OT_CopyVisPosture(bpy.types.Operator):
         
     @classmethod
     def poll(cls,context):
+        if context.mode != 'OBJECT': return False
         currob = context.object
         if not is_armature(currob): return False
         
