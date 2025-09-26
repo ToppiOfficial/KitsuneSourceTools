@@ -158,6 +158,7 @@ class SMD_PT_ContextObject(SMD_PT_toolpanel, Panel):
     
     def draw(self, context):
         l = self.layout
+        draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=40, icon='WARNING_LARGE', title='KitsuneSourceTool (Alpha 0.7)')
 
 class ExportableConfigurationPanel(SMD_PT_toolpanel, Panel):
     bl_label = ''
@@ -224,7 +225,6 @@ class SMD_PT_Armature(ExportableConfigurationPanel):
         bx = l.box()
         col = bx.column()
         
-        col.prop(armature.data.vs, "ignore_bone_exportnames", toggle=True)
         col.row().prop(armature.data.vs,"action_selection",expand=True)
         if armature.data.vs.action_selection != 'CURRENT':
             is_slot_filter = armature.data.vs.action_selection == 'FILTERED' and State.useActionSlots
@@ -509,8 +509,8 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
         bx.box().label(text=f'Active Material: ({currMat.name})')
         
         col = bx.column(align=True)
-        col.prop(currMat.vs, 'do_not_export_faces', toggle=True)
-        col.prop(currMat.vs, 'do_not_export_faces_vgroup', toggle=True)
+        col.prop(currMat.vs, 'do_not_export_faces')
+        col.prop(currMat.vs, 'do_not_export_faces_vgroup')
         
         if not currMat.vs.do_not_export_faces:
             col = bx.column()
@@ -540,7 +540,9 @@ class SMD_PT_Bones(ExportableConfigurationPanel):
         bx = l.box()
         
         if bone:
-            subbx = bx.box()
+            bx.prop(ob.data.vs, "ignore_bone_exportnames", toggle=True)
+            draw_wrapped_text_col(bx,'Ignore bone export name affects all bones',max_chars=40 , icon='ERROR')
+            subbx = bx.box()  
             subbx.label(text=f'Active Bone: {bone.name}')
             if bone.vs.export_name:
                 subbx.separator(type='LINE')

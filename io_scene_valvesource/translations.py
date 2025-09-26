@@ -836,6 +836,10 @@ _data = {
     'update_alreadylatest': {
         'en': "The latest Source Tools ({0}) are already installed.",
     },
+    'introduction_message': {
+        'en': "This modified BlenderSourceTool is currently in Alpha, so you may encounter bugs or issues while using it. Please report any problems on the GitHub page.",
+        'ja': "この改良版BlenderSourceToolは現在アルファ版のため、使用中にバグや問題が発生する可能性があります。問題があればGitHubページで報告してください。",
+    },
     'maxvertexinfluence': {
         'en': "Max Vertex Influence",
     },
@@ -882,31 +886,28 @@ _data = {
         'en': "Mesh Properties",
     },
     'panel_select_object': {
-        'en': "Select an Object",
+        'en': "Select an object",
     },
     'panel_select_armature': {
-        'en': "Select an Armature",
+        'en': "Select an armature",
     },
     'panel_select_mesh': {
         'en': "Select a Mesh",
     },
     'panel_select_mesh_vgroup': {
-        'en': "Select a Mesh with vertex groups or armature with meshes in pose mode",
+        'en': "Select a mesh with vertex groups in Weight Paint Mode, or an armature in Pose Mode.",
     },
     'panel_select_mesh_mat': {
-        'en': "Select a Mesh with Materials",
+        'en': "Select a mesh with materials",
     },
     'panel_select_mesh_sk': {
-        'en': "Select a Mesh with Shapekeys",
+        'en': "Select a mesh with shapekeys",
     },
     'panel_select_curve': {
-        'en': "Select a Curve",
+        'en': "Select a curve",
     },
     'panel_select_empty': {
-        'en': "Select a Empty",
-    },
-    'panel_select_object': {
-        'en': "Select an Object",
+        'en': "Select an empty",
     },
 }
 

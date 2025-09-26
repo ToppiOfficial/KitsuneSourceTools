@@ -194,9 +194,9 @@ def draw_wrapped_text_col(
     max_chars: int = 32,
     icon: str | None = None,
     alert: bool = False,
-    boxed: bool = True
+    boxed: bool = True,
+    title: str | None = None
 ):
-    """Draw wrapped text based on character length. Optional icon and box."""
     words = text.split()
     lines = []
     current_line = []
@@ -214,17 +214,25 @@ def draw_wrapped_text_col(
     if current_line:
         lines.append(" ".join(current_line))
 
-    col = layout.column()
+    col = layout.column(align=True)
+    col.scale_y = 0.8
     col.alert = alert
-
     container = col.box() if boxed else col
 
-    if icon:
-        split = container.split(factor=0.08)
-        split.label(icon=icon)
-        col_lines = split.column(align=True)
-    else:
+    if title:
+        title_row = container.row(align=True)
+        if icon:
+            title_row.label(text=title, icon=icon)
+        else:
+            title_row.label(text=title)
         col_lines = container.column(align=True)
+    else:
+        if icon:
+            split = container.split(factor=0.08,)
+            split.label(icon=icon)
+            col_lines = split.column(align=True)
+        else:
+            col_lines = container.column(align=True)
 
     for line in lines:
         col_lines.label(text=line)
