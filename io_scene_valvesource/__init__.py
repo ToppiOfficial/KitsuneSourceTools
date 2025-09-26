@@ -452,7 +452,6 @@ _classes = (
     GUI_viewport.TOOLS_OT_WeightMath,
     GUI_viewport.TOOLS_OT_SwapVertexGroups,
     GUI_viewport.TOOLS_OT_AddToonEdgeLine,
-    GUI_viewport.TOOLS_OT_init_weight_brush,
     GUI_viewport.TOOLS_OT_curve_ramp_weights,
     GUI_viewport.TOOLS_OT_SplitActiveWeightLinear,
     
