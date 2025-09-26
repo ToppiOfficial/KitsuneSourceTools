@@ -405,37 +405,49 @@ _classes = (
     GUI.SMD_PT_Scene_QC_Complie,
     
     GUI_viewport.SMD_PT_ContextObject,
+    
+    # OBJECT PANEL
+    GUI_viewport.SMD_PT_Object,
+    
+    # ARMATURE PANEL
     GUI_viewport.SMD_PT_Armature,
     
+    # MESH PANEL
+    GUI_viewport.SMD_PT_Mesh,
+    GUI_viewport.SMD_PT_ShapeKeys,
     GUI_viewport.DME_UL_FlexControllers,
     GUI_viewport.DME_OT_AddFlexController,
     GUI_viewport.DME_OT_RemoveFlexController,
-    
-    GUI_viewport.SMD_PT_ShapeKeys,
-    GUI_viewport.SMD_PT_Materials,
     GUI_viewport.SMD_PT_VertexMaps,
-    GUI_viewport.SMD_OT_AddVertexMapRemap,
     GUI_viewport.SMD_PT_FloatMaps,
+    GUI_viewport.SMD_OT_AddVertexMapRemap,
+    
+    # CURVE PANEL
     GUI_viewport.SMD_PT_Curves,
-    GUI_viewport.SMD_PT_Bones,
+    
+    # EMPTY PANEL
     GUI_viewport.SMD_PT_Empty,
     
-    GUI_viewport.SMD_PT_Tools,
-    GUI_viewport.SMD_PT_Tools_Armature,
-    GUI_viewport.SMD_PT_Tools_Bone,
-    GUI_viewport.SMD_PT_Tools_Mesh,
-    GUI_viewport.SMD_PT_Tools_VertexGroup,
+    # BONE PANEL
+    GUI_viewport.SMD_PT_Bones,
+    
+    # MATERIALS PANEL
+    GUI_viewport.SMD_PT_Materials,
+    
+    GUI_viewport.TOOLS_PT_PANEL,
+    GUI_viewport.TOOLS_PT_Armature,
+    GUI_viewport.TOOLS_PT_Bone,
+    GUI_viewport.TOOLS_PT_Mesh,
+    GUI_viewport.TOOLS_PT_VertexGroup,
     
     GUI_viewport.TOOLS_OT_ApplyCurrentPoseAsRestPose,
     GUI_viewport.TOOLS_OT_CleanUnWeightedBones,
     GUI_viewport.TOOLS_OT_MergeArmatures,
     GUI_viewport.TOOLS_OT_CopyVisPosture,
     GUI_viewport.TOOLS_OT_CreateProportionActions,
-    
     GUI_viewport.TOOLS_OT_MergeBones,
     GUI_viewport.TOOLS_OT_ReAlignBones,
     GUI_viewport.TOOLS_OT_CopyTargetRotation,
-    
     GUI_viewport.TOOLS_OT_CleanShapeKeys,
     GUI_viewport.TOOLS_OT_SelectShapekeyVets,
     GUI_viewport.TOOLS_OT_RemoveUnusedVertexGroups,
@@ -445,9 +457,6 @@ _classes = (
     GUI_viewport.TOOLS_OT_curve_ramp_weights,
     GUI_viewport.TOOLS_OT_SplitActiveWeightLinear,
     
-    GUI_viewport.SMD_PT_ValveModel,
-    GUI_viewport.SMD_PT_Jigglebones,
-    GUI_viewport.TOOLS_OT_WriteJiggleBone,
     GUI_viewport.ARMATUREMAPPER_PT_ArmatureMapper,
     GUI_viewport.ARMATUREMAPPER_UL_BoneList,
     GUI_viewport.ARMATUREMAPPER_OT_AddItem,
@@ -456,8 +465,12 @@ _classes = (
     GUI_viewport.ARMATUREMAPPER_OT_LoadJson,
     GUI_viewport.ARMATUREMAPPER_OT_LoadPreset,
     
-    GUI_viewport.SMD_PT_Developer,
-    GUI_viewport.SMD_OT_ImportLegacyDatas,
+    GUI_viewport.VALVEMODEL_PT_PANEL,
+    GUI_viewport.VALVEMODEL_PT_Jigglebones,
+    GUI_viewport.VALVEMODEL_OT_WriteJiggleBone,
+    
+    GUI_viewport.DEVELOPER_PT_PANEL,
+    GUI_viewport.DEVELOPER_OT_ImportLegacyData,
     
     flex.DmxWriteFlexControllers,
     flex.AddCorrectiveShapeDrivers,

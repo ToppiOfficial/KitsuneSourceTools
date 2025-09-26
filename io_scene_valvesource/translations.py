@@ -863,17 +863,50 @@ _data = {
     'panel_context_object': {
         'en': "Object Properties",
     },
-    'materials_prop': {
+    'panel_context_properties': {
+        'en': "Properties",
+    },
+    'panel_context_material': {
         'en': "Materials Properties",
     },
-    'bone_prop': {
+    'panel_context_bone': {
         'en': "Bone Properties",
     },
-    'panel_context_exportable': {
-        'en': "Exportable Config",
-    },
     'panel_context_armature': {
-        'en': "Armature",
+        'en': "Armature Properties",
+    },
+    'panel_context_empty': {
+        'en': "Empty Properties",
+    },
+    'panel_context_mesh': {
+        'en': "Mesh Properties",
+    },
+    'panel_select_object': {
+        'en': "Select an Object",
+    },
+    'panel_select_armature': {
+        'en': "Select an Armature",
+    },
+    'panel_select_mesh': {
+        'en': "Select a Mesh",
+    },
+    'panel_select_mesh_vgroup': {
+        'en': "Select a Mesh with vertex groups or armature with meshes in pose mode",
+    },
+    'panel_select_mesh_mat': {
+        'en': "Select a Mesh with Materials",
+    },
+    'panel_select_mesh_sk': {
+        'en': "Select a Mesh with Shapekeys",
+    },
+    'panel_select_curve': {
+        'en': "Select a Curve",
+    },
+    'panel_select_empty': {
+        'en': "Select a Empty",
+    },
+    'panel_select_object': {
+        'en': "Select an Object",
     },
 }
 

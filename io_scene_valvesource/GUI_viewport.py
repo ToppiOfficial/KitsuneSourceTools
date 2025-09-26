@@ -12,221 +12,6 @@ from mathutils import Vector
 from .keyvalue3 import *
 from . import iconloader
 
-class SMD_PT_toolpanel(object):
-    bl_label = 'sample_toolpanel'
-    bl_category = 'KitsuneSourceTool'
-    bl_region_type = 'UI'
-    bl_space_type = 'VIEW_3D'
-    bl_order = 1
-    
-class SMD_PT_ContextObject(SMD_PT_toolpanel, Panel):
-    bl_label = get_id("panel_context_object")
-    
-    def draw_header(self, context):
-        self.layout.label(icon='OBJECT_DATA')
-    
-    def draw(self, context):
-        l = self.layout
-        bx = l.box()
-        
-        ob = context.object
-        
-        if ob:
-            
-            bx.box().label(text=f'Active Object: ({ob.name})')
-            
-            if not ob.parent:
-                row = bx.row(align=True)
-                col = row.column()
-                col.prop(ob.vs, 'ignore_location_offset', toggle=True)
-                col = col.column(align=True)
-                if ob.vs.ignore_location_offset: col.active = False
-                col.prop(ob.vs, 'export_location_offset_x')
-                col.prop(ob.vs, 'export_location_offset_y')
-                col.prop(ob.vs, 'export_location_offset_z')
-
-                col = row.column()
-                col.prop(ob.vs, 'ignore_rotation_offset', toggle=True)
-                col = col.column(align=True)
-                if ob.vs.ignore_rotation_offset: col.active = False
-                col.prop(ob.vs, 'export_rotation_offset_x')
-                col.prop(ob.vs, 'export_rotation_offset_y')
-                col.prop(ob.vs, 'export_rotation_offset_z')
-            else:
-                messages = 'Transform Offset not available for Parented Objects'
-                col = bx.column(align=True)
-                draw_wrapped_text_col(col, messages, 32, icon='ERROR')
-            
-        else:
-            bx.box().label(text='Select an Object', icon='HELP')
-        
-class ExportableConfigurationPanel(SMD_PT_toolpanel, Panel):
-    bl_label = get_id("panel_context_exportable")
-    bl_parent_id = "SMD_PT_ContextObject"
-    bl_options = {'DEFAULT_CLOSED'}
-
-class SMD_PT_Armature(ExportableConfigurationPanel):
-    bl_label = get_id("panel_context_armature")
-    bl_options = set()
-    
-    def draw_header(self, context):
-        title = "Armature"
-        self.bl_label = title
-        self.layout.label(icon='ARMATURE_DATA')
-
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.object)
-
-    def draw(self, context):
-        armature = context.object
-        
-        l = self.layout
-        bx = l.box()
-        col = bx.column()
-        
-        col.prop(armature.data.vs, "ignore_bone_exportnames", toggle=True)
-        col.row().prop(armature.data.vs,"action_selection",expand=True)
-        if armature.data.vs.action_selection != 'CURRENT':
-            is_slot_filter = armature.data.vs.action_selection == 'FILTERED' and State.useActionSlots
-            col.prop(armature.vs,"action_filter", text = get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
-            
-        if State.exportFormat == ExportFormat.SMD:
-            col.prop(armature.data.vs,"implicit_zero_bone")
-            col.prop(armature.data.vs,"legacy_rotation")
-
-        if armature.animation_data and not State.useActionSlots:
-            col.template_ID(armature.animation_data, "action", new="action.new")
-
-class DME_UL_FlexControllers(UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        ob = context.object
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            
-            split1 = row.split(factor=0.4, align=True)
-            split1.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
-
-            split2 = split1.split(align=True)
-            split2.prop(item, "eyelid", toggle=True)
-            split2.prop(item, "stereo", toggle=True)
-
-            split3 = split1.split(align=True)
-            split3.prop(item, "dme_min", text="Min")
-            split3.prop(item, "dme_max", text="Max")
-
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text=item.shapekey)
-            
-class DME_OT_AddFlexController(Operator):
-    bl_idname = "dme.add_flexcontroller"
-    bl_label = "Add Flex Controller"
-    bl_options = {'INTERNAL', 'UNDO'}  
-
-    def execute(self, context):
-        ob = context.object
-
-        new_item = ob.vs.dme_flexcontrollers.add()
-        ob.vs.dme_flexcontrollers_index = len(ob.vs.dme_flexcontrollers) - 1
-        new_item.shapekey = ""
-        return {'FINISHED'}
-
-class DME_OT_RemoveFlexController(Operator):
-    bl_idname = "dme.remove_flexcontroller"
-    bl_label = "Remove Flex Controller"
-    bl_options = {'INTERNAL', 'UNDO'}  
-
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return ob and hasattr(ob, "vs") and len(ob.vs.dme_flexcontrollers) > 0
-
-    def execute(self, context):
-        ob = context.object
-
-        idx = ob.vs.dme_flexcontrollers_index
-        ob.vs.dme_flexcontrollers.remove(idx)
-        ob.vs.dme_flexcontrollers_index = max(0, idx - 1)
-        return {'FINISHED'}
-
-class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
-    bl_label = get_id("exportables_flex_props")
-    bl_options = set()
-
-    @classmethod
-    def poll(cls, context):
-        return is_mesh(context.object) and hasShapes(context.object,valid_only=False)
-    
-    def draw_header(self, context):
-        self.layout.label(icon='SHAPEKEY_DATA')
-    
-    def draw(self, context):
-        l = self.layout
-        bx = l.box()
-        col = bx.column()
-        item = context.object
-        col.prop(item.data.vs, "bake_shapekey_as_basis_normals", toggle=True, icon='NORMALS_FACE')
-        col.row().prop(item.vs,"flex_controller_mode",expand=True)
-
-        def insertCorrectiveUi(parent):
-            col = parent.column(align=True)
-            col.operator(AddCorrectiveShapeDrivers.bl_idname, icon='DRIVER',text=get_id("gen_drivers",True))
-            col.operator(RenameShapesToMatchCorrectiveDrivers.bl_idname, icon='SYNTAX_OFF',text=get_id("apply_drivers",True))
-            
-        if item.vs.flex_controller_mode == 'ADVANCED':
-            controller_source = col.row()
-            controller_source.alert = hasFlexControllerSource(item.vs.flex_controller_source) == False
-            controller_source.prop(item.vs,"flex_controller_source",text=get_id("exportables_flex_src"),icon = 'TEXT' if item.vs.flex_controller_source in bpy.data.texts else 'NONE')
-            
-            row = col.row(align=True)
-            row.operator(DmxWriteFlexControllers.bl_idname,icon='TEXT',text=get_id("exportables_flex_generate", True))
-            row.operator("wm.url_open",text=get_id("exportables_flex_help", True),icon='HELP').url = "http://developer.valvesoftware.com/wiki/Blender_SMD_Tools_Help#Flex_properties"
-            
-            insertCorrectiveUi(col)
-            
-            col = bx.column()
-            subbx = col.box()
-            
-            subbx.label(text=get_id("exportables_flex_split"))
-            sharpness_col = subbx.column(align=True)
-            
-            r = sharpness_col.split(factor=0.33,align=True)
-            r.label(text=item.data.name + ":",icon=MakeObjectIcon(item,suffix='_DATA'),translate=False)
-            r2 = r.split(factor=0.7,align=True)
-            
-            if item.data.vs.flex_stereo_mode == 'VGROUP':
-                r2.alert = item.vertex_groups.get(item.data.vs.flex_stereo_vg) is None
-                r2.prop_search(item.data.vs,"flex_stereo_vg",item,"vertex_groups",text="")
-            else:
-                r2.prop(item.data.vs,"flex_stereo_sharpness",text="Sharpness")
-                
-            r2.prop(item.data.vs,"flex_stereo_mode",text="")
-            
-        elif item.vs.flex_controller_mode == 'STRICT':
-            col = bx.column()
-            col.label(text='Flex Controllers')
-            draw_wrapped_text_col(col,'Empty List will export the object without shapekeys',32,icon='HELP')
-            
-            col.template_list("DME_UL_FlexControllers","",item.vs,"dme_flexcontrollers", item.vs,"dme_flexcontrollers_index",rows=3,)
-
-            row = col.row(align=True)
-            row.operator("dme.add_flexcontroller", icon='ADD')
-            row.operator("dme.remove_flexcontroller", icon='REMOVE')
-            
-        else:
-            insertCorrectiveUi(col)
-        
-        num_shapes, num_correctives = countShapes(item)
-        
-        col.separator()
-        row = col.row()
-        row.alignment = 'CENTER'
-        row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count", True).format(num_shapes))
-        
-        if item.vs.flex_controller_mode != 'STRICT':
-            row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count_corrective", True).format(num_correctives))
-
 SMD_OT_CreateVertexMap_idname = "smd.vertex_map_create_"
 SMD_OT_SelectVertexMap_idname = "smd.vertex_map_select_"
 SMD_OT_RemoveVertexMap_idname = "smd.vertex_map_remove_"
@@ -285,34 +70,6 @@ for map_name in vertex_maps:
     bpy.utils.register_class(SelectVertexColorMap)
     bpy.utils.register_class(CreateVertexColorMap)
     bpy.utils.register_class(RemoveVertexColorMap)
-
-class SMD_PT_VertexMaps(ExportableConfigurationPanel):
-    bl_label = get_id("vertmap_group_props")
-
-    @classmethod
-    def poll(cls, context):
-        return is_mesh(context.object)
-    
-    def draw_header(self, context):
-        self.layout.label(icon='VPAINT_HLT')
-
-    def draw(self, context):
-        l = self.layout
-        bx = l.box()
-        col = bx.column(align=True)
-        
-        if State.exportFormat != ExportFormat.DMX:
-            col.box().label(text='Only Applicable in DMX', icon='ERROR')
-            col.alert = True
-        
-        for map_name in vertex_maps:
-            r = col.row()
-            r.label(text=get_id(map_name),icon='GROUP_VCOL')
-            
-            add_remove = r.row(align=True)
-            add_remove.operator(SMD_OT_CreateVertexMap_idname + map_name,icon='ADD',text="")
-            add_remove.operator(SMD_OT_RemoveVertexMap_idname + map_name,icon='REMOVE',text="")
-            add_remove.operator(SMD_OT_SelectVertexMap_idname + map_name,text="Activate")
 
 SMD_OT_CreateVertexFloatMap_idname = "smd.vertex_float_map_create_"
 SMD_OT_SelectVertexFloatMap_idname = "smd.vertex_float_map_select_"
@@ -382,6 +139,275 @@ for map_name in vertex_float_maps:
     bpy.utils.register_class(CreateVertexFloatMap)
     bpy.utils.register_class(RemoveVertexFloatMap)
 
+# ====================================================================================
+# PROPERTIES PANEL
+# ====================================================================================
+
+class SMD_PT_toolpanel(object):
+    bl_label = 'sample_toolpanel'
+    bl_category = 'KitsuneSourceTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_order = 1
+    
+class SMD_PT_ContextObject(SMD_PT_toolpanel, Panel):
+    bl_label = get_id("panel_context_properties")
+    
+    def draw_header(self, context):
+        self.layout.label(icon='PROPERTIES')
+    
+    def draw(self, context):
+        l = self.layout
+
+class ExportableConfigurationPanel(SMD_PT_toolpanel, Panel):
+    bl_label = ''
+    bl_parent_id = "SMD_PT_ContextObject"
+    bl_options = {'DEFAULT_CLOSED'}
+
+class SMD_PT_Object(ExportableConfigurationPanel):
+    bl_label = get_id("panel_context_object")
+    
+    def draw_header(self, context):
+        self.layout.label(icon='OBJECT_DATA')
+        
+    def draw(self, context):
+        l = self.layout
+        
+        ob = context.object
+        
+        if ob: pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_object"),max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
+        bx.box().label(text=f'Active Object: ({ob.name})')
+        
+        if not ob.parent:
+            row = bx.row(align=True)
+            col = row.column()
+            col.prop(ob.vs, 'ignore_location_offset', toggle=True)
+            col = col.column(align=True)
+            if ob.vs.ignore_location_offset: col.active = False
+            col.prop(ob.vs, 'export_location_offset_x')
+            col.prop(ob.vs, 'export_location_offset_y')
+            col.prop(ob.vs, 'export_location_offset_z')
+
+            col = row.column()
+            col.prop(ob.vs, 'ignore_rotation_offset', toggle=True)
+            col = col.column(align=True)
+            if ob.vs.ignore_rotation_offset: col.active = False
+            col.prop(ob.vs, 'export_rotation_offset_x')
+            col.prop(ob.vs, 'export_rotation_offset_y')
+            col.prop(ob.vs, 'export_rotation_offset_z')
+        else:
+            messages = 'Transform Offset not available for Parented Objects'
+            col = bx.column(align=True)
+            draw_wrapped_text_col(col, messages, 32, icon='ERROR')
+
+class SMD_PT_Armature(ExportableConfigurationPanel):
+    bl_label = get_id("panel_context_armature")
+    
+    def draw_header(self, context):
+        self.layout.label(icon='ARMATURE_DATA')
+
+    def draw(self, context):
+        l = self.layout
+        
+        armature = context.object
+        
+        if is_armature(armature): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
+        col = bx.column()
+        
+        col.prop(armature.data.vs, "ignore_bone_exportnames", toggle=True)
+        col.row().prop(armature.data.vs,"action_selection",expand=True)
+        if armature.data.vs.action_selection != 'CURRENT':
+            is_slot_filter = armature.data.vs.action_selection == 'FILTERED' and State.useActionSlots
+            col.prop(armature.vs,"action_filter", text = get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
+            
+        if State.exportFormat == ExportFormat.SMD:
+            col.prop(armature.data.vs,"implicit_zero_bone")
+            col.prop(armature.data.vs,"legacy_rotation")
+
+        if armature.animation_data and not State.useActionSlots:
+            col.template_ID(armature.animation_data, "action", new="action.new")
+
+class SMD_PT_Mesh(ExportableConfigurationPanel):
+    bl_label = get_id("panel_context_mesh")
+    
+    def draw_header(self, context):
+        self.layout.label(icon='MESH_DATA')
+        
+    def draw(self, context):
+        l = self.layout
+        ob = context.object
+        
+        if is_mesh(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            return
+        
+class DME_UL_FlexControllers(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        ob = context.object
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row(align=True)
+            
+            split1 = row.split(factor=0.4, align=True)
+            split1.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
+
+            split2 = split1.split(align=True)
+            split2.prop(item, "eyelid", toggle=True)
+            split2.prop(item, "stereo", toggle=True)
+
+            split3 = split1.split(align=True)
+            split3.prop(item, "dme_min", text="Min")
+            split3.prop(item, "dme_max", text="Max")
+
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text=item.shapekey)
+            
+class DME_OT_AddFlexController(Operator):
+    bl_idname = "dme.add_flexcontroller"
+    bl_label = "Add Flex Controller"
+    bl_options = {'INTERNAL', 'UNDO'}  
+
+    def execute(self, context):
+        ob = context.object
+
+        new_item = ob.vs.dme_flexcontrollers.add()
+        ob.vs.dme_flexcontrollers_index = len(ob.vs.dme_flexcontrollers) - 1
+        new_item.shapekey = ""
+        return {'FINISHED'}
+
+class DME_OT_RemoveFlexController(Operator):
+    bl_idname = "dme.remove_flexcontroller"
+    bl_label = "Remove Flex Controller"
+    bl_options = {'INTERNAL', 'UNDO'}  
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return ob and hasattr(ob, "vs") and len(ob.vs.dme_flexcontrollers) > 0
+
+    def execute(self, context):
+        ob = context.object
+
+        idx = ob.vs.dme_flexcontrollers_index
+        ob.vs.dme_flexcontrollers.remove(idx)
+        ob.vs.dme_flexcontrollers_index = max(0, idx - 1)
+        return {'FINISHED'}
+
+class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
+    bl_label = get_id("exportables_flex_props")
+    bl_parent_id = "SMD_PT_Mesh"
+    
+    def draw(self, context):
+        l = self.layout
+        item = context.object
+        
+        if is_mesh(item) and hasShapes(item): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh_sk"),max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
+        col = bx.column()
+        col.prop(item.data.vs, "bake_shapekey_as_basis_normals", toggle=True, icon='NORMALS_FACE')
+        col.row().prop(item.vs,"flex_controller_mode",expand=True)
+
+        def insertCorrectiveUi(parent):
+            col = parent.column(align=True)
+            col.operator(AddCorrectiveShapeDrivers.bl_idname, icon='DRIVER',text=get_id("gen_drivers",True))
+            col.operator(RenameShapesToMatchCorrectiveDrivers.bl_idname, icon='SYNTAX_OFF',text=get_id("apply_drivers",True))
+            
+        if item.vs.flex_controller_mode == 'ADVANCED':
+            controller_source = col.row()
+            controller_source.alert = hasFlexControllerSource(item.vs.flex_controller_source) == False
+            controller_source.prop(item.vs,"flex_controller_source",text=get_id("exportables_flex_src"),icon = 'TEXT' if item.vs.flex_controller_source in bpy.data.texts else 'NONE')
+            
+            row = col.row(align=True)
+            row.operator(DmxWriteFlexControllers.bl_idname,icon='TEXT',text=get_id("exportables_flex_generate", True))
+            row.operator("wm.url_open",text=get_id("exportables_flex_help", True),icon='HELP').url = "http://developer.valvesoftware.com/wiki/Blender_SMD_Tools_Help#Flex_properties"
+            
+            insertCorrectiveUi(col)
+            
+            col = bx.column()
+            subbx = col.box()
+            
+            subbx.label(text=get_id("exportables_flex_split"))
+            sharpness_col = subbx.column(align=True)
+            
+            r = sharpness_col.split(factor=0.33,align=True)
+            r.label(text=item.data.name + ":",icon=MakeObjectIcon(item,suffix='_DATA'),translate=False)
+            r2 = r.split(factor=0.7,align=True)
+            
+            if item.data.vs.flex_stereo_mode == 'VGROUP':
+                r2.alert = item.vertex_groups.get(item.data.vs.flex_stereo_vg) is None
+                r2.prop_search(item.data.vs,"flex_stereo_vg",item,"vertex_groups",text="")
+            else:
+                r2.prop(item.data.vs,"flex_stereo_sharpness",text="Sharpness")
+                
+            r2.prop(item.data.vs,"flex_stereo_mode",text="")
+            
+        elif item.vs.flex_controller_mode == 'STRICT':
+            col = bx.column()
+            col.label(text='Flex Controllers')
+            draw_wrapped_text_col(col,'Empty List will export the object without shapekeys',32,icon='HELP')
+            
+            col.template_list("DME_UL_FlexControllers","",item.vs,"dme_flexcontrollers", item.vs,"dme_flexcontrollers_index",rows=3,)
+
+            row = col.row(align=True)
+            row.operator("dme.add_flexcontroller", icon='ADD')
+            row.operator("dme.remove_flexcontroller", icon='REMOVE')
+            
+        else:
+            insertCorrectiveUi(col)
+        
+        num_shapes, num_correctives = countShapes(item)
+        
+        col.separator()
+        row = col.row()
+        row.alignment = 'CENTER'
+        row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count", True).format(num_shapes))
+        
+        if item.vs.flex_controller_mode != 'STRICT':
+            row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count_corrective", True).format(num_correctives))
+
+class SMD_PT_VertexMaps(ExportableConfigurationPanel):
+    bl_label = get_id("vertmap_group_props")
+    bl_parent_id = "SMD_PT_Mesh"
+
+    def draw(self, context):
+        l = self.layout
+        ob = context.object
+        if is_mesh(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
+        col = bx.column(align=True)
+        
+        if State.exportFormat != ExportFormat.DMX:
+            col.box().label(text='Only Applicable in DMX', icon='ERROR')
+            col.alert = True
+        
+        for map_name in vertex_maps:
+            r = col.row()
+            r.label(text=get_id(map_name),icon='GROUP_VCOL')
+            
+            add_remove = r.row(align=True)
+            add_remove.operator(SMD_OT_CreateVertexMap_idname + map_name,icon='ADD',text="")
+            add_remove.operator(SMD_OT_RemoveVertexMap_idname + map_name,icon='REMOVE',text="")
+            add_remove.operator(SMD_OT_SelectVertexMap_idname + map_name,text="Activate")
+
 class SMD_OT_AddVertexMapRemap(Operator):
     bl_idname = "smd.add_vertex_map_remap"
     bl_label = "Add Remap Range"
@@ -399,20 +425,19 @@ class SMD_OT_AddVertexMapRemap(Operator):
 
 class SMD_PT_FloatMaps(ExportableConfigurationPanel):
     bl_label = get_id("vertmap_group_props_float")
-
-    @classmethod
-    def poll(cls, context):
-        return is_mesh(context.object)
+    bl_parent_id = "SMD_PT_Mesh"
     
-    def draw_header(self, context):
-        self.layout.label(icon='MOD_CLOTH')
-
     def draw(self, context):
         l = self.layout
-        bx = l.box()
-        col = bx.column()
         
         ob = context.active_object
+        if ob: pass
+        else:
+            draw_wrapped_text_col(l,"No Mesh Selected",max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
+        col = bx.column()
         
         col.operator("wm.url_open", text=get_id("help", True), icon='HELP').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
     
@@ -444,39 +469,42 @@ class SMD_PT_FloatMaps(ExportableConfigurationPanel):
 class SMD_PT_Curves(ExportableConfigurationPanel):
     bl_label = get_id("exportables_curve_props")
     
-    @classmethod
-    def poll(cls, context):
-        return context.object and hasCurves(context.object)		
-    
     def draw_header(self, context):
         self.layout.label(icon='CURVE_DATA')
     
     def draw(self, context):
         l = self.layout
+        
+        if is_curve(context.object) and hasCurves(context.object): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
+            return
+        
         bx = l.box()
         done = set()
-        if hasCurves(context.object):
-            row = bx.split(factor=0.33)
-            row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False)
-            row.prop(context.object.data.vs,"faces",text="")
-            done.add(context.object.data)
+        
+        row = bx.split(factor=0.33)
+        row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False)
+        row.prop(context.object.data.vs,"faces",text="")
+        done.add(context.object.data)
 
 class SMD_PT_Materials(ExportableConfigurationPanel):
-    bl_label = get_id("materials_prop")
-    bl_options = set()
-    
-    @classmethod
-    def poll(cls, context):
-        return is_mesh(context.object) and has_materials(context.object)
-    
+    bl_label = get_id("panel_context_material")
+
     def draw_header(self, context):
         self.layout.label(icon='MATERIAL_DATA')
     
     def draw(self, context):
         l = self.layout
+        ob = context.object
+        
+        if is_mesh(ob) and has_materials(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
+            return
+        
         bx = l.box()
         
-        ob = context.object
         currMat = ob.active_material
         bx.box().label(text=f'Active Material: ({currMat.name})')
         
@@ -490,25 +518,25 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
             col.prop(currMat.vs, 'non_exportable_vgroup')     
             
 class SMD_PT_Bones(ExportableConfigurationPanel):
-    bl_label = get_id("bone_prop")
-    bl_options = set()
-        
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return is_armature(ob)
+    bl_label = get_id("panel_context_bone")
     
     def draw_header(self, context):
         self.layout.label(icon='BONE_DATA')
     
     def draw(self, context):
+        l = self.layout
         ob = context.object
+        
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+            
         try:
             bone = ob.data.bones.active if context.mode != 'EDIT_ARMATURE' else ob.data.bones.get(ob.data.edit_bones.active.name)
         except:
             bone = None
-        
-        l = self.layout
+
         bx = l.box()
         
         if bone:
@@ -563,17 +591,20 @@ class SMD_PT_Bones(ExportableConfigurationPanel):
             bx.label(text='Select a Valid Bone')
  
 class SMD_PT_Empty(ExportableConfigurationPanel):
-    bl_label = 'Empty'
+    bl_label = get_id('panel_context_empty')
 
-    @classmethod
-    def poll(cls, context):
-        return is_empty(context.object)
-    
     def draw_header(self, context):
         self.layout.label(icon='EMPTY_DATA')
 
     def draw(self, context):
         l = self.layout
+        ob = context.object
+        
+        if is_empty(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
+            return
+        
         bx = l.box()
         col = bx.column()
         
@@ -582,37 +613,40 @@ class SMD_PT_Empty(ExportableConfigurationPanel):
         if context.object.vs.dmx_attachment and context.object.children:
             col.alert = True
             col.box().label(text="Attachment cannot be a parent",icon='WARNING_LARGE')
-         
-class SMD_PT_Tools(SMD_PT_toolpanel, Panel):
+
+# ====================================================================================
+# TOOLS PANEL
+# ====================================================================================
+
+class TOOLS_PT_PANEL(SMD_PT_toolpanel, Panel):
     bl_label = 'Tools'
+    bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         self.layout.label(icon='TOOL_SETTINGS')
-        
-    @classmethod
-    def poll(cls, context):
-        return context.object
     
     def draw(self, context):
         l = self.layout
         
 class ToolsSubPanel(SMD_PT_toolpanel, Panel):
     bl_label = "SubTools"
-    bl_parent_id = "SMD_PT_Tools"
+    bl_parent_id = "TOOLS_PT_PANEL"
     bl_options = {'DEFAULT_CLOSED'}
-    
-class SMD_PT_Tools_Armature(ToolsSubPanel):
+
+# =================================
+# ARMATURE BONE TOOLS
+# =================================
+
+class TOOLS_PT_Armature(ToolsSubPanel):
     bl_label = "Armature Tools"
-    
-    def draw_header(self, context):
-        self.layout.label(icon='ARMATURE_DATA')
-    
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.object)
     
     def draw(self, context):
         l = self.layout
+        if is_armature(context.object): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
         bx = l.box()
         
         col = bx.column()
@@ -632,818 +666,8 @@ class SMD_PT_Tools_Armature(ToolsSubPanel):
         row.operator(TOOLS_OT_CopyVisPosture.bl_idname,icon='POSE_HLT',text=f'{TOOLS_OT_CopyVisPosture.bl_label} (LOCATION)').copy_type = 'ORIGIN'
         row.operator(TOOLS_OT_CopyVisPosture.bl_idname,icon='POSE_HLT',text=f'{TOOLS_OT_CopyVisPosture.bl_label} (ROTATION)').copy_type = 'ANGLES'
 
-class ARMATUREMAPPER_UL_BoneList(UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if item:
-            row = layout.row()
-            split = row.split(factor=0.9)
-            split.prop(item, 'boneExportName', text="")
-            split.label(text="", )
-            row.operator(ARMATUREMAPPER_OT_RemoveItem.bl_idname, text="", icon="X").index = index
-
-class ARMATUREMAPPER_OT_AddItem(bpy.types.Operator):
-    bl_idname = "armaturemapper.add_item"
-    bl_label = "Add Bone"
-    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
-    
-    add_type: bpy.props.EnumProperty(items=[
-        ('SELECTED', 'Selected', 'Add all selected bones'),
-        ('SINGLE', 'Single', 'Add an empty item')
-    ])
-    
-    def execute(self, context):
-        ob = context.object
-        if not ob or ob.type != 'ARMATURE':
-            self.report({'ERROR'}, "Active object must be an armature")
-            return {'CANCELLED'}
-        
-        collection = ob.vs.armature_map_bonecollections
-
-        if self.add_type == 'SINGLE':
-            collection.add()
-            return {'FINISHED'}
-        
-        if context.mode != 'POSE':
-            self.report({'ERROR'}, "Must be in Pose mode to add selected bones")
-            return {'CANCELLED'}
-        
-        existing_names = {item.boneExportName for item in collection if hasattr(item, "boneExportName")}
-        skipped = 0
-        
-        for pb in context.selected_pose_bones:
-            if pb.name in existing_names:
-                skipped += 1
-                continue
-            item = collection.add()
-            if 'boneExportName' in item.bl_rna.properties:
-                item.boneExportName = pb.name
-        
-        if skipped > 0:
-            self.report({'INFO'}, f"Skipped {skipped} already existing bone(s)")
-        
-        return {'FINISHED'}
-
-class ARMATUREMAPPER_OT_RemoveItem(bpy.types.Operator):
-    bl_idname = "armaturemapper.remove_item"
-    bl_label = "Remove Bone"
-    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
-    
-    index: IntProperty()
-    
-    def execute(self, context):
-        coll = context.object.vs.armature_map_bonecollections
-        if 0 <= self.index < len(coll):
-            coll.remove(self.index)
-        return {'FINISHED'}
-
-class ARMATUREMAPPER_PT_ArmatureMapper(ToolsSubPanel):
-    bl_label = 'Armature Mapper'
-    
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.object)
-    
-    def draw_header(self, context):
-        self.layout.label(icon='OUTLINER_OB_ARMATURE')
-    
-    def draw(self, context):
-        l = self.layout
-        bx = l.box()
-        
-        col = bx.column()
-        
-        row = bx.row(align=True)
-        row.prop(context.scene.vs, 'defineArmatureCategory', expand=True)
-        
-        if context.scene.vs.defineArmatureCategory == 'WRITE':
-            col = bx.column(align=False)
-            draw_wrapped_text_col(col,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP')
-            col = bx.column()
-            col.operator(ARMATUREMAPPER_OT_LoadPreset.bl_idname)
-
-            col = bx.column(align=False)
-            row = bx.row()
-            row.template_list(
-                "ARMATUREMAPPER_UL_BoneList",
-                "",
-                context.object.vs,
-                "armature_map_bonecollections",
-                context.object.vs,
-                "armature_map_bonecollections_index",
-                rows=3
-            )
-            row = bx.row()
-            row.scale_y = 1.25
-            split = row.split(factor=0.4,align=True)
-            split.operator(ARMATUREMAPPER_OT_AddItem.bl_idname, icon="ADD", text=ARMATUREMAPPER_OT_AddItem.bl_label).add_type = 'SINGLE'
-            split.operator(ARMATUREMAPPER_OT_AddItem.bl_idname, icon="ADD", text=ARMATUREMAPPER_OT_AddItem.bl_label + " (Selected Bones)").add_type = 'SELECTED'
-            
-            if 0 <= context.object.vs.armature_map_bonecollections_index < len(context.object.vs.armature_map_bonecollections):
-                item = context.object.vs.armature_map_bonecollections[context.object.vs.armature_map_bonecollections_index]
-                
-                col = bx.column(align=True)
-                col.prop(item, "boneExportName")
-                col.alert = not bool(item.boneName.strip())
-                col.prop(item, "boneName")
-                col.alert = False
-                col.prop(item, "parentBone")
-                col.row().prop(item, "writeRotation", expand=True)
-                col.prop(item, "writeExportRotationOffset")
-                col.prop(item, "writeTwistBone")
-                if item.writeTwistBone:
-                    col.prop(item, "twistBoneTarget")
-                bx.operator(ARMATUREMAPPER_OT_WriteJson.bl_idname, icon='FILE')
-                
-        else:
-            col = bx.column(align=False)
-            if context.object.vs.armature_map_ishumanoid:
-                draw_wrapped_text_col(col,'This will rename the bones to match a similar VRChat-style rig. The bone map includes Left and Right shoulder, arm, elbow, wrist, thigh, knee, ankle, and toe, as well as a central chain of Hips → Lower Spine → Spine → Lower Chest → Chest → Neck → Head. Finger bones follow the format Index/Middle/Ring/LittleFingers1–3_L/R and Thumb0–2_L/R.',max_chars=40, icon='HELP')
-            else:
-                draw_wrapped_text_col(col,'Non-Humanoid is untested',max_chars=40, icon='WARNING_LARGE',alert=True)
-            
-            col = bx.column(align=True)
-            col.prop(context.object.vs, 'armature_map_ishumanoid', toggle=True)
-            
-            if context.object.vs.armature_map_ishumanoid:
-                col = bx.column(align=True)
-                col = col.box()
-                col = col.column(align=True)
-                
-                draw_wrapped_text_col(col,text='Head, Chest and Pelvis are required to have inputs', icon='HELP')
-                col.prop_search(context.object.vs, 'armature_map_head',   context.object.data, "bones", text="Head")
-                col.prop_search(context.object.vs, 'armature_map_chest',  context.object.data, "bones", text="Chest")
-                col.prop_search(context.object.vs, 'armature_map_pelvis', context.object.data, "bones", text="Pelvis")
-
-                col.separator()
-                col.separator(type='LINE')
-                col.separator()
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Eye L & R')
-                row.prop_search(context.object.vs, 'armature_map_eye_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_eye_r', context.object.data, "bones", text="")
-
-                col.separator()
-                col.separator(type='LINE')
-                col.separator()
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Thigh L & R')
-                row.prop_search(context.object.vs, 'armature_map_thigh_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_thigh_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Ankle L & R')
-                row.prop_search(context.object.vs, 'armature_map_ankle_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_ankle_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Toe L & R')
-                row.prop_search(context.object.vs, 'armature_map_toe_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_toe_r', context.object.data, "bones", text="")
-
-                col.separator()
-                col.separator(type='LINE')
-                col.separator()
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Shoulder L & R')
-                row.prop_search(context.object.vs, 'armature_map_shoulder_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_shoulder_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Wrist L & R')
-                row.prop_search(context.object.vs, 'armature_map_wrist_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_wrist_r', context.object.data, "bones", text="")
-
-                col.separator()
-                col.separator(type='LINE')
-                col.separator()
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Thumb L & R')
-                row.prop_search(context.object.vs, 'armature_map_thumb_f_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_thumb_f_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Index L & R')
-                row.prop_search(context.object.vs, 'armature_map_index_f_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_index_f_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Middle L & R')
-                row.prop_search(context.object.vs, 'armature_map_middle_f_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_middle_f_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Ring L & R')
-                row.prop_search(context.object.vs, 'armature_map_ring_f_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_ring_f_r', context.object.data, "bones", text="")
-
-                row = col.row(align=True)
-                row.scale_x = 0.2
-                row.label(text='Pinky L & R')
-                row.prop_search(context.object.vs, 'armature_map_pinky_f_l', context.object.data, "bones", text="")
-                row.prop_search(context.object.vs, 'armature_map_pinky_f_r', context.object.data, "bones", text="")
-                
-            col.operator(ARMATUREMAPPER_OT_LoadJson.bl_idname)
-                
-class ARMATUREMAPPER_OT_WriteJson(bpy.types.Operator):
-    bl_idname = "armaturemapper.write_json"
-    bl_label = "Write Json"
-    bl_options = {"INTERNAL", "REGISTER"}
-    
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.object) and len(context.object.vs.armature_map_bonecollections) > 0
-    
-    def sortItemsByBoneHierarchy(self, ob, items):
-        """Return a list of items sorted by bone parent hierarchy."""
-        item_bone_map = {}
-        for item in items:
-            bone = ob.data.bones.get(item.boneExportName)
-            if bone:
-                item_bone_map[item] = bone
-
-        sorted_items = []
-        visited = set()
-
-        def dfs(bone):
-            if bone in visited:
-                return
-            visited.add(bone)
-            for itm, b in item_bone_map.items():
-                if b == bone:
-                    sorted_items.append(itm)
-                    break
-            for child in bone.children:
-                dfs(child)
-
-        for bone in ob.data.bones:
-            if bone.parent is None:
-                dfs(bone)
-
-        return sorted_items
-
-    def execute(self, context):
-        if not self.filepath:
-            self.report({'ERROR'}, "No file path set")
-            return {'CANCELLED'}
-
-        if not self.filepath.lower().endswith(".json"):
-            self.report({'ERROR'}, "File must have a .json extension")
-            return {'CANCELLED'}
-        
-        ob = context.object
-        items = ob.vs.armature_map_bonecollections
-        bones = []
-        skipped_count = 0
-        
-        sorted_items = self.sortItemsByBoneHierarchy(ob, items)
-        with PreserveContextMode(ob, 'EDIT'):
-            for item in reversed(sorted_items):
-                if not item.boneName.strip():
-                    skipped_count += 1
-                    continue
-
-                if item.boneExportName not in ob.data.bones:
-                    skipped_count += 1
-                    continue
-
-                bone = ob.data.bones.get(item.boneExportName)
-                editbone = ob.data.edit_bones.get(item.boneExportName)
-                ebone_roll = editbone.roll
-                
-                boneDict = {
-                    "BoneName" : item.boneName,
-                    "ExportName" : item.boneExportName
-                }
-                
-                if not item.parentBone.strip():
-                    parent_bone = bone.parent
-                    if parent_bone:
-                        parent_item = next((i for i in items if i.boneExportName == parent_bone.name), None)
-                        if parent_item and parent_item.boneName.strip():
-                            boneDict["ParentBone"] = parent_item.boneName
-                        else:
-                            boneDict["ParentBone"] = parent_bone.name
-                else:
-                    boneDict["ParentBone"] = item.parentBone
-                
-                if item.writeRotation == 'ROTATION':
-                    head = bone.head_local
-                    tail = bone.tail_local
-                    tail_offset = tail - head
-                    boneDict['Rotation'] = [tail_offset.x, tail_offset.y, tail_offset.z]
-                    boneDict['Roll'] = ebone_roll
-                elif item.writeRotation == 'ROLL':
-                    boneDict['Roll'] = ebone_roll
-                    
-                if item.writeExportRotationOffset and not bone.vs.ignore_rotation_offset:
-                    boneDict['ExportRotationOffset'] = [
-                        bone.vs.export_rotation_offset_x,
-                        bone.vs.export_rotation_offset_y,
-                        bone.vs.export_rotation_offset_z
-                    ]
-                    
-                if item.writeTwistBone:
-                    if item.twistBoneTarget.strip(): 
-                        twist_name = item.twistBoneTarget.strip()
-                    else:
-                        parent_bone = bone.parent
-                        if parent_bone:
-                            parent_item = next((i for i in items if i.boneExportName == parent_bone.name), None)
-                            twist_name = parent_item.boneName if parent_item else parent_bone.name
-                        else:
-                            twist_name = None
-                            print(f'{item.boneExportName} cannot have twist due to not having a proper target bone')
-                        
-                    if twist_name:
-                        boneDict['TwistBones'] = twist_name
-                    
-                bones.append(boneDict)
-        
-        if bones:
-            os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
-            with open(self.filepath, "w", encoding="utf-8") as f:
-                json.dump(bones, f, indent=4)
-
-            self.report({'INFO'}, f"Exported JSON to: {self.filepath} | Skipped {skipped_count} bone(s)")
-        else:
-            self.report({'WARNING'}, f"No bones exported. Skipped {skipped_count} bone(s)")
-        
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-class ARMATUREMAPPER_OT_LoadJson(Operator):
-    bl_idname = "armaturemapper.load_json"
-    bl_label = "Load JSON"
-    bl_options = {"REGISTER", "UNDO"}
-
-    filepath: StringProperty(subtype="FILE_PATH")
-
-    ignore_export_name: BoolProperty(
-        name="Ignore Export Name",
-        description="Ignore the export name field in the JSON",
-        default=False
-    )
-
-    def invoke(self, context, event):
-        # Opens the file browser
-        context.window_manager.fileselect_add(self)
-        return {"RUNNING_MODAL"}
-
-    def execute(self, context):
-
-        json_path = self.filepath
-
-        if not json_path.lower().endswith(".json"):
-            self.report({"ERROR"}, "Please select a JSON file")
-            return {"CANCELLED"}
-
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        boneElems = {entry["BoneName"]: entry for entry in data}
-
-        arm = getArmature(context.object)
-        if arm is None:
-            self.report({"ERROR"}, "No valid armature selected")
-            return {"CANCELLED"}
-        
-        def remapped_humanoid_armature_bones(arm: bpy.types.Object):
-            vs_arm = getattr(arm, "vs", None)
-            if not vs_arm:
-                return False
-
-            bones = arm.data.bones
-            rename_map = {}
-
-            def is_valid_bone(name: str) -> bool:
-                return bool(name) and isinstance(name, str) and name in arm.data.bones.keys()
-
-            # Conflict check
-            bone_props = [attr for attr in dir(vs_arm) if attr.startswith("armature_map_")]
-            bone_values = [getattr(vs_arm, prop) for prop in bone_props]
-            if all(not v for v in bone_values):
-                return True
-            selected_bones = [v for v in bone_values if is_valid_bone(v)]
-            seen, duplicates = set(), set()
-            for b in selected_bones:
-                if b in seen:
-                    duplicates.add(b)
-                else:
-                    seen.add(b)
-            if duplicates:
-                print(f"[Humanoid Rename] Conflicting assignments: {duplicates}")
-                return False
-
-            # Helpers
-            def collect_chain(start_name, end_name):
-                if not (is_valid_bone(start_name) and is_valid_bone(end_name)):
-                    return []
-
-                start_bone = bones[start_name]
-                end_bone = bones[end_name]
-
-                def dfs(bone, target, path):
-                    path.append(bone)
-                    if bone == target:
-                        return True
-                    for child in bone.children:
-                        if dfs(child, target, path):
-                            return True
-                    path.pop()
-                    return False
-
-                chain = []
-                if dfs(start_bone, end_bone, chain):
-                    return chain
-                return []
-
-            def realign_chain_tails(chain):
-                if len(chain) < 2:
-                    return
-                # Must be in EDIT mode
-                prev_mode = arm.mode
-                if bpy.context.object != arm:
-                    bpy.context.view_layer.objects.active = arm
-                bpy.ops.object.mode_set(mode='EDIT')
-
-                edit_bones = arm.data.edit_bones
-                for i in range(len(chain) - 1):
-                    a = edit_bones.get(chain[i].name)
-                    b = edit_bones.get(chain[i + 1].name)
-                    if a and b:
-                        a.tail = b.head
-
-                bpy.ops.object.mode_set(mode=prev_mode)
-
-            def build_torso_chain(pelvis_name, chest_name):
-                chain = collect_chain(pelvis_name, chest_name)
-                if len(chain) < 2:
-                    return
-                names = ["Hips"]
-                middle_count = len(chain) - 2
-                if middle_count == 1:
-                    names.append("Spine")
-                elif middle_count == 2:
-                    names.extend(["Lower Spine", "Spine"])
-                elif middle_count == 3:
-                    names.extend(["Lower Spine", "Spine", "Lower Chest"])
-                elif middle_count > 3:
-                    names.extend(["Lower Spine", "Spine", "Lower Chest"])
-                    names.extend([f"Spine_{i+1}" for i in range(middle_count - 3)])
-                names.append("Chest")
-                
-                for bone, new_name in zip(chain, names):
-                    rename_map[bone.name] = new_name
-                
-                realign_chain_tails(chain)
-
-            def build_neck_chain(chest_name, head_name):
-                chain = collect_chain(chest_name, head_name)
-                if len(chain) < 2:
-                    return
-                for i, bone in enumerate(chain[1:-1], 1):
-                    rename_map[bone.name] = "Neck" if i == 1 else f"Neck_{i-1}"
-                rename_map[head_name] = "Head"
-
-                realign_chain_tails(chain)
-
-            def build_chain_mapping(start_name, end_name, base_names, side=None):
-                chain = collect_chain(start_name, end_name)
-                if not chain:
-                    return
-                target_count = len(base_names)
-                for i, bone in enumerate(chain):
-                    idx = min(i, target_count - 1)
-                    name = base_names[idx]
-                    if side == "L":
-                        new_name = f"Left {name}"
-                    elif side == "R":
-                        new_name = f"Right {name}"
-                    else:
-                        new_name = name
-                    if len(chain) > target_count and i >= target_count:
-                        new_name += f"_{i - target_count + 1}"
-                    rename_map[bone.name] = new_name
-
-                realign_chain_tails(chain)
-
-            def build_finger_mapping(start_name, base, side, start_index=1):
-                if not is_valid_bone(start_name):
-                    return
-                bone = bones[start_name]
-                chain = []
-                while bone:
-                    chain.append(bone)
-                    bone = bone.children[0] if bone.children else None
-                for i, bone in enumerate(chain):
-                    rename_map[bone.name] = f"{base}{i+start_index}_{side}"
-
-                realign_chain_tails(chain)
-
-            # Eyes
-            if is_valid_bone(vs_arm.armature_map_eye_l):
-                rename_map[vs_arm.armature_map_eye_l] = "Left eye"
-            if is_valid_bone(vs_arm.armature_map_eye_r):
-                rename_map[vs_arm.armature_map_eye_r] = "Right eye"
-
-            # Hips to Chest
-            build_torso_chain(vs_arm.armature_map_pelvis, vs_arm.armature_map_chest)
-
-            # Neck to Head
-            if is_valid_bone(vs_arm.armature_map_chest) and is_valid_bone(vs_arm.armature_map_head):
-                build_neck_chain(vs_arm.armature_map_chest, vs_arm.armature_map_head)
-
-            # Legs
-            build_chain_mapping(vs_arm.armature_map_thigh_l, vs_arm.armature_map_ankle_l,
-                                ["leg", "knee", "ankle"], side="L")
-            if is_valid_bone(vs_arm.armature_map_toe_l):
-                rename_map[vs_arm.armature_map_toe_l] = "Left toe"
-
-            build_chain_mapping(vs_arm.armature_map_thigh_r, vs_arm.armature_map_ankle_r,
-                                ["leg", "knee", "ankle"], side="R")
-            if is_valid_bone(vs_arm.armature_map_toe_r):
-                rename_map[vs_arm.armature_map_toe_r] = "Right toe"
-
-            # Arms
-            build_chain_mapping(vs_arm.armature_map_shoulder_l, vs_arm.armature_map_wrist_l,
-                                ["shoulder", "arm", "elbow", "wrist"], side="L")
-            build_chain_mapping(vs_arm.armature_map_shoulder_r, vs_arm.armature_map_wrist_r,
-                                ["shoulder", "arm", "elbow", "wrist"], side="R")
-
-            # Fingers
-            build_finger_mapping(vs_arm.armature_map_index_f_l, "IndexFinger", "L", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_middle_f_l, "MiddleFinger", "L", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_ring_f_l, "RingFinger", "L", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_pinky_f_l, "LittleFinger", "L", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_thumb_f_l, "Thumb", "L", start_index=0)
-
-            build_finger_mapping(vs_arm.armature_map_index_f_r, "IndexFinger", "R", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_middle_f_r, "MiddleFinger", "R", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_ring_f_r, "RingFinger", "R", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_pinky_f_r, "LittleFinger", "R", start_index=1)
-            build_finger_mapping(vs_arm.armature_map_thumb_f_r, "Thumb", "R", start_index=0)
-
-            old_to_new = {}
-            for old_name, new_name in rename_map.items():
-                if old_name in bones:
-                    bones[old_name].name = new_name
-                    old_to_new[old_name] = new_name
-
-            # Update properties with new names
-            for attr in dir(vs_arm):
-                if not attr.startswith("armature_map_"):
-                    continue
-                old_val = getattr(vs_arm, attr)
-                if old_val in old_to_new:
-                    setattr(vs_arm, attr, old_to_new[old_val])
-
-            return old_to_new
-        
-        def writeMissingBone(bone_name: str, child_hint: str | None = None):
-            """Create a missing bone and its parent if needed.
-            child_hint = existing child bone name (used to position the new bone)."""
-
-            existing = arm.data.edit_bones.get(bone_name)
-            if existing:
-                return existing
-
-            bone_data = boneElems.get(bone_name)
-            if not bone_data:
-                print(f"[WARN] No JSON entry for '{bone_name}', skipping.")
-                return None
-
-            new_bone = arm.data.edit_bones.new(bone_name)
-
-            # Position based on the child if available
-            if child_hint:
-                child_bone = arm.data.edit_bones.get(child_hint)
-                if child_bone:
-                    new_bone.head = child_bone.head.copy()
-                    new_bone.tail = child_bone.tail.copy()
-                    new_bone.length = child_bone.length * 0.5
-                else: 
-                    new_bone.head = Vector((0, 0, 0))  # what is all of these?
-                    new_bone.tail = Vector((0, 0.1, 0))
-            else:
-                new_bone.head = Vector((0, 0, 0))
-                new_bone.tail = Vector((0, 0.1, 0))
-
-            parent_name = bone_data.get("ParentBone")
-            if parent_name and parent_name != bone_name:
-                parent_bone = arm.data.edit_bones.get(parent_name)
-                if not parent_bone:
-                    parent_bone = writeMissingBone(parent_name, child_hint=bone_name)
-
-                if parent_bone:
-                    new_bone.parent = parent_bone
-
-            if child_hint:
-                child_bone = arm.data.edit_bones.get(child_hint)
-                if child_bone and child_bone.parent != new_bone:
-                    child_bone.parent = new_bone
-                    
-                for col in child_bone.collections:
-                    col.assign(new_bone)
-
-            print(f"[CREATE] {bone_name} (Parent: {parent_name})")
-            return new_bone
-
-        if arm.vs.armature_map_ishumanoid:
-            bone_remapped = remapped_humanoid_armature_bones(arm)
-            if not bone_remapped:
-                self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
-                return {'CANCELLED'}
-        
-        with PreserveContextMode(arm, 'EDIT'):
-            arm.show_in_front = True
-            arm.display_type = 'WIRE'
-            arm.data.show_axes = True
-            
-            for bone_name, bone_data in boneElems.items():
-                bone = arm.data.edit_bones.get(bone_name)
-
-                if bone is None:
-                    print(f"[SKIP] {bone_name} not found in armature, skipping creation.")
-                    continue
-
-                parent_name = bone_data.get("ParentBone")
-                if parent_name and arm.data.edit_bones.get(parent_name) is None:
-                    writeMissingBone(parent_name, child_hint=bone_name)
-                
-                rot = bone_data.get("Rotation")
-                roll = bone_data.get("Roll")
-                if rot is not None and roll is not None:
-                    rotatedbones = assignBoneAngles(arm, [(bone_name, rot[0], rot[1], rot[2], roll)])
-                elif rot is None and roll is not None:
-                    rotatedbones = assignBoneAngles(arm, [(bone_name, None, None, None, roll)])
-                else:
-                    pass
-                
-                bone = arm.data.edit_bones.get(bone_name)
-                twisttarget = bone_data.get("TwistBones")
-                if twisttarget:
-                    twistbone = arm.data.edit_bones.get(bone_name + " twist")
-                    
-                    if not twistbone:
-                        twistbone = arm.data.edit_bones.new(bone_name + " twist")
-                        twistbone.head = bone.head
-                        twistbone.tail = bone.tail
-                        twistbone.roll = bone.roll
-                        twistbone.length = bone.length * 0.5
-                        twistbone.parent = bone
-                    else:
-                        twistbone.head = bone.head
-                        twistbone.tail = bone.tail
-                        twistbone.length = bone.length * 0.5
-                        twistbone.roll = bone.roll
-                        twistbone.parent = bone
-                
-            bpy.ops.object.mode_set(mode='OBJECT')
-            
-            for bone_name, bone_data in boneElems.items():
-                pb = arm.pose.bones.get(bone_name)
-                if pb:
-                    if bone_data.get("ExportRotationOffset") is not None:
-                        pb.bone.vs.ignore_rotation_offset = False
-                        pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
-                        pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
-                        pb.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
-                    else:
-                        pb.bone.vs.ignore_rotation_offset = True
-                        
-                    if bone_data.get("ExportName") is not None:
-                        pb.bone.vs.export_name = bone_data.get("ExportName")
-                    
-                pbtwist = arm.pose.bones.get(bone_name + " twist")
-                if pbtwist:
-                    twisttarget = bone_data.get("TwistBones")
-                    
-                    if bone_data.get("ExportRotationOffset") is not None:
-                        pbtwist.bone.vs.ignore_rotation_offset = False
-                        pbtwist.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
-                        pbtwist.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
-                        pbtwist.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
-                    else:
-                        pbtwist.bone.vs.ignore_rotation_offset = True
-                    
-                    twistconstraint : bpy.types.CopyRotationConstraint = pbtwist.constraints.new('COPY_ROTATION')
-                    twistconstraint.target = arm
-                    twistconstraint.subtarget = twisttarget
-                    twistconstraint.use_x = False
-                    twistconstraint.use_y = True
-                    twistconstraint.use_z = False
-                    twistconstraint.owner_space = 'LOCAL'
-                    twistconstraint.target_space = 'LOCAL'
-                    
-                    if twisttarget == pbtwist.parent.name:
-                        twistconstraint.invert_y = True
-                        twistconstraint.influence = 0.8
-                    else:
-                        twistconstraint.influence = 0.65
-                        
-                    for col in pb.bone.collections:
-                        col.assign(pbtwist.bone)
-                     
-        self.report({"INFO"}, "Armature Converted successfully.")
-        return {"FINISHED"}
-
-class ARMATUREMAPPER_OT_LoadPreset(bpy.types.Operator):
-    bl_idname = "armaturemapper.load_preset"
-    bl_label = "Load Preset"
-    bl_options = {"INTERNAL", "REGISTER"}
-
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.object)
-
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-    def execute(self, context):
-        if not self.filepath:
-            self.report({'ERROR'}, "No file selected")
-            return {'CANCELLED'}
-
-        if not self.filepath.lower().endswith(".json"):
-            self.report({'ERROR'}, "File must be a .json")
-            return {'CANCELLED'}
-
-        if not os.path.exists(self.filepath):
-            self.report({'ERROR'}, "File does not exist")
-            return {'CANCELLED'}
-
-        ob = context.object
-
-        with open(self.filepath, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        items = ob.vs.armature_map_bonecollections
-        items.clear()
-
-        bone_names = {b.name for b in ob.data.bones}
-
-        for boneData in data:
-            bone_name = boneData.get("BoneName", "")
-            export_name = boneData.get("ExportName", "")
-            parent_bone = boneData.get("ParentBone", "")
-            rotation = boneData.get("Rotation", None)
-            roll = boneData.get("Roll", None)
-            export_rot_offset = boneData.get("ExportRotationOffset", None)
-            twist_bone = boneData.get("TwistBones", None)
-
-            if export_name not in bone_names:
-                continue
-
-            new_item = items.add()
-            new_item.boneExportName = export_name
-            new_item.boneName = bone_name
-            
-            new_item.parentBone = parent_bone if parent_bone else ""
-
-            if rotation is not None:
-                new_item.writeRotation = 'ROTATION'
-            elif roll is not None:
-                new_item.writeRotation = 'ROLL'
-            else:
-                new_item.writeRotation = 'NONE'
-
-            if export_rot_offset:
-                new_item.writeExportRotationOffset = True
-
-            if twist_bone:
-                new_item.writeTwistBone = True
-                new_item.twistBoneTarget = twist_bone
-
-        self.report({'INFO'}, f"Loaded preset from: {self.filepath} ({len(items)} items)")
-        return {'FINISHED'}
-
-class SMD_PT_Tools_Bone(ToolsSubPanel):
+class TOOLS_PT_Bone(ToolsSubPanel):
     bl_label = "Bone Tools"
-    
-    def draw_header(self, context):
-        self.layout.label(icon='BONE_DATA')
     
     @classmethod
     def poll(cls, context):
@@ -2065,19 +1289,21 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
             self.report({'WARNING'}, f"Copied with {error} errors")
 
         return {"FINISHED"}
-    
-class SMD_PT_Tools_Mesh(ToolsSubPanel):
+
+# =================================
+# MESH TOOLS
+# =================================
+
+class TOOLS_PT_Mesh(ToolsSubPanel):
     bl_label = "Mesh Tools"
-    
-    def draw_header(self, context):
-        self.layout.label(icon='MESH_DATA')
-    
-    @classmethod
-    def poll(cls, context):
-        return is_mesh(context.object)
     
     def draw(self, context):
         l = self.layout
+        if is_mesh(context.object): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            return
+        
         bx = l.box()
         
         col = bx.column()
@@ -2204,19 +1430,21 @@ class TOOLS_OT_RemoveUnusedVertexGroups(bpy.types.Operator):
         self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
         return {'FINISHED'}
 
-class SMD_PT_Tools_VertexGroup(ToolsSubPanel):
-    bl_label = "VertexGroup Tools"
-    
-    def draw_header(self, context):
-        self.layout.label(icon='GROUP_VERTEX')
-    
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE')
+# =================================
+# VERTEX GROUP TOOLS
+# =================================
+
+class TOOLS_PT_VertexGroup(ToolsSubPanel):
+    bl_label = "Vertex Group Tools"
     
     def draw(self, context):
         l = self.layout
+        ob = context.object
+        if (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE'): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
+            return
+        
         bx = l.box()
         
         col = bx.column()
@@ -2538,39 +1766,1099 @@ class TOOLS_OT_AddToonEdgeLine(bpy.types.Operator):
 
         return {"FINISHED"}
 
-class SMD_PT_ValveModel(SMD_PT_toolpanel, Panel):
+class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
+    bl_idname = 'tools.curve_ramp_weights'
+    bl_label = 'Curve Ramp Bone Weights'
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    min_weight_mask: FloatProperty(name="Min Weight Mask", default=0.001, min=0.001, max=0.9, precision=4)
+    max_weight_mask: FloatProperty(name="Max Weight Mask", default=1.0, min=0.01, max=1.0, precision=4)
+    invert_ramp: BoolProperty(name="Invert Ramp Direction", default=False)
+    normalize_to_parent: BoolProperty(name="Normalize Weight", default=True)
+    constant_mask: BoolProperty(name="Ignore Vertex Value Mask", default=False)
+    
+    vertex_group_target: StringProperty(
+        name="Target Vertex Group",
+        description="Vertex group to receive residuals",
+        default=""
+    )
+    
+    is_humanoid_limb_twist: BoolProperty(name="Handle Limb Twist Bones", default=False)
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+
+        col = layout.column(align=True)
+        col.label(text="Weight Mask:")
+        col.prop(self, "min_weight_mask", slider=True)
+        col.prop(self, "max_weight_mask", slider=True)
+
+        col.separator()
+        col.label(text="Options:")
+        row = col.row(align=True)
+        col.prop(self, "invert_ramp", toggle=True)
+        row.prop(self, "constant_mask", toggle=True)
+        row.prop(self, "normalize_to_parent", toggle=True)
+        col.prop(self, "is_humanoid_limb_twist", toggle=True)
+
+        if not self.is_humanoid_limb_twist:
+            col.separator()
+            col.label(text="Target Vertex Group:")
+            col.prop_search(
+                self,
+                "vertex_group_target",
+                context.object,
+                "vertex_groups",
+                text=""
+            )
+            
+        col = layout.column(align=True)
+        tool_settings = context.tool_settings
+        brush = tool_settings.weight_paint.brush
+        row = col.row(align=True)
+            
+        col.template_curve_mapping(brush, "curve", brush=False)
+        row = col.row(align=True)
+        row.operator("brush.curve_preset", icon='SMOOTHCURVE', text="").shape = 'SMOOTH'
+        row.operator("brush.curve_preset", icon='SPHERECURVE', text="").shape = 'ROUND'
+        row.operator("brush.curve_preset", icon='ROOTCURVE', text="").shape = 'ROOT'
+        row.operator("brush.curve_preset", icon='SHARPCURVE', text="").shape = 'SHARP'
+        row.operator("brush.curve_preset", icon='LINCURVE', text="").shape = 'LINE'
+        row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
+    
+    def execute(self, context):
+        arm_obj = getArmature(context.object)
+            
+        if arm_obj is None:
+            return {'CANCELLED'}
+        
+        if arm_obj.select_get():
+            selected_bones = getBones(arm_obj, sorted=True, bonetype='POSEBONE', reverse_sort=True)
+        else:
+            selected_bones = [arm_obj.pose.bones.get(context.object.vertex_groups.active.name)]
+            
+        if not selected_bones:
+            self.report({'ERROR'}, "No bones selected.")
+            return {'CANCELLED'}
+        
+        og_arm_pose_mode = arm_obj.data.pose_position
+        arm_obj.data.pose_position = 'REST'
+        bpy.context.view_layer.update()
+        
+        with PreserveContextMode(context.object,'WEIGHT_PAINT'), PreserveArmatureState(arm_obj):
+            try:
+                for bone in selected_bones:
+                    target_vg = None
+                    if self.is_humanoid_limb_twist:
+                        twist_name = f"{bone.name} twist"
+                        target_vg = twist_name
+                    else:
+                        target_vg = self.vertex_group_target if self.vertex_group_target else None
+
+                    curve = context.tool_settings.weight_paint.brush.curve
+
+                    convert_weight_to_curve_ramp(
+                        arm=arm_obj,
+                        bones=[bone],
+                        curve=curve,
+                        invert=self.invert_ramp,
+                        vertex_group_target=target_vg,
+                        min_weight_mask=self.min_weight_mask,
+                        max_weight_mask=self.max_weight_mask,
+                        normalize_to_parent=self.normalize_to_parent,
+                        constant_mask=self.constant_mask,
+                    )
+            except:
+                pass
+        
+        arm_obj.data.pose_position = og_arm_pose_mode
+        bpy.context.view_layer.update()
+        
+        self.report({'INFO'}, f'Processed {len(selected_bones)} Bones')
+        return {'FINISHED'}
+
+class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
+    bl_idname = 'tools.split_active_weights_linear'
+    bl_label = 'Split Active Weights Linearly'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    smoothness: FloatProperty(
+        name="Smoothness",
+        description="Smoothness of the weight split (0 = hard cut, 1 = full smooth blend)",
+        min=0.0, max=1.0,
+        default=0.6
+    )
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
+        
+        arm = getArmature(ob)
+        if arm is None: return False
+        
+        return arm.data.bones.active 
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def get_vgroup_index(self, mesh, name):
+        for i, vg in enumerate(mesh.vertex_groups):
+            if vg.name == name:
+                return i
+        return None
+
+    def clamp(self, x, a, b):
+        return max(a, min(x, b))
+
+    def remap(self, value, minval, maxval):
+        if maxval - minval == 0:
+            return 0.5
+        return (value - minval) / (maxval - minval)
+
+    def project_point_onto_line(self, p, a, b):
+        ap = p - a
+        ab = b - a
+        ab_len_sq = ab.length_squared
+        if ab_len_sq == 0.0:
+            return 0.0
+        return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
+
+    def execute(self, context):
+        arm = getArmature(context.object)
+        bones = getBones(arm,sorted=True,bonetype='POSEBONE',)
+        active_bone = arm.data.bones.active
+
+        if not bones or len(bones) != 2 or not active_bone:
+            self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
+            return {'CANCELLED'}
+        
+        og_arm_pose_mode = arm.data.pose_position
+        arm.data.pose_position = 'REST'
+        bpy.context.view_layer.update()
+
+        bone1 = bones[0]
+        bone2 = bones[1]
+        active = active_bone
+
+        bone1_name = bone1.name
+        bone2_name = bone2.name
+        active_name = active.name
+
+        arm_matrix = arm.matrix_world
+        p1 = arm_matrix @ ((bone1.head + bone1.tail) * 0.5)
+        p2 = arm_matrix @ ((bone2.head + bone2.tail) * 0.5)
+
+        meshes = getArmatureMeshes(arm, visible_only=context.scene.vs.visible_mesh_only)
+
+        for mesh in meshes:
+            vg_active = self.get_vgroup_index(mesh, active_name)
+            vg1 = mesh.vertex_groups.get(bone1_name)
+            if vg1 is None:
+                vg1 = mesh.vertex_groups.new(name=bone1_name)
+
+            vg2 = mesh.vertex_groups.get(bone2_name)
+            if vg2 is None:
+                vg2 = mesh.vertex_groups.new(name=bone2_name)
+
+            if vg_active is None or vg1 is None or vg2 is None:
+                continue
+
+            vtx_weights = {}
+            for v in mesh.data.vertices:
+                for g in v.groups:
+                    if g.group == vg_active:
+                        vtx_weights[v.index] = g.weight
+                        break
+
+            for vidx, weight in vtx_weights.items():
+                vertex = mesh.data.vertices[vidx]
+                world_pos = mesh.matrix_world @ vertex.co
+
+                t = self.project_point_onto_line(world_pos, p1, p2)
+
+                if self.smoothness == 0.0:
+                    w1 = weight if t < 0.5 else 0.0
+                    w2 = weight if t >= 0.5 else 0.0
+                else:
+                    s = self.smoothness
+                    edge0 = 0.0 + s * 0.5
+                    edge1 = 1.0 - s * 0.5
+                    smooth_t = self.remap(t, edge0, edge1)
+                    smooth_t = self.clamp(smooth_t, 0.0, 1.0)
+                    w1 = weight * (1.0 - smooth_t)
+                    w2 = weight * smooth_t
+
+                vg1.add([vidx], w1, 'ADD')
+                vg2.add([vidx], w2, 'ADD')
+
+            mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
+        
+        with PreserveContextMode(arm, 'EDIT'):
+            removeBone(arm,active_bone.name)
+        
+        arm.data.pose_position = og_arm_pose_mode
+
+        self.report({'INFO'}, f"Split {active_name} between {bone1_name} and {bone2_name}")
+        return {'FINISHED'} 
+
+# =================================
+# ARMATURE MAPPER TOOL
+# =================================
+
+class ARMATUREMAPPER_PT_ArmatureMapper(ToolsSubPanel):
+    bl_label = 'Armature Mapper'
+    
+    def draw(self, context):
+        l = self.layout
+        ob = context.object
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
+        
+        col = bx.column()
+        
+        if ob: pass
+        else:
+            draw_wrapped_text_col(col,"Select an Armature",max_chars=40 , icon='HELP')
+            return
+        
+        row = bx.row(align=True)
+        row.prop(context.scene.vs, 'defineArmatureCategory', expand=True)
+        
+        if context.scene.vs.defineArmatureCategory == 'WRITE':
+            col = bx.column(align=False)
+            draw_wrapped_text_col(col,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP')
+            col = bx.column()
+            col.operator(ARMATUREMAPPER_OT_LoadPreset.bl_idname)
+
+            col = bx.column(align=False)
+            row = bx.row()
+            row.template_list(
+                "ARMATUREMAPPER_UL_BoneList",
+                "",
+                context.object.vs,
+                "armature_map_bonecollections",
+                context.object.vs,
+                "armature_map_bonecollections_index",
+                rows=3
+            )
+            row = bx.row()
+            row.scale_y = 1.25
+            split = row.split(factor=0.4,align=True)
+            split.operator(ARMATUREMAPPER_OT_AddItem.bl_idname, icon="ADD", text=ARMATUREMAPPER_OT_AddItem.bl_label).add_type = 'SINGLE'
+            split.operator(ARMATUREMAPPER_OT_AddItem.bl_idname, icon="ADD", text=ARMATUREMAPPER_OT_AddItem.bl_label + " (Selected Bones)").add_type = 'SELECTED'
+            
+            if 0 <= context.object.vs.armature_map_bonecollections_index < len(context.object.vs.armature_map_bonecollections):
+                item = context.object.vs.armature_map_bonecollections[context.object.vs.armature_map_bonecollections_index]
+                
+                col = bx.column(align=True)
+                col.prop(item, "boneExportName")
+                col.alert = not bool(item.boneName.strip())
+                col.prop(item, "boneName")
+                col.alert = False
+                col.prop(item, "parentBone")
+                col.row().prop(item, "writeRotation", expand=True)
+                col.prop(item, "writeExportRotationOffset")
+                col.prop(item, "writeTwistBone")
+                if item.writeTwistBone:
+                    col.prop(item, "twistBoneTarget")
+                bx.operator(ARMATUREMAPPER_OT_WriteJson.bl_idname, icon='FILE')
+                
+        else:
+            col = bx.column(align=False)
+            if context.object.vs.armature_map_ishumanoid:
+                draw_wrapped_text_col(col,'This will rename the bones to match a similar VRChat-style rig. The bone map includes Left and Right shoulder, arm, elbow, wrist, thigh, knee, ankle, and toe, as well as a central chain of Hips → Lower Spine → Spine → Lower Chest → Chest → Neck → Head. Finger bones follow the format Index/Middle/Ring/LittleFingers1–3_L/R and Thumb0–2_L/R.',max_chars=40, icon='HELP')
+            else:
+                draw_wrapped_text_col(col,'Non-Humanoid is untested',max_chars=40, icon='WARNING_LARGE',alert=True)
+            
+            col = bx.column(align=True)
+            col.prop(context.object.vs, 'armature_map_ishumanoid', toggle=True)
+            
+            if context.object.vs.armature_map_ishumanoid:
+                col = bx.column(align=True)
+                col = col.box()
+                col = col.column(align=True)
+                
+                draw_wrapped_text_col(col,text='Head, Chest and Pelvis are required to have inputs', icon='HELP')
+                col.prop_search(context.object.vs, 'armature_map_head',   context.object.data, "bones", text="Head")
+                col.prop_search(context.object.vs, 'armature_map_chest',  context.object.data, "bones", text="Chest")
+                col.prop_search(context.object.vs, 'armature_map_pelvis', context.object.data, "bones", text="Pelvis")
+
+                col.separator()
+                col.separator(type='LINE')
+                col.separator()
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Eye L & R')
+                row.prop_search(context.object.vs, 'armature_map_eye_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_eye_r', context.object.data, "bones", text="")
+
+                col.separator()
+                col.separator(type='LINE')
+                col.separator()
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Thigh L & R')
+                row.prop_search(context.object.vs, 'armature_map_thigh_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_thigh_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Ankle L & R')
+                row.prop_search(context.object.vs, 'armature_map_ankle_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_ankle_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Toe L & R')
+                row.prop_search(context.object.vs, 'armature_map_toe_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_toe_r', context.object.data, "bones", text="")
+
+                col.separator()
+                col.separator(type='LINE')
+                col.separator()
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Shoulder L & R')
+                row.prop_search(context.object.vs, 'armature_map_shoulder_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_shoulder_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Wrist L & R')
+                row.prop_search(context.object.vs, 'armature_map_wrist_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_wrist_r', context.object.data, "bones", text="")
+
+                col.separator()
+                col.separator(type='LINE')
+                col.separator()
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Thumb L & R')
+                row.prop_search(context.object.vs, 'armature_map_thumb_f_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_thumb_f_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Index L & R')
+                row.prop_search(context.object.vs, 'armature_map_index_f_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_index_f_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Middle L & R')
+                row.prop_search(context.object.vs, 'armature_map_middle_f_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_middle_f_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Ring L & R')
+                row.prop_search(context.object.vs, 'armature_map_ring_f_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_ring_f_r', context.object.data, "bones", text="")
+
+                row = col.row(align=True)
+                row.scale_x = 0.2
+                row.label(text='Pinky L & R')
+                row.prop_search(context.object.vs, 'armature_map_pinky_f_l', context.object.data, "bones", text="")
+                row.prop_search(context.object.vs, 'armature_map_pinky_f_r', context.object.data, "bones", text="")
+                
+            col.operator(ARMATUREMAPPER_OT_LoadJson.bl_idname)
+ 
+class ARMATUREMAPPER_UL_BoneList(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if item:
+            row = layout.row()
+            split = row.split(factor=0.9)
+            split.prop(item, 'boneExportName', text="")
+            split.label(text="", )
+            row.operator(ARMATUREMAPPER_OT_RemoveItem.bl_idname, text="", icon="X").index = index
+
+class ARMATUREMAPPER_OT_AddItem(bpy.types.Operator):
+    bl_idname = "armaturemapper.add_item"
+    bl_label = "Add Bone"
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+    
+    add_type: bpy.props.EnumProperty(items=[
+        ('SELECTED', 'Selected', 'Add all selected bones'),
+        ('SINGLE', 'Single', 'Add an empty item')
+    ])
+    
+    def execute(self, context):
+        ob = context.object
+        if not ob or ob.type != 'ARMATURE':
+            self.report({'ERROR'}, "Active object must be an armature")
+            return {'CANCELLED'}
+        
+        collection = ob.vs.armature_map_bonecollections
+
+        if self.add_type == 'SINGLE':
+            collection.add()
+            return {'FINISHED'}
+        
+        if context.mode != 'POSE':
+            self.report({'ERROR'}, "Must be in Pose mode to add selected bones")
+            return {'CANCELLED'}
+        
+        existing_names = {item.boneExportName for item in collection if hasattr(item, "boneExportName")}
+        skipped = 0
+        
+        for pb in context.selected_pose_bones:
+            if pb.name in existing_names:
+                skipped += 1
+                continue
+            item = collection.add()
+            if 'boneExportName' in item.bl_rna.properties:
+                item.boneExportName = pb.name
+        
+        if skipped > 0:
+            self.report({'INFO'}, f"Skipped {skipped} already existing bone(s)")
+        
+        return {'FINISHED'}
+
+class ARMATUREMAPPER_OT_RemoveItem(bpy.types.Operator):
+    bl_idname = "armaturemapper.remove_item"
+    bl_label = "Remove Bone"
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+    
+    index: IntProperty()
+    
+    def execute(self, context):
+        coll = context.object.vs.armature_map_bonecollections
+        if 0 <= self.index < len(coll):
+            coll.remove(self.index)
+        return {'FINISHED'}
+               
+class ARMATUREMAPPER_OT_WriteJson(bpy.types.Operator):
+    bl_idname = "armaturemapper.write_json"
+    bl_label = "Write Json"
+    bl_options = {"INTERNAL", "REGISTER"}
+    
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object) and len(context.object.vs.armature_map_bonecollections) > 0
+    
+    def sortItemsByBoneHierarchy(self, ob, items):
+        """Return a list of items sorted by bone parent hierarchy."""
+        item_bone_map = {}
+        for item in items:
+            bone = ob.data.bones.get(item.boneExportName)
+            if bone:
+                item_bone_map[item] = bone
+
+        sorted_items = []
+        visited = set()
+
+        def dfs(bone):
+            if bone in visited:
+                return
+            visited.add(bone)
+            for itm, b in item_bone_map.items():
+                if b == bone:
+                    sorted_items.append(itm)
+                    break
+            for child in bone.children:
+                dfs(child)
+
+        for bone in ob.data.bones:
+            if bone.parent is None:
+                dfs(bone)
+
+        return sorted_items
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({'ERROR'}, "No file path set")
+            return {'CANCELLED'}
+
+        if not self.filepath.lower().endswith(".json"):
+            self.report({'ERROR'}, "File must have a .json extension")
+            return {'CANCELLED'}
+        
+        ob = context.object
+        items = ob.vs.armature_map_bonecollections
+        bones = []
+        skipped_count = 0
+        
+        sorted_items = self.sortItemsByBoneHierarchy(ob, items)
+        with PreserveContextMode(ob, 'EDIT'):
+            for item in reversed(sorted_items):
+                if not item.boneName.strip():
+                    skipped_count += 1
+                    continue
+
+                if item.boneExportName not in ob.data.bones:
+                    skipped_count += 1
+                    continue
+
+                bone = ob.data.bones.get(item.boneExportName)
+                editbone = ob.data.edit_bones.get(item.boneExportName)
+                ebone_roll = editbone.roll
+                
+                boneDict = {
+                    "BoneName" : item.boneName,
+                    "ExportName" : item.boneExportName
+                }
+                
+                if not item.parentBone.strip():
+                    parent_bone = bone.parent
+                    if parent_bone:
+                        parent_item = next((i for i in items if i.boneExportName == parent_bone.name), None)
+                        if parent_item and parent_item.boneName.strip():
+                            boneDict["ParentBone"] = parent_item.boneName
+                        else:
+                            boneDict["ParentBone"] = parent_bone.name
+                else:
+                    boneDict["ParentBone"] = item.parentBone
+                
+                if item.writeRotation == 'ROTATION':
+                    head = bone.head_local
+                    tail = bone.tail_local
+                    tail_offset = tail - head
+                    boneDict['Rotation'] = [tail_offset.x, tail_offset.y, tail_offset.z]
+                    boneDict['Roll'] = ebone_roll
+                elif item.writeRotation == 'ROLL':
+                    boneDict['Roll'] = ebone_roll
+                    
+                if item.writeExportRotationOffset and not bone.vs.ignore_rotation_offset:
+                    boneDict['ExportRotationOffset'] = [
+                        bone.vs.export_rotation_offset_x,
+                        bone.vs.export_rotation_offset_y,
+                        bone.vs.export_rotation_offset_z
+                    ]
+                    
+                if item.writeTwistBone:
+                    if item.twistBoneTarget.strip(): 
+                        twist_name = item.twistBoneTarget.strip()
+                    else:
+                        parent_bone = bone.parent
+                        if parent_bone:
+                            parent_item = next((i for i in items if i.boneExportName == parent_bone.name), None)
+                            twist_name = parent_item.boneName if parent_item else parent_bone.name
+                        else:
+                            twist_name = None
+                            print(f'{item.boneExportName} cannot have twist due to not having a proper target bone')
+                        
+                    if twist_name:
+                        boneDict['TwistBones'] = twist_name
+                    
+                bones.append(boneDict)
+        
+        if bones:
+            os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
+            with open(self.filepath, "w", encoding="utf-8") as f:
+                json.dump(bones, f, indent=4)
+
+            self.report({'INFO'}, f"Exported JSON to: {self.filepath} | Skipped {skipped_count} bone(s)")
+        else:
+            self.report({'WARNING'}, f"No bones exported. Skipped {skipped_count} bone(s)")
+        
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+class ARMATUREMAPPER_OT_LoadJson(Operator):
+    bl_idname = "armaturemapper.load_json"
+    bl_label = "Load JSON"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+
+    ignore_export_name: BoolProperty(
+        name="Ignore Export Name",
+        description="Ignore the export name field in the JSON",
+        default=False
+    )
+
+    def invoke(self, context, event):
+        # Opens the file browser
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+
+        json_path = self.filepath
+
+        if not json_path.lower().endswith(".json"):
+            self.report({"ERROR"}, "Please select a JSON file")
+            return {"CANCELLED"}
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        boneElems = {entry["BoneName"]: entry for entry in data}
+
+        arm = getArmature(context.object)
+        if arm is None:
+            self.report({"ERROR"}, "No valid armature selected")
+            return {"CANCELLED"}
+        
+        def remapped_humanoid_armature_bones(arm: bpy.types.Object):
+            vs_arm = getattr(arm, "vs", None)
+            if not vs_arm:
+                return False
+
+            bones = arm.data.bones
+            rename_map = {}
+
+            def is_valid_bone(name: str) -> bool:
+                return bool(name) and isinstance(name, str) and name in arm.data.bones.keys()
+
+            # Conflict check
+            bone_props = [attr for attr in dir(vs_arm) if attr.startswith("armature_map_")]
+            bone_values = [getattr(vs_arm, prop) for prop in bone_props]
+            if all(not v for v in bone_values):
+                return True
+            selected_bones = [v for v in bone_values if is_valid_bone(v)]
+            seen, duplicates = set(), set()
+            for b in selected_bones:
+                if b in seen:
+                    duplicates.add(b)
+                else:
+                    seen.add(b)
+            if duplicates:
+                print(f"[Humanoid Rename] Conflicting assignments: {duplicates}")
+                return False
+
+            # Helpers
+            def collect_chain(start_name, end_name):
+                if not (is_valid_bone(start_name) and is_valid_bone(end_name)):
+                    return []
+
+                start_bone = bones[start_name]
+                end_bone = bones[end_name]
+
+                def dfs(bone, target, path):
+                    path.append(bone)
+                    if bone == target:
+                        return True
+                    for child in bone.children:
+                        if dfs(child, target, path):
+                            return True
+                    path.pop()
+                    return False
+
+                chain = []
+                if dfs(start_bone, end_bone, chain):
+                    return chain
+                return []
+
+            def realign_chain_tails(chain):
+                if len(chain) < 2:
+                    return
+                # Must be in EDIT mode
+                prev_mode = arm.mode
+                if bpy.context.object != arm:
+                    bpy.context.view_layer.objects.active = arm
+                bpy.ops.object.mode_set(mode='EDIT')
+
+                edit_bones = arm.data.edit_bones
+                for i in range(len(chain) - 1):
+                    a = edit_bones.get(chain[i].name)
+                    b = edit_bones.get(chain[i + 1].name)
+                    if a and b:
+                        a.tail = b.head
+
+                bpy.ops.object.mode_set(mode=prev_mode)
+
+            def build_torso_chain(pelvis_name, chest_name):
+                chain = collect_chain(pelvis_name, chest_name)
+                if len(chain) < 2:
+                    return
+                names = ["Hips"]
+                middle_count = len(chain) - 2
+                if middle_count == 1:
+                    names.append("Spine")
+                elif middle_count == 2:
+                    names.extend(["Lower Spine", "Spine"])
+                elif middle_count == 3:
+                    names.extend(["Lower Spine", "Spine", "Lower Chest"])
+                elif middle_count > 3:
+                    names.extend(["Lower Spine", "Spine", "Lower Chest"])
+                    names.extend([f"Spine_{i+1}" for i in range(middle_count - 3)])
+                names.append("Chest")
+                
+                for bone, new_name in zip(chain, names):
+                    rename_map[bone.name] = new_name
+                
+                realign_chain_tails(chain)
+
+            def build_neck_chain(chest_name, head_name):
+                chain = collect_chain(chest_name, head_name)
+                if len(chain) < 2:
+                    return
+                for i, bone in enumerate(chain[1:-1], 1):
+                    rename_map[bone.name] = "Neck" if i == 1 else f"Neck_{i-1}"
+                rename_map[head_name] = "Head"
+
+                realign_chain_tails(chain)
+
+            def build_chain_mapping(start_name, end_name, base_names, side=None):
+                chain = collect_chain(start_name, end_name)
+                if not chain:
+                    return
+                target_count = len(base_names)
+                for i, bone in enumerate(chain):
+                    idx = min(i, target_count - 1)
+                    name = base_names[idx]
+                    if side == "L":
+                        new_name = f"Left {name}"
+                    elif side == "R":
+                        new_name = f"Right {name}"
+                    else:
+                        new_name = name
+                    if len(chain) > target_count and i >= target_count:
+                        new_name += f"_{i - target_count + 1}"
+                    rename_map[bone.name] = new_name
+
+                realign_chain_tails(chain)
+
+            def build_finger_mapping(start_name, base, side, start_index=1):
+                if not is_valid_bone(start_name):
+                    return
+                bone = bones[start_name]
+                chain = []
+                while bone:
+                    chain.append(bone)
+                    bone = bone.children[0] if bone.children else None
+                for i, bone in enumerate(chain):
+                    rename_map[bone.name] = f"{base}{i+start_index}_{side}"
+
+                realign_chain_tails(chain)
+
+            # Eyes
+            if is_valid_bone(vs_arm.armature_map_eye_l):
+                rename_map[vs_arm.armature_map_eye_l] = "Left eye"
+            if is_valid_bone(vs_arm.armature_map_eye_r):
+                rename_map[vs_arm.armature_map_eye_r] = "Right eye"
+
+            # Hips to Chest
+            build_torso_chain(vs_arm.armature_map_pelvis, vs_arm.armature_map_chest)
+
+            # Neck to Head
+            if is_valid_bone(vs_arm.armature_map_chest) and is_valid_bone(vs_arm.armature_map_head):
+                build_neck_chain(vs_arm.armature_map_chest, vs_arm.armature_map_head)
+
+            # Legs
+            build_chain_mapping(vs_arm.armature_map_thigh_l, vs_arm.armature_map_ankle_l,
+                                ["leg", "knee", "ankle"], side="L")
+            if is_valid_bone(vs_arm.armature_map_toe_l):
+                rename_map[vs_arm.armature_map_toe_l] = "Left toe"
+
+            build_chain_mapping(vs_arm.armature_map_thigh_r, vs_arm.armature_map_ankle_r,
+                                ["leg", "knee", "ankle"], side="R")
+            if is_valid_bone(vs_arm.armature_map_toe_r):
+                rename_map[vs_arm.armature_map_toe_r] = "Right toe"
+
+            # Arms
+            build_chain_mapping(vs_arm.armature_map_shoulder_l, vs_arm.armature_map_wrist_l,
+                                ["shoulder", "arm", "elbow", "wrist"], side="L")
+            build_chain_mapping(vs_arm.armature_map_shoulder_r, vs_arm.armature_map_wrist_r,
+                                ["shoulder", "arm", "elbow", "wrist"], side="R")
+
+            # Fingers
+            build_finger_mapping(vs_arm.armature_map_index_f_l, "IndexFinger", "L", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_middle_f_l, "MiddleFinger", "L", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_ring_f_l, "RingFinger", "L", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_pinky_f_l, "LittleFinger", "L", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_thumb_f_l, "Thumb", "L", start_index=0)
+
+            build_finger_mapping(vs_arm.armature_map_index_f_r, "IndexFinger", "R", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_middle_f_r, "MiddleFinger", "R", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_ring_f_r, "RingFinger", "R", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_pinky_f_r, "LittleFinger", "R", start_index=1)
+            build_finger_mapping(vs_arm.armature_map_thumb_f_r, "Thumb", "R", start_index=0)
+
+            old_to_new = {}
+            for old_name, new_name in rename_map.items():
+                if old_name in bones:
+                    bones[old_name].name = new_name
+                    old_to_new[old_name] = new_name
+
+            # Update properties with new names
+            for attr in dir(vs_arm):
+                if not attr.startswith("armature_map_"):
+                    continue
+                old_val = getattr(vs_arm, attr)
+                if old_val in old_to_new:
+                    setattr(vs_arm, attr, old_to_new[old_val])
+
+            return old_to_new
+        
+        def writeMissingBone(bone_name: str, child_hint: str | None = None):
+            """Create a missing bone and its parent if needed.
+            child_hint = existing child bone name (used to position the new bone)."""
+
+            existing = arm.data.edit_bones.get(bone_name)
+            if existing:
+                return existing
+
+            bone_data = boneElems.get(bone_name)
+            if not bone_data:
+                print(f"[WARN] No JSON entry for '{bone_name}', skipping.")
+                return None
+
+            new_bone = arm.data.edit_bones.new(bone_name)
+
+            # Position based on the child if available
+            if child_hint:
+                child_bone = arm.data.edit_bones.get(child_hint)
+                if child_bone:
+                    new_bone.head = child_bone.head.copy()
+                    new_bone.tail = child_bone.tail.copy()
+                    new_bone.length = child_bone.length * 0.5
+                else: 
+                    new_bone.head = Vector((0, 0, 0))  # what is all of these?
+                    new_bone.tail = Vector((0, 0.1, 0))
+            else:
+                new_bone.head = Vector((0, 0, 0))
+                new_bone.tail = Vector((0, 0.1, 0))
+
+            parent_name = bone_data.get("ParentBone")
+            if parent_name and parent_name != bone_name:
+                parent_bone = arm.data.edit_bones.get(parent_name)
+                if not parent_bone:
+                    parent_bone = writeMissingBone(parent_name, child_hint=bone_name)
+
+                if parent_bone:
+                    new_bone.parent = parent_bone
+
+            if child_hint:
+                child_bone = arm.data.edit_bones.get(child_hint)
+                if child_bone and child_bone.parent != new_bone:
+                    child_bone.parent = new_bone
+                    
+                for col in child_bone.collections:
+                    col.assign(new_bone)
+
+            print(f"[CREATE] {bone_name} (Parent: {parent_name})")
+            return new_bone
+
+        if arm.vs.armature_map_ishumanoid:
+            bone_remapped = remapped_humanoid_armature_bones(arm)
+            if not bone_remapped:
+                self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
+                return {'CANCELLED'}
+        
+        with PreserveContextMode(arm, 'EDIT'):
+            arm.show_in_front = True
+            arm.display_type = 'WIRE'
+            arm.data.show_axes = True
+            
+            for bone_name, bone_data in boneElems.items():
+                bone = arm.data.edit_bones.get(bone_name)
+
+                if bone is None:
+                    print(f"[SKIP] {bone_name} not found in armature, skipping creation.")
+                    continue
+
+                parent_name = bone_data.get("ParentBone")
+                if parent_name and arm.data.edit_bones.get(parent_name) is None:
+                    writeMissingBone(parent_name, child_hint=bone_name)
+                
+                rot = bone_data.get("Rotation")
+                roll = bone_data.get("Roll")
+                if rot is not None and roll is not None:
+                    rotatedbones = assignBoneAngles(arm, [(bone_name, rot[0], rot[1], rot[2], roll)])
+                elif rot is None and roll is not None:
+                    rotatedbones = assignBoneAngles(arm, [(bone_name, None, None, None, roll)])
+                else:
+                    pass
+                
+                bone = arm.data.edit_bones.get(bone_name)
+                twisttarget = bone_data.get("TwistBones")
+                if twisttarget:
+                    twistbone = arm.data.edit_bones.get(bone_name + " twist")
+                    
+                    if not twistbone:
+                        twistbone = arm.data.edit_bones.new(bone_name + " twist")
+                        twistbone.head = bone.head
+                        twistbone.tail = bone.tail
+                        twistbone.roll = bone.roll
+                        twistbone.length = bone.length * 0.5
+                        twistbone.parent = bone
+                    else:
+                        twistbone.head = bone.head
+                        twistbone.tail = bone.tail
+                        twistbone.length = bone.length * 0.5
+                        twistbone.roll = bone.roll
+                        twistbone.parent = bone
+                
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            for bone_name, bone_data in boneElems.items():
+                pb = arm.pose.bones.get(bone_name)
+                if pb:
+                    if bone_data.get("ExportRotationOffset") is not None:
+                        pb.bone.vs.ignore_rotation_offset = False
+                        pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
+                        pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
+                        pb.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
+                    else:
+                        pb.bone.vs.ignore_rotation_offset = True
+                        
+                    if bone_data.get("ExportName") is not None:
+                        pb.bone.vs.export_name = bone_data.get("ExportName")
+                    
+                pbtwist = arm.pose.bones.get(bone_name + " twist")
+                if pbtwist:
+                    twisttarget = bone_data.get("TwistBones")
+                    
+                    if bone_data.get("ExportRotationOffset") is not None:
+                        pbtwist.bone.vs.ignore_rotation_offset = False
+                        pbtwist.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
+                        pbtwist.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
+                        pbtwist.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
+                    else:
+                        pbtwist.bone.vs.ignore_rotation_offset = True
+                    
+                    twistconstraintName = bone_name + "Twist"
+                    twistconstraint = pbtwist.constraints.get(twistconstraintName)
+                    if twistconstraint is None:
+                        twistconstraint : bpy.types.CopyRotationConstraint = pbtwist.constraints.new('COPY_ROTATION')
+                        
+                    twistconstraint.target = arm
+                    twistconstraint.subtarget = twisttarget
+                    twistconstraint.use_x = False
+                    twistconstraint.use_y = True
+                    twistconstraint.use_z = False
+                    twistconstraint.owner_space = 'LOCAL'
+                    twistconstraint.target_space = 'LOCAL'
+                    
+                    if twisttarget == pbtwist.parent.name:
+                        twistconstraint.invert_y = True
+                        twistconstraint.influence = 0.8
+                    else:
+                        twistconstraint.influence = 0.65
+                        
+                    for col in pb.bone.collections:
+                        col.assign(pbtwist.bone)
+                     
+        self.report({"INFO"}, "Armature Converted successfully.")
+        return {"FINISHED"}
+
+class ARMATUREMAPPER_OT_LoadPreset(bpy.types.Operator):
+    bl_idname = "armaturemapper.load_preset"
+    bl_label = "Load Preset"
+    bl_options = {"INTERNAL", "REGISTER"}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object)
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({'ERROR'}, "No file selected")
+            return {'CANCELLED'}
+
+        if not self.filepath.lower().endswith(".json"):
+            self.report({'ERROR'}, "File must be a .json")
+            return {'CANCELLED'}
+
+        if not os.path.exists(self.filepath):
+            self.report({'ERROR'}, "File does not exist")
+            return {'CANCELLED'}
+
+        ob = context.object
+
+        with open(self.filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        items = ob.vs.armature_map_bonecollections
+        items.clear()
+
+        bone_names = {b.name for b in ob.data.bones}
+
+        for boneData in data:
+            bone_name = boneData.get("BoneName", "")
+            export_name = boneData.get("ExportName", "")
+            parent_bone = boneData.get("ParentBone", "")
+            rotation = boneData.get("Rotation", None)
+            roll = boneData.get("Roll", None)
+            export_rot_offset = boneData.get("ExportRotationOffset", None)
+            twist_bone = boneData.get("TwistBones", None)
+
+            if export_name not in bone_names:
+                continue
+
+            new_item = items.add()
+            new_item.boneExportName = export_name
+            new_item.boneName = bone_name
+            
+            new_item.parentBone = parent_bone if parent_bone else ""
+
+            if rotation is not None:
+                new_item.writeRotation = 'ROTATION'
+            elif roll is not None:
+                new_item.writeRotation = 'ROLL'
+            else:
+                new_item.writeRotation = 'NONE'
+
+            if export_rot_offset:
+                new_item.writeExportRotationOffset = True
+
+            if twist_bone:
+                new_item.writeTwistBone = True
+                new_item.twistBoneTarget = twist_bone
+
+        self.report({'INFO'}, f"Loaded preset from: {self.filepath} ({len(items)} items)")
+        return {'FINISHED'}
+
+# ====================================================================================
+# VALVEMODEL TOOLS
+# ====================================================================================
+
+class VALVEMODEL_PT_PANEL(SMD_PT_toolpanel, Panel):
     bl_label = 'Valve Models'
+    bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         self.layout.label(icon='TOOL_SETTINGS')
-        
-    @classmethod
-    def poll(cls, context):
-        return context.object
     
     def draw(self, context):
         l = self.layout
         
 class ValveModelConfig(SMD_PT_toolpanel, Panel):
     bl_label = "ValveModel Config"
-    bl_parent_id = "SMD_PT_ValveModel"
+    bl_parent_id = "VALVEMODEL_PT_PANEL"
     bl_options = {'DEFAULT_CLOSED'}
 
-class SMD_PT_Jigglebones(ValveModelConfig):
+class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
     bl_label = 'JiggleBones'
-    
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.object)
     
     def draw_header(self, context):
         self.layout.label(icon='CONSTRAINT_BONE')
     
     def draw(self, context):
         l = self.layout
-        bx = l.box()
         
         ob = context.object
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
+        bx = l.box()
         
         vs_sce = context.scene.vs
         vs_ob = ob.vs
@@ -2591,8 +2879,8 @@ class SMD_PT_Jigglebones(ValveModelConfig):
                 bx.label(text=f'Write Jigglebones : {len(jigglebones)} Jigglebones',icon='FILE')
                 row = bx.row(align=True)
                 row.scale_y = 1.2
-                row.operator(TOOLS_OT_WriteJiggleBone.bl_idname,text='Studiomdl').export_type = 'QC'
-                row.operator(TOOLS_OT_WriteJiggleBone.bl_idname,text='Modeldoc').export_type = 'VMDL'
+                row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Studiomdl').export_type = 'QC'
+                row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Modeldoc').export_type = 'VMDL'
                 #row.operator(TOOLS_OT_ImportJiggleBone.bl_idname, icon='IMPORT')
         
         if bone and bone.select:
@@ -2703,7 +2991,7 @@ class SMD_PT_Jigglebones(ValveModelConfig):
         else:
             bx.box().label(text='Select a Valid Bone', icon='ERROR')
           
-class TOOLS_OT_WriteJiggleBone(bpy.types.Operator):
+class VALVEMODEL_OT_WriteJiggleBone(bpy.types.Operator):
     bl_idname = "smd.write_jigglebone"
     bl_label = "Write Jigglebones"
     
@@ -2952,247 +3240,12 @@ class TOOLS_OT_WriteJiggleBone(bpy.types.Operator):
             return {'CANCELLED'}
         
         return {'FINISHED'}
-    
-class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
-    bl_idname = 'tools.curve_ramp_weights'
-    bl_label = 'Curve Ramp Bone Weights'
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    min_weight_mask: FloatProperty(name="Min Weight Mask", default=0.001, min=0.001, max=0.9, precision=4)
-    max_weight_mask: FloatProperty(name="Max Weight Mask", default=1.0, min=0.01, max=1.0, precision=4)
-    invert_ramp: BoolProperty(name="Invert Ramp Direction", default=False)
-    normalize_to_parent: BoolProperty(name="Normalize Weight", default=True)
-    constant_mask: BoolProperty(name="Ignore Vertex Value Mask", default=False)
-    
-    vertex_group_target: StringProperty(
-        name="Target Vertex Group",
-        description="Vertex group to receive residuals",
-        default=""
-    )
-    
-    is_humanoid_limb_twist: BoolProperty(name="Handle Limb Twist Bones", default=False)
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-    
-    def draw(self, context):
-        layout = self.layout
 
-        col = layout.column(align=True)
-        col.label(text="Weight Mask:")
-        col.prop(self, "min_weight_mask", slider=True)
-        col.prop(self, "max_weight_mask", slider=True)
+# ====================================================================================
+# DEVELOPER TOOLS
+# ====================================================================================
 
-        col.separator()
-        col.label(text="Options:")
-        row = col.row(align=True)
-        col.prop(self, "invert_ramp", toggle=True)
-        row.prop(self, "constant_mask", toggle=True)
-        row.prop(self, "normalize_to_parent", toggle=True)
-        col.prop(self, "is_humanoid_limb_twist", toggle=True)
-
-        if not self.is_humanoid_limb_twist:
-            col.separator()
-            col.label(text="Target Vertex Group:")
-            col.prop_search(
-                self,
-                "vertex_group_target",
-                context.object,
-                "vertex_groups",
-                text=""
-            )
-            
-        col = layout.column(align=True)
-        tool_settings = context.tool_settings
-        brush = tool_settings.weight_paint.brush
-        row = col.row(align=True)
-            
-        col.template_curve_mapping(brush, "curve", brush=False)
-        row = col.row(align=True)
-        row.operator("brush.curve_preset", icon='SMOOTHCURVE', text="").shape = 'SMOOTH'
-        row.operator("brush.curve_preset", icon='SPHERECURVE', text="").shape = 'ROUND'
-        row.operator("brush.curve_preset", icon='ROOTCURVE', text="").shape = 'ROOT'
-        row.operator("brush.curve_preset", icon='SHARPCURVE', text="").shape = 'SHARP'
-        row.operator("brush.curve_preset", icon='LINCURVE', text="").shape = 'LINE'
-        row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
-    
-    def execute(self, context):
-        arm_obj = getArmature(context.object)
-            
-        if arm_obj is None:
-            return {'CANCELLED'}
-        
-        if arm_obj.select_get():
-            selected_bones = getBones(arm_obj, sorted=True, bonetype='POSEBONE', reverse_sort=True)
-        else:
-            selected_bones = [arm_obj.pose.bones.get(context.object.vertex_groups.active.name)]
-            
-        if not selected_bones:
-            self.report({'ERROR'}, "No bones selected.")
-            return {'CANCELLED'}
-        
-        og_arm_pose_mode = arm_obj.data.pose_position
-        arm_obj.data.pose_position = 'REST'
-        bpy.context.view_layer.update()
-        
-        with PreserveContextMode(context.object,'WEIGHT_PAINT'), PreserveArmatureState(arm_obj):
-            try:
-                for bone in selected_bones:
-                    target_vg = None
-                    if self.is_humanoid_limb_twist:
-                        twist_name = f"{bone.name} twist"
-                        target_vg = twist_name
-                    else:
-                        target_vg = self.vertex_group_target if self.vertex_group_target else None
-
-                    curve = context.tool_settings.weight_paint.brush.curve
-
-                    convert_weight_to_curve_ramp(
-                        arm=arm_obj,
-                        bones=[bone],
-                        curve=curve,
-                        invert=self.invert_ramp,
-                        vertex_group_target=target_vg,
-                        min_weight_mask=self.min_weight_mask,
-                        max_weight_mask=self.max_weight_mask,
-                        normalize_to_parent=self.normalize_to_parent,
-                        constant_mask=self.constant_mask,
-                    )
-            except:
-                pass
-        
-        arm_obj.data.pose_position = og_arm_pose_mode
-        bpy.context.view_layer.update()
-        
-        self.report({'INFO'}, f'Processed {len(selected_bones)} Bones')
-        return {'FINISHED'}
-
-class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
-    bl_idname = 'tools.split_active_weights_linear'
-    bl_label = 'Split Active Weights Linearly'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    smoothness: FloatProperty(
-        name="Smoothness",
-        description="Smoothness of the weight split (0 = hard cut, 1 = full smooth blend)",
-        min=0.0, max=1.0,
-        default=0.6
-    )
-
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
-        
-        arm = getArmature(ob)
-        if arm is None: return False
-        
-        return arm.data.bones.active 
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-    def get_vgroup_index(self, mesh, name):
-        for i, vg in enumerate(mesh.vertex_groups):
-            if vg.name == name:
-                return i
-        return None
-
-    def clamp(self, x, a, b):
-        return max(a, min(x, b))
-
-    def remap(self, value, minval, maxval):
-        if maxval - minval == 0:
-            return 0.5
-        return (value - minval) / (maxval - minval)
-
-    def project_point_onto_line(self, p, a, b):
-        ap = p - a
-        ab = b - a
-        ab_len_sq = ab.length_squared
-        if ab_len_sq == 0.0:
-            return 0.0
-        return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
-
-    def execute(self, context):
-        arm = getArmature(context.object)
-        bones = getBones(arm,sorted=True,bonetype='POSEBONE',)
-        active_bone = arm.data.bones.active
-
-        if not bones or len(bones) != 2 or not active_bone:
-            self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
-            return {'CANCELLED'}
-        
-        og_arm_pose_mode = arm.data.pose_position
-        arm.data.pose_position = 'REST'
-        bpy.context.view_layer.update()
-
-        bone1 = bones[0]
-        bone2 = bones[1]
-        active = active_bone
-
-        bone1_name = bone1.name
-        bone2_name = bone2.name
-        active_name = active.name
-
-        arm_matrix = arm.matrix_world
-        p1 = arm_matrix @ ((bone1.head + bone1.tail) * 0.5)
-        p2 = arm_matrix @ ((bone2.head + bone2.tail) * 0.5)
-
-        meshes = getArmatureMeshes(arm, visible_only=context.scene.vs.visible_mesh_only)
-
-        for mesh in meshes:
-            vg_active = self.get_vgroup_index(mesh, active_name)
-            vg1 = mesh.vertex_groups.get(bone1_name)
-            if vg1 is None:
-                vg1 = mesh.vertex_groups.new(name=bone1_name)
-
-            vg2 = mesh.vertex_groups.get(bone2_name)
-            if vg2 is None:
-                vg2 = mesh.vertex_groups.new(name=bone2_name)
-
-            if vg_active is None or vg1 is None or vg2 is None:
-                continue
-
-            vtx_weights = {}
-            for v in mesh.data.vertices:
-                for g in v.groups:
-                    if g.group == vg_active:
-                        vtx_weights[v.index] = g.weight
-                        break
-
-            for vidx, weight in vtx_weights.items():
-                vertex = mesh.data.vertices[vidx]
-                world_pos = mesh.matrix_world @ vertex.co
-
-                t = self.project_point_onto_line(world_pos, p1, p2)
-
-                if self.smoothness == 0.0:
-                    w1 = weight if t < 0.5 else 0.0
-                    w2 = weight if t >= 0.5 else 0.0
-                else:
-                    s = self.smoothness
-                    edge0 = 0.0 + s * 0.5
-                    edge1 = 1.0 - s * 0.5
-                    smooth_t = self.remap(t, edge0, edge1)
-                    smooth_t = self.clamp(smooth_t, 0.0, 1.0)
-                    w1 = weight * (1.0 - smooth_t)
-                    w2 = weight * smooth_t
-
-                vg1.add([vidx], w1, 'ADD')
-                vg2.add([vidx], w2, 'ADD')
-
-            mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
-        
-        with PreserveContextMode(arm, 'EDIT'):
-            removeBone(arm,active_bone.name)
-        
-        arm.data.pose_position = og_arm_pose_mode
-
-        self.report({'INFO'}, f"Split {active_name} between {bone1_name} and {bone2_name}")
-        return {'FINISHED'} 
-
-class SMD_PT_Developer(SMD_PT_toolpanel, bpy.types.Panel):
+class DEVELOPER_PT_PANEL(SMD_PT_toolpanel, bpy.types.Panel):
     bl_label = 'Developer Tools'
     bl_order = 1000 
     bl_options = {'DEFAULT_CLOSED'}
@@ -3212,9 +3265,9 @@ class SMD_PT_Developer(SMD_PT_toolpanel, bpy.types.Panel):
         
         col = bx.column()
         col.scale_y = 1.3
-        col.operator(SMD_OT_ImportLegacyDatas.bl_idname, icon='MOD_DATA_TRANSFER')
+        col.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
         
-class SMD_OT_ImportLegacyDatas(bpy.types.Operator):
+class DEVELOPER_OT_ImportLegacyData(bpy.types.Operator):
     bl_idname = "smd.importlegacydata"
     bl_label = "Import Legacy Data"
     bl_options = {'REGISTER','UNDO'}
