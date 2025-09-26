@@ -120,9 +120,7 @@ def getBones(
     if not arm or arm.type != 'ARMATURE':
         return []
 
-    og_mode = arm.mode
-
-    def is_visible(b: bpy.types.Bone) -> bool:
+    def is_visible(b) -> bool:
         if b.hide:
             return False
         if not b.collections:
@@ -139,18 +137,10 @@ def getBones(
     sel_bones = []
 
     if bonetype == "EDITBONE":
-        bpy.ops.object.mode_set(mode='OBJECT') 
-        bpy.context.view_layer.update()
-            
-        visible_names = [
-            b.name for b in arm.data.bones
+        sel_bones = [
+            b for b in arm.data.edit_bones
             if (select_all or b.select) and (not visible_only or is_visible(b))
         ]
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.context.view_layer.update()
-        sel_bones = [arm.data.edit_bones[name] for name in visible_names if name in arm.data.edit_bones]
-        bpy.ops.object.mode_set(mode=og_mode)
-        bpy.context.view_layer.update()
 
     elif bonetype == "POSEBONE":
         sel_bones = [
@@ -170,11 +160,11 @@ def getBones(
     if exclude_active:
         active_bone = None
         if bonetype == "BONE":
-            active_bone = arm.data.bones.active
+            active_bone = bpy.context.active_bone
         elif bonetype == "EDITBONE":
-            active_bone = arm.data.edit_bones.active
+            active_bone = bpy.context.active_bone
         elif bonetype == "POSEBONE" and arm.data.bones.active:
-            active_bone = arm.pose.bones.get(arm.data.bones.active.name)
+            active_bone = arm.pose.bones.get(bpy.context.active_bone.name)
         if active_bone and active_bone in sel_bones:
             sel_bones.remove(active_bone)
 
@@ -329,10 +319,12 @@ def PreserveContextMode(obj: bpy.types.Object | None = None, mode: str = "EDIT")
 
             elif prev_active.type == "ARMATURE" and prev_bone_name:
                 data = prev_active.data
-                bone = (
-                    data.edit_bones.get(prev_bone_name)
-                    if mapped_mode == "EDIT"
-                    else data.bones.get(prev_bone_name)
-                )
-                if bone:
-                    data.bones.active = bone
+
+                if mapped_mode == "EDIT":
+                    edit_bone = data.edit_bones.get(prev_bone_name)
+                    if edit_bone:
+                        data.edit_bones.active = edit_bone
+                else:
+                    bone = data.bones.get(prev_bone_name)
+                    if bone:
+                        data.bones.active = bone

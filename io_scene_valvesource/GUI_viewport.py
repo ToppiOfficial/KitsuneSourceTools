@@ -1498,11 +1498,20 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(bpy.types.Operator):
         return is_armature(context.object) and context.mode in {'POSE', 'OBJECT'}
     
     def execute(self, context):
-        armature = context.object
-        bpy.ops.object.mode_set(mode='OBJECT')
-        success = applyCurrPoseAsRest(armature)
-        if success:
-            self.report({'INFO'}, 'Applied as Rest Pose')
+        with PreserveContextMode(None, 'OBJECT'):
+            armatures = {getArmature(o) for o in context.selected_objects}
+            
+            success_count = 0
+            for armature in armatures:
+                success = applyCurrPoseAsRest(armature)
+                if success: success_count += 1
+                
+            if success_count > 0:
+                if len(armatures) == 1:
+                    self.report({'INFO'}, 'Applied as Rest Pose')
+                else:
+                    self.report({'INFO'}, f'Applied {len(armatures)} Armatures as Rest Pose')
+                    
         return {'FINISHED'} if success else {'CANCELLED'}
     
 class TOOLS_OT_CleanUnWeightedBones(bpy.types.Operator):
@@ -1541,57 +1550,61 @@ class TOOLS_OT_CleanUnWeightedBones(bpy.types.Operator):
             bx.label(text='Cleaning will break constraints and IK!', icon='ERROR')
 
     def execute(self, context):
-        armature = getArmature(context.object)
-        bones = armature.pose.bones
-        meshes = getArmatureMeshes(armature)
         
-        if self.aggressive_cleaning:
-            self.respect_animation = False
-
-        if not meshes or not bones:
-            self.report({'WARNING'}, "No meshes or bones associated with the armature.")
-            return {'CANCELLED'}
-
-        removed_vgroups = clean_vertex_groups(armature, armature.data.bones)
-
-        remaining_vgroups = {
-            mesh: set(vg.name for vg in mesh.vertex_groups)
-            for mesh in meshes
-        }
-
+        armatures = {getArmature(ob) for ob in context.selected_objects}
+        
+        total_vgroups_removed = 0
         total_bones_removed = 0
+        
+        for armature in armatures:
+            bones = armature.pose.bones
+            meshes = getArmatureMeshes(armature)
+            
+            if self.aggressive_cleaning:
+                self.respect_animation = False
 
-        while True:
-            bones_to_remove = set()
-            for b in bones:
-                if b.children and not self.aggressive_cleaning:
-                    continue
+            if not meshes or not bones:
+                self.report({'WARNING'}, "No meshes or bones associated with the armature.")
+                return {'CANCELLED'}
 
-                has_weight = any(b.name in remaining_vgroups[mesh] for mesh in meshes)
-                if has_weight:
-                    continue
+            removed_vgroups = clean_vertex_groups(armature, armature.data.bones)
 
-                if self.respect_animation and not self.aggressive_cleaning:
-                    if self.hierarchy_has_animation(armature, b):
+            remaining_vgroups = {
+                mesh: set(vg.name for vg in mesh.vertex_groups)
+                for mesh in meshes
+            }
+
+            while True:
+                bones_to_remove = set()
+                for b in bones:
+                    if b.children and not self.aggressive_cleaning:
                         continue
 
-                bones_to_remove.add(b.name)
+                    has_weight = any(b.name in remaining_vgroups[mesh] for mesh in meshes)
+                    if has_weight:
+                        continue
 
-            if bones_to_remove:
-                with PreserveContextMode(armature, 'EDIT'):
-                    removeBone(armature, bones_to_remove)
-                    
-                    total_bones_removed += len(bones_to_remove)
-                    bones = armature.pose.bones
-                    
-                    remaining_vgroups = {
-                        mesh: set(vg.name for vg in mesh.vertex_groups)
-                        for mesh in meshes
-                    }
-            else:
-                break
+                    if self.respect_animation and not self.aggressive_cleaning:
+                        if self.hierarchy_has_animation(armature, b):
+                            continue
 
-        total_vgroups_removed = sum(len(vgs) for vgs in removed_vgroups.values())
+                    bones_to_remove.add(b.name)
+
+                if bones_to_remove:
+                    with PreserveContextMode(armature, 'EDIT'):
+                        removeBone(armature, bones_to_remove)
+                        
+                        total_bones_removed += len(bones_to_remove)
+                        bones = armature.pose.bones
+                        
+                        remaining_vgroups = {
+                            mesh: set(vg.name for vg in mesh.vertex_groups)
+                            for mesh in meshes
+                        }
+                else:
+                    break
+
+            total_vgroups_removed += sum(len(vgs) for vgs in removed_vgroups.values())
 
         self.report({'INFO'}, f'{total_bones_removed} bones removed with {total_vgroups_removed} empty vertex groups removed.')
         return {'FINISHED'}
@@ -1651,55 +1664,56 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
         return bool(bones)
     
     def execute(self,context):
-        arm = context.object
         
-        if not is_armature(arm):
-            arm = getArmature(arm)
-            
-        if arm is None: return {'CANCELLED'}
-        
+        armatures = set()
+        for ob in context.selected_objects:
+            armatures.add(getArmature(ob))
+                    
         vs_sce = context.scene.vs
 
-        if self.mode == 'TO_PARENT':
-            sel_bones = getBones(arm, sorted=True,reverse_sort=True, bonetype='BONE' if arm.mode != 'EDIT' else 'EDITBONE' ,exclude_active=False)
-            with PreserveContextMode(arm, 'EDIT'):
-                removeBone(arm, mergeBones(arm, None, sel_bones, vs_sce.merge_keep_bone, vs_sce.visible_mesh_only, vs_sce.keep_original_weight), match_parent_to_head=vs_sce.snap_parent_tip)
-        
-        elif self.mode == 'TO_ACTIVE':
-            sel_bones = getBones(arm, sorted=True,reverse_sort=True, bonetype='BONE' if arm.mode != 'EDIT' else 'EDITBONE' , exclude_active=True)
-            if not arm.data.bones.active.select:
-                self.report({'WARNING'}, 'No active selected bone')
-                return {'CANCELLED'}
-            
-            with PreserveContextMode(arm, 'EDIT'):
-                centralize_b = vs_sce.recenter_bone
-
-                if centralize_b:
-                    bones_to_remove, merged_pairs = mergeBones(
-                        arm,
-                        arm.data.bones.active,
-                        sel_bones,
-                        vs_sce.merge_keep_bone,
-                        vs_sce.visible_mesh_only,
-                        vs_sce.keep_original_weight,
-                        centralize_bone=True
-                    )
+        with PreserveContextMode(mode='EDIT'):
+            for arm in armatures:
+                if self.mode == 'TO_ACTIVE':
+                    sel_bones = getBones(arm, sorted=True,reverse_sort=True, bonetype='EDITBONE', exclude_active=True)
+                    if sel_bones is None: continue
+                    if not arm.data.bones.active.select:
+                        self.report({'WARNING'}, 'No active selected bone')
+                        return {'CANCELLED'}
                     
-                    CentralizeBonePairs(arm, merged_pairs)
-                    removeBone(arm, bones_to_remove, arm.data.bones.active.name)
+                    centralize_b = vs_sce.recenter_bone
 
+                    if centralize_b:
+                        bones_to_remove, merged_pairs = mergeBones(
+                            arm,
+                            arm.data.bones.active,
+                            sel_bones,
+                            vs_sce.merge_keep_bone,
+                            vs_sce.visible_mesh_only,
+                            vs_sce.keep_original_weight,
+                            centralize_bone=True
+                        )
+                        
+                        CentralizeBonePairs(arm, merged_pairs)
+                        removeBone(arm, bones_to_remove, arm.data.bones.active.name)
+
+                    else:
+                        bones_to_remove = mergeBones(
+                            arm,
+                            arm.data.bones.active,
+                            sel_bones,
+                            vs_sce.merge_keep_bone,
+                            vs_sce.visible_mesh_only,
+                            vs_sce.keep_original_weight,
+                            centralize_bone=False
+                        )
+
+                        removeBone(arm, bones_to_remove, arm.data.bones.active.name)
+                        
                 else:
-                    bones_to_remove = mergeBones(
-                        arm,
-                        arm.data.bones.active,
-                        sel_bones,
-                        vs_sce.merge_keep_bone,
-                        vs_sce.visible_mesh_only,
-                        vs_sce.keep_original_weight,
-                        centralize_bone=False
-                    )
-
-                    removeBone(arm, bones_to_remove, arm.data.bones.active.name)
+                    sel_bones = getBones(arm, sorted=True,reverse_sort=True, bonetype='EDITBONE', exclude_active=False)
+                    if sel_bones is None: continue
+                    merged_bones = mergeBones(arm, None, sel_bones, vs_sce.merge_keep_bone, vs_sce.visible_mesh_only, vs_sce.keep_original_weight)
+                    removeBone(arm, merged_bones, match_parent_to_head=vs_sce.snap_parent_tip)
         
         self.report({'INFO'}, f'{len(sel_bones)} Weights merged')
         return {'FINISHED'}
@@ -1713,18 +1727,22 @@ class TOOLS_OT_MergeArmatures(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return is_armature(context.object) and {ob for ob in context.view_layer.objects if is_armature(ob) and ob != context.object and ob.select_get()}
+        return is_armature(context.object) and {ob for ob in context.selected_objects if is_armature(ob) and ob != context.object}
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
     
     def execute(self, context):
-        armatures = [ob for ob in bpy.data.objects if ob.select_get() and ob != context.object]
+        armatures = [ob for ob in context.selected_objects if ob != context.object]
         
         if not armatures: return {'CANCELLED'}
         
+        success_count = 0
         for arm in armatures:
             success = mergeArmatures(context.object, arm, match_posture=self.match_posture)
+            if success: success_count += 1
+            
+        self.report({'INFO'}, f'Merged {success} armatures to active armature')
             
         return {'FINISHED'}
 
@@ -1742,7 +1760,7 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
         return (
             context.mode == 'OBJECT'
             and is_armature(ob)
-            and {o for o in context.view_layer.objects if o != context.object and o.select_get()}
+            and {o for o in context.selected_objects if o != context.object}
         )
 
     def invoke(self, context, event):
@@ -1750,7 +1768,7 @@ class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
 
     def execute(self, context):
         currArm = context.object
-        otherArms = {o for o in context.view_layer.objects if o.select_get() and o.type == 'ARMATURE'}
+        otherArms = {o for o in context.selected_objects if o.type == 'ARMATURE'}
         otherArms.discard(currArm)
 
         if not self.ReferenceName.strip() or not self.ProportionName.strip():
@@ -1924,19 +1942,16 @@ class TOOLS_OT_ReAlignBones(bpy.types.Operator):
 
         mode = context.mode
         vs_sce = context.scene.vs
-        original_mode = "EDIT" if mode == "EDIT_ARMATURE" else mode
-        bpy.ops.object.mode_set(mode='EDIT')
-
-        bones = getBones(arm=armature,sorted=True,reverse_sort=True,bonetype='EDITBONE')
-        for bone in bones:
-            self.realign_bone_tail(bone,
-                                   exclude_x= ('EXCLUDE_X' in vs_sce.alignment_exclude_axes),
-                                   exclude_y= ('EXCLUDE_Y' in vs_sce.alignment_exclude_axes),
-                                   exclude_z= ('EXCLUDE_Z' in vs_sce.alignment_exclude_axes),
-                                   exclude_roll= ('EXCLUDE_ROLL' in vs_sce.alignment_exclude_axes)
-                                   )
-
-        bpy.ops.object.mode_set(mode=original_mode)
+        
+        with PreserveContextMode(armature, 'EDIT'):
+            bones = getBones(arm=armature,sorted=True,reverse_sort=True,bonetype='EDITBONE')
+            for bone in bones:
+                self.realign_bone_tail(bone,
+                                    exclude_x= ('EXCLUDE_X' in vs_sce.alignment_exclude_axes),
+                                    exclude_y= ('EXCLUDE_Y' in vs_sce.alignment_exclude_axes),
+                                    exclude_z= ('EXCLUDE_Z' in vs_sce.alignment_exclude_axes),
+                                    exclude_roll= ('EXCLUDE_ROLL' in vs_sce.alignment_exclude_axes)
+                                    )
         self.report({'INFO'}, "Bones realigned successfully")
         return {'FINISHED'}
 
@@ -1968,8 +1983,8 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
         error = 0
         with PreserveContextMode(None, 'EDIT'):
             bones = {}
-            for ob in bpy.data.objects:
-                if not ob.select_get() or not ob.visible_get() or ob.type != 'ARMATURE': continue
+            for ob in context.selected_objects:
+                if not ob.visible_get() or ob.type != 'ARMATURE': continue
                 for b in getBones(arm=ob, sorted=True, reverse_sort=True, bonetype='EDITBONE'):
                     bones[b.name] = ob
 
@@ -2052,7 +2067,7 @@ class TOOLS_OT_CleanShapeKeys(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
-        objects = [o for o in context.view_layer.objects if o.select_get()]
+        objects = context.selected_objects
         
         if not objects:
             self.report({'WARNING'}, 'No objects are selected')
@@ -2148,10 +2163,10 @@ class TOOLS_OT_RemoveUnusedVertexGroups(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return any(ob.select_get() for ob in context.view_layer.objects)
+        return context.selected_objects
     
     def execute(self, context):
-        obs = [ob for ob in context.view_layer.objects if ob.select_get()]
+        obs = context.selected_objects
         total_removed = 0
 
         for ob in obs:
@@ -2367,12 +2382,12 @@ class TOOLS_OT_CopyVisPosture(bpy.types.Operator):
         currob = context.object
         if not is_armature(currob): return False
         
-        obs = {ob for ob in context.view_layer.objects if ob.select_get() and not ob.hide_get() and ob != currob}
+        obs = {ob for ob in context.selected_objects  if not ob.hide_get() and ob != currob}
         return obs
     
     def execute(self, context):
         currArm = context.object
-        obs = {ob for ob in context.view_layer.objects if ob.select_get() and not ob.hide_get() and ob != currArm}
+        obs = {ob for ob in context.selected_objects if not ob.hide_get() and ob != currArm}
 
         copiedcount = 0
         for otherArm in obs:
@@ -2419,10 +2434,10 @@ class TOOLS_OT_AddToonEdgeLine(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return {ob for ob in context.view_layer.objects if is_mesh(ob) and ob.select_get() and not ob.hide_get()}
+        return {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
 
     def execute(self, context):
-        obs = {ob for ob in context.view_layer.objects if is_mesh(ob) and ob.select_get() and not ob.hide_get()}
+        obs = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
 
         for ob in obs:
             bpy.context.view_layer.objects.active = ob
@@ -3073,7 +3088,7 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
 
     def execute(self, context):
         arm = getArmature(context.object)
-        bones = [b for b in context.selected_pose_bones if b != context.active_pose_bone]
+        bones = getBones(arm,sorted=True,bonetype='POSEBONE',)
         active_bone = arm.data.bones.active
 
         if not bones or len(bones) != 2 or not active_bone:

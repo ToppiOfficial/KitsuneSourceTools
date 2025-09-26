@@ -65,7 +65,6 @@ def ExposeAllObjects():
             obj.hide_set(state["hide"])
             obj.hide_viewport = state["hide_viewport"]
 
-
 def resolve_attr_path(obj, path: str):
     parts = path.split(".")
     for p in parts:
@@ -74,34 +73,27 @@ def resolve_attr_path(obj, path: str):
             return None
     return obj
 
-def propagateBoneProperty(self, context, prop_name: str, group_path: str = "vs"):
+def propagateBoneProperty(self, context, prop_name: str, group_path="vs"):
     global _property_updating
     if _property_updating:
-        return  # prevent recursion
-
-    obj = context.object
-    if not obj or obj.type != 'ARMATURE':
-        return
-
-    arm = obj.data
-    active_bone = arm.bones.active
-    if not active_bone:
         return
 
     new_value = getattr(self, prop_name)
 
-    bones = getBones(obj, bonetype='BONE', exclude_active=True,visible_only=True,select_all=False)
-    if not bones:
-        return
+    bones = {}
+    for arm in [o for o in context.selected_objects if o.type == 'ARMATURE']:
+        for b in getBones(arm, bonetype='BONE', exclude_active=True, visible_only=True, select_all=False):
+            bones[b] = arm
 
     _property_updating = True
     try:
-        for b in bones:
+        for b, arm in bones.items():
             target = resolve_attr_path(b, group_path)
             if target and hasattr(target, prop_name):
                 setattr(target, prop_name, new_value)
     finally:
         _property_updating = False
+
 
 def make_update(prop_name, group_path="vs"):
     return lambda self, context: propagateBoneProperty(self, context, prop_name, group_path)
