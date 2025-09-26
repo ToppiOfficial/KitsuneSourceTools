@@ -1,0 +1,29 @@
+schema_version = "1.0.0"
+
+# Basic Add-on Info
+id = "kitsune_source_tools"
+name = "Kitsune Source Tools"
+version = "0.0.6"
+tagline = "A forked of BlenderSourceTools, an Importer and exporter for Valve Software's Source Engine Models"
+maintainer = "Tom Edwards (BlenderSourceTools) & Toppi"
+type = "add-on"
+website = "http://steamcommunity.com/groups/BlenderSourceTools"
+
+# Blender Compatibility
+blender_version_min = "4.2.0"
+blender_version_max = "5.1.0"
+
+# Licensing
+license = [
+    "SPDX:GPL-2.0-or-later"
+]
+
+# Permissions
+permissions = ["files"]
+
+# Optional Metadata
+tags = [
+    "Import-Export",
+    "Source Engine",
+    "Animation"
+]
