@@ -546,6 +546,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                 elif self.armature != result.armature.object:
                     self.warning(get_id("exporter_warn_multiarmature"))
 
+        self.exportable_empties = None
         if self.armature_src:
             if list(self.armature_src.scale).count(self.armature_src.scale[0]) != 3:
                 self.warning(get_id("exporter_err_arm_nonuniform",True).format(self.armature_src.name))
@@ -1647,7 +1648,6 @@ skeleton
             
             return empty_elem
         
-            
         if self.exportable_empties:
             for empty in self.exportable_empties: writeattachment(empty)
             bench.report("Empties")
