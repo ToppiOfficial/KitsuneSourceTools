@@ -628,3 +628,98 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
 
     return rotated_bones
 
+def split_bone(bone: typing.Union[bpy.types.EditBone, list], tolerance: float = 0.5, smoothness: float = 1, name_a: str = None, name_b: str = None):
+    if bpy.context.object.mode != 'EDIT':
+        return
+
+    smoothness = min(max(smoothness, 0.01), 1)
+
+    if isinstance(bone, bpy.types.EditBone):
+        arm = getArmature(bone)
+        if not arm:
+            return
+        meshes = getArmatureMeshes(arm)
+        if not meshes:
+            return
+
+        if name_a:
+            bone.name = "temporaryBone"
+
+        head, tail = bone.head, bone.tail
+        collections = bone.collections
+        split_point = (head + tail) * 0.5
+        name_a = name_a or bone.name + "_A"
+        name_b = name_b or bone.name + "_B"
+
+        eb = arm.data.edit_bones
+        new_bone1 = eb.new(name=name_a)
+        new_bone1.head, new_bone1.tail = head, split_point
+        new_bone1.parent = bone.parent
+        new_bone1.roll = bone.roll
+
+        new_bone2 = eb.new(name=name_b)
+        new_bone2.head, new_bone2.tail = split_point, tail
+        new_bone2.parent = new_bone1
+        new_bone2.roll = bone.roll
+
+        for child in bone.children:
+            child_head = child.head
+            d1 = (child_head - new_bone1.tail).length
+            d2 = (child_head - new_bone2.tail).length
+            child.parent = new_bone1 if d1 < d2 else new_bone2
+            child.use_connect = False
+
+        old_bone_name = bone.name
+
+        if collections:
+            for col in collections:
+                col.assign(new_bone1)
+                col.assign(new_bone2)
+
+        eb.remove(eb[old_bone_name])
+
+        arm_matrix = arm.matrix_world
+        head_world = arm_matrix @ head
+        tail_world = arm_matrix @ tail
+        split_len = (tail_world - head_world).length
+
+        for mesh in meshes:
+            if old_bone_name not in mesh.vertex_groups:
+                continue
+
+            vg_old = mesh.vertex_groups[old_bone_name]
+            vg_new1 = mesh.vertex_groups.new(name=new_bone1.name)
+            vg_new2 = mesh.vertex_groups.new(name=new_bone2.name)
+
+            mesh_matrix = mesh.matrix_world
+
+            for vert in mesh.data.vertices:
+                for group in vert.groups:
+                    if group.group != vg_old.index:
+                        continue
+
+                    pos = mesh_matrix @ vert.co
+                    d1 = (pos - head_world).length
+                    d2 = (pos - tail_world).length
+
+                    if d1 < split_len and d2 < split_len:
+                        f = d1 / split_len
+                        f = max(0.0, min(1.0, (f - tolerance) / (1 - tolerance)))
+                        f = f ** (1 / (1 + smoothness))
+                    else:
+                        f = 0 if d1 < d2 else 1
+
+                    w1 = group.weight * (1 - f)
+                    w2 = group.weight * f
+
+                    vg_new1.add([vert.index], w1, 'REPLACE')
+                    vg_new2.add([vert.index], w2, 'REPLACE')
+
+            mesh.vertex_groups.remove(vg_old)
+
+    elif isinstance(bone, list):
+        if len(bone) == 1:
+            split_bone(bone[0], tolerance, smoothness, name_a, name_b)
+        else:
+            for b in bone:
+                split_bone(b, tolerance, smoothness)

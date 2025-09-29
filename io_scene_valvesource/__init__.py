@@ -159,8 +159,6 @@ class DMEflexcontrollers(PropertyGroup):
     shapekey : StringProperty(name='shapekey')
     eyelid : BoolProperty(name='Eyelid')
     stereo : BoolProperty(name='Stereo')
-    dme_min : FloatProperty(default=0,precision=2)
-    dme_max : FloatProperty(default=1,precision=2)
 
 class ExportableProps():
     flex_controller_modes = (
@@ -463,6 +461,7 @@ _classes = (
     GUI_viewport.TOOLS_OT_AddToonEdgeLine,
     GUI_viewport.TOOLS_OT_curve_ramp_weights,
     GUI_viewport.TOOLS_OT_SplitActiveWeightLinear,
+    GUI_viewport.TOOLS_OT_SplitBone,
     
     GUI_viewport.ARMATUREMAPPER_PT_ArmatureMapper,
     GUI_viewport.ARMATUREMAPPER_UL_BoneList,

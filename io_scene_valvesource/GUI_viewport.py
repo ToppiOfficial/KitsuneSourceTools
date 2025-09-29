@@ -265,10 +265,6 @@ class DME_UL_FlexControllers(UIList):
             split2.prop(item, "eyelid", toggle=True)
             split2.prop(item, "stereo", toggle=True)
 
-            split3 = split1.split(align=True)
-            split3.prop(item, "dme_min", text="Min")
-            split3.prop(item, "dme_max", text="Max")
-
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
             layout.label(text=item.shapekey)
@@ -703,6 +699,7 @@ class TOOLS_PT_Bone(ToolsSubPanel):
         col = bx.column(align=True)
         col.label(text='Bone Alignment')
         col.operator(TOOLS_OT_ReAlignBones.bl_idname)
+        col.operator(TOOLS_OT_SplitBone.bl_idname)
         row = col.row(align=True)
         row.scale_y = 1.3
         row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Rotation (ACTIVE)').copy_source = 'ACTIVE'
@@ -1113,14 +1110,13 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
         vs_sce = context.scene.vs
 
         error = 0
-        with PreserveContextMode(None, 'EDIT'):
+        with PreserveContextMode(context.object, 'OBJECT'):
             bones = {}
             for ob in context.selected_objects:
                 if not ob.visible_get() or ob.type != 'ARMATURE': continue
                 for b in getSelectedBones(ob, sort_type='TO_FIRST', bone_type='BONE'):
                     bones[b.name] = ob
 
-            bpy.ops.object.mode_set(mode='OBJECT')
             for bone_name, armature in bones.items():
                 try:
                     bpy.context.view_layer.objects.active = armature
@@ -1148,10 +1144,14 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
                     editbone.head = new_head_local
 
                     original_length = (editbone.tail - editbone.head).length
+                
 
-                    if 'EXCLUDE_X' in vs_sce.alignment_exclude_axes: ref_direction.x = ref_direction.x
-                    if 'EXCLUDE_Y' in vs_sce.alignment_exclude_axes: ref_direction.y = ref_direction.y
-                    if 'EXCLUDE_Z' in vs_sce.alignment_exclude_axes: ref_direction.z = ref_direction.z
+                    if 'EXCLUDE_X' in vs_sce.alignment_exclude_axes:
+                        ref_direction.x = (editbone.tail - editbone.head).normalized().x 
+                    if 'EXCLUDE_Y' in vs_sce.alignment_exclude_axes:
+                        ref_direction.y = (editbone.tail - editbone.head).normalized().y 
+                    if 'EXCLUDE_Z' in vs_sce.alignment_exclude_axes:
+                        ref_direction.z = (editbone.tail - editbone.head).normalized().z 
 
                     ref_direction.normalize()
                     editbone.tail = editbone.head + (ref_direction * original_length)
@@ -1172,6 +1172,92 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
             self.report({'WARNING'}, f"Copied with {error} errors")
 
         return {"FINISHED"}
+
+class TOOLS_OT_SplitBone(bpy.types.Operator):
+    bl_idname = 'tools.split_bone'
+    bl_label = 'Split Bone(s)'
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    tolerance : bpy.props.FloatProperty(name='Tolerance', min=0,max=1,precision=3,default=0.5)
+    smoothness : bpy.props.FloatProperty(name='Smoothness', min=0,max=1,precision=3,default=1)
+    boneName_A : bpy.props.StringProperty(name='Bone A')
+    boneName_B : bpy.props.StringProperty(name='Bone B')
+    
+    @classmethod
+    def poll(cls, context):
+        return (is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ["EDIT", "POSE", "WEIGHT_PAINT"]
+    
+    def invoke(self, context, event):
+        ob = context.object
+        if ob.mode in ['POSE', 'WEIGHT_PAINT']:
+            if any([b for b in getArmature(context.object).data.bones if b.select]):
+                return context.window_manager.invoke_props_dialog(self)
+        elif ob.mode == 'EDIT':
+            if any([b for b in getArmature(context.object).data.edit_bones if b.select]):
+                return context.window_manager.invoke_props_dialog(self)
+        return {'CANCELLED'}
+
+    def execute(self, context):
+        arm = getArmature(context.object)
+        boneA = self.boneName_A
+        boneB = self.boneName_B
+        print(boneA)
+        
+        constraint_data = []
+        
+        with PreserveContextMode(context.object, 'OBJECT'):
+            context.view_layer.objects.active = arm
+            
+            bones = getSelectedBones(arm, bone_type= 'POSEBONE')
+            boneNames = [b.name for b in getSelectedBones(arm, bone_type='BONE')]
+            
+            if bones is None or boneNames is None: return {'CANCELLED'}
+
+            for i, bone in enumerate(bones):
+                if len(bones) == 1: 
+                    new_bone_name = boneA if boneA.strip() else bone.name + "_A"
+                else:
+                    new_bone_name = bone.name + "_A"
+
+                for con in bone.constraints:
+                    data = {
+                        'target_bone': new_bone_name,
+                        'type': con.type,
+                        'name': con.name,
+                        'properties': {}
+                    }
+                    for prop in con.bl_rna.properties:
+                        if prop.is_readonly or prop.identifier in {'rna_type', 'name', 'type'}:
+                            continue
+                        try:
+                            val = getattr(con, prop.identifier)
+                            data['properties'][prop.identifier] = val
+                        except Exception as e:
+                            print(f"Error getting property {prop.identifier}: {e}")
+                    constraint_data.append(data)
+            
+            bpy.ops.object.mode_set(mode='EDIT')
+            bones = [arm.data.edit_bones.get(b) for b in boneNames]
+            split_bone(bones, self.tolerance, self.smoothness, boneA, boneB)
+            
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            for data in constraint_data:
+                pose_bone = arm.pose.bones.get(data['target_bone'])
+                if not pose_bone:
+                    print(f"Pose bone {data['target_bone']} not found")
+                    continue
+                
+                new_con = pose_bone.constraints.new(type=data['type'])
+                new_con.name = data['name']
+
+                for prop, val in data['properties'].items():
+                    try:
+                        setattr(new_con, prop, val)
+                    except Exception as e:
+                        print(f"Failed to set {prop} on constraint '{new_con.name}': {e}")
+    
+        return {'FINISHED'}
 
 # =================================
 # MESH TOOLS

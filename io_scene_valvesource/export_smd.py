@@ -1060,15 +1060,16 @@ class SmdExporter(bpy.types.Operator, Logger):
                     result.balance_vg.add(zeroes, 0, 'REPLACE')
             
             # re-bake the shapekey's max value 
-            for si, key in enumerate(id.data.shape_keys.key_blocks):
-                if si == 0 or key.slider_max == 1.0:
-                    continue
-                
-                for i in range(len(key.data)):
-                    base_co = id.data.shape_keys.key_blocks[0].data[i].co
-                    shape_co = key.data[i].co
-                    key.data[i].co = base_co + (shape_co - base_co) * key.slider_max
-                key.slider_max = 1.0
+            if State.exportFormat == ExportFormat.SMD:
+                for si, key in enumerate(id.data.shape_keys.key_blocks):
+                    if si == 0 or key.slider_max == 1.0:
+                        continue
+                    
+                    for i in range(len(key.data)):
+                        base_co = id.data.shape_keys.key_blocks[0].data[i].co
+                        shape_co = key.data[i].co
+                        key.data[i].co = base_co + (shape_co - base_co) * key.slider_max
+                    key.slider_max = 1.0
             
             # bake shapes
             id.show_only_shape_key = True

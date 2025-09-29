@@ -137,7 +137,7 @@ def get_flexcontrollers(ob):
     valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
 
     return [
-        (fc.shapekey, fc.eyelid, fc.stereo, fc.dme_min, fc.dme_max)
+        (fc.shapekey, fc.eyelid, fc.stereo)
         for fc in ob.vs.dme_flexcontrollers
         if fc.shapekey in valid_keys
     ]

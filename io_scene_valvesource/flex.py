@@ -54,27 +54,26 @@ class DmxWriteFlexControllers(bpy.types.Operator):
         root["combinationOperator"] = DmeCombinationOperator
         controls = DmeCombinationOperator["controls"] = datamodel.make_array([],datamodel.Element)
 
-        def createController(namespace,name,deltas, flexcontroller = None):
+        def createController(namespace, name, deltas, shape_key=None, flexcontroller=None):
             DmeCombinationInputControl = dm.add_element(name,"DmeCombinationInputControl",id=namespace + name + "inputcontrol")
             controls.append(DmeCombinationInputControl)
 
             DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(deltas,str)
-            
+                    
             if flexcontroller is not None:
-            # unpack tuple (shapekey, eyelid, stereo, min, max)
-                _, eyelid, stereo, min_val, max_val = flexcontroller
+                _, eyelid, stereo = flexcontroller
                 DmeCombinationInputControl["stereo"] = bool(stereo)
                 DmeCombinationInputControl["eyelid"] = bool(eyelid)
-                DmeCombinationInputControl["flexMin"] = float(min_val)
-                DmeCombinationInputControl["flexMax"] = float(max_val)
             else:
-                # default behaviour
                 DmeCombinationInputControl["eyelid"] = False
                 DmeCombinationInputControl["stereo"] = False
+
+            if shape_key is not None:
+                DmeCombinationInputControl["flexMin"] = float(shape_key.slider_min)
+                DmeCombinationInputControl["flexMax"] = float(shape_key.slider_max)
+            else:
                 DmeCombinationInputControl["flexMin"] = 0.0
                 DmeCombinationInputControl["flexMax"] = 1.0
-                
-            DmeCombinationInputControl["wrinkleScales"] = datamodel.make_array([0.0] * len(deltas),float)
     
         for ob in [ob for ob in objects if ob.data.shape_keys]:
             for shape in [
@@ -88,7 +87,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                         continue  # skip shapes not listed in flexcontrollers
 
                 # create controller (either with fc or default behavior)
-                createController(ob.name, shape.name, [shape.name], fc)
+                createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc)
                 shapes.add(shape.name)
 
         for vca in id.vs.vertex_animations:
