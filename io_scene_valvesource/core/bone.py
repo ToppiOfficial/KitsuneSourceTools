@@ -7,6 +7,11 @@ shortcut_keywords = {
     "vbip": "ValveBiped.Bip01",
 }
 
+direction_map = {
+            '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
+            '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
+        }
+
 def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], for_write = False) -> str:
     """Generate the export name for a bone or posebone, respecting custom naming rules."""
     
@@ -72,6 +77,27 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], fo
             export_names[b.name] = raw_name
 
     return sanitizeString(export_names[bone.name])
+
+def getCanonicalBoneName(export_name: str) -> str:
+    """Convert an exported bone name back to its canonical form:
+       - Replaces directional markers with ' * '
+       - Converts expanded shortcut names back to '!shortcut!' form
+       - Converts underscores to spaces
+       - Collapses multiple spaces into a single space
+    """
+    # Reverse shortcut expansion
+    reversed_shortcuts = {v: k for k, v in shortcut_keywords.items()}
+    for full, shortcut in reversed_shortcuts.items():
+        export_name = export_name.replace(full, f"!{shortcut}!")
+
+    for k, v in direction_map.items():
+        export_name = export_name.replace(k, " * ")
+
+
+    export_name = export_name.replace("_", " ")
+    export_name = re.sub(r'\s+', ' ', export_name).strip()
+
+    return export_name
 
 def getBoneMatrix(data, bone : bpy.types.PoseBone = None):
     if isinstance(data, bpy.types.PoseBone):

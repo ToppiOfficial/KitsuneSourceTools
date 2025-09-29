@@ -2344,14 +2344,26 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
 
     filepath: StringProperty(subtype="FILE_PATH")
 
-    ignore_export_name: BoolProperty(
-        name="Ignore Export Name",
-        description="Ignore the export name field in the JSON",
-        default=False
+    load_options: EnumProperty(
+        name="Load Options",
+        description="Select which parts of the JSON to load",
+        items=[
+            ("EXPORT_NAME", "Export Name", ""),
+            ("BONE_EXROTATION", "Bone Export Rotation", ""),
+            ("BONE_ROTATION", "Bone Rotation", ""),
+            ("CONSTRAINTS", "Constraints", "")
+        ],
+        default={"EXPORT_NAME", "BONE_EXROTATION", "BONE_ROTATION", "CONSTRAINTS"},
+        options={"ENUM_FLAG"}
     )
-
+    
+    def draw(self, context):
+        l = self.layout
+        col = l.column(align=True)
+        col.label(text="Select parts to load:")
+        col.prop(self, "load_options")
+    
     def invoke(self, context, event):
-        # Opens the file browser
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
@@ -2424,22 +2436,22 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 return []
 
             def realign_chain_tails(chain):
-                if len(chain) < 2:
-                    return
-                # Must be in EDIT mode
-                prev_mode = arm.mode
-                if bpy.context.object != arm:
-                    bpy.context.view_layer.objects.active = arm
-                bpy.ops.object.mode_set(mode='EDIT')
+                if 'BONE_ROTATION' in self.load_options:
+                    if len(chain) < 2:
+                        return
+                    prev_mode = arm.mode
+                    if bpy.context.object != arm:
+                        bpy.context.view_layer.objects.active = arm
+                    bpy.ops.object.mode_set(mode='EDIT')
 
-                edit_bones = arm.data.edit_bones
-                for i in range(len(chain) - 1):
-                    a = edit_bones.get(chain[i].name)
-                    b = edit_bones.get(chain[i + 1].name)
-                    if a and b:
-                        a.tail = b.head
+                    edit_bones = arm.data.edit_bones
+                    for i in range(len(chain) - 1):
+                        a = edit_bones.get(chain[i].name)
+                        b = edit_bones.get(chain[i + 1].name)
+                        if a and b:
+                            a.tail = b.head
 
-                bpy.ops.object.mode_set(mode=prev_mode)
+                    bpy.ops.object.mode_set(mode=prev_mode)
 
             def build_torso_chain(pelvis_name, chest_name):
                 chain = collect_chain(pelvis_name, chest_name)
@@ -2644,81 +2656,86 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                         bone.parent = arm.data.edit_bones.get(parent_name)
                     else: bone.parent = None
                 
-                rot = bone_data.get("Rotation")
-                roll = bone_data.get("Roll")
-                if rot is not None and roll is not None:
-                    rotatedbones = assignBoneAngles(arm, [(bone_name, rot[0], rot[1], rot[2], roll)])
-                elif rot is None and roll is not None:
-                    rotatedbones = assignBoneAngles(arm, [(bone_name, None, None, None, roll)])
-                else:
-                    pass
-                
-                bone = arm.data.edit_bones.get(bone_name)
-                twisttarget = bone_data.get("TwistBones")
-                if twisttarget:
-                    twistbone = arm.data.edit_bones.get(bone_name + " twist")
-                    
-                    if not twistbone:
-                        twistbone = arm.data.edit_bones.new(bone_name + " twist")
-                        twistbone.head = bone.head
-                        twistbone.tail = bone.tail
-                        twistbone.roll = bone.roll
-                        twistbone.length = bone.length * 0.5
-                        twistbone.parent = bone
+                if 'BONE_ROTATION' in self.load_options:
+                    rot = bone_data.get("Rotation")
+                    roll = bone_data.get("Roll")
+                    if rot is not None and roll is not None:
+                        rotatedbones = assignBoneAngles(arm, [(bone_name, rot[0], rot[1], rot[2], roll)])
+                    elif rot is None and roll is not None:
+                        rotatedbones = assignBoneAngles(arm, [(bone_name, None, None, None, roll)])
                     else:
-                        twistbone.head = bone.head
-                        twistbone.tail = bone.tail
-                        twistbone.length = bone.length * 0.5
-                        twistbone.roll = bone.roll
-                        twistbone.parent = bone
+                        pass
+                    
+                    bone = arm.data.edit_bones.get(bone_name)
+                    twisttarget = bone_data.get("TwistBones")
+                    if twisttarget:
+                        twistbone = arm.data.edit_bones.get(bone_name + " twist")
+                        
+                        if not twistbone:
+                            twistbone = arm.data.edit_bones.new(bone_name + " twist")
+                            twistbone.head = bone.head
+                            twistbone.tail = bone.tail
+                            twistbone.roll = bone.roll
+                            twistbone.length = bone.length * 0.5
+                            twistbone.parent = bone
+                        else:
+                            twistbone.head = bone.head
+                            twistbone.tail = bone.tail
+                            twistbone.length = bone.length * 0.5
+                            twistbone.roll = bone.roll
+                            twistbone.parent = bone
                 
             bpy.ops.object.mode_set(mode='OBJECT')
             
             for bone_name, bone_data in boneElems.items():
                 pb = arm.pose.bones.get(bone_name)
-                if pb:
-                    if bone_data.get("ExportRotationOffset") is not None:
-                        pb.bone.vs.ignore_rotation_offset = False
-                        pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
-                        pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
-                        pb.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
-                    else:
-                        pb.bone.vs.ignore_rotation_offset = True
+                
+                if 'BONE_EXROTATION' in self.load_options:
+                    if pb:
+                        if bone_data.get("ExportRotationOffset") is not None:
+                            pb.bone.vs.ignore_rotation_offset = False
+                            pb.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
+                            pb.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
+                            pb.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
+                        else:
+                            pb.bone.vs.ignore_rotation_offset = True
+                            
+                if 'EXPORT_NAME' in self.load_options and pb and bone_data.get("ExportName") is not None:
+                    pb.bone.vs.export_name = getCanonicalBoneName(bone_data.get("ExportName"))
+                
+                if 'CONSTRAINTS' in self.load_options:
+                    pbtwist = arm.pose.bones.get(bone_name + " twist")
+                    if pbtwist:
+                        twisttarget = bone_data.get("TwistBones")
                         
-                    if bone_data.get("ExportName") is not None:
-                        pb.bone.vs.export_name = bone_data.get("ExportName")
-                    
-                pbtwist = arm.pose.bones.get(bone_name + " twist")
-                if pbtwist:
-                    twisttarget = bone_data.get("TwistBones")
-                    
-                    if bone_data.get("ExportRotationOffset") is not None:
-                        pbtwist.bone.vs.ignore_rotation_offset = False
-                        pbtwist.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
-                        pbtwist.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
-                        pbtwist.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
-                    else:
-                        pbtwist.bone.vs.ignore_rotation_offset = True
-                    
-                    twistconstraintName = bone_name + "Twist"
-                    twistconstraint = pbtwist.constraints.get(twistconstraintName)
-                    if twistconstraint is None:
-                        twistconstraint : bpy.types.CopyRotationConstraint = pbtwist.constraints.new('COPY_ROTATION')
+                        if bone_data.get("ExportRotationOffset") is not None:
+                            pbtwist.bone.vs.ignore_rotation_offset = False
+                            pbtwist.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
+                            pbtwist.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
+                            pbtwist.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
+                        else:
+                            pbtwist.bone.vs.ignore_rotation_offset = True
                         
-                    twistconstraint.target = arm
-                    twistconstraint.subtarget = twisttarget
-                    twistconstraint.use_x = False
-                    twistconstraint.use_y = True
-                    twistconstraint.use_z = False
-                    twistconstraint.owner_space = 'LOCAL'
-                    twistconstraint.target_space = 'LOCAL'
-                    
-                    twistconstraint.influence = 1
-                    if twisttarget == pbtwist.parent.name:
-                        twistconstraint.invert_y = True
+                        twistconstraintName = bone_name + "Twist"
+                        twistconstraint = pbtwist.constraints.get(twistconstraintName)
+                        if twistconstraint is None:
+                            twistconstraint : bpy.types.CopyRotationConstraint = pbtwist.constraints.new('COPY_ROTATION')
+                            twistconstraint.name = twistconstraintName
+                            
+                        twistconstraint.target = arm
+                        twistconstraint.subtarget = twisttarget
+                        twistconstraint.use_x = False
+                        twistconstraint.use_y = True
+                        twistconstraint.use_z = False
+                        twistconstraint.owner_space = 'LOCAL'
+                        twistconstraint.target_space = 'LOCAL'
                         
-                    for col in pb.bone.collections:
-                        col.assign(pbtwist.bone)
+                        twistconstraint.influence = 1
+                        if twisttarget == pbtwist.parent.name:
+                            twistconstraint.invert_y = True
+                            
+                        for col in pb.bone.collections:
+                            col.assign(pbtwist.bone)
                      
         self.report({"INFO"}, "Armature Converted successfully.")
         return {"FINISHED"}
