@@ -158,7 +158,7 @@ class SMD_PT_ContextObject(SMD_PT_toolpanel, Panel):
     
     def draw(self, context):
         l = self.layout
-        draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=40, icon='WARNING_LARGE', title='KitsuneSourceTool (Alpha 0.7)')
+        draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=40, icon='WARNING_LARGE', title='KitsuneSourceTool (Alpha 1.0)')
 
 class ExportableConfigurationPanel(SMD_PT_toolpanel, Panel):
     bl_label = ''
@@ -173,15 +173,14 @@ class SMD_PT_Object(ExportableConfigurationPanel):
         
     def draw(self, context):
         l = self.layout
-        
+        bx = draw_title_box(l, SMD_PT_Object.bl_label)
         ob = context.object
         
         if ob: pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_object"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_object"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
         bx.box().label(text=f'Active Object: ({ob.name})')
         
         if not ob.parent:
@@ -214,15 +213,15 @@ class SMD_PT_Armature(ExportableConfigurationPanel):
 
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_Armature.bl_label)
         
         armature = context.object
         
         if is_armature(armature): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
-        
-        bx = l.box()
+
         col = bx.column()
         
         col.row().prop(armature.data.vs,"action_selection",expand=True)
@@ -246,10 +245,11 @@ class SMD_PT_Mesh(ExportableConfigurationPanel):
     def draw(self, context):
         l = self.layout
         ob = context.object
+        bx = draw_title_box(l, SMD_PT_Mesh.bl_label)
         
         if is_mesh(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
         
 class DME_UL_FlexControllers(UIList):
@@ -310,14 +310,14 @@ class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_ShapeKeys.bl_label)
         item = context.object
         
         if is_mesh(item) and hasShapes(item): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh_sk"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_mesh_sk"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
         col = bx.column()
         col.prop(item.data.vs, "bake_shapekey_as_basis_normals", toggle=True, icon='NORMALS_FACE')
         col.row().prop(item.vs,"flex_controller_mode",expand=True)
@@ -386,13 +386,13 @@ class SMD_PT_VertexMaps(ExportableConfigurationPanel):
 
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_VertexMaps.bl_label)
         ob = context.object
         if is_mesh(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
         col = bx.column(align=True)
         
         if State.exportFormat != ExportFormat.DMX:
@@ -429,14 +429,14 @@ class SMD_PT_FloatMaps(ExportableConfigurationPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_FloatMaps.bl_label)
         
         ob = context.active_object
         if ob: pass
         else:
-            draw_wrapped_text_col(l,"No Mesh Selected",max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,"No Mesh Selected",max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
         col = bx.column()
         
         col.operator("wm.url_open", text=get_id("help", True), icon='HELP').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
@@ -474,13 +474,13 @@ class SMD_PT_Curves(ExportableConfigurationPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_Curves.bl_label)
         
         if is_curve(context.object) and hasCurves(context.object): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
         done = set()
         
         row = bx.split(factor=0.33)
@@ -496,14 +496,13 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_Materials.bl_label)
         ob = context.object
         
         if is_mesh(ob) and has_materials(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
             return
-        
-        bx = l.box()
         
         currMat = ob.active_material
         bx.box().label(text=f'Active Material: ({currMat.name})')
@@ -525,19 +524,19 @@ class SMD_PT_Bones(ExportableConfigurationPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_Bones.bl_label)
+        
         ob = context.object
         
         if is_armature(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
             
         try:
             bone = ob.data.bones.active if context.mode != 'EDIT_ARMATURE' else ob.data.bones.get(ob.data.edit_bones.active.name)
         except:
             bone = None
-
-        bx = l.box()
         
         if bone:
             bx.prop(ob.data.vs, "ignore_bone_exportnames", toggle=True)
@@ -600,14 +599,14 @@ class SMD_PT_Empty(ExportableConfigurationPanel):
 
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, SMD_PT_Empty.bl_label)
         ob = context.object
         
         if is_empty(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
         col = bx.column()
         
         col.prop(context.object.vs, 'dmx_attachment', toggle=True)
@@ -644,12 +643,12 @@ class TOOLS_PT_Armature(ToolsSubPanel):
     
     def draw(self, context):
         l = self.layout
-        if is_armature(context.object): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
-            return
+        bx = draw_title_box(l, TOOLS_PT_Armature.bl_label, icon='ARMATURE_DATA')
         
-        bx = l.box()
+        if is_armature(context.object) or is_mesh(context.object): pass
+        else:
+            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
         
         col = bx.column()
         col.scale_y = 1.3
@@ -659,8 +658,6 @@ class TOOLS_PT_Armature(ToolsSubPanel):
         
         col = bx.column()
         col.operator(TOOLS_OT_CleanUnWeightedBones.bl_idname,icon='GROUP_BONE')
-        col.operator(TOOLS_OT_RemoveUnusedVertexGroups.bl_idname, icon='GROUP_VERTEX')
-        col.operator(TOOLS_OT_CreateProportionActions.bl_idname,icon='ACTION_TWEAK')
         
         col = bx.column(align=True)
         row = col.row(align=True)
@@ -670,19 +667,20 @@ class TOOLS_PT_Armature(ToolsSubPanel):
 
 class TOOLS_PT_Bone(ToolsSubPanel):
     bl_label = "Bone Tools"
-    
-    @classmethod
-    def poll(cls, context):
-        return (is_armature(context.object) and context.object.mode in ['EDIT', 'POSE']) or (is_mesh(context.object) and context.object.mode == 'WEIGHT_PAINT')
-    
+
     def draw(self, context):
         l = self.layout
-        bx = l.box()
+        bx = draw_title_box(l, TOOLS_PT_Bone.bl_label, icon='BONE_DATA')
         
         armature = getArmature(context.object)
         
+        if is_armature(armature) or is_mesh(armature): pass
+        else:
+            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
         col = bx.column(align=True)
-        if context.object.mode == 'EDIT':
+        if armature.mode == 'EDIT':
             col.prop(armature.data, 'use_mirror_x', toggle=True, text='X-Axis Mirror')
         else:
             col.prop(armature.pose, 'use_mirror_x', toggle=True, text='X-Axis Mirror')
@@ -732,11 +730,13 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(bpy.types.Operator):
                 success = applyCurrPoseAsRest(armature)
                 if success: success_count += 1
                 
-            if success_count > 0:
-                if len(armatures) == 1:
-                    self.report({'INFO'}, 'Applied as Rest Pose')
-                else:
-                    self.report({'INFO'}, f'Applied {len(armatures)} Armatures as Rest Pose')
+        if success_count > 0:
+            if len(armatures) == 1:
+                self.report({'INFO'}, 'Applied as Rest Pose')
+            else:
+                self.report({'INFO'}, f'Applied {len(armatures)} Armatures as Rest Pose')
+            
+            bpy.ops.object.mode_set(mode='OBJECT')
                     
         return {'FINISHED'} if success else {'CANCELLED'}
     
@@ -880,7 +880,7 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
         else:
             arm = ob
         
-        if arm is None: return False
+        if arm is None or arm.mode not in ['WEIGHT_PAINT', 'POSE', 'EDIT']: return False
 
         if arm.mode == 'EDIT':
             bones = {b for b in arm.data.edit_bones if b.select and not b.hide}
@@ -898,13 +898,14 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
             
         vs_sce = context.scene.vs
         bones_to_remove_map = {}
+        vgroups_processed_map = {}
 
         with PreserveContextMode(mode='OBJECT'):
             for arm in armatures:
                 bpy.context.view_layer.objects.active = arm
                 
                 if self.mode == 'TO_ACTIVE':
-                    sel_bones = getBones(arm, sorted=True, reverse_sort=True, bonetype='BONE', exclude_active=True)
+                    sel_bones = getSelectedBones(arm,'BONE',sort_type='TO_FIRST',exclude_active=True)
                     if not sel_bones: 
                         continue
 
@@ -915,7 +916,7 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                     centralize_b = vs_sce.recenter_bone
 
                     if centralize_b:
-                        bones_to_remove, merged_pairs = mergeBones(
+                        bones_to_remove, merged_pairs, vgroups_processed = mergeBones(
                             arm,
                             context.active_bone,
                             sel_bones,
@@ -926,7 +927,7 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                         )
                         CentralizeBonePairs(arm, merged_pairs)
                     else:
-                        bones_to_remove = mergeBones(
+                        bones_to_remove, vgroups_processed = mergeBones(
                             arm,
                             context.active_bone,
                             sel_bones,
@@ -937,12 +938,13 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                         )
 
                     bones_to_remove_map[arm] = bones_to_remove
+                    vgroups_processed_map[arm] = vgroups_processed
 
                 else:
-                    sel_bones = getBones(arm, sorted=True, reverse_sort=True, bonetype='BONE', exclude_active=False)
+                    sel_bones = getSelectedBones(arm, sort_type='TO_FIRST', bone_type='BONE', exclude_active=False)
                     if not sel_bones:
                         continue
-                    merged_bones = mergeBones(
+                    merged_bones, vgroups_processed = mergeBones(
                         arm,
                         None,
                         sel_bones,
@@ -951,6 +953,7 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                         vs_sce.keep_original_weight
                     )
                     bones_to_remove_map[arm] = merged_bones
+                    vgroups_processed_map[arm] = vgroups_processed
 
             bpy.ops.object.mode_set(mode='EDIT')
             for arm, bones_to_remove in bones_to_remove_map.items():
@@ -959,7 +962,8 @@ class TOOLS_OT_MergeBones(bpy.types.Operator):
                            match_parent_to_head=vs_sce.snap_parent_tip if self.mode != 'TO_ACTIVE' else None,
                            source=context.active_bone.name if self.mode == 'TO_ACTIVE' else None)
 
-        self.report({'INFO'}, f'{sum(len(b) for b in bones_to_remove_map.values())} Weights merged')
+        total_merged = sum(len(vg) for vg in vgroups_processed_map.values())
+        self.report({'INFO'}, f'{total_merged} Weights merged')
         return {'FINISHED'}
 
 class TOOLS_OT_MergeArmatures(bpy.types.Operator):
@@ -990,142 +994,6 @@ class TOOLS_OT_MergeArmatures(bpy.types.Operator):
             
         return {'FINISHED'}
 
-class TOOLS_OT_CreateProportionActions(bpy.types.Operator):
-    bl_idname = 'tools.create_proportion_actions'
-    bl_label = 'Create Delta Proportion Pose'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    ProportionName: StringProperty(name='Proportion Slot Name', default='proportion')
-    ReferenceName: StringProperty(name='Reference Slot Name', default='reference')
-
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return (
-            context.mode == 'OBJECT'
-            and is_armature(ob)
-            and {o for o in context.selected_objects if o != context.object}
-        )
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-    def execute(self, context):
-        currArm = context.object
-        otherArms = {o for o in context.selected_objects if o.type == 'ARMATURE'}
-        otherArms.discard(currArm)
-
-        if not self.ReferenceName.strip() or not self.ProportionName.strip():
-            return {'CANCELLED'}
-
-        last_pose_state = currArm.data.pose_position
-        currArm.data.pose_position = 'REST'
-        context.scene.frame_set(0)
-        context.view_layer.update()
-
-        use_new_api = bpy.app.version >= (4, 4, 0)
-
-        for arm in otherArms:
-            if arm.animation_data is None:
-                arm.animation_data_create()
-
-            if use_new_api:
-                # 4.4 +
-                action_name = "proportion-delta"
-                action = bpy.data.actions.get(action_name)
-                if action is None:
-                    action = bpy.data.actions.new(action_name)
-                action.use_fake_user = True
-                
-                actionslots = {s for s in action.slots}
-                for slot in actionslots:
-                    action.slots.remove(slot)
-                    
-                for pb in arm.pose.bones:
-                    pb.matrix_basis.identity()
-
-                slot_ref = action.slots.get(self.ReferenceName)
-                if slot_ref is None:
-                    slot_ref = action.slots.new(id_type='OBJECT', name=self.ReferenceName)
-
-                slot_prop = action.slots.get(self.ProportionName)
-                if slot_prop is None:
-                    slot_prop = action.slots.new(id_type='OBJECT', name=self.ProportionName)
-
-                if len(action.layers) == 0:
-                    layer = action.layers.new("BaseLayer")
-                else:
-                    layer = action.layers[0]
-
-                if len(layer.strips) == 0:
-                    strip = layer.strips.new(type='KEYFRAME')
-                else:
-                    strip = layer.strips[0]
-
-                arm.animation_data.action = action
-                arm.animation_data.action_slot = slot_ref
-
-                success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
-                if success:
-                    for pbone in arm.pose.bones:
-                        pbone.keyframe_insert(data_path="location", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
-
-                context.view_layer.update()
-
-                arm.animation_data.action_slot = slot_prop
-                success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
-                success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
-
-                if success1 and success2:
-                    for pbone in arm.pose.bones:
-                        pbone.keyframe_insert(data_path="location", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
-
-                arm.animation_data.action_slot = slot_ref
-                context.view_layer.update()
-
-            else:
-                # 4.3
-                action_ref_name = self.ReferenceName
-                action_prop_name = self.ProportionName
-
-                action_ref = bpy.data.actions.get(action_ref_name)
-                if action_ref is None:
-                    action_ref = bpy.data.actions.new(action_ref_name)
-                    
-                for pb in arm.pose.bones:
-                    pb.matrix_basis.identity()
-
-                arm.animation_data.action = action_ref
-                success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
-                if success:
-                    for pbone in arm.pose.bones:
-                        pbone.keyframe_insert(data_path="location", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
-
-                action_prop = bpy.data.actions.get(action_prop_name)
-                if action_prop is None:
-                    action_prop = bpy.data.actions.new(action_prop_name)
-
-                arm.animation_data.action = action_prop
-                success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
-                success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
-                if success1 and success2:
-                    for pbone in arm.pose.bones:
-                        pbone.keyframe_insert(data_path="location", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
-                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
-
-                arm.animation_data.action = action_ref
-                context.view_layer.update()
-
-        currArm.data.pose_position = last_pose_state
-        return {'FINISHED'}
-
 class TOOLS_OT_ReAlignBones(bpy.types.Operator):
     bl_idname = 'tools.realign_bone'
     bl_label = 'ReAlign Bones'
@@ -1143,7 +1011,7 @@ class TOOLS_OT_ReAlignBones(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return is_armature(context.object)
+        return (is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE']
         
     def draw(self, context):
         layout = self.layout
@@ -1171,35 +1039,45 @@ class TOOLS_OT_ReAlignBones(bpy.types.Operator):
                     bone.tail.y if exclude_y else child_position.y,
                     bone.tail.z if exclude_z else child_position.z
                 ))
+                
+            if new_tail:
+                if all([exclude_x, exclude_y, exclude_z]):
+                    if self.alignment_mode == 'AVERAGE_ALL':
+                        avg_vec = sum((pos - bone.head for pos in child_positions), Vector((0,0,0))) / len(child_positions)
+                        bone.length = avg_vec.length
+                    elif self.alignment_mode == 'ONLY_SINGLE_CHILD' and len(child_positions) == 1:
+                        vec_to_child = child_positions[0] - bone.head
+                        bone.length = vec_to_child.length
+                else:
+                    bone.tail = new_tail
 
-            if all([exclude_x, exclude_y, exclude_z]):
-                if self.alignment_mode == 'AVERAGE_ALL':
-                    avg_vec = sum((pos - bone.head for pos in child_positions), Vector((0,0,0))) / len(child_positions)
-                    bone.length = avg_vec.length
-                elif self.alignment_mode == 'ONLY_SINGLE_CHILD' and len(child_positions) == 1:
-                    vec_to_child = child_positions[0] - bone.head
-                    bone.length = vec_to_child.length
-            else:
-                bone.tail = new_tail
-
-        if not exclude_roll:
-            bone.align_roll(bone.tail - bone.head)
-        else:
-            bone.roll = original_bone_roll
+                if not exclude_roll:
+                    bone.align_roll(bone.tail - bone.head)
+                else:
+                    bone.roll = original_bone_roll
 
     def execute(self, context):
-        armature = getArmature()
+        armature = getArmature(context.object)
 
         if not armature:
             self.report({'WARNING'}, "No armature selected")
             return {'CANCELLED'}
 
-        mode = context.mode
         vs_sce = context.scene.vs
         
         with PreserveContextMode(armature, 'EDIT'):
-            bones = getBones(arm=armature,sorted=True,reverse_sort=True,bonetype='EDITBONE')
-            for bone in bones:
+            selectedbones = getSelectedBones(armature,'BONE','TO_FIRST')
+            
+            editbones = []
+            for bone in selectedbones:
+                armatureid = bone.id_data
+                editbones.append(armatureid.edit_bones.get(bone.name))
+            
+            if editbones is None: 
+                self.report({'WARNING'}, "No Bones Selected")
+                return {}
+                
+            for bone in editbones:
                 self.realign_bone_tail(bone,
                                     exclude_x= ('EXCLUDE_X' in vs_sce.alignment_exclude_axes),
                                     exclude_y= ('EXCLUDE_Y' in vs_sce.alignment_exclude_axes),
@@ -1229,7 +1107,7 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return is_armature(context.object)
+        return (is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE']
 
     def execute(self, context):
         vs_sce = context.scene.vs
@@ -1239,13 +1117,16 @@ class TOOLS_OT_CopyTargetRotation(bpy.types.Operator):
             bones = {}
             for ob in context.selected_objects:
                 if not ob.visible_get() or ob.type != 'ARMATURE': continue
-                for b in getBones(arm=ob, sorted=True, reverse_sort=True, bonetype='EDITBONE'):
+                for b in getSelectedBones(ob, sort_type='TO_FIRST', bone_type='BONE'):
                     bones[b.name] = ob
 
-            active_bone = context.active_bone
-
+            bpy.ops.object.mode_set(mode='OBJECT')
             for bone_name, armature in bones.items():
                 try:
+                    bpy.context.view_layer.objects.active = armature
+                    bpy.ops.object.mode_set(mode='EDIT')
+                    active_bone = context.active_bone
+                    
                     editbone = armature.data.edit_bones.get(bone_name)
                     if self.copy_source == 'PARENT':
                         reference_bone = editbone.parent
@@ -1301,12 +1182,12 @@ class TOOLS_PT_Mesh(ToolsSubPanel):
     
     def draw(self, context):
         l = self.layout
-        if is_mesh(context.object): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
-            return
+        bx = draw_title_box(l, TOOLS_PT_Mesh.bl_label, icon='MESH_DATA')
         
-        bx = l.box()
+        if is_mesh(context.object) or is_armature(context.object): pass
+        else:
+            draw_wrapped_text_col(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            return
         
         col = bx.column()
         row = col.row(align=True)
@@ -1321,6 +1202,10 @@ class TOOLS_OT_CleanShapeKeys(bpy.types.Operator):
     bl_idname = 'tools.clean_shape_keys'
     bl_label = 'Clean Shape Keys'
     bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        return is_mesh(context.object) and hasShapes(context.object, valid_only=True)
     
     def execute(self, context):
         objects = context.selected_objects
@@ -1441,13 +1326,15 @@ class TOOLS_PT_VertexGroup(ToolsSubPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, TOOLS_PT_VertexGroup.bl_label, icon='GROUP_VERTEX')
+        
         ob = context.object
         if (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE'): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
+        
         
         col = bx.column()
         col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
@@ -1563,28 +1450,16 @@ class TOOLS_OT_SwapVertexGroups(bpy.types.Operator):
     bl_label = 'Swap Vertex Group'
     bl_options = {'REGISTER', 'UNDO'}
     
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        if not ob: return False
-        if ob.mode not in {'POSE', 'WEIGHT_PAINT'}: return False
-        
-        arm = None
-        if is_armature(ob):
-            arm = ob
-        elif is_mesh(ob):
-            arm = getArmature(ob)
-            
-        if arm:
-            if arm.data.bones.active and arm.data.bones.active.select and len(getBones(arm,False,'BONE')) == 2:
-                return True
-        else:
-            return False
-    
     def execute(self,context):
         arm = getArmature(context.object)
         currBone = arm.data.bones.active
-        otherBone = getBones(arm, False, exclude_active= True)[0]
+        bones = getSelectedBones(arm, sort_type=None, exclude_active= True)
+        
+        if len(bones) != 1:
+            self.report({'WARNING'}, "Only select 2 VertexGroups/Bones")
+            return {'CANCELLED'}
+        
+        otherBone = bones[0]
         
         if currBone.id_data != otherBone.id_data:
             self.report({'WARNING'}, "Bones selected are not in the same armature")
@@ -1785,8 +1660,6 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
         default=""
     )
     
-    is_humanoid_limb_twist: BoolProperty(name="Handle Limb Twist Bones", default=False)
-    
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
     
@@ -1804,11 +1677,20 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
         col.prop(self, "invert_ramp", toggle=True)
         row.prop(self, "constant_mask", toggle=True)
         row.prop(self, "normalize_to_parent", toggle=True)
-        col.prop(self, "is_humanoid_limb_twist", toggle=True)
 
-        if not self.is_humanoid_limb_twist:
-            col.separator()
-            col.label(text="Target Vertex Group:")
+        col.separator()
+        col.label(text="Target Vertex Group:")
+        
+        armature = getArmature(context.object)
+        if armature:
+            col.prop_search(
+                self,
+                "vertex_group_target",
+                armature.data,
+                "bones",
+                text=""
+            )
+        else:
             col.prop_search(
                 self,
                 "vertex_group_target",
@@ -1838,7 +1720,7 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
             return {'CANCELLED'}
         
         if arm_obj.select_get():
-            selected_bones = getBones(arm_obj, sorted=True, bonetype='POSEBONE', reverse_sort=True)
+            selected_bones = getSelectedBones(arm_obj, bone_type='POSEBONE', sort_type='TO_FIRST')
         else:
             selected_bones = [arm_obj.pose.bones.get(context.object.vertex_groups.active.name)]
             
@@ -1851,30 +1733,21 @@ class TOOLS_OT_curve_ramp_weights(bpy.types.Operator):
         bpy.context.view_layer.update()
         
         with PreserveContextMode(context.object,'WEIGHT_PAINT'), PreserveArmatureState(arm_obj):
-            try:
-                for bone in selected_bones:
-                    target_vg = None
-                    if self.is_humanoid_limb_twist:
-                        twist_name = f"{bone.name} twist"
-                        target_vg = twist_name
-                    else:
-                        target_vg = self.vertex_group_target if self.vertex_group_target else None
+            for bone in selected_bones:
+                target_vg = self.vertex_group_target if self.vertex_group_target else None
+                curve = context.tool_settings.weight_paint.brush.curve
 
-                    curve = context.tool_settings.weight_paint.brush.curve
-
-                    convert_weight_to_curve_ramp(
-                        arm=arm_obj,
-                        bones=[bone],
-                        curve=curve,
-                        invert=self.invert_ramp,
-                        vertex_group_target=target_vg,
-                        min_weight_mask=self.min_weight_mask,
-                        max_weight_mask=self.max_weight_mask,
-                        normalize_to_parent=self.normalize_to_parent,
-                        constant_mask=self.constant_mask,
-                    )
-            except:
-                pass
+                convert_weight_to_curve_ramp(
+                    arm=arm_obj,
+                    bones=[bone],
+                    curve=curve,
+                    invert=self.invert_ramp,
+                    vertex_group_target=target_vg,
+                    min_weight_mask=self.min_weight_mask,
+                    max_weight_mask=self.max_weight_mask,
+                    normalize_to_parent=self.normalize_to_parent,
+                    constant_mask=self.constant_mask,
+                )
         
         arm_obj.data.pose_position = og_arm_pose_mode
         bpy.context.view_layer.update()
@@ -1899,10 +1772,7 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
         ob = context.object
         if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
         
-        arm = getArmature(ob)
-        if arm is None: return False
-        
-        return arm.data.bones.active 
+        return getArmature(ob)
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -1931,9 +1801,13 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
 
     def execute(self, context):
         arm = getArmature(context.object)
-        bones = getBones(arm,sorted=True,bonetype='POSEBONE',)
+        
+        bones = getSelectedBones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
         active_bone = arm.data.bones.active
-
+        
+        for bone in bones:
+            print(bone.name)
+        
         if not bones or len(bones) != 2 or not active_bone:
             self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
             return {'CANCELLED'}
@@ -1942,8 +1816,8 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
         arm.data.pose_position = 'REST'
         bpy.context.view_layer.update()
 
-        bone1 = bones[0]
-        bone2 = bones[1]
+        bone1 = arm.pose.bones.get(bones[0].name)
+        bone2 = arm.pose.bones.get(bones[1].name)
         active = active_bone
 
         bone1_name = bone1.name
@@ -1998,9 +1872,11 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
                 vg2.add([vidx], w2, 'ADD')
 
             mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
+            mesh.vertex_groups.active = vg1
         
         with PreserveContextMode(arm, 'EDIT'):
             removeBone(arm,active_bone.name)
+            arm.data.edit_bones.active = arm.data.edit_bones.get(bones[0].name)
         
         arm.data.pose_position = og_arm_pose_mode
 
@@ -2016,21 +1892,15 @@ class ARMATUREMAPPER_PT_ArmatureMapper(ToolsSubPanel):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, ARMATUREMAPPER_PT_ArmatureMapper.bl_label, icon='ARMATURE_DATA')
+        
         ob = context.object
         if is_armature(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
-        
-        bx = l.box()
         
         col = bx.column()
-        
-        if ob: pass
-        else:
-            draw_wrapped_text_col(col,"Select an Armature",max_chars=40 , icon='HELP')
-            return
-        
         row = bx.row(align=True)
         row.prop(context.scene.vs, 'defineArmatureCategory', expand=True)
         
@@ -2182,7 +2052,7 @@ class ARMATUREMAPPER_UL_BoneList(UIList):
         if item:
             row = layout.row()
             split = row.split(factor=0.9)
-            split.prop(item, 'boneExportName', text="")
+            split.prop_search(item, "boneExportName", context.object.data, "bones", text="")
             split.label(text="", )
             row.operator(ARMATUREMAPPER_OT_RemoveItem.bl_idname, text="", icon="X").index = index
 
@@ -2291,83 +2161,91 @@ class ARMATUREMAPPER_OT_WriteJson(bpy.types.Operator):
         
         ob = context.object
         items = ob.vs.armature_map_bonecollections
-        bones = []
         skipped_count = 0
-        
+
+        # Build item_map with original collection index
+        item_map = {i.boneExportName: (i, idx) for idx, i in enumerate(items)}
+
+        # Sort items by hierarchy (parents first)
         sorted_items = self.sortItemsByBoneHierarchy(ob, items)
+        sorted_items.reverse()  # children-first processing
+
+        bone_entries = []
+
         with PreserveContextMode(ob, 'EDIT'):
-            for item in reversed(sorted_items):
+            # First pass: build entries without ParentBone
+            for item in sorted_items:
                 if not item.boneName.strip():
                     skipped_count += 1
                     continue
 
-                if item.boneExportName not in ob.data.bones:
+                bone = ob.data.bones.get(item.boneExportName)
+                if not bone:
                     skipped_count += 1
                     continue
 
-                bone = ob.data.bones.get(item.boneExportName)
                 editbone = ob.data.edit_bones.get(item.boneExportName)
-                ebone_roll = editbone.roll
-                
+                ebone_roll = editbone.roll if editbone else 0.0
+
                 boneDict = {
-                    "BoneName" : item.boneName,
-                    "ExportName" : item.boneExportName
+                    "BoneName": item.boneName,
+                    "ExportName": item.boneExportName
                 }
-                
-                if not item.parentBone.strip():
-                    parent_bone = bone.parent
-                    if parent_bone:
-                        parent_item = next((i for i in items if i.boneExportName == parent_bone.name), None)
-                        if parent_item and parent_item.boneName.strip():
-                            boneDict["ParentBone"] = parent_item.boneName
-                        else:
-                            boneDict["ParentBone"] = parent_bone.name
-                else:
-                    boneDict["ParentBone"] = item.parentBone
-                
+
                 if item.writeRotation == 'ROTATION':
-                    head = bone.head_local
-                    tail = bone.tail_local
-                    tail_offset = tail - head
+                    tail_offset = bone.tail_local - bone.head_local
                     boneDict['Rotation'] = [tail_offset.x, tail_offset.y, tail_offset.z]
                     boneDict['Roll'] = ebone_roll
                 elif item.writeRotation == 'ROLL':
                     boneDict['Roll'] = ebone_roll
-                    
+
                 if item.writeExportRotationOffset and not bone.vs.ignore_rotation_offset:
                     boneDict['ExportRotationOffset'] = [
                         bone.vs.export_rotation_offset_x,
                         bone.vs.export_rotation_offset_y,
                         bone.vs.export_rotation_offset_z
                     ]
-                    
+
                 if item.writeTwistBone:
-                    if item.twistBoneTarget.strip(): 
-                        twist_name = item.twistBoneTarget.strip()
-                    else:
-                        parent_bone = bone.parent
-                        if parent_bone:
-                            parent_item = next((i for i in items if i.boneExportName == parent_bone.name), None)
-                            twist_name = parent_item.boneName if parent_item else parent_bone.name
-                        else:
-                            twist_name = None
-                            print(f'{item.boneExportName} cannot have twist due to not having a proper target bone')
-                        
+                    twist_name = item.twistBoneTarget.strip() or (
+                        item_map.get(bone.parent.name, (None, 0))[0].boneName
+                        if bone.parent and bone.parent.name in item_map else None
+                    )
                     if twist_name:
                         boneDict['TwistBones'] = twist_name
-                    
-                bones.append(boneDict)
-        
-        if bones:
+
+                bone_entries.append(boneDict)
+
+        # Second pass: assign ParentBone properly
+        exportname_to_bonename = {i.boneExportName: i.boneName for i in items if i.boneName.strip()}
+
+        for b_entry in bone_entries:
+            item = item_map[b_entry['ExportName']][0]
+            bone = ob.data.bones.get(item.boneExportName)
+
+            if item.parentBone.strip():  # use property if set
+                b_entry['ParentBone'] = item.parentBone
+            elif bone and bone.parent:
+                parent_item = item_map.get(bone.parent.name)
+                if parent_item and parent_item[0].boneName.strip():
+                    b_entry['ParentBone'] = parent_item[0].boneName
+                else:
+                    b_entry['ParentBone'] = bone.parent.name
+
+        # Sort bone_entries to match original collection order
+        bone_entries.sort(key=lambda b: item_map[b['ExportName']][1])
+
+        # Write JSON
+        if bone_entries:
             os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
             with open(self.filepath, "w", encoding="utf-8") as f:
-                json.dump(bones, f, indent=4)
-
+                json.dump(bone_entries, f, indent=4)
             self.report({'INFO'}, f"Exported JSON to: {self.filepath} | Skipped {skipped_count} bone(s)")
         else:
             self.report({'WARNING'}, f"No bones exported. Skipped {skipped_count} bone(s)")
-        
+
         return {'FINISHED'}
+
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
@@ -2661,16 +2539,24 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             arm.display_type = 'WIRE'
             arm.data.show_axes = True
             
+            for bone in arm.data.edit_bones:
+                bone.use_connect = False
+            
             for bone_name, bone_data in boneElems.items():
                 bone = arm.data.edit_bones.get(bone_name)
 
                 if bone is None:
-                    print(f"[SKIP] {bone_name} not found in armature, skipping creation.")
+                    print(f"[SKIP] {bone_name} not found in armature, Attempt to create.")
                     continue
 
                 parent_name = bone_data.get("ParentBone")
                 if parent_name and arm.data.edit_bones.get(parent_name) is None:
                     writeMissingBone(parent_name, child_hint=bone_name)
+                else:
+                    bone = arm.data.edit_bones.get(bone_name)
+                    if parent_name:
+                        bone.parent = arm.data.edit_bones.get(parent_name)
+                    else: bone.parent = None
                 
                 rot = bone_data.get("Rotation")
                 roll = bone_data.get("Roll")
@@ -2741,11 +2627,9 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                     twistconstraint.owner_space = 'LOCAL'
                     twistconstraint.target_space = 'LOCAL'
                     
+                    twistconstraint.influence = 1
                     if twisttarget == pbtwist.parent.name:
                         twistconstraint.invert_y = True
-                        twistconstraint.influence = 0.8
-                    else:
-                        twistconstraint.influence = 0.65
                         
                     for col in pb.bone.collections:
                         col.assign(pbtwist.bone)
@@ -2830,6 +2714,59 @@ class ARMATUREMAPPER_OT_LoadPreset(bpy.types.Operator):
 # VALVEMODEL TOOLS
 # ====================================================================================
 
+class PrefabExportOperator(object):
+    to_clipboard: bpy.props.BoolProperty(
+        name='Copy To Clipboard',
+        default=False
+    )
+
+    prefab_index: bpy.props.EnumProperty(
+        name="Prefab File",
+        items=get_smd_prefab_enum
+    )
+
+    def draw(self, context):
+        if not self.to_clipboard:
+            self.layout.prop(self, "prefab_index")
+
+    def invoke(self, context, event):
+        if self.to_clipboard:
+            return self.execute(context)
+
+        prefabs = context.scene.vs.smd_prefabs
+        if not prefabs or len(prefabs) == 0:
+            self.report({'WARNING'}, "No prefabs available. Please add one before exporting.")
+            return {'CANCELLED'}
+
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def get_export_path(self, context) -> str | None:
+        """Return the absolute export path based on prefab selection, or None if clipboard."""
+        if self.to_clipboard:
+            return None
+
+        prefabs = context.scene.vs.smd_prefabs
+        idx = int(self.prefab_index)
+        if idx < 0 or idx >= len(prefabs):
+            self.report({'ERROR'}, "Invalid prefab selection")
+            return None
+
+        export_path = bpy.path.abspath(prefabs[idx].filepath).strip()
+        if not export_path:
+            self.report({'ERROR'}, "Selected prefab has no filepath")
+            return None
+
+        export_path, filename, ext = getFilePath(export_path)
+        if not filename or not ext:
+            self.report({'ERROR'}, "Invalid export path: must include filename and extension (e.g. constraints.vmdl)")
+            return None
+
+        if ext.lower() not in {'.vmdl', '.vmdl_prefab'}:
+            self.report({'ERROR'}, f"Unsupported file extension '{ext.lower()}'")
+            return None
+
+        return export_path
+
 class VALVEMODEL_PT_PANEL(SMD_PT_toolpanel, Panel):
     bl_label = 'Valve Models'
     bl_options = {'DEFAULT_CLOSED'}
@@ -2853,6 +2790,7 @@ class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
     
     def draw(self, context):
         l = self.layout
+        bx = draw_title_box(l, VALVEMODEL_PT_Jigglebones.bl_label)
         
         ob = context.object
         if is_armature(ob): pass
@@ -2860,29 +2798,28 @@ class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
             draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
         
-        bx = l.box()
-        
         vs_sce = context.scene.vs
         vs_ob = ob.vs
         
-        bones = getBones(ob, select_all=True,bonetype='BONE', visible_only=False)
+        bones = ob.data.bones
         bone = ob.data.bones.active
         
         if bone:
-            bx.label(text=f'JiggleBones ({bone.name})', icon='BONE_DATA')
+            titlemessage = f'{VALVEMODEL_PT_Jigglebones .bl_label} ({bone.name})'
         else:
-            bx.label(text='JiggleBones', icon='BONE_DATA')
+            titlemessage = VALVEMODEL_PT_Jigglebones .bl_label
+        
+        bx = draw_title_box(l, titlemessage)
         
         if bones:
             jigglebones = [b for b in bones if b.vs.bone_is_jigglebone]
             
             if len(jigglebones) > 0:
-                bx.prop(vs_sce, 'jigglebone_export_path')
                 bx.label(text=f'Write Jigglebones : {len(jigglebones)} Jigglebones',icon='FILE')
                 row = bx.row(align=True)
                 row.scale_y = 1.2
-                row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Studiomdl').export_type = 'QC'
-                row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Modeldoc').export_type = 'VMDL'
+                row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Write to Clipboard').to_clipboard = True
+                row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Write to File').to_clipboard = False
                 #row.operator(TOOLS_OT_ImportJiggleBone.bl_idname, icon='IMPORT')
         
         if bone and bone.select:
@@ -2895,8 +2832,9 @@ class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
             sub_box.prop(vs_bone, 'bone_is_jigglebone', toggle=True)
             
             if vs_bone.bone_is_jigglebone:
-                row = sub_box.row(align=True)
-                row.prop(vs_bone, 'jiggle_flex_type')
+                col = sub_box.column(align=True)
+                col.prop(vs_bone, 'jiggle_flex_type')
+                col.prop(vs_bone, "jiggle_base_type")
                 
                 col = sub_box.column(align=True)
                     
@@ -2942,8 +2880,6 @@ class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
                         
                         col.prop(vs_bone, 'jiggle_pitch_friction', slider=True)
                 
-                row = sub_box.row(align=True)
-                row.prop(vs_bone, "jiggle_base_type")
                 if vs_bone.jiggle_base_type == 'BASESPRING':
                     col = sub_box.column(align=True)
                     col.prop(vs_bone, "jiggle_base_stiffness", slider=True)
@@ -2993,255 +2929,457 @@ class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
         else:
             bx.box().label(text='Select a Valid Bone', icon='ERROR')
           
-class VALVEMODEL_OT_WriteJiggleBone(bpy.types.Operator):
+class VALVEMODEL_OT_WriteJiggleBone(bpy.types.Operator, PrefabExportOperator):
     bl_idname = "smd.write_jigglebone"
     bl_label = "Write Jigglebones"
-    
-    get_all : BoolProperty(name='Export All Bones', default=True)
-    clipboard : BoolProperty(name='Copy To Clipboard', default=False)
-    
-    export_type : EnumProperty(name='',items=[
-        ('QC', 'Studiomdl', ''),
-        ('VMDL', 'Modeldoc', ''),
-        ])
-    
-    def draw(self, context):
-        l = self.layout
-        if not self.clipboard: l.box().label(text='It will overwrite existing file', icon='WARNING_LARGE')
 
-        l.prop(self, 'clipboard')
-        l.prop(self, 'get_all')
-    
+    def draw(self, context):
+        if not self.to_clipboard:
+            l = self.layout
+            l.prop(self, "prefab_index")
+
     @classmethod
     def poll(cls, context):
-        export_path = context.scene.vs.jigglebone_export_path.strip()
-        if not export_path: return False
-        
+        return cls._has_jigglebones(context)
+
+    @staticmethod
+    def _has_jigglebones(context):
         ob = context.object
-        if not is_armature(ob): return False
-        return any([b for b in ob.data.bones if b.vs.bone_is_jigglebone])
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-    
+        return ob and is_armature(ob) and any(b.vs.bone_is_jigglebone for b in ob.data.bones)
+
     def execute(self, context):
         arm = context.object
-        jigglebones = []
+        jigglebones = [b for b in arm.data.bones if b.vs.bone_is_jigglebone]
+
+        if not jigglebones:
+            self.report({'WARNING'}, "No jigglebones found")
+            return {'CANCELLED'}
+
+        export_path = self.get_export_path(context)
+        fmt = None
         
-        if not self.clipboard:
-            export_path, filename, ext = getFilePath(context.scene.vs.jigglebone_export_path)
-            
+        if not self.to_clipboard:
+            export_path, filename, ext = getFilePath(export_path)
             if not filename or not ext:
                 self.report({'ERROR'}, "Invalid export path: must include filename and extension (e.g. jigglebones.qci)")
                 return {'CANCELLED'}
-            
-            if self.export_type == 'QC' and ext in {'.qc', '.qci'}:
-                os.makedirs(os.path.dirname(export_path), exist_ok=True)
-                if not os.path.exists(export_path):
-                    open(export_path, "w", encoding="utf8").close()
-        
-            elif self.export_type == 'VMDL' and ext in {'.vmdl', '.vmdl_prefab'}:
-                os.makedirs(os.path.dirname(export_path), exist_ok=True)
-                if not os.path.exists(export_path):
-                    open(export_path, "w", encoding="utf8").close()
-                    
+
+            ext_lower = ext.lower()
+            if ext_lower in {'.qc', '.qci'}:
+                fmt = 'QC'
+            elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
+                fmt = 'VMDL'
             else:
-                self.report({'ERROR'}, "Invalid file format QC format for Modeldoc or vice versa?")
+                self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
                 return {'CANCELLED'}
-        
-        if self.get_all:
-            bones = arm.data.bones
-        else:
-            bones = getBones(arm, False, 'BONE')
-            if not bones:
-                self.report({'WARNING'}, 'No bones selected')
-                return {'CANCELLED'}
-        
-        for bone in bones:
-            if bone.vs.bone_is_jigglebone:
-                jigglebones.append(bone)
-        
-        if not jigglebones:
-            return {'CANCELLED'}
-        
-        compiled = None
-        
-        collection_groups = {}
-        for bone in jigglebones:
-            group_name = bone.collections[0].name if bone.collections else "Others"
-            if group_name not in collection_groups:
-                collection_groups[group_name] = []
-            collection_groups[group_name].append(bone)
-        
-        if self.export_type == 'QC':
-            entries = []
-            for group_name, group_bones in collection_groups.items():
-                entries.append("//=====================================================")
-                entries.append(f"// Jigglebones - Collection: {group_name}")
-                entries.append("//=====================================================")
-                entries.append("")
 
-                for bone in group_bones:
-                    _datas = []
-                    _datas.append(f'$jigglebone "{getBoneExportName(bone)}"')
-                    _datas.append('{')
-                    
-                    jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
-
-                    if bone.vs.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
-                        if bone.vs.jiggle_flex_type == 'FLEXIBLE':
-                            _datas.append('\tis_flexible')
-                        elif bone.vs.jiggle_flex_type == 'RIGID':
-                            _datas.append('\tis_rigid')
-
-                        _datas.append('\t{')
-                        _datas.append(f'\t\tlength {jiggle_length}')
-                        _datas.append(f'\t\ttip_mass {bone.vs.jiggle_tip_mass}')
-                        
-                        if bone.vs.jiggle_flex_type == 'FLEXIBLE':
-                            _datas.append(f'\t\tyaw_stiffness {bone.vs.jiggle_yaw_stiffness}')
-                            _datas.append(f'\t\tyaw_damping {bone.vs.jiggle_yaw_damping}')
-                            
-                            if bone.vs.jiggle_has_yaw_constraint:
-                                _datas.append(f'\t\tyaw_constraint {-abs(degrees(bone.vs.jiggle_yaw_constraint_min))} {abs(degrees(bone.vs.jiggle_yaw_constraint_max))}')
-                                _datas.append(f'\t\tyaw_friction {bone.vs.jiggle_yaw_friction}')
-                            
-                            _datas.append(f'\t\tpitch_stiffness {bone.vs.jiggle_pitch_stiffness}')
-                            _datas.append(f'\t\tpitch_damping {bone.vs.jiggle_pitch_damping}')
-                            
-                            if bone.vs.jiggle_has_pitch_constraint:
-                                _datas.append(f'\t\tpitch_constraint {-abs(degrees(bone.vs.jiggle_pitch_constraint_min))} {abs(degrees(bone.vs.jiggle_pitch_constraint_max))}')
-                                _datas.append(f'\t\tpitch_friction {bone.vs.jiggle_pitch_friction}')
-                            
-                            if bone.vs.jiggle_allow_length_flex:
-                                _datas.append(f'\t\tallow_length_flex')
-                                _datas.append(f'\t\talong_stiffness {bone.vs.jiggle_along_stiffness}')
-                            
-                            if bone.vs.jiggle_has_angle_constraint:
-                                _datas.append(f'\t\tangle_constraint {degrees(bone.vs.jiggle_angle_constraint)}')
-                        
-                        _datas.append('\t}')
-                    
-                    if bone.vs.jiggle_base_type == 'BASESPRING':
-                        _datas.append('\thas_base_spring')
-                        _datas.append('\t{')
-                        _datas.append(f'\t\tstiffness {bone.vs.jiggle_base_stiffness}')
-                        _datas.append(f'\t\tdamping {bone.vs.jiggle_base_damping}')
-                        _datas.append(f'\t\tbase_mass {bone.vs.jiggle_base_mass}')
-                        
-                        if bone.vs.jiggle_has_left_constraint:
-                            _datas.append(f'\t\tleft_constraint {-abs(bone.vs.jiggle_left_constraint_min)} {abs(bone.vs.jiggle_left_constraint_max)}')
-                            _datas.append(f'\t\tleft_friction {bone.vs.jiggle_left_friction}')
-                        
-                        if bone.vs.jiggle_has_up_constraint:
-                            _datas.append(f'\t\tup_constraint {-abs(bone.vs.jiggle_up_constraint_min)} {abs(bone.vs.jiggle_up_constraint_max)}')
-                            _datas.append(f'\t\tup_friction {bone.vs.jiggle_up_friction}')
-                        
-                        if bone.vs.jiggle_has_forward_constraint:
-                            _datas.append(f'\t\tforward_constraint {-abs(bone.vs.jiggle_forward_constraint_min)} {abs(bone.vs.jiggle_forward_constraint_max)}')
-                            _datas.append(f'\t\tforward_friction {bone.vs.jiggle_forward_friction}')
-                        
-                        _datas.append('\t}')
-                        
-                    elif bone.vs.jiggle_base_type == 'BOING':
-                        _datas.append('\tis_boing')
-                        _datas.append('\t{')
-                        _datas.append(f'\t\timpact_speed {bone.vs.jiggle_impact_speed}')
-                        _datas.append(f'\t\timpact_angle {bone.vs.jiggle_impact_angle}')
-                        _datas.append(f'\t\tdamping_rate {bone.vs.jiggle_damping_rate}')
-                        _datas.append(f'\t\tfrequency {bone.vs.jiggle_frequency}')
-                        _datas.append(f'\t\tamplitude {bone.vs.jiggle_amplitude}')
-                        _datas.append('\t}')
-                    
-                    _datas.append('}')
-                    _datas.append('\n')
-
-                    entries.append("\n".join(_datas))
-                        
-            compiled = "\n".join(entries)
-            
-        elif self.export_type == 'VMDL':
-            
-            root = KVNode(_class="RootNode")
-            datalist = None
-            
-            if self.clipboard: datalist = KVNode(_class="ScratchArea")
-            else: datalist = KVNode(_class="JiggleBoneList")
-            
-            for group_name, group_bones in collection_groups.items():
-                folder = KVNode(_class = "Folder", name = f"{sanitizeString(group_name)}")
-                for bone in group_bones:
-                
-                    flex_type = 2
-                    if bone.vs.jiggle_flex_type == 'FLEXIBLE': flex_type = 1
-                    elif bone.vs.jiggle_flex_type == 'RIGID': flex_type = 0
-                    
-                    jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
-                
-                    jigglebone = KVNode(
-                        _class = "JiggleBone",
-                        name = f"JiggleBone_{getBoneExportName(bone)}",
-                        jiggle_root_bone = f"{getBoneExportName(bone)}",
-                        jiggle_type = flex_type,
-                        has_yaw_constraint = KVBool(bone.vs.jiggle_has_yaw_constraint),
-                        has_pitch_constraint = KVBool(bone.vs.jiggle_has_pitch_constraint),
-                        has_angle_constraint = KVBool(bone.vs.jiggle_has_angle_constraint),
-                        has_base_spring = KVBool(True if bone.vs.jiggle_base_type == 'BASESPRING' else False),
-                        allow_flex_length = KVBool(bone.vs.jiggle_allow_length_flex),
-                        length = jiggle_length,
-                        tip_mass = bone.vs.jiggle_tip_mass,
-                        angle_limit = degrees(bone.vs.jiggle_angle_constraint),
-                        min_yaw = degrees(bone.vs.jiggle_yaw_constraint_min),
-                        max_yaw = degrees(bone.vs.jiggle_yaw_constraint_max),
-                        yaw_friction = bone.vs.jiggle_yaw_friction,
-                        min_pitch = degrees(bone.vs.jiggle_pitch_constraint_min),
-                        max_pitch = degrees(bone.vs.jiggle_pitch_constraint_max),
-                        pitch_friction = bone.vs.jiggle_pitch_friction,
-                        base_mass = bone.vs.jiggle_base_mass,
-                        base_stiffness = bone.vs.jiggle_base_stiffness,
-                        base_damping = bone.vs.jiggle_base_damping,
-                        base_left_min = bone.vs.jiggle_left_constraint_min,
-                        base_left_max = bone.vs.jiggle_left_constraint_max,
-                        base_left_friction = bone.vs.jiggle_left_friction,
-                        base_up_min = bone.vs.jiggle_up_constraint_min,
-                        base_up_max = bone.vs.jiggle_up_constraint_max,
-                        base_up_friction = bone.vs.jiggle_up_friction,
-                        base_forward_min = bone.vs.jiggle_forward_constraint_min,
-                        base_forward_max = bone.vs.jiggle_forward_constraint_max,
-                        base_forward_friction = bone.vs.jiggle_forward_friction,
-                        yaw_stiffness = bone.vs.jiggle_yaw_stiffness,
-                        yaw_damping = bone.vs.jiggle_yaw_damping,
-                        pitch_stiffness = bone.vs.jiggle_pitch_stiffness,
-                        pitch_damping = bone.vs.jiggle_pitch_damping,
-                        along_stiffness = bone.vs.jiggle_along_stiffness,
-                        along_damping = bone.vs.jiggle_along_damping,
-                    )
-                    
-                    folder.add_child(jigglebone)
-                datalist.add_child(folder)
-            root.add_child(datalist)
-            
-            kv_doc = KVDocument()
-            kv_doc.add_root("rootNode", root)
-            compiled = kv_doc.to_text()
-        else:
-            pass
+        compiled = self._export_jigglebones(fmt, jigglebones, export_path)
         
+        if not self.to_clipboard:
+            os.makedirs(os.path.dirname(export_path), exist_ok=True)
+            if not os.path.exists(export_path):
+                open(export_path, "w", encoding="utf8").close()
+
         if compiled:
-            
-            if not self.clipboard:
+            if self.to_clipboard:
+                bpy.context.window_manager.clipboard = compiled
+                self.report({'INFO'}, "Jigglebone data exported to Clipboard")
+            else:
                 with open(export_path, "w", encoding="utf-8") as f:
                     f.write(compiled)
                 self.report({'INFO'}, f"Jigglebone data exported to {export_path}")
-            else:
-                bpy.context.window_manager.clipboard = compiled
-                self.report({'INFO'}, f"Jigglebone data exported to Clipboard")
+            return {'FINISHED'}
+
+        self.report({'INFO'}, "No Jigglebones exported")
+        return {'CANCELLED'}
+
+    def _export_jigglebones(self, fmt, jigglebones, export_path):
+        arm = bpy.context.object
+        collection_groups = {}
+        for bone in jigglebones:
+            group_name = bone.collections[0].name if bone.collections else "Others"
+            collection_groups.setdefault(group_name, []).append(bone)
             
+        if self.to_clipboard:
+            if State.compiler == Compiler.MODELDOC:
+                return self._export_vmdl(collection_groups, export_path)
+            else:
+                return self._export_qc(collection_groups)
         else:
-            self.report({'INFO'}, f"No Jigglesbones exported")
-            return {'CANCELLED'}
+            if fmt == 'QC' or (not fmt):
+                return self._export_qc(collection_groups)
+            elif fmt == 'VMDL':
+                return self._export_vmdl(collection_groups, export_path)
+            else:
+                return None
+
+    def _export_qc(self, collection_groups):
+        entries = []
+        for group_name, group_bones in collection_groups.items():
+            entries.append("//=====================================================")
+            entries.append(f"// Jigglebones - Collection: {group_name}")
+            entries.append("//=====================================================")
+            entries.append("")
+            for bone in group_bones:
+                _datas = []
+                _datas.append(f'$jigglebone "{getBoneExportName(bone)}"')
+                _datas.append('{')
+                jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
+
+                if bone.vs.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
+                    _datas.append('\tis_flexible' if bone.vs.jiggle_flex_type == 'FLEXIBLE' else '\tis_rigid')
+                    _datas.append('\t{')
+                    _datas.append(f'\t\tlength {jiggle_length}')
+                    _datas.append(f'\t\ttip_mass {bone.vs.jiggle_tip_mass}')
+                    if bone.vs.jiggle_flex_type == 'FLEXIBLE':
+                        _datas.append(f'\t\tyaw_stiffness {bone.vs.jiggle_yaw_stiffness}')
+                        _datas.append(f'\t\tyaw_damping {bone.vs.jiggle_yaw_damping}')
+                        if bone.vs.jiggle_has_yaw_constraint:
+                            _datas.append(f'\t\tyaw_constraint {-abs(degrees(bone.vs.jiggle_yaw_constraint_min))} {abs(degrees(bone.vs.jiggle_yaw_constraint_max))}')
+                            _datas.append(f'\t\tyaw_friction {bone.vs.jiggle_yaw_friction}')
+                        _datas.append(f'\t\tpitch_stiffness {bone.vs.jiggle_pitch_stiffness}')
+                        _datas.append(f'\t\tpitch_damping {bone.vs.jiggle_pitch_damping}')
+                        if bone.vs.jiggle_has_pitch_constraint:
+                            _datas.append(f'\t\tpitch_constraint {-abs(degrees(bone.vs.jiggle_pitch_constraint_min))} {abs(degrees(bone.vs.jiggle_pitch_constraint_max))}')
+                            _datas.append(f'\t\tpitch_friction {bone.vs.jiggle_pitch_friction}')
+                        if bone.vs.jiggle_allow_length_flex:
+                            _datas.append(f'\t\tallow_length_flex')
+                            _datas.append(f'\t\talong_stiffness {bone.vs.jiggle_along_stiffness}')
+                        if bone.vs.jiggle_has_angle_constraint:
+                            _datas.append(f'\t\tangle_constraint {degrees(bone.vs.jiggle_angle_constraint)}')
+                    _datas.append('\t}')
+
+                if bone.vs.jiggle_base_type == 'BASESPRING':
+                    _datas.append('\thas_base_spring')
+                    _datas.append('\t{')
+                    _datas.append(f'\t\tstiffness {bone.vs.jiggle_base_stiffness}')
+                    _datas.append(f'\t\tdamping {bone.vs.jiggle_base_damping}')
+                    _datas.append(f'\t\tbase_mass {bone.vs.jiggle_base_mass}')
+                    if bone.vs.jiggle_has_left_constraint:
+                        _datas.append(f'\t\tleft_constraint {-abs(bone.vs.jiggle_left_constraint_min)} {abs(bone.vs.jiggle_left_constraint_max)}')
+                        _datas.append(f'\t\tleft_friction {bone.vs.jiggle_left_friction}')
+                    if bone.vs.jiggle_has_up_constraint:
+                        _datas.append(f'\t\tup_constraint {-abs(bone.vs.jiggle_up_constraint_min)} {abs(bone.vs.jiggle_up_constraint_max)}')
+                        _datas.append(f'\t\tup_friction {bone.vs.jiggle_up_friction}')
+                    if bone.vs.jiggle_has_forward_constraint:
+                        _datas.append(f'\t\tforward_constraint {-abs(bone.vs.jiggle_forward_constraint_min)} {abs(bone.vs.jiggle_forward_constraint_max)}')
+                        _datas.append(f'\t\tforward_friction {bone.vs.jiggle_forward_friction}')
+                    _datas.append('\t}')
+                elif bone.vs.jiggle_base_type == 'BOING':
+                    _datas.append('\tis_boing')
+                    _datas.append('\t{')
+                    _datas.append(f'\t\timpact_speed {bone.vs.jiggle_impact_speed}')
+                    _datas.append(f'\t\timpact_angle {bone.vs.jiggle_impact_angle}')
+                    _datas.append(f'\t\tdamping_rate {bone.vs.jiggle_damping_rate}')
+                    _datas.append(f'\t\tfrequency {bone.vs.jiggle_frequency}')
+                    _datas.append(f'\t\tamplitude {bone.vs.jiggle_amplitude}')
+                    _datas.append('\t}')
+                _datas.append('}')
+                _datas.append('\n')
+                entries.append("\n".join(_datas))
+        return "\n".join(entries)
+
+    def _export_vmdl(self, collection_groups, export_path):
+        folder_nodes = []
+
+        # Create a folder per collection
+        for group_name, group_bones in collection_groups.items():
+            folder = KVNode(_class="Folder", name=sanitizeString(group_name))
+            for bone in group_bones:
+                flex_type = 2 if bone.vs.jiggle_flex_type not in ['FLEXIBLE', 'RIGID'] else (1 if bone.vs.jiggle_flex_type == 'FLEXIBLE' else 0)
+                jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
+                jigglebone = KVNode(
+                    _class="JiggleBone",
+                    name=f"JiggleBone_{getBoneExportName(bone)}",
+                    jiggle_root_bone=getBoneExportName(bone),
+                    jiggle_type=flex_type,
+                    has_yaw_constraint=KVBool(bone.vs.jiggle_has_yaw_constraint),
+                    has_pitch_constraint=KVBool(bone.vs.jiggle_has_pitch_constraint),
+                    has_angle_constraint=KVBool(bone.vs.jiggle_has_angle_constraint),
+                    has_base_spring=KVBool(bone.vs.jiggle_base_type == 'BASESPRING'),
+                    allow_flex_length=KVBool(bone.vs.jiggle_allow_length_flex),
+                    length=jiggle_length,
+                    tip_mass=bone.vs.jiggle_tip_mass,
+                    angle_limit=degrees(bone.vs.jiggle_angle_constraint),
+                    min_yaw=degrees(bone.vs.jiggle_yaw_constraint_min),
+                    max_yaw=degrees(bone.vs.jiggle_yaw_constraint_max),
+                    yaw_friction=bone.vs.jiggle_yaw_friction,
+                    min_pitch=degrees(bone.vs.jiggle_pitch_constraint_min),
+                    max_pitch=degrees(bone.vs.jiggle_pitch_constraint_max),
+                    pitch_friction=bone.vs.jiggle_pitch_friction,
+                    base_mass=bone.vs.jiggle_base_mass,
+                    base_stiffness=bone.vs.jiggle_base_stiffness,
+                    base_damping=bone.vs.jiggle_base_damping,
+                    base_left_min=bone.vs.jiggle_left_constraint_min,
+                    base_left_max=bone.vs.jiggle_left_constraint_max,
+                    base_left_friction=bone.vs.jiggle_left_friction,
+                    base_up_min=bone.vs.jiggle_up_constraint_min,
+                    base_up_max=bone.vs.jiggle_up_constraint_max,
+                    base_up_friction=bone.vs.jiggle_up_friction,
+                    base_forward_min=bone.vs.jiggle_forward_constraint_min,
+                    base_forward_max=bone.vs.jiggle_forward_constraint_max,
+                    base_forward_friction=bone.vs.jiggle_forward_friction,
+                    yaw_stiffness=bone.vs.jiggle_yaw_stiffness,
+                    yaw_damping=bone.vs.jiggle_yaw_damping,
+                    pitch_stiffness=bone.vs.jiggle_pitch_stiffness,
+                    pitch_damping=bone.vs.jiggle_pitch_damping,
+                    along_stiffness=bone.vs.jiggle_along_stiffness,
+                    along_damping=bone.vs.jiggle_along_damping,
+                )
+                folder.add_child(jigglebone)
+            folder_nodes.append(folder)
+
+        # Use helper to append/overwrite JiggleBoneList container
+        kv_doc = update_vmdl_container(
+            container_class="JiggleBoneList" if not self.to_clipboard else "ScratchArea",
+            nodes=folder_nodes,
+            export_path=export_path,
+            to_clipboard=self.to_clipboard
+        )
+
+        return kv_doc.to_text()
+
+class VALVEMODEL_PT_AnimationConstraints(ValveModelConfig):
+    bl_label = 'Animations & Constraints'
+    
+    def draw_header(self, context):
+        self.layout.label(icon='ANIM_DATA')
+    
+    def draw(self, context):
+        l = self.layout
+        bx = draw_title_box(l, VALVEMODEL_PT_AnimationConstraints.bl_label)
         
+        ob = context.object
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
+        col = bx.column()
+        
+        col.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname,icon='ACTION_TWEAK')
+        
+        bx = draw_title_box(bx, VALVEMODEL_OT_EncodeExportNameAsConstraintProportion.bl_label)
+        draw_wrapped_text_col(bx, 'Constraint Proportion exports Orient and Point constraints of bones with a valid export name',max_chars=40)
+        row = bx.row(align=True)
+        row.scale_y = 1.25
+        row.operator(VALVEMODEL_OT_EncodeExportNameAsConstraintProportion.bl_idname,text='Write to Clipboard', icon='CONSTRAINT_BONE').to_clipboard = True
+        row.operator(VALVEMODEL_OT_EncodeExportNameAsConstraintProportion.bl_idname,text='Write to File', icon='CONSTRAINT_BONE').to_clipboard = False
+            
+class VALVEMODEL_OT_CreateProportionActions(bpy.types.Operator):
+    bl_idname = 'smd.create_proportion_actions'
+    bl_label = 'Create Delta Proportion Pose'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    ProportionName: StringProperty(name='Proportion Slot Name', default='proportion')
+    ReferenceName: StringProperty(name='Reference Slot Name', default='reference')
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return (
+            context.mode == 'OBJECT'
+            and is_armature(ob)
+            and {o for o in context.selected_objects if o != context.object}
+        )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        currArm = context.object
+        otherArms = {o for o in context.selected_objects if o.type == 'ARMATURE'}
+        otherArms.discard(currArm)
+
+        if not self.ReferenceName.strip() or not self.ProportionName.strip():
+            return {'CANCELLED'}
+
+        last_pose_state = currArm.data.pose_position
+        currArm.data.pose_position = 'REST'
+        context.scene.frame_set(0)
+        context.view_layer.update()
+
+        use_new_api = bpy.app.version >= (4, 4, 0)
+
+        for arm in otherArms:
+            if arm.animation_data is None:
+                arm.animation_data_create()
+
+            if use_new_api:
+                # 4.4 +
+                action_name = "proportion-delta"
+                action = bpy.data.actions.get(action_name)
+                if action is None:
+                    action = bpy.data.actions.new(action_name)
+                action.use_fake_user = True
+                
+                actionslots = {s for s in action.slots}
+                for slot in actionslots:
+                    action.slots.remove(slot)
+                    
+                for pb in arm.pose.bones:
+                    pb.matrix_basis.identity()
+
+                slot_ref = action.slots.get(self.ReferenceName)
+                if slot_ref is None:
+                    slot_ref = action.slots.new(id_type='OBJECT', name=self.ReferenceName)
+
+                slot_prop = action.slots.get(self.ProportionName)
+                if slot_prop is None:
+                    slot_prop = action.slots.new(id_type='OBJECT', name=self.ProportionName)
+
+                if len(action.layers) == 0:
+                    layer = action.layers.new("BaseLayer")
+                else:
+                    layer = action.layers[0]
+
+                if len(layer.strips) == 0:
+                    strip = layer.strips.new(type='KEYFRAME')
+                else:
+                    strip = layer.strips[0]
+
+                arm.animation_data.action = action
+                arm.animation_data.action_slot = slot_ref
+
+                success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                if success:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                context.view_layer.update()
+
+                arm.animation_data.action_slot = slot_prop
+                success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
+
+                if success1 and success2:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                arm.animation_data.action_slot = slot_ref
+                context.view_layer.update()
+
+            else:
+                # 4.3
+                action_ref_name = self.ReferenceName
+                action_prop_name = self.ProportionName
+
+                action_ref = bpy.data.actions.get(action_ref_name)
+                if action_ref is None:
+                    action_ref = bpy.data.actions.new(action_ref_name)
+                    
+                for pb in arm.pose.bones:
+                    pb.matrix_basis.identity()
+
+                arm.animation_data.action = action_ref
+                success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                if success:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                action_prop = bpy.data.actions.get(action_prop_name)
+                if action_prop is None:
+                    action_prop = bpy.data.actions.new(action_prop_name)
+
+                arm.animation_data.action = action_prop
+                success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+                success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
+                if success1 and success2:
+                    for pbone in arm.pose.bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name)
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name)
+
+                arm.animation_data.action = action_ref
+                context.view_layer.update()
+
+        currArm.data.pose_position = last_pose_state
         return {'FINISHED'}
+
+class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, PrefabExportOperator):
+    bl_idname = "smd.encode_exportname_as_constraint_proportion"
+    bl_label = "Write Constraint Proportions"
+
+    def draw(self, context):
+        if not self.to_clipboard:
+            self.layout.prop(self, "prefab_index")
+
+    def execute(self, context):
+        armature = context.object
+        bones = getSelectedBones(armature, 'BONE', select_all=True, sort_type='TO_LAST')
+        if not bones:
+            self.report({'WARNING'}, "No bones found in armature")
+            return {'CANCELLED'}
+
+        export_path = self.get_export_path(context)
+
+        compiled = self._export_constraints(bones, export_path)
+
+        # only now create file if needed
+        if not self.to_clipboard:
+            os.makedirs(os.path.dirname(export_path), exist_ok=True)
+            if not os.path.exists(export_path):
+                open(export_path, "w", encoding="utf8").close()
+
+        if compiled:
+            if self.to_clipboard:
+                bpy.context.window_manager.clipboard = compiled
+                self.report({'INFO'}, "Constraint data exported to Clipboard")
+            else:
+                with open(export_path, "w", encoding="utf-8") as f:
+                    f.write(compiled)
+                self.report({'INFO'}, f"Constraint data exported to {export_path}")
+            return {'FINISHED'}
+
+        self.report({'INFO'}, "No constraints exported")
+        return {'CANCELLED'}
+
+    def _export_constraints(self, bones, export_path):
+        folder_node = KVNode(_class='Folder', name="constraints_CustomProportions")
+
+        for bone in bones:
+            bone_name = getBoneExportName(bone, for_write=True)
+            original_bone_name = sanitizeString(bone.name)
+            if bone_name == original_bone_name:
+                continue
+
+            con_orient = KVNode(
+                _class="AnimConstraintOrient",
+                name=f'Angles_{original_bone_name}_{bone_name}'
+            )
+            con_orient.add_child(KVNode(_class="AnimConstraintBoneInput", parent_bone=bone_name, weight=1.0))
+            con_orient.add_child(KVNode(_class="AnimConstraintSlave", parent_bone=original_bone_name, weight=1.0))
+
+            has_parent = bool(bone.parent)
+            con_point = KVNode(
+                _class="AnimConstraintPoint",
+                name=f'Origin_{original_bone_name}_{bone_name}'
+            )
+            con_point.add_child(KVNode(_class="AnimConstraintBoneInput",
+                                    parent_bone=original_bone_name if has_parent else bone_name,
+                                    weight=1.0))
+            con_point.add_child(KVNode(_class="AnimConstraintSlave",
+                                    parent_bone=bone_name if has_parent else original_bone_name,
+                                    weight=1.0))
+
+            folder_node.add_child(con_orient)
+            folder_node.add_child(con_point)
+
+        # Use the same append/overwrite helper
+        kv_doc = update_vmdl_container(
+            container_class="ScratchArea" if self.to_clipboard else "AnimConstraintList",
+            nodes=[folder_node],  # single folder node
+            export_path=export_path,
+            to_clipboard=self.to_clipboard
+        )
+
+        return kv_doc.to_text()
 
 # ====================================================================================
 # DEVELOPER TOOLS

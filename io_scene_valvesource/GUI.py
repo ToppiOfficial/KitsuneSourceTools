@@ -20,8 +20,10 @@
 
 import bpy
 from .utils import *
+from .core.common import draw_wrapped_text_col
 from .export_smd import SmdExporter, SMD_OT_Compile
 from .flex import *
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
 
 vca_icon = 'EDITMODE_HLT'
 
@@ -284,6 +286,14 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         l = self.layout
         scene = context.scene
         
+        l.label(text='Exportable Prefabs')
+        draw_wrapped_text_col(l,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=40, icon='WARNING_LARGE')
+        l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
+        l.operator("smd.add_prefab", icon="ADD")
+        
+        l.separator(type='LINE')
+        
+        l.label(text='Exportable Objects')
         l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
                 
         active_exportable = get_active_exportable(context)
@@ -447,3 +457,64 @@ class SMD_PT_Scene_QC_Complie(bpy.types.Panel):
         filesRow.prop(scene.vs,"qc_path") # can't add this until the above test completes!
         
         l.operator(SMD_OT_LaunchHLMV.bl_idname,icon='PREFERENCES',text=get_id("launch_hlmv",True))
+
+class SMD_OT_AddPrefab(bpy.types.Operator):
+    bl_idname = "smd.add_prefab"
+    bl_label = "Add Prefab"
+
+    def execute(self, context):
+        context.scene.vs.smd_prefabs.add()
+        return {'FINISHED'}
+
+class SMD_OT_RemovePrefab(bpy.types.Operator):
+    bl_idname = "smd.remove_prefab"
+    bl_label = "Remove Prefab"
+
+    index: IntProperty()
+
+    def execute(self, context):
+        prefabs = context.scene.vs.smd_prefabs
+        if 0 <= self.index < len(prefabs):
+            prefabs.remove(self.index)
+        return {'FINISHED'}
+
+class SMD_OT_BrowsePrefab(bpy.types.Operator):
+    bl_idname = "smd.browse_prefab"
+    bl_label = "Browse Prefab"
+    bl_description = "Open file location in system file explorer"
+
+    index: IntProperty()
+
+    def execute(self, context):
+        prefabs = context.scene.vs.smd_prefabs
+        if 0 <= self.index < len(prefabs):
+            path = bpy.path.abspath(prefabs[self.index].filepath)
+            folder = path if os.path.isdir(path) else os.path.dirname(path)
+
+            if os.path.exists(folder):
+                if os.name == "nt":  # Windows
+                    os.startfile(folder)
+                elif os.name == "posix":  # macOS / Linux
+                    subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", folder])
+                self.report({'INFO'}, f"Opened: {folder}")
+            else:
+                self.report({'WARNING'}, "Folder does not exist")
+
+        return {'FINISHED'}
+
+class SMD_UL_Prefabs(bpy.types.UIList):
+    bl_idname = "SMD_UL_Prefabs"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row = layout.row(align=True)
+        split = row.split(align=True, factor=0.7)
+        
+        if not item.filepath:
+            split.alert = True
+        
+        split.prop(item, "filepath", text="")
+        split = split.split(align=True, factor=0.7)
+        
+        split.alert = False
+        split.operator("smd.browse_prefab", text="Open").index = index
+        split.operator("smd.remove_prefab", text="", icon='X').index = index

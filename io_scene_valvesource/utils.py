@@ -874,3 +874,14 @@ def getFilePath(path : str):
     root, ext = os.path.splitext(filename)
     
     return export_path, filename, ext
+
+def get_smd_prefab_enum(self, context):
+    prefabs = context.scene.vs.smd_prefabs
+    items = []
+    for i, p in enumerate(prefabs):
+        filepath = str(p.filepath)
+        if filepath:
+            filepath = bpy.path.abspath(filepath)
+        label = os.path.basename(filepath) or f"Prefab {i+1}"
+        items.append((str(i), label, ""))
+    return items

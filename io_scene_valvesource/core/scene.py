@@ -1,5 +1,5 @@
 import bpy
-from .common import getBones
+from .common import getSelectedBones
 from contextlib import contextmanager
 
 _property_updating = False
@@ -82,7 +82,8 @@ def propagateBoneProperty(self, context, prop_name: str, group_path="vs"):
 
     bones = {}
     for arm in [o for o in context.selected_objects if o.type == 'ARMATURE']:
-        for b in getBones(arm, bonetype='BONE', exclude_active=True, visible_only=True, select_all=False):
+        selectedBones = getSelectedBones(arm,'BONE',exclude_active=True)
+        for b in selectedBones:
             bones[b] = arm
 
     _property_updating = True

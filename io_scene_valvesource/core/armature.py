@@ -406,9 +406,18 @@ def mergeArmatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, m
             bpy.context.view_layer.update()
             bpy.context.view_layer.depsgraph.update()
 
-def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, visible_mesh_only=False,keep_original_weight=False,centralize_bone=False):
+def mergeBones(
+    armature: bpy.types.Object,
+    source,
+    target,
+    keep_bone=False,
+    visible_mesh_only=False,
+    keep_original_weight=False,
+    centralize_bone=False
+):
     bones_to_remove = set()
-    merged_pairs = []  # store (source, target) pairs
+    merged_pairs = [] 
+    processed_groups = set()
 
     if not keep_bone:
         keep_original_weight = False
@@ -425,16 +434,22 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
             if not entry_source:
                 continue
 
-            result = mergeBones(armature,entry_source,entry,keep_bone,visible_mesh_only,keep_original_weight,centralize_bone)
+            result = mergeBones(
+                armature, entry_source, entry, keep_bone,
+                visible_mesh_only, keep_original_weight, centralize_bone
+            )
 
             if centralize_bone:
-                br, pairs = result
+                br, pairs, groups = result
                 bones_to_remove.update(br)
                 merged_pairs.extend(pairs)
+                processed_groups.update(groups)
             else:
-                bones_to_remove.update(result)
+                br, groups = result if isinstance(result, tuple) else (result, set())
+                bones_to_remove.update(br)
+                processed_groups.update(groups)
 
-        return (bones_to_remove, merged_pairs) if centralize_bone else bones_to_remove
+        return (bones_to_remove, merged_pairs, processed_groups) if centralize_bone else (bones_to_remove, processed_groups)
 
     if source is None:
         parent = target.parent
@@ -442,7 +457,7 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
             parent = parent.parent
         source = parent
         if not source:
-            return (bones_to_remove, merged_pairs) if centralize_bone else bones_to_remove
+            return (bones_to_remove, merged_pairs, processed_groups) if centralize_bone else (bones_to_remove, processed_groups)
 
     for child in getArmatureMeshes(armature):
         if visible_mesh_only and not child.visible_get():
@@ -462,6 +477,8 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
             for vertex_index, weight in weights.items():
                 source_group.add([vertex_index], weight, 'ADD')
 
+            processed_groups.add(target.name)
+
             if not keep_original_weight:
                 child.vertex_groups.remove(target_group)
 
@@ -476,16 +493,16 @@ def mergeBones(armature : bpy.types.Object, source, target, keep_bone=False, vis
 
     if centralize_bone:
         merged_pairs.append((source.name, target.name))
-        return bones_to_remove, merged_pairs
+        return bones_to_remove, merged_pairs, processed_groups
     else:
-        return bones_to_remove
+        return bones_to_remove, processed_groups
 
 def removeBone(
     arm: bpy.types.Object,
     bone: typing.Union[str, typing.Iterable[str]],
     source: str = None,
     match_parent_to_head: bool = False,
-    tolerance: float = 3e-5
+    match_parent_to_head_tolerance: float = 3e-5
 ):
     if not arm or arm.type != 'ARMATURE':
         return
@@ -510,7 +527,7 @@ def removeBone(
                     parent.tail = edit_bone.tail
                 elif len(parent.children) > 1:
                     for cbone in edit_bone.children:
-                        if (cbone.head - edit_bone.tail).length <= tolerance:
+                        if (cbone.head - edit_bone.tail).length <= match_parent_to_head_tolerance:
                             parent.tail = edit_bone.tail
                             break
 

@@ -7,7 +7,7 @@ shortcut_keywords = {
     "vbip": "ValveBiped.Bip01",
 }
 
-def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone]) -> str:
+def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], for_write = False) -> str:
     """Generate the export name for a bone or posebone, respecting custom naming rules."""
     
     if not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
@@ -22,7 +22,7 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone]) ->
     armature = getArmature(data_bone)
     arm_prop = armature.data.vs
     
-    if arm_prop.ignore_bone_exportnames:
+    if arm_prop.ignore_bone_exportnames and not for_write:
         return bone.name
 
     bone_head_local = data_bone.matrix_local.to_translation()

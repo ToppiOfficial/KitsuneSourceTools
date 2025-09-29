@@ -1,3 +1,5 @@
+import re
+
 class KVValue:
     """Base class for KeyValues typed values.
 
@@ -102,20 +104,20 @@ class KVNode:
             return False
 
     def _serialize(self, indent=0) -> str:
-        """Serialize this node to a KeyValues string.
-
-        Args:
-            indent: Number of indentation levels (for pretty printing)
-
-        Returns:
-            str: KeyValues-compliant string representation
-        """
         tab = "    " * indent
         out = f"{tab}{{\n"
-        
+
         # Properties
         for key, value in self.properties.items():
-            out += f"{tab}    {key} = {self._format_value(value)}\n"
+            if isinstance(value, KVNode):
+                out += f"{tab}    {key} = {value._serialize(indent + 1)}\n"
+            elif isinstance(value, dict):
+                out += f"{tab}    {key} = {{\n"
+                for k2, v2 in value.items():
+                    out += f"{tab}        {k2} = {self._format_value(v2)}\n"
+                out += f"{tab}    }}\n"
+            else:
+                out += f"{tab}    {key} = {self._format_value(value)}\n"
 
         # Children
         if self.children:
@@ -129,22 +131,37 @@ class KVNode:
         return out
 
     @staticmethod
-    def _format_value_static(value):
-        """Format a value into a KV-compliant string."""
+    def _format_value_static(value, indent=0):
         if isinstance(value, KVValue):
             return str(value)
         if isinstance(value, KVNode):
-            return value._serialize()
+            return "\n" + value._serialize(indent=indent + 1)  # relative indent
         if isinstance(value, str):
+            # Detect typed literal: type:"value"
+            if re.match(r"^\w+:\".*\"$", value):
+                return value  # leave as-is
             escaped = value.replace("\n", "\\n")
             return f'"{escaped}"'
         if isinstance(value, (list, tuple)):
-            return "[ " + ", ".join(KVNode._format_value_static(v) for v in value) + " ]"
+            return "[ " + ", ".join(KVNode._format_value_static(v, indent=indent) for v in value) + " ]"
         return str(value)
 
     def _format_value(self, value):
         """Instance wrapper for static format method."""
         return self._format_value_static(value)
+    
+    def get(self, **conditions) -> "KVNode | None":
+        """
+        Find the first direct child node that matches all given property conditions.
+        
+        Example:
+            node.get(name="TestNode")
+            node.get(name="TestNode", enabled=True)
+        """
+        for child in self.children:
+            if all(child.properties.get(k) == v for k, v in conditions.items()):
+                return child
+        return None
     
 class KVDocument:
     """Represents a full KV3 document, including header and multiple top-level keys."""
@@ -167,3 +184,196 @@ class KVDocument:
             out += f"    {key} = {node._serialize(indent=1)}\n"
         out += "}\n"
         return out
+
+class KVParserError(Exception):
+    pass
+
+class KVParser:
+    """Parses KV3 text into Python dicts or KVDocument objects."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.pos = 0
+        self.length = len(text)
+
+    def parse(self) -> KVDocument:
+        header = self._parse_header()
+        self._consume_whitespace()
+        self._expect("{")
+        roots = self._parse_roots()
+        self._expect("}")
+        doc = KVDocument(format=header.get("format"), encoding=header.get("encoding")) # type: ignore
+        doc.roots = roots
+        return doc
+
+    def _parse_header(self) -> dict:
+        header_match = re.search(
+            r"<!--\s*kv3\s+encoding:(\w+):version([^\s]+)\s+format:(\w+):version([^\s]+)\s*-->",
+            self.text
+        )
+        if not header_match:
+            return {}
+        
+        self.pos = header_match.end()
+
+        return {
+            "encoding": header_match.group(1),
+            "encoding_version": header_match.group(2),
+            "format": header_match.group(3),
+            "format_version": header_match.group(4)
+        }
+
+    def _parse_roots(self) -> dict:
+        roots = {}
+        while True:
+            self._consume_whitespace()
+            if self._peek() == "}":
+                break
+            key = self._parse_identifier()
+            self._consume_whitespace()
+            self._expect("=")
+            self._consume_whitespace()
+            node = self._parse_node()
+            roots[key] = node
+        return roots
+
+    def _parse_node(self) -> KVNode:
+        self._expect("{")
+        props = {}
+        children = []
+
+        while True:
+            self._consume_whitespace()
+            c = self._peek()
+
+            if c == "}":
+                self._advance()
+                break
+
+            if c == "{":
+                children.append(self._parse_node())
+                continue
+
+            key = self._parse_identifier()
+            self._consume_whitespace()
+
+            if self._peek() == "=":
+                self._advance()
+                self._consume_whitespace()
+            else:
+                pass
+
+            if key == "children":
+                children = self._parse_children()
+            else:
+                props[key] = self._parse_value()
+
+        node = KVNode(**props)
+        node.children = children
+        return node
+
+
+    def _parse_children(self) -> list:
+        self._expect("[")
+        children = []
+        while True:
+            self._consume_whitespace()
+            c = self._peek()
+            if c == "]":
+                self._advance()
+                break
+
+            if c == "{":
+                child = self._parse_node()
+            else:
+                child = self._parse_value()
+
+            children.append(child)
+
+            self._consume_whitespace()
+            if self._peek() == ",":
+                self._advance()
+
+        return children
+
+
+    def _parse_value(self):
+        c = self._peek()
+        if c == "{":
+            return self._parse_node()
+        if c == "[":
+            return self._parse_array()
+        if c == '"':
+            return self._parse_string()
+
+        # read the next word (could be true, false, number, or typed literal)
+        word = self._parse_word()
+
+        if word.endswith(":") and self._peek() == '"':
+            literal_type = word[:-1]
+            literal_value = self._parse_string()
+            return f"{literal_type}:{literal_value}"
+
+        if word == "true":
+            return True
+        if word == "false":
+            return False
+        if self._is_number(word):
+            return float(word) if "." in word else int(word)
+        return word
+
+    def _parse_array(self):
+        self._expect("[")
+        values = []
+        while True:
+            self._consume_whitespace()
+            if self._peek() == "]":
+                self._advance()
+                break
+            values.append(self._parse_value())
+            self._consume_whitespace()
+            if self._peek() == ",":
+                self._advance()
+        return values
+
+    def _parse_identifier(self):
+        self._consume_whitespace()
+        return self._parse_word()
+
+    def _parse_word(self):
+        self._consume_whitespace()
+        start = self.pos
+        while self.pos < self.length and self.text[self.pos] not in " \t\r\n={}[],":
+            self.pos += 1
+        return self.text[start:self.pos]
+
+    def _parse_string(self):
+        self._expect('"')
+        start = self.pos
+        while self.pos < self.length and self.text[self.pos] != '"':
+            if self.text[self.pos] == "\\":
+                self.pos += 1
+            self.pos += 1
+        s = self.text[start:self.pos]
+        self._expect('"')
+        return s.replace("\\n", "\n")
+
+    def _consume_whitespace(self):
+        while self.pos < self.length and self.text[self.pos] in " \t\r\n":
+            self.pos += 1
+
+    def _peek(self):
+        self._consume_whitespace()
+        return self.text[self.pos] if self.pos < self.length else ""
+
+    def _advance(self):
+        self.pos += 1
+
+    def _expect(self, char):
+        self._consume_whitespace()
+        if self.pos >= self.length or self.text[self.pos] != char:
+            raise KVParserError(f"Expected '{char}' at pos {self.pos}")
+        self.pos += 1
+
+    def _is_number(self, word: str) -> bool:
+        return re.match(r"^-?\d+(\.\d+)?$", word) is not None

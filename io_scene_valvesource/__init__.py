@@ -96,6 +96,9 @@ formats.sort(key = lambda f: f[0])
 
 _relativePathOptions = {'PATH_SUPPORTS_BLEND_RELATIVE'} if bpy.app.version >= (4,5,0) else set()
 
+class SMD_PrefabItem(PropertyGroup):
+    filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options=_relativePathOptions)
+
 class ToolProps():
     merge_keep_bone : BoolProperty(name='Keep Bones', default=False)
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
@@ -116,13 +119,13 @@ class ToolProps():
             ],default={'EXCLUDE_SCALE'}
         )
     
-    jigglebone_export_path : StringProperty(name='Export Path', subtype='FILE_PATH', default='')
-    attachments_export_path : StringProperty(name='Export Path', subtype='FILE_PATH', default='')
-    
     defineArmatureCategory : EnumProperty(name='Define Armature Category', items=[
         ('LOAD', 'Load', ''),
         ('WRITE', 'Write', ''),
     ])
+    
+    smd_prefabs : CollectionProperty(type=SMD_PrefabItem)
+    smd_prefabs_index : IntProperty()
 
 class ValveSource_SceneProps(ToolProps, PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options=_relativePathOptions)
@@ -192,9 +195,8 @@ class LocationOffset():
     export_location_offset_z : FloatProperty(name=f'{get_id("offset_location")} Z', default=0, precision=4, update=scene.make_update('export_location_offset_z'))
 
 class ArmatureMapperKeyValue(PropertyGroup):
-    boneExportName : EnumProperty(
+    boneExportName : StringProperty(
         name='Bone',
-        items=enum_bones,
         description="The original bone name in the source armature. Used when writing JSON for retargeting."
     )
 
@@ -373,6 +375,7 @@ _classes = (
     VertexMapRemap,
     DMEflexcontrollers,
     ArmatureMapperKeyValue,
+    SMD_PrefabItem,
 
     ValveSource_Exportable,
     ValveSource_SceneProps,
@@ -403,6 +406,11 @@ _classes = (
     GUI.SMD_PT_Group,
     GUI.SMD_PT_VertexAnimation,
     GUI.SMD_PT_Scene_QC_Complie,
+    
+    GUI.SMD_OT_AddPrefab,
+    GUI.SMD_OT_RemovePrefab,
+    GUI.SMD_OT_BrowsePrefab,
+    GUI.SMD_UL_Prefabs,
     
     GUI_viewport.SMD_PT_ContextObject,
     
@@ -444,7 +452,6 @@ _classes = (
     GUI_viewport.TOOLS_OT_CleanUnWeightedBones,
     GUI_viewport.TOOLS_OT_MergeArmatures,
     GUI_viewport.TOOLS_OT_CopyVisPosture,
-    GUI_viewport.TOOLS_OT_CreateProportionActions,
     GUI_viewport.TOOLS_OT_MergeBones,
     GUI_viewport.TOOLS_OT_ReAlignBones,
     GUI_viewport.TOOLS_OT_CopyTargetRotation,
@@ -468,6 +475,9 @@ _classes = (
     GUI_viewport.VALVEMODEL_PT_PANEL,
     GUI_viewport.VALVEMODEL_PT_Jigglebones,
     GUI_viewport.VALVEMODEL_OT_WriteJiggleBone,
+    GUI_viewport.VALVEMODEL_PT_AnimationConstraints,
+    GUI_viewport.VALVEMODEL_OT_CreateProportionActions,
+    GUI_viewport.VALVEMODEL_OT_EncodeExportNameAsConstraintProportion,
     
     GUI_viewport.DEVELOPER_PT_PANEL,
     GUI_viewport.DEVELOPER_OT_ImportLegacyData,
