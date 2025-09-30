@@ -6,6 +6,11 @@ from .scene import ExposeAllObjects
 from contextlib import contextmanager
 from mathutils import Vector
 
+unweightedBoneFilters = [ "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
+                         'Left shoulder', 'Left arm', 'Left elbow', 'Left wrist', 'Left leg', 'Left knee', 'Left ankle',
+                         'Right shoulder', 'Right arm', 'Right elbow', 'Right wrist', 'Right leg', 'Right knee', 'Right ankle',
+                         'Left eye', 'Right eye']
+
 @contextmanager
 def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
     """

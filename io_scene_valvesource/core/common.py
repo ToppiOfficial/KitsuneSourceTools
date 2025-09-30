@@ -347,17 +347,23 @@ def PreserveContextMode(obj: bpy.types.Object | None = None, mode: str = "EDIT")
                         data.bones.active = bone
                         
 def openVMDL(filepath: str) -> KVNode | None:
-    with open(filepath, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    parser = KVParser(text)
-    doc = parser.parse()
-
-    root_node = doc.roots.get("rootNode")
-    if not root_node or root_node.properties.get("_class") != "RootNode":
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
         return None
+    
+    try:
+        parser = KVParser(text)
+        doc = parser.parse()
 
-    return root_node
+        root_node = doc.roots.get("rootNode")
+        if not root_node or root_node.properties.get("_class") != "RootNode":
+            return None
+        return root_node
+
+    except Exception:
+        return None
 
 def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, export_path: str = None, to_clipboard: bool = False) -> KVDocument:
     """
@@ -376,12 +382,18 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     if not isinstance(nodes, list):
         nodes = [nodes]
 
+    root = None
     if to_clipboard:
         root = KVNode(_class="RootNode")
     else:
-        root = openVMDL(export_path) if os.path.exists(export_path) else KVNode(_class="RootNode")
+        if export_path and os.path.exists(export_path):
+            root = openVMDL(export_path)
 
-    # Determine or create container
+            if root is None:
+                return False
+        else:
+            root = KVNode(_class="RootNode")
+
     container = root.get(_class=container_class)
     if not container:
         container = KVNode(_class=container_class)
@@ -390,7 +402,10 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     for node in nodes:
         node_name = node.properties.get("name")
         if node_name:
-            existing = next((c for c in container.children if c.properties.get("name") == node_name and c.properties.get("_class") == node.properties.get("_class")), None)
+            existing = next(
+                (c for c in container.children if c.properties.get("name") == node_name and c.properties.get("_class") == node.properties.get("_class")),
+                None
+            )
             if existing:
                 existing.children.clear()
                 for child in node.children:

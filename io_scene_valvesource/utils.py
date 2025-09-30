@@ -868,12 +868,21 @@ def enum_bones(self,context):
         return[]
     return [(bone.name, bone.name, "") for bone in ob.data.bones]
 
-def getFilePath(path : str):
+def getFilePath(path: str):
+    if not path or not isinstance(path, str):
+        raise ValueError(f"Invalid path: {path!r}")
+
+    path = path.replace("\\", "/")
+    path = path.replace("//..", "//../")
+
     export_path = bpy.path.abspath(path)
+    if not export_path:
+        raise ValueError(f"bpy.path.abspath() failed to resolve: {path!r}")
+
     filename = os.path.basename(export_path)
     root, ext = os.path.splitext(filename)
-    
     return export_path, filename, ext
+
 
 def get_smd_prefab_enum(self, context):
     prefabs = context.scene.vs.smd_prefabs

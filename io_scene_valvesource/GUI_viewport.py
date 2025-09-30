@@ -810,8 +810,9 @@ class TOOLS_OT_CleanUnWeightedBones(bpy.types.Operator):
                     if self.respect_animation and not self.aggressive_cleaning:
                         if self.hierarchy_has_animation(armature, b):
                             continue
-
-                    bones_to_remove.add(b.name)
+                    
+                    if b.name not in unweightedBoneFilters:
+                        bones_to_remove.add(b.name)
 
                 if bones_to_remove:
                     with PreserveContextMode(armature, 'EDIT'):
@@ -2380,7 +2381,7 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
 
         boneElems = {entry["BoneName"]: entry for entry in data}
 
-        arm = getArmature(context.object)
+        arm : bpy.types.Object = getArmature(context.object)
         if arm is None:
             self.report({"ERROR"}, "No valid armature selected")
             return {"CANCELLED"}
@@ -2631,11 +2632,26 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             if not bone_remapped:
                 self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
                 return {'CANCELLED'}
-        
-        with PreserveContextMode(arm, 'EDIT'):
+                
+        with PreserveContextMode(arm, 'OBJECT'):
+            if arm.animation_data is not None:
+                arm.animation_data.action = None
+                
             arm.show_in_front = True
             arm.display_type = 'WIRE'
             arm.data.show_axes = True
+            
+            if arm.data.collections_all is None:
+                default_collection : bpy.types.BoneCollection = arm.data.collections.new(name='default')
+            
+            for pb in arm.pose.bones:
+                pb.custom_shape = None
+                pb.matrix_basis.identity()
+            
+                if pb.bone.collections is None:
+                    default_collection.assign(arm.data.bones.get(pb.name))
+            
+            bpy.ops.object.mode_set(mode='EDIT')
             
             for bone in arm.data.edit_bones:
                 bone.use_connect = False
@@ -2844,27 +2860,30 @@ class PrefabExportOperator(object):
         return context.window_manager.invoke_props_dialog(self)
     
     def get_export_path(self, context) -> str | None:
-        """Return the absolute export path based on prefab selection, or None if clipboard."""
         if self.to_clipboard:
             return None
 
         prefabs = context.scene.vs.smd_prefabs
-        idx = int(self.prefab_index)
+        if not prefabs:
+            self.report({'ERROR'}, "No prefabs defined")
+            return None
+
+        try:
+            idx = int(self.prefab_index)
+        except ValueError:
+            idx = next((i for i, p in enumerate(prefabs) if p.name == self.prefab_index), -1)
+
         if idx < 0 or idx >= len(prefabs):
             self.report({'ERROR'}, "Invalid prefab selection")
             return None
 
-        export_path = bpy.path.abspath(prefabs[idx].filepath).strip()
-        if not export_path:
-            self.report({'ERROR'}, "Selected prefab has no filepath")
-            return None
-
-        export_path, filename, ext = getFilePath(export_path)
+        print(prefabs[idx].filepath)
+        export_path, filename, ext = getFilePath(prefabs[idx].filepath)
         if not filename or not ext:
             self.report({'ERROR'}, "Invalid export path: must include filename and extension (e.g. constraints.vmdl)")
             return None
 
-        if ext.lower() not in {'.vmdl', '.vmdl_prefab'}:
+        if ext.lower() not in {'.vmdl', '.vmdl_prefab', '.qci', '.qc'}:
             self.report({'ERROR'}, f"Unsupported file extension '{ext.lower()}'")
             return None
 
@@ -3078,6 +3097,10 @@ class VALVEMODEL_OT_WriteJiggleBone(bpy.types.Operator, PrefabExportOperator):
 
         compiled = self._export_jigglebones(fmt, jigglebones, export_path)
         
+        if compiled == False:
+            self.report({'INFO'}, "File is invalid")
+            return {'CANCELLED'}
+        
         if not self.to_clipboard:
             os.makedirs(os.path.dirname(export_path), exist_ok=True)
             if not os.path.exists(export_path):
@@ -3239,6 +3262,10 @@ class VALVEMODEL_OT_WriteJiggleBone(bpy.types.Operator, PrefabExportOperator):
             export_path=export_path,
             to_clipboard=self.to_clipboard
         )
+        
+        if kv_doc is False:
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValue3')
+            return False
 
         return kv_doc.to_text()
 
@@ -3423,6 +3450,10 @@ class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, P
         export_path = self.get_export_path(context)
 
         compiled = self._export_constraints(bones, export_path)
+        
+        if compiled == False:
+            self.report({'INFO'}, "File is invalid")
+            return {'CANCELLED'}
 
         # only now create file if needed
         if not self.to_clipboard:
@@ -3440,7 +3471,8 @@ class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, P
                 self.report({'INFO'}, f"Constraint data exported to {export_path}")
             return {'FINISHED'}
 
-        self.report({'INFO'}, "No constraints exported")
+        if compiled is not None:
+            self.report({'INFO'}, "No constraints exported")
         return {'CANCELLED'}
 
     def _export_constraints(self, bones, export_path):
@@ -3474,13 +3506,15 @@ class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, P
             folder_node.add_child(con_orient)
             folder_node.add_child(con_point)
 
-        # Use the same append/overwrite helper
         kv_doc = update_vmdl_container(
             container_class="ScratchArea" if self.to_clipboard else "AnimConstraintList",
             nodes=[folder_node],  # single folder node
             export_path=export_path,
             to_clipboard=self.to_clipboard
         )
+        
+        if kv_doc == False:
+            return False
 
         return kv_doc.to_text()
 

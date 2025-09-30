@@ -1372,6 +1372,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                         atch.vs.dmx_attachment = True
 
                         atch.parent = smd.a
+                        print(parent)
                         if parent:
                             atch.parent_type = 'BONE'
                             atch.parent_bone = parent.name
