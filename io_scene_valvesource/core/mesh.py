@@ -1,5 +1,6 @@
 import bpy
 from .common import getArmature, getArmatureMeshes
+from typing import cast
 
 direction_map = {
             '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
@@ -22,7 +23,7 @@ def get_used_vertex_groups(mesh: bpy.types.Object, vertex_groups: set[int] | Non
 
     return vgroup_used
 
-def clean_vertex_groups(ob: bpy.types.Object, bones: set[bpy.types.Bone] = None, 
+def clean_vertex_groups(ob: bpy.types.Object, bones: list[bpy.types.Bone] | None = None, 
                         weight_limit: float = 0.001) -> dict[bpy.types.Object, list[str]]:
     """
     Clean vertex groups by:
@@ -32,9 +33,6 @@ def clean_vertex_groups(ob: bpy.types.Object, bones: set[bpy.types.Bone] = None,
     Returns a dict mapping each mesh to the list of removed vertex group names.
     """
     removed_groups_per_mesh: dict[bpy.types.Object, list[str]] = {}
-
-    if not ob:
-        return removed_groups_per_mesh
 
     if ob.type == 'MESH':
         meshes = [ob]
@@ -46,7 +44,7 @@ def clean_vertex_groups(ob: bpy.types.Object, bones: set[bpy.types.Bone] = None,
     armature = getArmature(ob)
     
     if bones is None:
-        bones = armature.data.bones
+        bones = list(armature.data.bones)
     else: bones = bones
 
     def is_left_or_right(name: str) -> bool:
@@ -79,7 +77,7 @@ def clean_vertex_groups(ob: bpy.types.Object, bones: set[bpy.types.Bone] = None,
 
     return removed_groups_per_mesh
 
-def limit_vertex_groups(ob: bpy.types.Object, bones: set[bpy.types.Bone], limit: int = 4):
+def limit_vertex_groups(ob: bpy.types.Object, bones: list[bpy.types.Bone], limit: int = 4):
     """Keep only the top N weights per vertex."""
     to_remove = []
 
@@ -97,7 +95,7 @@ def limit_vertex_groups(ob: bpy.types.Object, bones: set[bpy.types.Bone], limit:
             vg = ob.vertex_groups[group_idx]
             vg.remove([vertex_idx])
 
-def normalize_vertex_weights(ob: bpy.types.Object, bones: set[bpy.types.Bone]):
+def normalize_vertex_weights(ob: bpy.types.Object, bones: list[bpy.types.Bone]):
     """Normalize remaining weights so they sum to 1.0 per vertex."""
     for v in ob.data.vertices:
         groups = [
@@ -113,20 +111,18 @@ def normalize_vertex_weights(ob: bpy.types.Object, bones: set[bpy.types.Bone]):
 
 def normalize_weights(ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
     """Full pipeline: clean, limit, normalize."""
-    if not ob or ob.type != 'MESH':
-        return
     
     arm = getArmature(ob)
-    if not arm:
+    if arm is None:
         return
     
-    bones = arm.data.bones
+    bones = cast(list, arm.data.bones)
     
     clean_vertex_groups(ob, weight_limit=clean_tolerance)
     limit_vertex_groups(ob, bones, limit=vgroup_limit)
     normalize_vertex_weights(ob, bones)
     
-def get_flexcontrollers(ob):
+def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool]]:
     """Return list of (shapekey, eyelid, stereo, min, max) from object,
     only including valid shapekeys on the object, excluding the Basis."""
     

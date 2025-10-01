@@ -1,6 +1,7 @@
 import bpy, typing, re, os
 from contextlib import contextmanager
 from ..keyvalue3 import *
+from typing import Literal, TypedDict, cast
 
 def UnselectAll():
     for ob in bpy.data.objects:
@@ -26,7 +27,7 @@ def sanitizeString(data : str):
     _data = _data.strip('_')
     return _data
 
-def getArmature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone = None) -> bpy.types.Object | None:
+def getArmature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
     if isinstance(ob, bpy.types.Object):
         if ob.type == 'ARMATURE':
             return ob
@@ -58,12 +59,10 @@ def getArmature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy
                 if arm is not None: return arm
         return None
 
-def getArmatureMeshes(
-    arm: bpy.types.Object,
-    visible_only: bool = False,
-    viewlayer_only: bool = True,
-    strict_visibility: bool = True
-) -> set[bpy.types.Object]:
+def getArmatureMeshes(arm: bpy.types.Object,
+                      visible_only: bool = False,
+                      viewlayer_only: bool = True,
+                      strict_visibility: bool = True ) -> set[bpy.types.Object]:
     """
     Get meshes using the given armature.
     
@@ -102,7 +101,11 @@ def sortBonesByHierachy(bones: typing.Iterable[bpy.types.Bone]):
         
     return sorted_bones
 
-def getSelectedBones(armature : bpy.types.Object, bone_type : str = 'BONE', sort_type : str = 'TO_LAST', exclude_active : bool = False, select_all : bool = False):
+def getSelectedBones(armature : bpy.types.Object,
+                     bone_type : str = 'BONE',
+                     sort_type : str = 'TO_LAST',
+                     exclude_active : bool = False,
+                     select_all : bool = False) -> list[bpy.types.Bone | bpy.types.PoseBone | bpy.types.EditBone | None]:
     """
     Returns bones from an armature with optional selection, visibility, and sorting filters.
 
@@ -173,20 +176,20 @@ def getSelectedBones(armature : bpy.types.Object, bone_type : str = 'BONE', sort
     if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in selectedBones]
     else: return [armature.data.bones.get(b) for b in selectedBones]
 
-def is_mesh(ob):
+def is_mesh(ob) -> bool:
     return ob is not None and ob.type == 'MESH'
 
-def is_armature(ob):
+def is_armature(ob) -> bool:
     return ob is not None and ob.type == 'ARMATURE'
 
-def is_empty(ob):
+def is_empty(ob) -> bool:
     return ob is not None and ob.type == 'EMPTY'
 
-def is_curve(ob):
+def is_curve(ob) -> bool:
     return ob is not None and ob.type == 'CURVE'
 
-def has_materials(ob):
-    return ob and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots)
+def has_materials(ob : bpy.types.Object) -> bool:
+    return bool(ob and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
 
 def draw_wrapped_text_col(
     layout,
@@ -243,9 +246,18 @@ def draw_title_box(layout, text: str, icon: str = 'NONE'):
     row.label(text=text, icon=icon)
     return box
 
+ModeType = Literal[
+    "OBJECT",
+    "EDIT",
+    "POSE",
+    "SCULPT",
+    "VERTEX_PAINT",
+    "WEIGHT_PAINT",
+    "TEXTURE_PAINT"
+]
 
 # Blender’s mode name mapping (context.mode -> operator arg)
-MODE_MAP = {
+MODE_MAP: dict[str, ModeType] = {
     "OBJECT": "OBJECT",
     "EDIT_ARMATURE": "EDIT",
     "POSE": "POSE",
@@ -263,10 +275,10 @@ MODE_MAP = {
 # current context the user is in.
 # NOTE : This code is horribly slow to be used in loop conditions !!
 @contextmanager
-def PreserveContextMode(obj: bpy.types.Object | None = None, mode: str = "EDIT"):
+def PreserveContextMode(obj: bpy.types.Object | None = None, mode: ModeType = "EDIT"):
     ctx = bpy.context
     view_layer = ctx.view_layer
-
+    
     prev_selected = list(view_layer.objects.selected)
     prev_active = view_layer.objects.active
     prev_mode = ctx.mode
@@ -320,7 +332,7 @@ def PreserveContextMode(obj: bpy.types.Object | None = None, mode: str = "EDIT")
         if prev_active and prev_active.name in bpy.data.objects:
             view_layer.objects.active = prev_active
 
-        mapped_mode = MODE_MAP.get(prev_mode, "OBJECT")
+        mapped_mode : ModeType = MODE_MAP.get(prev_mode, "OBJECT")
         try:
             bpy.ops.object.mode_set(mode=mapped_mode)
         except RuntimeError:
@@ -365,7 +377,7 @@ def openVMDL(filepath: str) -> KVNode | None:
     except Exception:
         return None
 
-def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, export_path: str = None, to_clipboard: bool = False) -> KVDocument:
+def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, export_path: str | None = None, to_clipboard: bool = False) -> KVDocument | bool:
     """
     Insert or update node(s) into a container inside a KV3 RootNode.
     Folders are overwritten if they exist; other nodes are appended.

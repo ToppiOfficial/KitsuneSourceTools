@@ -65,7 +65,7 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], fo
         def replace_shortcut(match):
             return shortcut_keywords.get(match.group(1), match.group(0))
 
-        raw_name = _shortcut_pattern.sub(replace_shortcut, raw_name)
+        raw_name = _shortcut_pattern.sub(replace_shortcut, raw_name) # type: ignore
 
         # Handle counters for '$'
         key = (raw_name, b_side)
@@ -99,7 +99,7 @@ def getCanonicalBoneName(export_name: str) -> str:
 
     return export_name
 
-def getBoneMatrix(data, bone : bpy.types.PoseBone = None):
+def getBoneMatrix(data, bone : bpy.types.PoseBone | None = None):
     if isinstance(data, bpy.types.PoseBone):
         matrix = data.matrix
         bone = data
@@ -127,9 +127,9 @@ def getBoneMatrix(data, bone : bpy.types.PoseBone = None):
     
     loc_offset_matrix = mathutils.Matrix.Translation((loc_offset_x, loc_offset_y, loc_offset_z))
     rot_offset_matrix = (
-        mathutils.Matrix.Rotation(rot_offset_z, 4, 'Z') @
-        mathutils.Matrix.Rotation(rot_offset_y, 4, 'Y') @
-        mathutils.Matrix.Rotation(rot_offset_x, 4, 'X')
+        mathutils.Matrix.Rotation(rot_offset_z, 4, 'Z') @ # type: ignore
+        mathutils.Matrix.Rotation(rot_offset_y, 4, 'Y') @ # type: ignore
+        mathutils.Matrix.Rotation(rot_offset_x, 4, 'X')   # type: ignore
     )
     
     # Combine translation and rotation: translation happens AFTER rotation
@@ -138,7 +138,7 @@ def getBoneMatrix(data, bone : bpy.types.PoseBone = None):
     
     return final_matrix
     
-def getRelativeTargetMatrix(slave : bpy.types.PoseBone, master : bpy.types.PoseBone = None, axis : str = 'XYZ', is_string = False) -> mathutils.Vector:
+def getRelativeTargetMatrix(slave : bpy.types.PoseBone, master : bpy.types.PoseBone | None = None, axis : str = 'XYZ', is_string = False) -> list[float] | str:
     
     if slave is None: return None
     

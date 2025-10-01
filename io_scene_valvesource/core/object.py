@@ -1,6 +1,6 @@
 import bpy
 import numpy as np
-from typing import Optional, Any
+from typing import Optional, Any, cast, Any
 
 def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
                 execution_context: Optional[str] = None, undo: Optional[bool] = None, **operator_args) -> set[str]:
@@ -13,7 +13,7 @@ def op_override(operator, context_override: dict[str, Any], context: Optional[bp
 
     if context is None:
         context = bpy.context
-    with context.temp_override(**context_override):
+    with cast(Any, context.temp_override(**context_override)):
         return operator(*args, **operator_args)
 
 def applyModifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
@@ -26,7 +26,7 @@ def applyModifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
             - If True -> deny applying if the object has shapekeys.
             - If False -> advanced Cats-style handling (bake + restore).
     """
-    ob: bpy.types.Object = mod.id_data
+    ob: bpy.types.Object | None = cast(bpy.types.Object, mod.id_data)
     if ob is None or ob.type != 'MESH':
         return False
     
@@ -100,7 +100,7 @@ def apply_armature_to_mesh_without_shape_keys(armature_obj: bpy.types.Object, me
             bpy.ops.object.modifier_move_up(modifier=armature_mod.name)
 
     # Apply with context override
-    with bpy.context.temp_override(object=mesh_obj):
+    with cast(Any, bpy.context.temp_override(object=mesh_obj)):
         bpy.ops.object.modifier_apply(modifier=armature_mod.name)
 
 #  Original source: https://github.com/teamneoneko/Avatar-Toolkit

@@ -136,9 +136,7 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                     else:
                         pbone.rotation_euler = values["rotation"]
 
-def applyCurrPoseAsRest(armature: bpy.types.Object):
-    if armature is None: return False
-
+def applyCurrPoseAsRest(armature: bpy.types.Object) -> bool:
     with PreserveArmatureState(armature, reset_pose=False):
         try:
             with ExposeAllObjects():
@@ -445,12 +443,16 @@ def mergeBones(
             )
 
             if centralize_bone:
-                br, pairs, groups = result
+                br, pairs, *rest = result
+                groups = rest[0] if rest else set()
+
                 bones_to_remove.update(br)
                 merged_pairs.extend(pairs)
                 processed_groups.update(groups)
             else:
-                br, groups = result if isinstance(result, tuple) else (result, set())
+                br, *rest = result
+                groups = rest[0] if rest else set()
+
                 bones_to_remove.update(br)
                 processed_groups.update(groups)
 
@@ -505,7 +507,7 @@ def mergeBones(
 def removeBone(
     arm: bpy.types.Object,
     bone: typing.Union[str, typing.Iterable[str]],
-    source: str = None,
+    source: str | None = None,
     match_parent_to_head: bool = False,
     match_parent_to_head_tolerance: float = 3e-5
 ):
@@ -564,8 +566,8 @@ def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 
             if src_name not in edit_bones or tgt_name not in edit_bones:
                 continue
 
-            src_bone = edit_bones[src_name]
-            tgt_bone = edit_bones[tgt_name]
+            src_bone = edit_bones[src_name] # type: ignore
+            tgt_bone = edit_bones[tgt_name] # type: ignore
 
             mid_head = (src_bone.head + tgt_bone.head) * 0.5
             mid_tail = (src_bone.tail + tgt_bone.tail) * 0.5
@@ -574,7 +576,7 @@ def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 
                 direction = (
                     (src_bone.tail - src_bone.head).normalized()
                     if (src_bone.tail - src_bone.head).length > 0
-                    else (0, 0, 1)
+                    else mathutils.Vector((0, 0, 1))
                 )
                 mid_tail = mid_head + direction * min_length
 
@@ -633,7 +635,7 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
 
     return rotated_bones
 
-def split_bone(bone: typing.Union[bpy.types.EditBone, list], tolerance: float = 0.5, smoothness: float = 1, name_a: str = None, name_b: str = None):
+def split_bone(bone: typing.Union[bpy.types.EditBone, list], tolerance: float = 0.5, smoothness: float = 1, name_a: str | None = None, name_b: str | None = None):
     if bpy.context.object.mode != 'EDIT':
         return
 
