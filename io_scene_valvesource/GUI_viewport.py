@@ -182,28 +182,6 @@ class SMD_PT_Object(ExportableConfigurationPanel):
             return
         
         bx.box().label(text=f'Active Object: ({ob.name})')
-        
-        if not ob.parent:
-            row = bx.row(align=True)
-            col = row.column()
-            col.prop(ob.vs, 'ignore_location_offset', toggle=True)
-            col = col.column(align=True)
-            if ob.vs.ignore_location_offset: col.active = False
-            col.prop(ob.vs, 'export_location_offset_x')
-            col.prop(ob.vs, 'export_location_offset_y')
-            col.prop(ob.vs, 'export_location_offset_z')
-
-            col = row.column()
-            col.prop(ob.vs, 'ignore_rotation_offset', toggle=True)
-            col = col.column(align=True)
-            if ob.vs.ignore_rotation_offset: col.active = False
-            col.prop(ob.vs, 'export_rotation_offset_x')
-            col.prop(ob.vs, 'export_rotation_offset_y')
-            col.prop(ob.vs, 'export_rotation_offset_z')
-        else:
-            messages = 'Transform Offset not available for Parented Objects'
-            col = bx.column(align=True)
-            draw_wrapped_text_col(col, messages, 32, icon='ERROR')
 
 class SMD_PT_Armature(ExportableConfigurationPanel):
     bl_label = get_id("panel_context_armature")
@@ -1179,10 +1157,30 @@ class TOOLS_OT_SplitBone(bpy.types.Operator):
     bl_label = 'Split Bone(s)'
     bl_options = {'REGISTER', 'UNDO'}
     
-    tolerance : bpy.props.FloatProperty(name='Tolerance', min=0,max=1,precision=3,default=0.5)
-    smoothness : bpy.props.FloatProperty(name='Smoothness', min=0,max=1,precision=3,default=1)
-    boneName_A : bpy.props.StringProperty(name='Bone A')
-    boneName_B : bpy.props.StringProperty(name='Bone B')
+    subdivisions: bpy.props.IntProperty(
+        name='Subdivisions', 
+        min=2, 
+        max=20, 
+        default=2,
+        description='Number of segments to split the bone into'
+    )
+    
+    minweight : bpy.props.FloatProperty(
+        name='Min Weight', min=0.001,max = 0.01, default=0.001, precision=3)
+    
+    falloff : bpy.props.IntProperty(
+        name='Falloff', min=5, max=20, default=10)
+    
+    weights_only: bpy.props.BoolProperty(
+        name='Weights Only',default=False)
+    
+    #smoothness: bpy.props.FloatProperty(
+    #    name='Smoothness', 
+    #    min=0, 
+    #    max=1, 
+    #    precision=3, 
+    #    default=1
+    #)
     
     @classmethod
     def poll(cls, context):
@@ -1200,64 +1198,64 @@ class TOOLS_OT_SplitBone(bpy.types.Operator):
 
     def execute(self, context):
         arm = getArmature(context.object)
-        boneA = self.boneName_A
-        boneB = self.boneName_B
-        print(boneA)
+        
+        if arm is None: return {'CANCELLED'}
         
         constraint_data = []
         
-        with PreserveContextMode(context.object, 'OBJECT'):
+        with PreserveArmatureState(arm), PreserveContextMode(context.object, 'OBJECT'):
             context.view_layer.objects.active = arm
             
-            bones = getSelectedBones(arm, bone_type= 'POSEBONE')
+            bones = getSelectedBones(arm, bone_type='POSEBONE')
             boneNames = [b.name for b in getSelectedBones(arm, bone_type='BONE')]
             
-            if bones is None or boneNames is None: return {'CANCELLED'}
+            if bones is None or boneNames is None:
+                return {'CANCELLED'}
 
-            for i, bone in enumerate(bones):
-                if len(bones) == 1: 
-                    new_bone_name = boneA if boneA.strip() else bone.name + "_A"
-                else:
-                    new_bone_name = bone.name + "_A"
-
-                for con in bone.constraints:
-                    data = {
-                        'target_bone': new_bone_name,
-                        'type': con.type,
-                        'name': con.name,
-                        'properties': {}
-                    }
-                    for prop in con.bl_rna.properties:
-                        if prop.is_readonly or prop.identifier in {'rna_type', 'name', 'type'}:
-                            continue
-                        try:
-                            val = getattr(con, prop.identifier)
-                            data['properties'][prop.identifier] = val
-                        except Exception as e:
-                            print(f"Error getting property {prop.identifier}: {e}")
-                    constraint_data.append(data)
+            # Store constraints from all selected bones
+            if not self.weights_only:
+                for bone in bones:
+                    for con in bone.constraints:
+                        data = {
+                            'original_bone': bone.name,
+                            'type': con.type,
+                            'name': con.name,
+                            'properties': {}
+                        }
+                        for prop in con.bl_rna.properties:
+                            if prop.is_readonly or prop.identifier in {'rna_type', 'name', 'type'}:
+                                continue
+                            try:
+                                val = getattr(con, prop.identifier)
+                                data['properties'][prop.identifier] = val
+                            except Exception as e:
+                                print(f"Error getting property {prop.identifier}: {e}")
+                        constraint_data.append(data)
             
+            # Switch to edit mode and split bones
             bpy.ops.object.mode_set(mode='EDIT')
             bones = [arm.data.edit_bones.get(b) for b in boneNames]
-            split_bone(bones, self.tolerance, self.smoothness, boneA, boneB)
+            split_bone(bones, self.subdivisions, weights_only=self.weights_only,min_weight_cap=self.minweight, falloff=self.falloff )
             
-            bpy.ops.object.mode_set(mode='OBJECT')
+            if not self.weights_only:
+                bpy.ops.object.mode_set(mode='OBJECT')
 
-            for data in constraint_data:
-                pose_bone = arm.pose.bones.get(data['target_bone'])
-                if not pose_bone:
-                    print(f"Pose bone {data['target_bone']} not found")
-                    continue
-                
-                new_con = pose_bone.constraints.new(type=data['type'])
-                new_con.name = data['name']
+                # Reapply constraints to ALL new bones created from each original bone
+                for data in constraint_data:
+                    base_name = data['original_bone']
 
-                for prop, val in data['properties'].items():
-                    try:
-                        setattr(new_con, prop, val)
-                    except Exception as e:
-                        print(f"Failed to set {prop} on constraint '{new_con.name}': {e}")
-    
+                    # Iterate over all pose bones and match the split ones (base_name, base_name1, base_name2, ...)
+                    for pb in arm.pose.bones:
+                        if pb.name.startswith(base_name):
+                            new_con = pb.constraints.new(type=data['type'])
+                            new_con.name = data['name']
+
+                            for prop, val in data['properties'].items():
+                                try:
+                                    setattr(new_con, prop, val)
+                                except Exception as e:
+                                    print(f"Failed to set {prop} on constraint '{new_con.name}' for bone '{pb.name}': {e}")
+
         return {'FINISHED'}
 
 # =================================
@@ -1892,9 +1890,6 @@ class TOOLS_OT_SplitActiveWeightLinear(bpy.types.Operator):
         bones = getSelectedBones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
         active_bone = arm.data.bones.active
         
-        for bone in bones:
-            print(bone.name)
-        
         if not bones or len(bones) != 2 or not active_bone:
             self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
             return {'CANCELLED'}
@@ -2028,6 +2023,7 @@ class ARMATUREMAPPER_PT_ArmatureMapper(ToolsSubPanel):
                 col.prop(item, "writeTwistBone")
                 if item.writeTwistBone:
                     col.prop(item, "twistBoneTarget")
+                    col.prop(item, "twistBoneCount", slider=True)
                 bx.operator(ARMATUREMAPPER_OT_WriteJson.bl_idname, icon='FILE')
                 
         else:
@@ -2300,6 +2296,7 @@ class ARMATUREMAPPER_OT_WriteJson(bpy.types.Operator):
                     )
                     if twist_name:
                         boneDict['TwistBones'] = twist_name
+                        boneDict['TwistBoneCount'] = item.twistBoneCount
 
                 bone_entries.append(boneDict)
 
@@ -2679,27 +2676,64 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                         rotatedbones = assignBoneAngles(arm, [(bone_name, rot[0], rot[1], rot[2], roll)])
                     elif rot is None and roll is not None:
                         rotatedbones = assignBoneAngles(arm, [(bone_name, None, None, None, roll)])
-                    else:
-                        pass
-                    
+
                     bone = arm.data.edit_bones.get(bone_name)
-                    twisttarget = bone_data.get("TwistBones")
-                    if twisttarget:
-                        twistbone = arm.data.edit_bones.get(bone_name + " twist")
-                        
-                        if not twistbone:
-                            twistbone = arm.data.edit_bones.new(bone_name + " twist")
-                            twistbone.head = bone.head
-                            twistbone.tail = bone.tail
+
+                    # Determine twist bone count
+                    twist_count = bone_data.get("TwistBoneCount")
+                    twist_target = bone_data.get("TwistBones")
+
+                    if twist_count is None and twist_target:
+                        twist_count = 1
+
+                    if twist_count and twist_count > 0:
+                        base_head = bone.head.copy()
+                        base_tail = bone.tail.copy()
+                        total_vec = base_tail - base_head
+
+                        prev_bone = bone
+
+                        if twist_count == 1:
+                            # Single twist: tail at original tail, head at bone mid-point
+                            mid_point = base_head + total_vec * 0.5
+
+                            twist_head = mid_point
+                            twist_tail = base_tail
+
+                            twist_name = f"{bone_name} twist 1"
+                            twistbone = arm.data.edit_bones.get(twist_name)
+                            if not twistbone:
+                                twistbone = arm.data.edit_bones.new(twist_name)
+
+                            twistbone.head = twist_head
+                            twistbone.tail = twist_tail
                             twistbone.roll = bone.roll
-                            twistbone.length = bone.length * 0.5
-                            twistbone.parent = bone
+                            twistbone.parent = prev_bone
+
                         else:
-                            twistbone.head = bone.head
-                            twistbone.tail = bone.tail
-                            twistbone.length = bone.length * 0.5
-                            twistbone.roll = bone.roll
-                            twistbone.parent = bone
+                            # Multi-twist: evenly segment entire bone length
+                            segment_count = twist_count
+                            segment_length = 1.0 / segment_count
+
+                            for i in range(segment_count):
+                                factor_start = i * segment_length
+                                factor_end = (i + 1) * segment_length
+
+                                twist_head = base_head + total_vec * factor_start
+                                twist_tail = base_head + total_vec * factor_end
+
+                                twist_name = f"{bone_name} twist {i+1}"
+                                twistbone = arm.data.edit_bones.get(twist_name)
+                                if not twistbone:
+                                    twistbone = arm.data.edit_bones.new(twist_name)
+
+                                twistbone.head = twist_head
+                                twistbone.tail = twist_tail
+                                twistbone.roll = bone.roll
+                                twistbone.parent = prev_bone
+
+                                prev_bone = bone
+
                 
             bpy.ops.object.mode_set(mode='OBJECT')
             
@@ -2720,36 +2754,62 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                     pb.bone.vs.export_name = getCanonicalBoneName(bone_data.get("ExportName"))
                 
                 if 'CONSTRAINTS' in self.load_options:
-                    pbtwist = arm.pose.bones.get(bone_name + " twist")
-                    if pbtwist:
-                        twisttarget = bone_data.get("TwistBones")
-                        
-                        if bone_data.get("ExportRotationOffset") is not None:
+                    twist_target = bone_data.get("TwistBones")
+                    twist_count = bone_data.get("TwistBoneCount") or 0
+
+                    # fallback if only TwistBones was set
+                    if twist_count == 0 and twist_target:
+                        twist_count = 1
+
+                    # find all twist bones dynamically
+                    twist_bones = [
+                        arm.pose.bones.get(f"{bone_name} twist {i+1}".strip())
+                        for i in range(twist_count)
+                        if arm.pose.bones.get(f"{bone_name} twist {i+1}".strip())
+                    ]
+
+                    for idx, pbtwist in enumerate(twist_bones):
+                        if not pbtwist:
+                            continue
+
+                        # export offset handling
+                        offset = bone_data.get("ExportRotationOffset")
+                        if offset is not None:
                             pbtwist.bone.vs.ignore_rotation_offset = False
-                            pbtwist.bone.vs.export_rotation_offset_x = bone_data.get("ExportRotationOffset")[0]
-                            pbtwist.bone.vs.export_rotation_offset_y = bone_data.get("ExportRotationOffset")[1]
-                            pbtwist.bone.vs.export_rotation_offset_z = bone_data.get("ExportRotationOffset")[2]
+                            pbtwist.bone.vs.export_rotation_offset_x = offset[0]
+                            pbtwist.bone.vs.export_rotation_offset_y = offset[1]
+                            pbtwist.bone.vs.export_rotation_offset_z = offset[2]
                         else:
                             pbtwist.bone.vs.ignore_rotation_offset = True
-                        
-                        twistconstraintName = bone_name + "Twist"
-                        twistconstraint = pbtwist.constraints.get(twistconstraintName)
-                        if twistconstraint is None:
-                            twistconstraint : bpy.types.CopyRotationConstraint = pbtwist.constraints.new('COPY_ROTATION')
-                            twistconstraint.name = twistconstraintName
-                            
-                        twistconstraint.target = arm
-                        twistconstraint.subtarget = twisttarget
-                        twistconstraint.use_x = False
-                        twistconstraint.use_y = True
-                        twistconstraint.use_z = False
-                        twistconstraint.owner_space = 'LOCAL'
-                        twistconstraint.target_space = 'LOCAL'
-                        
-                        twistconstraint.influence = 1
-                        if twisttarget == pbtwist.parent.name:
-                            twistconstraint.invert_y = True
-                            
+
+                        # Constraint naming and creation
+                        twist_constraint_name = f"{bone_name}_twist_constraint_{idx+1}"
+                        twist_constraint = pbtwist.constraints.get(twist_constraint_name)
+                        if twist_constraint is None:
+                            twist_constraint: bpy.types.CopyRotationConstraint = pbtwist.constraints.new('COPY_ROTATION')
+                            twist_constraint.name = twist_constraint_name
+
+                        twist_constraint.target = arm
+                        twist_constraint.subtarget = twist_target
+                        twist_constraint.use_x = False
+                        twist_constraint.use_y = True
+                        twist_constraint.use_z = False
+                        twist_constraint.owner_space = 'LOCAL'
+                        twist_constraint.target_space = 'LOCAL'
+
+                        # If twist_target == pbtwist.parent.name -> "direct" mode
+                        if twist_target == pbtwist.parent.name:
+                            # first twist is strongest
+                            twist_constraint.influence = 1.0 - (idx * (1.0 / (twist_count)))
+                        else:
+                            # last twist is strongest
+                            twist_constraint.influence = (idx + 1) / (twist_count)
+
+                        # Optional: invert Y if needed
+                        if twist_target == pbtwist.parent.name:
+                            twist_constraint.invert_y = True
+
+                        # Reassign bone collections
                         for col in pb.bone.collections:
                             col.assign(pbtwist.bone)
                      
@@ -2802,6 +2862,7 @@ class ARMATUREMAPPER_OT_LoadPreset(bpy.types.Operator):
             roll = boneData.get("Roll", None)
             export_rot_offset = boneData.get("ExportRotationOffset", None)
             twist_bone = boneData.get("TwistBones", None)
+            twist_bonecount = boneData.get("TwistBoneCount", None)
 
             if export_name not in bone_names:
                 continue
@@ -2825,6 +2886,7 @@ class ARMATUREMAPPER_OT_LoadPreset(bpy.types.Operator):
             if twist_bone:
                 new_item.writeTwistBone = True
                 new_item.twistBoneTarget = twist_bone
+                new_item.twistBoneCount = twist_bonecount
 
         self.report({'INFO'}, f"Loaded preset from: {self.filepath} ({len(items)} items)")
         return {'FINISHED'}
@@ -2942,7 +3004,6 @@ class VALVEMODEL_PT_Jigglebones(ValveModelConfig):
                 row.scale_y = 1.2
                 row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Write to Clipboard').to_clipboard = True
                 row.operator(VALVEMODEL_OT_WriteJiggleBone.bl_idname,text='Write to File').to_clipboard = False
-                #row.operator(TOOLS_OT_ImportJiggleBone.bl_idname, icon='IMPORT')
         
         if bone and bone.select:
             
@@ -3078,6 +3139,9 @@ class VALVEMODEL_OT_WriteJiggleBone(bpy.types.Operator, PrefabExportOperator):
             return {'CANCELLED'}
 
         export_path = self.get_export_path(context)
+        
+        if export_path is None and not self.to_clipboard:
+            return {'CANCELLED'}
         fmt = None
         
         if not self.to_clipboard:
@@ -3435,10 +3499,26 @@ class VALVEMODEL_OT_CreateProportionActions(bpy.types.Operator):
 class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, PrefabExportOperator):
     bl_idname = "smd.encode_exportname_as_constraint_proportion"
     bl_label = "Write Constraint Proportions"
+    
+    proportion_type : bpy.props.EnumProperty(name="Proportion Type", items=[
+            ('ANGLESLOC', "Point and Angles Proportions", "Creates Rotation and Location constraints for bones with a custom export"),
+            ('POINT', "Point Proportions", "Creates point constraints for bones with a custom export"),])
 
     def draw(self, context):
+        self.layout.prop(self, "proportion_type")
         if not self.to_clipboard:
             self.layout.prop(self, "prefab_index")
+            
+    def invoke(self, context, event):
+        if self.to_clipboard:
+            return context.window_manager.invoke_props_dialog(self)
+
+        prefabs = context.scene.vs.smd_prefabs
+        if not prefabs or len(prefabs) == 0:
+            self.report({'WARNING'}, "No prefabs available. Please add one before exporting.")
+            return {'CANCELLED'}
+
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         armature = context.object
@@ -3449,7 +3529,8 @@ class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, P
 
         export_path = self.get_export_path(context)
 
-        compiled = self._export_constraints(bones, export_path)
+        with PreserveContextMode(armature, 'OBJECT'):
+            compiled = self._export_constraints(armature, bones, export_path)
         
         if compiled == False:
             self.report({'INFO'}, "File is invalid")
@@ -3475,35 +3556,60 @@ class VALVEMODEL_OT_EncodeExportNameAsConstraintProportion(bpy.types.Operator, P
             self.report({'INFO'}, "No constraints exported")
         return {'CANCELLED'}
 
-    def _export_constraints(self, bones, export_path):
+    def _export_constraints(self, armature, bones, export_path):
         folder_node = KVNode(_class='Folder', name="constraints_CustomProportions")
 
         for bone in bones:
             bone_name = getBoneExportName(bone, for_write=True)
+            posebone = armature.pose.bones.get(bone.name)
             original_bone_name = sanitizeString(bone.name)
+            has_parent = bool(bone.parent)
+            
             if bone_name == original_bone_name:
                 continue
+            
+            if self.proportion_type == 'ANGLESLOC':
+                
+                con_orient = KVNode(
+                    _class="AnimConstraintOrient",
+                    name=f'Angles_{original_bone_name}_{bone_name}'
+                )
+                con_orient.add_child(KVNode(_class="AnimConstraintBoneInput", parent_bone=bone_name, weight=1.0))
+                con_orient.add_child(KVNode(_class="AnimConstraintSlave", parent_bone=original_bone_name, weight=1.0))
 
-            con_orient = KVNode(
-                _class="AnimConstraintOrient",
-                name=f'Angles_{original_bone_name}_{bone_name}'
-            )
-            con_orient.add_child(KVNode(_class="AnimConstraintBoneInput", parent_bone=bone_name, weight=1.0))
-            con_orient.add_child(KVNode(_class="AnimConstraintSlave", parent_bone=original_bone_name, weight=1.0))
+                con_point = KVNode(
+                    _class="AnimConstraintPoint",
+                    name=f'Point_{original_bone_name}_{bone_name}'
+                )
+                con_point.add_child(KVNode(_class="AnimConstraintBoneInput",
+                                        parent_bone=original_bone_name if has_parent else bone_name,
+                                        weight=1.0))
+                con_point.add_child(KVNode(_class="AnimConstraintSlave",
+                                        parent_bone=bone_name if has_parent else original_bone_name,
+                                        weight=1.0))
+                
+                folder_node.add_child(con_orient)
+                
+            else:
+                parent_name = getBoneExportName(bone.parent, for_write=True) if has_parent else None
+                  
+                con_point = KVNode(
+                    _class="AnimConstraintPoint",
+                    name=f'Point_{bone_name}'
+                )
+                
+                relativepos = getRelativeTargetMatrix(posebone, posebone.parent, mode='LOCATION') if has_parent else [0,0,0]
+                relativeangle = getRelativeTargetMatrix(posebone, posebone.parent, mode='ROTATION', axis='YZX') if has_parent else [0,0,0]
 
-            has_parent = bool(bone.parent)
-            con_point = KVNode(
-                _class="AnimConstraintPoint",
-                name=f'Origin_{original_bone_name}_{bone_name}'
-            )
-            con_point.add_child(KVNode(_class="AnimConstraintBoneInput",
-                                    parent_bone=original_bone_name if has_parent else bone_name,
-                                    weight=1.0))
-            con_point.add_child(KVNode(_class="AnimConstraintSlave",
-                                    parent_bone=bone_name if has_parent else original_bone_name,
-                                    weight=1.0))
+                con_point.add_child(KVNode(_class="AnimConstraintBoneInput",
+                                        parent_bone=parent_name if has_parent else bone_name,
+                                        relative_origin=KVVector3(relativepos[0], relativepos[1], relativepos[2]),
+                                        relative_angles=KVVector3(relativeangle[0], relativeangle[1], relativeangle[2]),
+                                        weight=1.0))
+                con_point.add_child(KVNode(_class="AnimConstraintSlave",
+                                        parent_bone=bone_name,
+                                        weight=1.0))
 
-            folder_node.add_child(con_orient)
             folder_node.add_child(con_point)
 
         kv_doc = update_vmdl_container(

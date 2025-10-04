@@ -103,7 +103,7 @@ def sortBonesByHierachy(bones: typing.Iterable[bpy.types.Bone]):
 
 def getSelectedBones(armature : bpy.types.Object,
                      bone_type : str = 'BONE',
-                     sort_type : str = 'TO_LAST',
+                     sort_type : str | None = 'TO_LAST',
                      exclude_active : bool = False,
                      select_all : bool = False) -> list[bpy.types.Bone | bpy.types.PoseBone | bpy.types.EditBone | None]:
     """
@@ -126,7 +126,7 @@ def getSelectedBones(armature : bpy.types.Object,
         - If any bone collections are soloed, only those bones are returned.
         - If none are soloed, only bones from visible collections are included.
     """
-    if armature.type != 'ARMATURE': return []
+    if not is_armature(armature): return []
     
     if bone_type not in ['BONE', 'EDITBONE', 'POSEBONE']:
         if armature.mode == 'EDIT': bone_type = 'EDITBONE'

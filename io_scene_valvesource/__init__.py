@@ -138,6 +138,8 @@ class ValveSource_SceneProps(ToolProps, PropertyGroup):
     
     export_format : EnumProperty(name=get_id("export_format"),items=( ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ),default='DMX')
     up_axis : EnumProperty(name=get_id("up_axis"),items=axes,default='Z',description=get_id("up_axis_tip"))
+    up_axis_offset : FloatProperty(name=get_id("up_axis_offset"),description=get_id("up_axis_tip"), soft_max=30,soft_min=-30,default=0,precision=2)
+    forward_axis : EnumProperty(name=get_id("forward_axis"),items=axes_forward,default='-Y',description=get_id("up_axis_tip"))
     material_path : StringProperty(name=get_id("dmx_mat_path"),description=get_id("dmx_mat_path_tip"))
     export_list_active : IntProperty(name=get_id("active_exportable"),default=0,min=0,update=export_active_changed)
     export_list : CollectionProperty(type=ValveSource_Exportable,options={'SKIP_SAVE','HIDDEN'})
@@ -211,6 +213,7 @@ class ArmatureMapperKeyValue(PropertyGroup):
     
     writeTwistBone : BoolProperty(name='Write TwistBone', default=False)
     twistBoneTarget : StringProperty(name='TwistBone Target Bone')
+    twistBoneCount : IntProperty(name='TwistBone Count', default=1, min=1, soft_max=5)
     writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=True)
     parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
     
@@ -242,7 +245,7 @@ class ArmatureMapperProps():
     armature_map_eye_l  : bpy.props.StringProperty(name="Left Eye")
     armature_map_eye_r  : bpy.props.StringProperty(name="Right Eye")
 
-class ValveSource_ObjectProps(ExportableProps,LocationOffset,RotationOffset,ArmatureMapperProps, PropertyGroup,):
+class ValveSource_ObjectProps(ExportableProps,ArmatureMapperProps, PropertyGroup,):
     action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"))
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=VertexMapRemap)

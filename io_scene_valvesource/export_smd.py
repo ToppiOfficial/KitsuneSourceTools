@@ -31,6 +31,7 @@ from . import datamodel, ordered_set, flex
 from .core.bone import getBoneExportName, getBoneMatrix
 from .core.object import applyModifier
 from .core.mesh import normalize_weights, get_flexcontrollers
+from .core.common import getArmature
 
 class SMD_OT_Compile(bpy.types.Operator, Logger):
     bl_idname = "smd.compile_qc"
@@ -154,6 +155,17 @@ class SmdExporter(bpy.types.Operator, Logger):
         State.update_scene()
         ops.wm.call_menu(name="SMD_MT_ExportChoice")
         return {'PASS_THROUGH'}
+    
+    def enable_collection_recursively(self, layer_col: bpy.types.LayerCollection):
+        if layer_col is None:
+            return
+
+        if layer_col.exclude: 
+            layer_col.exclude = False
+            print(f"- Un-Excluding {layer_col.name}")
+
+        for child in layer_col.children:
+            self.enable_collection_recursively(child)
 
     def execute(self, context):
         #bpy.context.window_manager.progress_begin(0,1)
@@ -214,6 +226,10 @@ class SmdExporter(bpy.types.Operator, Logger):
                 ob.hide_viewport = False
             # ensure that objects in all collections are accessible to operators
             context.view_layer.layer_collection.exclude = False
+            
+            print('\nPreProcess: Making Every Viewlayer Collection Accessible')
+            for view_layer in bpy.context.scene.view_layers:
+                self.enable_collection_recursively(view_layer.layer_collection)
             
             self.files_exported = self.attemptedExports = 0
             
@@ -554,6 +570,12 @@ class SmdExporter(bpy.types.Operator, Logger):
                 self.armature = self.bakeObj(self.armature_src).object
             exporting_armature = isinstance(id, bpy.types.Object) and id.type == 'ARMATURE'
             self.exportable_bones = list([self.armature.pose.bones[edit_bone.name] for edit_bone in self.armature.data.bones if (exporting_armature or edit_bone.use_deform)])
+            self.exportable_boneNames = {
+                edit_bone.name: getBoneExportName(edit_bone)
+                for edit_bone in self.armature.data.bones
+                if (exporting_armature or edit_bone.use_deform)
+            }
+            
             skipped_bones = len(self.armature.pose.bones) - len(self.exportable_bones)
             if skipped_bones:
                 print("- Skipping {} non-deforming bones".format(skipped_bones))
@@ -764,69 +786,6 @@ class SmdExporter(bpy.types.Operator, Logger):
             else:
                 duplis = None
 
-        def applyObjectExportOffset(ob : bpy.types.Object):
-            root_obj = ob
-            
-            if root_obj.type == 'MESH':
-                for mod in root_obj.modifiers:
-                    if mod.type == 'ARMATURE':
-                        root_obj = mod.object
-                        
-            if root_obj is None: root_obj = ob
-            
-            while root_obj.parent is not None:
-                root_obj = root_obj.parent
-                
-            if root_obj is None: return
-            
-            root_obj.rotation_mode = 'XYZ'
-            prop = root_obj.vs
-
-            for i in range(3):
-                root_obj.lock_location[i] = False
-                root_obj.lock_rotation[i] = False
-                root_obj.lock_scale[i] = False
-                
-            trans_x = prop.export_location_offset_x
-            trans_y = prop.export_location_offset_y
-            trans_z = prop.export_location_offset_z
-            
-            if any([trans_x, trans_y, trans_z]):
-                root_obj.location = (
-                    root_obj.location[0] + trans_x,
-                    root_obj.location[1] + trans_y,
-                    root_obj.location[2] + trans_z
-                )
-                print(f'- Translating {root_obj.name} by {trans_x}, {trans_y}, {trans_z}')
-                prop.export_location_offset_x = 0
-                prop.export_location_offset_y = 0
-                prop.export_location_offset_z = 0
-                
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = root_obj
-                root_obj.select_set(True)
-                
-                bpy.context.view_layer.update()
-                
-                bpy.ops.object.transform_apply(location=True,rotation=False,scale=False)
-                
-            rot_x = prop.export_rotation_offset_x
-            rot_y = prop.export_rotation_offset_y
-            rot_z = prop.export_rotation_offset_z
-
-            if any([rot_x, rot_y, rot_z]):
-                root_obj.rotation_euler = (
-                    root_obj.rotation_euler[0] + rot_x,
-                    root_obj.rotation_euler[1] + rot_y,
-                    root_obj.rotation_euler[2] + rot_z
-                )
-                print(f'- Rotating {root_obj.name} at {degrees(rot_x)}, {degrees(rot_y)}, {degrees(rot_z)}')
-                prop.export_rotation_offset_x = 0
-                prop.export_rotation_offset_y = 0
-                prop.export_rotation_offset_z = 0
-
-        applyObjectExportOffset(id)
-
         if id.type != 'META': # eek, what about lib data?
             id = id.copy()
             bpy.context.scene.collection.objects.link(id)
@@ -885,7 +844,12 @@ class SmdExporter(bpy.types.Operator, Logger):
             ops.object.mode_set(mode='OBJECT')
         
         ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-        id.matrix_world = Matrix.Translation(top_parent.location).inverted() @ getUpAxisMat(bpy.context.scene.vs.up_axis).inverted() @ id.matrix_world
+        
+        id.matrix_world = (Matrix.Translation(top_parent.location).inverted() @ 
+                   getUpAxisMat(bpy.context.scene.vs.up_axis).inverted() @ 
+                   getForwardAxisMat(bpy.context.scene.vs.forward_axis).inverted() @
+                   getUpAxisOffsetMat(bpy.context.scene.vs.up_axis, bpy.context.scene.vs.up_axis_offset) @
+                   id.matrix_world)
         
         if id.type == 'ARMATURE':
             for posebone in id.pose.bones: posebone.matrix_basis.identity()
@@ -1187,7 +1151,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                 self.bone_ids[bone.name] = curID
                 curID += 1
 
-                bone_name = getBoneExportName(bone)
+                bone_name = self.exportable_boneNames[bone.name]
                 line += "\"" + bone_name + "\" "
 
                 if parent:
@@ -1246,11 +1210,11 @@ class SmdExporter(bpy.types.Operator, Logger):
                             parent = parent.parent
                 
                         # Get the bone's Matrix from the current pose
-                        PoseMatrix = getBoneMatrix(posebone)
+                        PoseMatrix = getBoneMatrix(posebone, rest_space=True if not is_anim else False)
                         if self.armature.data.vs.legacy_rotation:
                             PoseMatrix @= mat_BlenderToSMD 
                         if parent:
-                            parentMat = getBoneMatrix(posebone.parent)
+                            parentMat = getBoneMatrix(parent, rest_space=True if not is_anim else False)
                             if self.armature.data.vs.legacy_rotation: parentMat @= mat_BlenderToSMD 
                             PoseMatrix = parentMat.inverted() @ PoseMatrix
                         else:
@@ -1551,7 +1515,7 @@ skeleton
                     return children
                 bone_name = bone.name
 
-            if bone: bone_exportname = getBoneExportName(bone)
+            if bone: bone_exportname = self.exportable_boneNames[bone.name]
             else: bone_exportname = bone_name
             bone_elements[bone_name] = bone_elem = dm.add_element(bone_exportname,"DmeJoint",id=bone_name)
             if want_jointlist: jointList.append(bone_elem)
@@ -1562,12 +1526,12 @@ skeleton
                 cur_p = bone.parent
                 while cur_p and not cur_p in self.exportable_bones: cur_p = cur_p.parent
                 if cur_p:
-                    pMat = getBoneMatrix(cur_p)
+                    pMat = getBoneMatrix(cur_p, rest_space=True)
                     relMat = pMat.inverted() @ bone.matrix
                 else:
                     relMat = self.armature.matrix_world @ bone.matrix
                     
-            relMat = getBoneMatrix(relMat, bone)
+            relMat = getBoneMatrix(relMat, bone, rest_space=True)
             
             trfm = makeTransform(bone_exportname,relMat,"bone"+bone_name)
             trfm_base = makeTransform(bone_exportname,relMat,"bone_base"+bone_name)
@@ -1601,40 +1565,36 @@ skeleton
 
             bench.report("Bones")
         
-        # FIXME: studiomdl wants attachment to have a bone
-        def writeattachment(empty : bpy.types.Object):
-            boneelem = None
+        def writeattachment(empty: bpy.types.Object):
             empty_name = empty.name
-                    
-            empty_elements[empty_name] = empty_elem = dm.add_element(empty_name,"DmeDag",id=empty_name)
-            if want_jointlist: jointList.append(empty_elem)
+            bone_name = empty.parent_bone
+            
+            empty_elem = dm.add_element(empty_name, "DmeDag", id=empty_name)
             
             attach_elem = dm.add_element(empty_name, "DmeAttachment", id="attachment" + empty_name)
             attach_elem["visible"] = True
-            attach_elem["isRigid"] = False
+            attach_elem["isRigid"] = True # deprecated?
             attach_elem["isWorldAligned"] = False
+            
             empty_elem["shape"] = attach_elem
+            empty_elem["visible"] = True
+            empty_elem["children"] = datamodel.make_array([], datamodel.Element)
             
-            bone_name = empty.parent_bone
+            if want_jointlist: jointList.append(empty_elem)
+            
             boneelem = bone_elements[bone_name]
-            
             if "children" not in boneelem:
-                boneelem["children"] = datamodel.make_array([],datamodel.Element)
-                
-            curr_p = None
-            for pb in self.exportable_bones:
-                if pb.name == empty.parent_bone:
-                    curr_p = pb
-                    break
+                boneelem["children"] = datamodel.make_array([], datamodel.Element)
             
+            curr_p = next((pb for pb in self.exportable_bones if pb.name == bone_name), None)
             if curr_p:
                 pmat = getBoneMatrix(curr_p)
                 relMat = pmat.inverted() @ empty.matrix_world
             else:
                 relMat = empty.matrix_basis
-                
+            
             trfm = makeTransform(empty_name, relMat, empty_name)
-            trfm_base = makeTransform(empty_name,relMat,"empty_base"+empty_name)
+            trfm_base = makeTransform(empty_name, relMat, "empty_base" + empty_name)
             
             if empty.parent:
                 for j in range(3):
@@ -1643,14 +1603,16 @@ skeleton
             
             empty_elem["transform"] = trfm
             DmeModel_transforms.append(trfm_base)
-            if want_jointtransforms: jointTransforms.append(trfm)
-
+            if want_jointtransforms:
+                jointTransforms.append(trfm)
+            
             boneelem["children"].append(empty_elem)
             
             return empty_elem
         
         if self.exportable_empties:
-            for empty in self.exportable_empties: writeattachment(empty)
+            for empty in self.exportable_empties: 
+                writeattachment(empty)      
             bench.report("Empties")
 
         for vca in bake_results[0].vertex_animations:
@@ -2257,7 +2219,7 @@ skeleton
             channels = DmeChannelsClip["channels"] = datamodel.make_array([],datamodel.Element)
             bone_channels = {}
             def makeChannel(bone):
-                boneExportName = getBoneExportName(bone)
+                boneExportName = self.exportable_boneNames[bone.name]
                 bone_channels[bone.name] = []
                 channel_template = [
                     [ "_p", "position", "Vector3", datamodel.Vector3 ],

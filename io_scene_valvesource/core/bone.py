@@ -99,60 +99,111 @@ def getCanonicalBoneName(export_name: str) -> str:
 
     return export_name
 
-def getBoneMatrix(data, bone : bpy.types.PoseBone | None = None):
+import bpy
+import mathutils
+from mathutils import Matrix
+
+def getBoneMatrix(
+    data: bpy.types.PoseBone | Matrix,
+    bone: bpy.types.PoseBone | None = None,
+    rest_space : bool = False
+) -> Matrix:
+    """
+    Returns the effective matrix of a PoseBone or matrix with applied export offsets.
+
+    Args:
+        data: PoseBone or a 4x4 Matrix.
+        bone: Optional PoseBone reference (required for offset properties).
+              If not provided and `data` is a PoseBone, it's automatically used.
+
+    Returns:
+        Matrix: The final transform matrix with translation and rotation offsets applied.
+    """
+    # Resolve matrix and bone
     if isinstance(data, bpy.types.PoseBone):
-        matrix = data.matrix
+        matrix = data.matrix if not rest_space else data.bone.matrix_local
         bone = data
-    else:
+    elif isinstance(data, Matrix):
         matrix = data
 
     if bone is None:
         return matrix
-    
-    b_Prop = bone.bone.vs
-    
-    if b_Prop.ignore_rotation_offset:
-        rot_offset_x, rot_offset_y, rot_offset_z = 0, 0, 0
-    else:
-        rot_offset_x = b_Prop.export_rotation_offset_x
-        rot_offset_y = b_Prop.export_rotation_offset_y
-        rot_offset_z = b_Prop.export_rotation_offset_z
-    
-    if b_Prop.ignore_location_offset:
-        loc_offset_x, loc_offset_y, loc_offset_z = 0, 0, 0
-    else:
-        loc_offset_x = b_Prop.export_location_offset_x
-        loc_offset_y = b_Prop.export_location_offset_y
-        loc_offset_z = b_Prop.export_location_offset_z
-    
-    loc_offset_matrix = mathutils.Matrix.Translation((loc_offset_x, loc_offset_y, loc_offset_z))
+
+    b_props = bone.bone.vs
+
+    # Rotation offsets
+    rot_x = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_x
+    rot_y = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_y
+    rot_z = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_z
+
     rot_offset_matrix = (
-        mathutils.Matrix.Rotation(rot_offset_z, 4, 'Z') @ # type: ignore
-        mathutils.Matrix.Rotation(rot_offset_y, 4, 'Y') @ # type: ignore
-        mathutils.Matrix.Rotation(rot_offset_x, 4, 'X')   # type: ignore
+        Matrix.Rotation(rot_z, 4, 'Z') @ # type: ignore
+        Matrix.Rotation(rot_y, 4, 'Y') @ # type: ignore
+        Matrix.Rotation(rot_x, 4, 'X')  # type: ignore
     )
-    
-    # Combine translation and rotation: translation happens AFTER rotation
-    combined_matrix = loc_offset_matrix @ rot_offset_matrix
-    final_matrix = matrix @ combined_matrix
-    
-    return final_matrix
-    
-def getRelativeTargetMatrix(slave : bpy.types.PoseBone, master : bpy.types.PoseBone | None = None, axis : str = 'XYZ', is_string = False) -> list[float] | str:
-    
-    if slave is None: return None
-    
-    slave_matrix = getBoneMatrix(slave)
-    master_matrix = getBoneMatrix(master) if master is not None else None
-    
-    local_matrix = slave_matrix
-    if master_matrix is not None:
-        local_matrix = master_matrix.inverted_safe() @ slave_matrix
-    
-    euler_conversion = local_matrix.to_euler()
-    angles = [math.degrees(euler_conversion.x), math.degrees(euler_conversion.y), math.degrees(euler_conversion.z)]
-    
-    axis_map = {'X': angles[0], 'Y': angles[1], 'Z': angles[2]}
-    rotation = list(axis_map[axis_char] for axis_char in axis)
-   
-    return " ".join(f"{v}" for v in rotation) if is_string else rotation
+
+    # Location offsets
+    loc_x = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_x
+    loc_y = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_y
+    loc_z = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_z
+
+    loc_offset_matrix = Matrix.Translation((loc_x, loc_y, loc_z))
+
+    # Translation after rotation
+    offset_matrix = loc_offset_matrix @ rot_offset_matrix
+
+    # Apply offsets in bone space
+    return matrix @ offset_matrix
+
+
+def getRelativeTargetMatrix(
+    slave: bpy.types.PoseBone,
+    master: bpy.types.PoseBone | None = None,
+    axis: str = 'XYZ',
+    mode: str = 'ROTATION',
+    is_string: bool = False,
+    rest_space : bool = True
+) -> typing.Union[list[float], str]:
+    """
+    Returns relative translation or rotation of `slave` to `master`.
+
+    Args:
+        slave: PoseBone - the bone to measure.
+        master: PoseBone - optional reference bone. If None, uses armature space.
+        axis: str - which axes to include (default: 'XYZ').
+        mode: str - 'LOCATION' or 'ROTATION'.
+        is_string: bool - if True, returns space-separated string.
+
+    Returns:
+        list[float] or str: relative location or rotation
+    """
+    try:
+        # Get the matrices (pose space)
+        slave_matrix = getBoneMatrix(slave, rest_space=rest_space)
+        master_matrix = getBoneMatrix(master, rest_space=rest_space) if master else Matrix.Identity(4)
+
+        # Compute relative matrix: master → slave
+        local_offset = master_matrix.inverted_safe() @ slave_matrix
+
+        # Convert to rotation or location
+        if mode.upper() == 'ROTATION':
+            euler = local_offset.to_euler()
+            values = [
+                math.degrees(euler.x),
+                math.degrees(euler.y),
+                math.degrees(euler.z)
+            ]
+        elif mode.upper() == 'LOCATION':
+            translation = local_offset.to_translation()
+            values = [translation.x, translation.y, translation.z]
+        else:
+            raise ValueError("mode must be 'LOCATION' or 'ROTATION'")
+
+        # Filter only selected axes
+        axis_map = {'X': values[0], 'Y': values[1], 'Z': values[2]}
+        result = [axis_map[a] for a in axis if a in axis_map]
+
+        return " ".join(f"{v:.6f}" for v in result) if is_string else result
+
+    except Exception:
+        return "0.0 0.0 0.0" if is_string else [0.0, 0.0, 0.0]

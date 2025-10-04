@@ -87,6 +87,14 @@ class SMD_PT_Scene(bpy.types.Panel):
         row.label(text=get_id("up_axis") + ":")
         row.row().prop(scene.vs,"up_axis", expand=True)
         
+        row = l.row().split(factor=0.33)
+        row.label(text=get_id("up_axis_offset") + ":")
+        row.row().prop(scene.vs,"up_axis_offset", expand=True)
+        
+        row = l.row().split(factor=0.33)
+        row.label(text=get_id("forward_axis") + ":")
+        row.row().prop(scene.vs,"forward_axis", expand=True)
+        
         if State.exportFormat == ExportFormat.DMX:
             l.prop(scene.vs,"use_kv2", toggle=True)
         

@@ -58,6 +58,7 @@ exportable_types = list((*mesh_compatible, 'ARMATURE'))
 exportable_types = tuple(exportable_types)
 
 axes = (('X','X',''),('Y','Y',''),('Z','Z',''))
+axes_forward = (('-X','-X',''),('-Y','-Y',''),('-Z','-Z',''),('X','X',''),('Y','Y',''),('Z','Z',''))
 axes_lookup = { 'X':0, 'Y':1, 'Z':2 }
 axes_lookup_source2 = { 'X':1, 'Y':2, 'Z':3 }
 
@@ -470,6 +471,43 @@ def getUpAxisMat(axis):
         return Matrix()
     else:
         raise AttributeError("getUpAxisMat got invalid axis argument '{}'".format(axis))
+    
+def getUpAxisOffsetMat(axis, offset):
+    """
+    Offset position along the up axis direction
+    
+    Args:
+        axis: The up axis ('X', 'Y', or 'Z')
+        offset: Float value - positive moves up, negative moves down
+    
+    Returns:
+        Matrix: Translation matrix along the up axis
+    """
+    if axis.upper() == 'X':
+        return Matrix.Translation((offset, 0, 0))
+    if axis.upper() == 'Y':
+        return Matrix.Translation((0, offset, 0))
+    if axis.upper() == 'Z':
+        return Matrix.Translation((0, 0, offset))
+    else:
+        raise AttributeError("getUpAxisOffsetMat got invalid axis argument '{}'".format(axis))
+    
+def getForwardAxisMat(axis):
+    """Rotate object to face the specified forward direction"""
+    if axis.upper() == 'X':
+        return Matrix.Rotation(-pi/2, 4, 'Z')
+    if axis.upper() == 'Y':
+        return Matrix.Rotation(pi, 4, 'Z')
+    if axis.upper() == '-Y':
+        return Matrix()  # Blender default forward
+    if axis.upper() == 'Z':
+        return Matrix.Rotation(-pi/2, 4, 'X')
+    if axis.upper() == '-X':
+        return Matrix.Rotation(pi/2, 4, 'Z')
+    if axis.upper() == '-Z':
+        return Matrix.Rotation(pi/2, 4, 'X')
+    else:
+        raise AttributeError("getForwardAxisMat got invalid axis argument '{}'".format(axis))
 
 def MakeObjectIcon(object,prefix=None,suffix=None):
     if not (prefix or suffix):

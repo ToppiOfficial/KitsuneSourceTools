@@ -635,11 +635,21 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
 
     return rotated_bones
 
-def split_bone(bone: typing.Union[bpy.types.EditBone, list], tolerance: float = 0.5, smoothness: float = 1, name_a: str | None = None, name_b: str | None = None):
+#smoothness is broken af, keep it at 0.5!
+def split_bone(bone: typing.Union[bpy.types.EditBone, list],
+               subdivisions: int = 2,
+               smoothness: float = 0.5,
+               falloff : int = 10,
+               min_weight_cap : float = 0.001,
+               weights_only: bool = False):
+    
     if bpy.context.object.mode != 'EDIT':
         return
 
-    smoothness = min(max(smoothness, 0.01), 1)
+    subdivisions = max(2, subdivisions)
+    smoothness = min(max(smoothness, 0.0), 1)
+    min_weight = min_weight_cap
+    falloff_power = falloff
 
     if isinstance(bone, bpy.types.EditBone):
         arm = getArmature(bone)
@@ -649,84 +659,159 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list], tolerance: float = 
         if not meshes:
             return
 
-        if name_a:
-            bone.name = "temporaryBone"
-
         head, tail = bone.head, bone.tail
         collections = bone.collections
-        split_point = (head + tail) * 0.5
-        name_a = name_a or bone.name + "_A"
-        name_b = name_b or bone.name + "_B"
-
-        eb = arm.data.edit_bones
-        new_bone1 = eb.new(name=name_a)
-        new_bone1.head, new_bone1.tail = head, split_point
-        new_bone1.parent = bone.parent
-        new_bone1.roll = bone.roll
-
-        new_bone2 = eb.new(name=name_b)
-        new_bone2.head, new_bone2.tail = split_point, tail
-        new_bone2.parent = new_bone1
-        new_bone2.roll = bone.roll
-
-        for child in bone.children:
-            child_head = child.head
-            d1 = (child_head - new_bone1.tail).length
-            d2 = (child_head - new_bone2.tail).length
-            child.parent = new_bone1 if d1 < d2 else new_bone2
-            child.use_connect = False
-
+        base_name = bone.name
         old_bone_name = bone.name
+        
+        eb = arm.data.edit_bones
+        bone_chain = []
+        
+        if weights_only:
+            # Only process weights - expect bones to already exist
+            for i in range(1, subdivisions + 1):
+                target_index = str(i)
+                matched_bone = None
 
-        if collections:
-            for col in collections:
-                col.assign(new_bone1)
-                col.assign(new_bone2)
+                for bone in eb.values(): # type: ignore
+                    # Match if base_name is in the name and the number appears somewhere after it
+                    if base_name in bone.name and target_index in bone.name:
+                        matched_bone = bone
+                        break
 
-        eb.remove(eb[old_bone_name])
-
+                if matched_bone:
+                    bone_chain.append(matched_bone)
+                else:
+                    print(f"Warning: Expected bone with '{base_name}' and index {i} not found for weights_only mode")
+                    return
+        else:
+            for i in range(1, subdivisions + 1):
+                t_start = (i - 1) / subdivisions
+                t_end = i / subdivisions
+                
+                new_bone = eb.new(name=f"{base_name}{i}")
+                new_bone.head = head.lerp(tail, t_start)
+                new_bone.tail = head.lerp(tail, t_end)
+                new_bone.roll = bone.roll
+                
+                if i == 1:
+                    new_bone.parent = bone.parent
+                else:
+                    new_bone.parent = bone_chain[i - 2]
+                
+                bone_chain.append(new_bone)
+                
+                if collections:
+                    for col in collections:
+                        col.assign(new_bone)
+            
+            # Reassign children to nearest bone
+            for child in bone.children:
+                child_head = child.head
+                closest_bone = bone_chain[0]
+                min_dist = (child_head - closest_bone.tail).length
+                
+                for new_bone in bone_chain[1:]:
+                    dist = (child_head - new_bone.tail).length
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_bone = new_bone
+                
+                child.parent = closest_bone
+                child.use_connect = False
+            
+            eb.remove(eb[old_bone_name])
+        
+        # Handle vertex groups - projection-based approach
         arm_matrix = arm.matrix_world
         head_world = arm_matrix @ head
         tail_world = arm_matrix @ tail
-        split_len = (tail_world - head_world).length
-
+        bone_vec = tail_world - head_world
+        bone_length_sq = bone_vec.length_squared
+        
+        # Collect all vertices from all meshes first for consistent evaluation
+        all_vertex_data = []
+        
         for mesh in meshes:
             if old_bone_name not in mesh.vertex_groups:
                 continue
-
+                
             vg_old = mesh.vertex_groups[old_bone_name]
-            vg_new1 = mesh.vertex_groups.new(name=new_bone1.name)
-            vg_new2 = mesh.vertex_groups.new(name=new_bone2.name)
-
             mesh_matrix = mesh.matrix_world
-
+            
             for vert in mesh.data.vertices:
                 for group in vert.groups:
-                    if group.group != vg_old.index:
-                        continue
+                    if group.group == vg_old.index:
+                        pos_world = mesh_matrix @ vert.co
+                        
+                        # Project vertex onto bone axis to get normalized position (0 to 1)
+                        vec_to_vert = pos_world - head_world
+                        if bone_length_sq > 0:
+                            t = vec_to_vert.dot(bone_vec) / bone_length_sq
+                        else:
+                            t = 0
+                        
+                        t = max(0.0, min(1.0, t))
+                        
+                        all_vertex_data.append({
+                            'mesh': mesh,
+                            'vert_index': vert.index,
+                            'weight': group.weight,
+                            't': t
+                        })
+        
+        mesh_vg_map = {}
+        for mesh in meshes:
+            if old_bone_name not in mesh.vertex_groups:
+                continue
+            
+            vg_new_list = []
+            for new_bone in bone_chain:
+                vg_new_list.append(mesh.vertex_groups.new(name=new_bone.name))
+            mesh_vg_map[mesh] = vg_new_list
+        
+        
+        for data in all_vertex_data:
+            t = max(0.0, min(1.0, data['t']))
+            mesh = data['mesh']
+            vert_index = data['vert_index']
+            weight = data['weight']
 
-                    pos = mesh_matrix @ vert.co
-                    d1 = (pos - head_world).length
-                    d2 = (pos - tail_world).length
+            vg_list = mesh_vg_map[mesh]
+            segment_centers = [(i + 0.5) / subdivisions for i in range(subdivisions)]
 
-                    if d1 < split_len and d2 < split_len:
-                        f = d1 / split_len
-                        f = max(0.0, min(1.0, (f - tolerance) / (1 - tolerance)))
-                        f = f ** (1 / (1 + smoothness))
-                    else:
-                        f = 0 if d1 < d2 else 1
+            influences = []
+            for center in segment_centers:
+                dist = abs(t - center)
+                influences.append((1.0 - dist) ** falloff_power if dist < 1.0 else 0.0)
 
-                    w1 = group.weight * (1 - f)
-                    w2 = group.weight * f
+            total = sum(influences)
+            if total == 0.0:
+                continue
 
-                    vg_new1.add([vert.index], w1, 'REPLACE')
-                    vg_new2.add([vert.index], w2, 'REPLACE')
+            # Normalize, clamp small weights, and renormalize again
+            normalized_weights = [inf / total for inf in influences]
 
-            mesh.vertex_groups.remove(vg_old)
+            # Zero out anything below min_weight
+            filtered_weights = [w if w * weight >= min_weight else 0.0 for w in normalized_weights]
+
+            # Optional: renormalize after filtering (so total stays ~1.0)
+            total_filtered = sum(filtered_weights)
+            if total_filtered > 0.0:
+                filtered_weights = [w / total_filtered for w in filtered_weights]
+
+            for i, w_norm in enumerate(filtered_weights):
+                final_w = weight * w_norm
+                if final_w >= min_weight:
+                    vg_list[i].add([vert_index], final_w, 'REPLACE')
+
+        for mesh in meshes:
+            if old_bone_name in mesh.vertex_groups:
+                mesh.vertex_groups.remove(mesh.vertex_groups[old_bone_name])
 
     elif isinstance(bone, list):
         if len(bone) == 1:
-            split_bone(bone[0], tolerance, smoothness, name_a, name_b)
+            split_bone(bone[0], subdivisions, smoothness, falloff, min_weight_cap, weights_only)
         else:
             for b in bone:
-                split_bone(b, tolerance, smoothness)
+                split_bone(b, subdivisions, smoothness, falloff, min_weight_cap, weights_only)

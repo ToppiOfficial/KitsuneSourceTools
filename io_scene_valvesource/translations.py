@@ -729,6 +729,12 @@ _data = {
         'ja': "対象の上昇軸",
         'en': "Target Up Axis",
     },
+    'up_axis_offset': {
+        'en': "Target Up Axis Offset",
+    },
+    'forward_axis': {
+        'en': "Target Forward Axis",
+    },
     'dmx_format': {
         'ja': "DMXのフォーマット",
         'en': "DMX format",
