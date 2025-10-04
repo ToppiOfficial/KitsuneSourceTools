@@ -294,15 +294,15 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         l = self.layout
         scene = context.scene
         
+        l.label(text='Exportable Objects')
+        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
+        
+        l.separator(type='LINE')
+        
         l.label(text='Exportable Prefabs')
         draw_wrapped_text_col(l,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=40, icon='WARNING_LARGE')
         l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
         l.operator("smd.add_prefab", icon="ADD")
-        
-        l.separator(type='LINE')
-        
-        l.label(text='Exportable Objects')
-        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
                 
         active_exportable = get_active_exportable(context)
         if not active_exportable:
