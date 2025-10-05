@@ -1368,14 +1368,12 @@ class SmdImporter(bpy.types.Operator, Logger):
                             bpy.context.scene.collection.objects.link(atch)
                         atch.show_in_front = True
                         atch.empty_display_type = 'ARROWS'
-                        
-                        atch.vs.dmx_attachment = True
 
                         atch.parent = smd.a
-                        print(parent)
                         if parent:
                             atch.parent_type = 'BONE'
                             atch.parent_bone = parent.name
+                            atch.vs.dmx_attachment = True
                         
                         atch.matrix_local = get_transform_matrix(elem)
                     else:

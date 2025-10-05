@@ -18,10 +18,7 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], fo
     if not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
         return bone.name if hasattr(bone, "name") else str(bone)
 
-    if isinstance(bone, bpy.types.PoseBone):
-        data_bone = bone.bone
-    else:
-        data_bone = bone
+    data_bone = bone.bone if isinstance(bone, bpy.types.PoseBone) else bone
 
     bone_prop = data_bone.vs
     armature = getArmature(data_bone)
@@ -30,49 +27,35 @@ def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], fo
     if arm_prop.ignore_bone_exportnames and not for_write:
         return bone.name
 
-    bone_head_local = data_bone.matrix_local.to_translation()
-    side = (
-        arm_prop.bone_direction_naming_right
-        if bone_head_local.x < 0
-        else arm_prop.bone_direction_naming_left
-    )
+    # Determine side based on bone position
+    def get_bone_side(b: bpy.types.Bone) -> str:
+        bone_x = b.matrix_local.to_translation().x
+        return (arm_prop.bone_direction_naming_right if bone_x < 0 
+                else arm_prop.bone_direction_naming_left)
 
-    if getattr(bone_prop, "bone_is_jigglebone", False):
-        name = data_bone.name
-    else:
-        name = bone_prop.export_name.strip() or data_bone.name
-    name = name.replace("*", side)
-
+    # Build export names map for all bones in hierarchy
     ordered_bones = sortBonesByHierachy(armature.data.bones)
     name_count = collections.defaultdict(lambda: arm_prop.bone_name_startcount)
     export_names = {}
 
     for b in ordered_bones:
-        b_side = (
-            arm_prop.bone_direction_naming_right
-            if b.matrix_local.to_translation().x < 0
-            else arm_prop.bone_direction_naming_left
-        )
+        b_side = get_bone_side(b)
 
-        # Resolve base raw name
-        raw_name = (
-            b.name if getattr(b.vs, "bone_is_jigglebone", False)
-            else (b.vs.export_name.strip() or b.name)
-        )
+        is_jigglebone = getattr(b.vs, "bone_is_jigglebone", False)
+        raw_name = b.name if is_jigglebone else (b.vs.export_name.strip() or b.name)
         raw_name = raw_name.replace("*", b_side)
 
         # Replace shortcuts like !vbip
-        def replace_shortcut(match):
-            return shortcut_keywords.get(match.group(1), match.group(0))
-
-        raw_name = _shortcut_pattern.sub(replace_shortcut, raw_name) # type: ignore
+        raw_name = _shortcut_pattern.sub(
+            lambda match: shortcut_keywords.get(match.group(1), match.group(0)),
+            raw_name
+        )
 
         # Handle counters for '$'
-        key = (raw_name, b_side)
         if "$" in raw_name:
-            base_name = raw_name.replace("$", str(name_count[key])).strip()
+            key = (raw_name, b_side)
+            export_names[b.name] = raw_name.replace("$", str(name_count[key])).strip()
             name_count[key] += 1
-            export_names[b.name] = base_name
         else:
             export_names[b.name] = raw_name
 
@@ -99,15 +82,11 @@ def getCanonicalBoneName(export_name: str) -> str:
 
     return export_name
 
-import bpy
-import mathutils
-from mathutils import Matrix
-
 def getBoneMatrix(
-    data: bpy.types.PoseBone | Matrix,
+    data: bpy.types.PoseBone | mathutils.Matrix,
     bone: bpy.types.PoseBone | None = None,
     rest_space : bool = False
-) -> Matrix:
+) -> mathutils.Matrix:
     """
     Returns the effective matrix of a PoseBone or matrix with applied export offsets.
 
@@ -123,7 +102,7 @@ def getBoneMatrix(
     if isinstance(data, bpy.types.PoseBone):
         matrix = data.matrix if not rest_space else data.bone.matrix_local
         bone = data
-    elif isinstance(data, Matrix):
+    elif isinstance(data, mathutils.Matrix):
         matrix = data
 
     if bone is None:
@@ -137,9 +116,9 @@ def getBoneMatrix(
     rot_z = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_z
 
     rot_offset_matrix = (
-        Matrix.Rotation(rot_z, 4, 'Z') @ # type: ignore
-        Matrix.Rotation(rot_y, 4, 'Y') @ # type: ignore
-        Matrix.Rotation(rot_x, 4, 'X')  # type: ignore
+        mathutils.Matrix.Rotation(rot_z, 4, 'Z') @ # type: ignore
+        mathutils.Matrix.Rotation(rot_y, 4, 'Y') @ # type: ignore
+        mathutils.Matrix.Rotation(rot_x, 4, 'X')  # type: ignore
     )
 
     # Location offsets
@@ -147,7 +126,7 @@ def getBoneMatrix(
     loc_y = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_y
     loc_z = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_z
 
-    loc_offset_matrix = Matrix.Translation((loc_x, loc_y, loc_z))
+    loc_offset_matrix = mathutils.Matrix.Translation((loc_x, loc_y, loc_z))
 
     # Translation after rotation
     offset_matrix = loc_offset_matrix @ rot_offset_matrix
@@ -180,7 +159,7 @@ def getRelativeTargetMatrix(
     try:
         # Get the matrices (pose space)
         slave_matrix = getBoneMatrix(slave, rest_space=rest_space)
-        master_matrix = getBoneMatrix(master, rest_space=rest_space) if master else Matrix.Identity(4)
+        master_matrix = getBoneMatrix(master, rest_space=rest_space) if master else mathutils.Matrix.Identity(4)
 
         # Compute relative matrix: master → slave
         local_offset = master_matrix.inverted_safe() @ slave_matrix
