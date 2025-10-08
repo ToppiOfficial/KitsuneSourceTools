@@ -1,5 +1,5 @@
 import bpy, re, math, typing, math, collections, mathutils
-from .common import sanitizeString, getArmature, sortBonesByHierachy
+from .commonutils import sanitizeString, getArmature, sortBonesByHierachy
 
 _shortcut_pattern = re.compile(r"!(\w+)")
 
@@ -12,16 +12,19 @@ direction_map = {
             '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
         }
 
-def getBoneExportName(bone: typing.Union[bpy.types.Bone, bpy.types.PoseBone], for_write = False) -> str:
+def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_write = False) -> str:
     """Generate the export name for a bone or posebone, respecting custom naming rules."""
     
-    if not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
+    if bone is None: return "None"
+    elif not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
         return bone.name if hasattr(bone, "name") else str(bone)
 
     data_bone = bone.bone if isinstance(bone, bpy.types.PoseBone) else bone
 
-    bone_prop = data_bone.vs
-    armature = getArmature(data_bone)
+    armature : bpy.types.Object | None = getArmature(data_bone)
+    
+    if armature is None: return bone.name
+    
     arm_prop = armature.data.vs
     
     if arm_prop.ignore_bone_exportnames and not for_write:

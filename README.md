@@ -1,9 +1,8 @@
 # KitsuneSourceTool
 
 > **ALPHA RELEASE – PARTIALLY FINISHED & EXPERIMENTAL**  
-> This is in early development and partially tested. Some features may be incomplete or broken, and more features will be added. Use at your own risk.
 
-**Version Alpha** – A fork of BlenderSourceTool that adds small features for DMX models and incorporates utilities adapted from **AvatarToolkit** and **CATS**.
+KitsuneSourceTool is a forked and modified of BlenderSourceTool that adds toolsets from my old unreleased extensions in Blender.  The tool is specifically tailored for my workflow but I decided to release publicly nonetheless.  Originally this project is under the name "Fubukitek" but was renamed to Kitsune.  Not all tools are added currently as I am slowly adding the features that originated from older extensions that I made but are on older version of Blender such as 3.8 to 4.2
 
 > [!WARNING]
 > Some panels and tools lack translation support, and most labels are in English.  
@@ -11,7 +10,7 @@
 
 ## Versions
 
-Blender 4.5+ (4.3 or 4.2 Untested)
+Blender 4.5+
 
 ## Features
 
@@ -28,22 +27,9 @@ Blender 4.5+ (4.3 or 4.2 Untested)
 - Useful for converting Blender's Y-forward orientation to X-forward or Z-forward for Source.
 
 ### DMX Attachments
-- Export DMX model attachments using an Empty object with the `DMX Attachment` property enabled.  
-- ⚠️ StudioMDL requires attachments to be parented to a bone. Unparented empties will not be exported.
-
-### Export Bones Under a Different Name
-- Allows exporting armature bones with a custom name via the `Export Name` property.
-
-### Vertex Bone Influence Count
-- Specify how many bones can influence a vertex (default is 4 for Source 2).
-
-### Simple JiggleBone Setup
-- Set up jigglebones on the armature and export values to QCI or VMDL.  
-- Note: Jigglebones are not simulated in Blender.
+- Export DMX model attachments using an Empty object with the `DMX Attachment` property enabled.
 
 ### Additional Blender Toolkit
-Utilities to streamline rigging, weight painting, and mesh preparation:
-
 - **Bone Merging** – merge multiple bones into one.
 - **Armature Merging** – combine multiple armatures into one.
 - **Vertex Group Math** – perform basic arithmetic operations (`+`, `-`, `*`, `/`) between vertex groups.

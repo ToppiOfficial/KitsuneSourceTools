@@ -28,10 +28,10 @@ from bpy.props import CollectionProperty, StringProperty, BoolProperty
 
 from .utils import *
 from . import datamodel, ordered_set, flex
-from .core.bone import getBoneExportName, getBoneMatrix
-from .core.object import applyModifier
-from .core.mesh import normalize_weights, get_flexcontrollers
-from .core.common import getArmature
+from .core.boneutils import getBoneExportName, getBoneMatrix
+from .core.objectutils import applyModifier
+from .core.meshutils import normalize_weights, get_flexcontrollers
+from .core.commonutils import getArmature
 
 class SMD_OT_Compile(bpy.types.Operator, Logger):
     bl_idname = "smd.compile_qc"
@@ -244,8 +244,8 @@ class SmdExporter(bpy.types.Operator, Logger):
         for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'ARMATURE' and len(ob.vs.subdir) == 0]:
             ob.vs.subdir = "anims"
             
-        for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'MESH' and len(ob.vs.subdir) == 0]:
-            ob.vs.subdir = "meshes"
+        #for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'MESH' and len(ob.vs.subdir) == 0]:
+        #    ob.vs.subdir = "meshes"
         
         ops.ed.undo_push(message=self.bl_label)
                 
@@ -1065,18 +1065,39 @@ class SmdExporter(bpy.types.Operator, Logger):
                     result.balance_vg.add(ones, 1, 'REPLACE')
                     result.balance_vg.add(zeroes, 0, 'REPLACE')
             
-            # re-bake the shapekey's max value 
-            if State.exportFormat == ExportFormat.SMD:
+            if id.data.vs.normalize_shapekeys:
                 for si, key in enumerate(id.data.shape_keys.key_blocks):
-                    if si == 0 or key.slider_max == 1.0:
+                    if si == 0:
                         continue
                     
-                    for i in range(len(key.data)):
-                        base_co = id.data.shape_keys.key_blocks[0].data[i].co
-                        shape_co = key.data[i].co
-                        key.data[i].co = base_co + (shape_co - base_co) * key.slider_max
-                    key.slider_max = 1.0
-            
+                    # Determine normalization factor
+                    scale_factor = 1.0
+                    
+                    if key.slider_min < 0.0:
+                        # Min is negative: use the larger scale between max and abs(min)
+                        scale_factor = max(key.slider_max, abs(key.slider_min))
+                    elif key.slider_min == 0.0:
+                        # Min is zero: normalize by max
+                        scale_factor = key.slider_max
+                    else:
+                        # Min is positive: only normalize by max (ignore min in calculation)
+                        scale_factor = key.slider_max
+                    
+                    # Skip if already normalized
+                    if scale_factor == 1.0:
+                        continue
+                    
+                    # Apply normalization
+                    if scale_factor != 0.0:
+                        for i in range(len(key.data)):
+                            base_co = id.data.shape_keys.key_blocks[0].data[i].co
+                            shape_co = key.data[i].co
+                            key.data[i].co = base_co + (shape_co - base_co) * scale_factor
+                        
+                        # Update slider range
+                        key.slider_max = key.slider_max / scale_factor
+                        key.slider_min = key.slider_min / scale_factor
+                        
             # bake shapes
             id.show_only_shape_key = True
             preserve_basis_normals = id.data.vs.bake_shapekey_as_basis_normals

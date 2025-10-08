@@ -1,5 +1,5 @@
 import bpy
-from .common import getArmature, getArmatureMeshes
+from .commonutils import getArmature, getArmatureMeshes
 from typing import cast
 
 direction_map = {
@@ -22,8 +22,8 @@ def get_used_vertex_groups(mesh: bpy.types.Object, vertex_groups: set[int] | Non
 
     return vgroup_used
 
-def clean_vertex_groups(ob: bpy.types.Object, bones: list[bpy.types.Bone] | None = None, 
-                        weight_limit: float = 0.001) -> dict[bpy.types.Object, list[str]]:
+def clean_vertex_groups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone] | bpy.types.ArmatureBones | None = None, 
+                        weight_limit: float = 0.001) -> dict[bpy.types.Object, list[str]] | None:
     """
     Clean vertex groups by:
       1. Removing very small weights below `weight_limit`.
@@ -32,6 +32,8 @@ def clean_vertex_groups(ob: bpy.types.Object, bones: list[bpy.types.Bone] | None
 
     Returns a dict mapping each mesh to the list of removed vertex group names.
     """
+    if ob is None: return None
+    
     removed_groups_per_mesh: dict[bpy.types.Object, list[str]] = {}
 
     if ob.type == 'MESH':

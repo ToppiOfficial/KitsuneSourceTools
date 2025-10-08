@@ -1,8 +1,8 @@
 import bpy, math
-from .bone import *
-from .object import op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys
-from .common import getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
-from .scene import ExposeAllObjects
+from .boneutils import *
+from .objectutils import op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys
+from .commonutils import getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
+from .sceneutils import ExposeAllObjects
 from contextlib import contextmanager
 from mathutils import Vector
 
@@ -136,17 +136,32 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                     else:
                         pbone.rotation_euler = values["rotation"]
 
-def applyCurrPoseAsRest(armature: bpy.types.Object) -> bool:
+def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
+    if armature is None: return False
+    
     with PreserveArmatureState(armature, reset_pose=False):
         try:
             with ExposeAllObjects():
                 mesh_objs = getArmatureMeshes(armature)
                 selected_objects = bpy.context.selected_objects
                 active_object = bpy.context.view_layer.objects.active
-
+                
+                objects_to_transform = set()
+                objects_to_transform.add(armature)
+                
                 for ob in armature.children:
                     if ob.type not in {"EMPTY", "CURVE"}:
+                        objects_to_transform.add(ob)
+                
+                for mesh_obj in mesh_objs:
+                    objects_to_transform.add(mesh_obj)
+                
+                bpy.ops.object.select_all(action='DESELECT')
+                for ob in objects_to_transform:
+                    try:
                         ob.select_set(True)
+                    except RuntimeError:
+                        continue
 
                 bpy.ops.object.transform_apply(location=True, scale=True, rotation=True)
                 bpy.ops.object.mode_set(mode='POSE')
@@ -173,7 +188,10 @@ def applyCurrPoseAsRest(armature: bpy.types.Object) -> bool:
 
                 bpy.ops.object.select_all(action='DESELECT')
                 for obj in selected_objects:
-                    obj.select_set(True)
+                    try:
+                        obj.select_set(True)
+                    except RuntimeError:
+                        continue
                 bpy.context.view_layer.objects.active = active_object
 
             return True
@@ -198,7 +216,7 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
     target_armature.select_set(True)
     bpy.context.view_layer.objects.active = base_armature
 
-    base_bones = {getBoneExportName(b): b for b in base_armature.data.bones}
+    base_bones = {getBoneExportName(b, for_write=True): b for b in base_armature.data.bones}
     base_bones.update({b.name: b for b in base_armature.data.bones})
 
     target_bones = list(target_armature.data.bones)
@@ -240,7 +258,7 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
             col.is_visible = True
 
         for b in target_bones:
-            export_name = getBoneExportName(b)
+            export_name = getBoneExportName(b, for_write=True)
             target_bone = base_bones.get(export_name) or base_bones.get(b.name)
             if not target_bone:
                 continue
@@ -505,13 +523,13 @@ def mergeBones(
         return bones_to_remove, processed_groups
 
 def removeBone(
-    arm: bpy.types.Object,
+    arm: bpy.types.Object | None,
     bone: typing.Union[str, typing.Iterable[str]],
     source: str | None = None,
     match_parent_to_head: bool = False,
     match_parent_to_head_tolerance: float = 3e-5
 ):
-    if not arm or arm.type != 'ARMATURE':
+    if arm is None or arm.type != 'ARMATURE':
         return
 
     original_symmetry = arm.data.use_mirror_x

@@ -20,7 +20,7 @@
 
 import bpy
 from .utils import *
-from .core.common import draw_wrapped_text_col
+from .core.commonutils import draw_wrapped_text_col
 from .export_smd import SmdExporter, SMD_OT_Compile
 from .flex import *
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
@@ -170,8 +170,8 @@ class FilterCache:
     fname = None
     filter = None
     order = None
-gui_cache = {}
 
+gui_cache = {}
 class SMD_UL_GroupItems(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
         r = layout.row(align=True)
@@ -294,15 +294,15 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         l = self.layout
         scene = context.scene
         
-        l.label(text='Exportable Objects')
-        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
-        
-        l.separator(type='LINE')
-        
         l.label(text='Exportable Prefabs')
         draw_wrapped_text_col(l,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=40, icon='WARNING_LARGE')
         l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
         l.operator("smd.add_prefab", icon="ADD")
+        
+        l.separator(type='LINE')
+        
+        l.label(text='Exportable Objects')
+        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
                 
         active_exportable = get_active_exportable(context)
         if not active_exportable:
@@ -401,6 +401,42 @@ class SMD_PT_Group(ExportableConfigurationPanel):
             return
         elif State.exportFormat == ExportFormat.DMX:
             r.prop(item.vs,"automerge")
+
+class SMD_PT_Armature(ExportableConfigurationPanel):
+	bl_label = " "
+	bl_options = set() # override
+
+	@classmethod
+	def poll(cls, context):
+		item = cls.get_active_object(context)
+		return bool(item and (not cls.is_collection(item)) and (item.type == 'ARMATURE' or item.find_armature()))
+
+	def get_armature(self, context) -> bpy.types.Object | None:
+		item = self.get_active_object(context)
+		if item is None: return None
+		return item if isinstance(item, bpy.types.Object) and item.type == 'ARMATURE' else item.find_armature()
+
+	def draw_header(self, context):
+		armature = self.get_armature(context)
+		self.bl_label = get_id("exportables_armature_props", True).format(armature.name if armature else "NONE")
+		self.layout.label(icon='OUTLINER_OB_ARMATURE')
+
+	def draw(self, context):
+		item = self.get_item(context)
+		armature = self.get_armature(context)
+		col = self.layout
+		if armature == item: # only display action stuff if the user has actually selected the armature
+			col.row().prop(armature.data.vs,"action_selection",expand=True)
+			if armature.data.vs.action_selection != 'CURRENT':
+				is_slot_filter = armature.data.vs.action_selection == 'FILTERED' and State.useActionSlots
+				col.prop(armature.vs,"action_filter", text = get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
+
+		if State.exportFormat == ExportFormat.SMD:
+			col.prop(armature.data.vs,"implicit_zero_bone")
+			col.prop(armature.data.vs,"legacy_rotation")
+
+		if armature.animation_data and not State.useActionSlots:
+			col.template_ID(armature.animation_data, "action", new="action.new")
 
 class SMD_PT_Scene_QC_Complie(bpy.types.Panel):
     bl_label = get_id("qc_title")

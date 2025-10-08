@@ -1,5 +1,5 @@
 import bpy
-from .common import getSelectedBones
+from .commonutils import getSelectedBones
 from contextlib import contextmanager
 
 _property_updating = False
@@ -73,23 +73,28 @@ def resolve_attr_path(obj, path: str):
             return None
     return obj
 
-def propagateBoneProperty(self, context, prop_name: str, group_path="vs"):
+def propagateProperty(self, context, prop_name: str, group_path="vs"):
     global _property_updating
     if _property_updating:
         return
 
     new_value = getattr(self, prop_name)
 
-    bones = {}
-    for arm in [o for o in context.selected_objects if o.type == 'ARMATURE']:
-        selectedBones = getSelectedBones(arm,'BONE',exclude_active=True)
-        for b in selectedBones:
-            bones[b] = arm
+    targets = {}
+    
+    for obj in context.selected_objects:
+        if obj.type == 'ARMATURE':
+            selectedBones = getSelectedBones(obj, 'BONE', exclude_active=True)
+            for b in selectedBones:
+                targets[b] = obj
+        else:
+            if obj != context.active_object:
+                targets[obj] = None
 
     _property_updating = True
     try:
-        for b, arm in bones.items():
-            target = resolve_attr_path(b, group_path)
+        for target_obj, arm in targets.items():
+            target = resolve_attr_path(target_obj, group_path)
             if target and hasattr(target, prop_name):
                 setattr(target, prop_name, new_value)
     finally:
@@ -97,4 +102,4 @@ def propagateBoneProperty(self, context, prop_name: str, group_path="vs"):
 
 
 def make_update(prop_name, group_path="vs"):
-    return lambda self, context: propagateBoneProperty(self, context, prop_name, group_path)
+    return lambda self, context: propagateProperty(self, context, prop_name, group_path)

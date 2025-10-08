@@ -18,14 +18,14 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, re
+import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing
 from bpy.app.translations import pgettext
 from bpy.app.handlers import depsgraph_update_post, load_post, persistent
 from mathutils import Matrix, Vector
 from math import radians, pi, ceil
 from io import TextIOWrapper
 from . import datamodel
-from .core.mesh import get_flexcontrollers
+from .core.meshutils import get_flexcontrollers
 
 intsize = struct.calcsize("i")
 floatsize = struct.calcsize("f")
@@ -248,9 +248,11 @@ def print(*args, newline=True, debug_only=False):
     if not debug_only or bpy.app.debug_value > 0:
         builtins.print(" ".join([str(a) for a in args]).encode(sys.getdefaultencoding()).decode(sys.stdout.encoding or sys.getdefaultencoding()), end= "\n" if newline else "", flush=True)
 
-def get_id(str_id, format_string = False, data = False):
+def get_id(str_id: str, format_string: bool = False, data: bool = False) -> str:
     from . import translations
-    out = translations.ids[str_id]
+    out = translations.ids.get(str_id, "")
+    if out is None:
+        return ""
     if format_string or (data and bpy.context.preferences.view.use_translate_new_dataname):
         return pgettext(out)
     else:
@@ -906,7 +908,7 @@ def enum_bones(self,context):
         return[]
     return [(bone.name, bone.name, "") for bone in ob.data.bones]
 
-def getFilePath(path: str):
+def getFilePath(path: str | None):
     if not path or not isinstance(path, str):
         raise ValueError(f"Invalid path: {path!r}")
 

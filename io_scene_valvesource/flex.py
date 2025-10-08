@@ -21,7 +21,7 @@
 import bpy, re
 from . import datamodel, utils
 from .utils import get_id, getCorrectiveShapeSeparator
-from .core.mesh import get_flexcontrollers
+from .core.meshutils import get_flexcontrollers
 
 class DmxWriteFlexControllers(bpy.types.Operator):
     bl_idname = "export_scene.dmx_flex_controller"
@@ -81,12 +81,12 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                 if getCorrectiveShapeSeparator() not in shape.name and shape.name not in shapes
             ]:
                 fc = None
-                if ob.vs.flex_controller_mode == 'STRICT' and flexcontrollers is not None:
-                    fc = next((f for f in flexcontrollers if f[0] == shape.name), None)
-                    if fc is None:
-                        continue  # skip shapes not listed in flexcontrollers
-
-                # create controller (either with fc or default behavior)
+                if ob.vs.flex_controller_mode == 'STRICT':
+                    if flexcontrollers is not None:
+                        fc = next((f for f in flexcontrollers if f[0] == shape.name), None)
+                        if fc is None:
+                            continue
+                
                 createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc)
                 shapes.add(shape.name)
 

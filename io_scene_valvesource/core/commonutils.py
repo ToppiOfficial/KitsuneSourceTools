@@ -2,6 +2,7 @@ import bpy, typing, re, os
 from contextlib import contextmanager
 from ..keyvalue3 import *
 from typing import Literal, TypedDict, cast
+from bpy.types import UILayout
 
 def UnselectAll():
     for ob in bpy.data.objects:
@@ -31,35 +32,41 @@ def getArmature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy
     if isinstance(ob, bpy.types.Object):
         if ob.type == 'ARMATURE':
             return ob
-        else:
-            return ob.find_armature()
+        
+        arm = ob.find_armature()
+        if arm:
+            return arm
+        
+        parent = ob.parent
+        while parent:
+            if parent.type == 'ARMATURE':
+                return parent
+            parent = parent.parent
+        
+        return None
 
     elif isinstance(ob, bpy.types.Bone):
         for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob in o.data.bones.values():
+            if o.type == 'ARMATURE' and ob.name in o.data.bones:
                 return o
 
     elif isinstance(ob, bpy.types.EditBone):
         for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob in o.data.edit_bones.values():
+            if o.type == 'ARMATURE' and ob.name in o.data.edit_bones:
                 return o
 
     elif isinstance(ob, bpy.types.PoseBone):
         for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob in o.pose.bones.values():
+            if o.type == 'ARMATURE' and ob.name in o.pose.bones:
                 return o
 
     else:
         ctx_obj = bpy.context.object
         if ctx_obj:
-            if ctx_obj.type == 'ARMATURE':
-                return ctx_obj
-            else:
-                arm = ctx_obj.find_armature()
-                if arm is not None: return arm
+            return getArmature(ctx_obj)
         return None
 
-def getArmatureMeshes(arm: bpy.types.Object,
+def getArmatureMeshes(arm: bpy.types.Object | None,
                       visible_only: bool = False,
                       viewlayer_only: bool = True,
                       strict_visibility: bool = True ) -> set[bpy.types.Object]:
@@ -74,6 +81,7 @@ def getArmatureMeshes(arm: bpy.types.Object,
             - True: use ob.visible_get() (full scene visibility check).
             - False: use ob.hide_get() (manual object hide only).
     """
+    if arm is None: return set()
     objects = bpy.context.view_layer.objects if viewlayer_only else bpy.data.objects
 
     return {
@@ -101,7 +109,7 @@ def sortBonesByHierachy(bones: typing.Iterable[bpy.types.Bone]):
         
     return sorted_bones
 
-def getSelectedBones(armature : bpy.types.Object,
+def getSelectedBones(armature : bpy.types.Object | None,
                      bone_type : str = 'BONE',
                      sort_type : str | None = 'TO_LAST',
                      exclude_active : bool = False,
@@ -189,7 +197,7 @@ def is_curve(ob) -> bool:
     return ob is not None and ob.type == 'CURVE'
 
 def has_materials(ob : bpy.types.Object) -> bool:
-    return bool(ob and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
+    return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
 
 def draw_wrapped_text_col(
     layout,
@@ -240,7 +248,7 @@ def draw_wrapped_text_col(
     for line in lines:
         col_lines.label(text=line)
 
-def draw_title_box(layout, text: str, icon: str = 'NONE'):
+def draw_title_box(layout, text: str, icon: str = 'NONE') -> UILayout:
     box = layout.box()
     row = box.row()
     row.label(text=text, icon=icon)
