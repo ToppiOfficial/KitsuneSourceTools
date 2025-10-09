@@ -1,7 +1,9 @@
 import os, math, bpy, mathutils
+import numpy as np
+from bpy.props import StringProperty
 from typing import Set, Any
 from bpy import props
-from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone
+from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, Scene
 from ..keyvalue3 import KVBool, KVNode, KVVector3
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
@@ -902,3 +904,257 @@ class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
         row.scale_y = 1.25
         row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to Clipboard', icon='FILE_TEXT').to_clipboard = True
         row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to File', icon='TEXT').to_clipboard = False
+        
+class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
+    bl_label : str = 'PBR To Phong'
+    
+    def draw_header(self, context : Context) -> None:
+        self.layout.label(icon='MATERIAL')
+        
+    def draw_material_selection(self, context : Context, layout : UILayout, matmap : str) -> None:
+        split = layout.split(factor=0.8, align=True)
+        split.prop_search(context.scene.vs, matmap, bpy.data, 'images')
+        split.prop(context.scene.vs, matmap + '_ch',text='')
+        
+    def draw(self, context : Context) -> None:
+        l : UILayout | None = self.layout
+        
+        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_PBRtoPhong.bl_label)
+        
+        col = bx.column(align=True)
+        col.prop_search(context.scene.vs, 'diffuse_map', bpy.data, 'images')
+        self.draw_material_selection(context, col, 'roughness_map')
+        self.draw_material_selection(context, col, 'metal_map')
+        self.draw_material_selection(context, col, 'ambientocclu_map')
+        col.prop(context.scene.vs, 'ambientocclu_strength', slider=True)
+        col.prop_search(context.scene.vs, 'normal_map', bpy.data, 'images')
+        col.prop(context.scene.vs, 'normal_map_type')
+        
+        col = bx.column(align=True)
+        col.prop(context.scene.vs, 'use_envmap')
+        col.prop(context.scene.vs, 'darken_diffuse_metal')
+        col.prop(context.scene.vs, 'use_color_darken')
+        
+        bx.operator(VALVEMODEL_OT_ConvertPBRmapsToPhong.bl_idname)
+        
+        draw_wrapped_text_col(bx,title='A good initial VMT phong setting', text='Use the following Phong settings for a balanced starting point: $phongboost 2.5, $phongalbedotint 1, $phongfresnelranges "[1 2 3]", and $phongalbedoboost 12 if applicable. When applying a metal map to the color alpha channel, include $color2 "[.2 .2 .2]" and $blendtintbybasealpha 1 to adjust tinting based on the alpha. However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can conflict visually.',max_chars=40)
+
+class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
+    bl_idname = 'valvemodel.convert_pbrmaps_to_phong'
+    bl_label = 'Convert PBR to Phong'
+    bl_options = {'INTERNAL'}
+    
+    filepath: StringProperty(subtype='FILE_PATH')
+    
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        valvesourceprop = context.scene.vs
+        return bool(valvesourceprop.diffuse_map and valvesourceprop.roughness_map and valvesourceprop.metal_map and valvesourceprop.normal_map)
+    
+    def invoke(self, context: Context, event : Event) -> Set:
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+    
+    def execute(self, context: Context) -> Set:
+        vs = context.scene.vs
+
+        if not self.filepath:
+            self.report({'ERROR'}, "No export path selected")
+            return {'CANCELLED'}
+        
+        # Normalize and extract directory + base name from filepath
+        filepath = bpy.path.abspath(self.filepath)
+        export_dir = os.path.dirname(filepath)
+        base_name = os.path.splitext(os.path.basename(filepath))[0]  # remove extension if present
+        
+        if not export_dir or not base_name:
+            self.report({'ERROR'}, "Invalid export path or filename")
+            return {'CANCELLED'}
+        
+        # read images with explicit colorspace choices
+        diffuse_img = self.get_image_data(vs.diffuse_map, 'RGB')
+        roughness_img = self.get_image_data(vs.roughness_map, vs.roughness_map_ch)
+        metal_img = self.get_image_data(vs.metal_map, vs.metal_map_ch)
+        normal_img = self.get_image_data(vs.normal_map, 'RGB')
+        ao_img = self.get_image_data(vs.ambientocclu_map, vs.ambientocclu_map_ch) if vs.ambientocclu_map else None
+        
+        if diffuse_img is None or roughness_img is None or metal_img is None or normal_img is None:
+            self.report({'ERROR'}, "Failed to load one or more textures")
+            return {'CANCELLED'}
+        
+        exponent_map = self.create_exponent_map(roughness_img, metal_img)
+        self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
+        
+        diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, vs.ambientocclu_strength, vs.use_envmap, vs.darken_diffuse_metal, vs.use_color_darken)
+        self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
+        
+        normal_map = self.create_normal_map(normal_img, metal=metal_img, roughness=roughness_img, normal_type=vs.normal_map_type)
+        self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
+        
+        self.report({'INFO'}, f"Exported PBR to Phong maps to {export_dir}")
+        return {'FINISHED'}
+    
+    def get_image_data(self, img_name: str, channel: str):
+        if not img_name or img_name not in bpy.data.images:
+            return None
+        
+        img = bpy.data.images[img_name]
+        
+        original_colorspace = img.colorspace_settings.name
+        img.colorspace_settings.name = 'Non-Color'
+        
+        width, height = img.size
+        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels)) #type:ignore
+        
+        img.colorspace_settings.name = original_colorspace
+        
+        if channel == 'RGB':
+            if img.channels >= 3:
+                return pixels[:, :, :4] if img.channels == 4 else np.dstack([pixels[:, :, :3], np.ones((height, width))])
+            return np.dstack([pixels[:, :, 0]] * 3 + [np.ones((height, width))])
+        elif channel == 'R':
+            return pixels[:, :, 0]
+        elif channel == 'G':
+            return pixels[:, :, 1] if img.channels > 1 else pixels[:, :, 0]
+        elif channel == 'B':
+            return pixels[:, :, 2] if img.channels > 2 else pixels[:, :, 0]
+        elif channel == 'A':
+            return pixels[:, :, 3] if img.channels > 3 else np.ones((height, width))
+        
+        return pixels
+    
+    def apply_curve(self, data, points):
+        points_array = np.array(points)
+        input_vals = points_array[:, 0] / 255.0
+        output_vals = points_array[:, 1] / 255.0
+        result = np.interp(data, input_vals, output_vals)
+        return result
+    
+    def create_exponent_map(self, roughness, metal):
+        height, width = roughness.shape if len(roughness.shape) == 2 else roughness.shape[:2]
+        exponent = np.ones((height, width, 4))
+        
+        rough_inverted = 1.0 - roughness
+        exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [201, 50], [255, 255]])
+        exponent[:, :, 1] = metal if len(metal.shape) == 2 else metal[:, :, 0]
+        exponent[:, :, 2] = 1.0
+        exponent[:, :, 3] = 1.0
+        
+        return exponent
+    
+    def create_diffuse_map(self, diffuse, metal, exponent, ao, ao_strength, use_envmap, darken_diffuse_metal, use_color_darken):
+        height, width = diffuse.shape[:2]
+        result = np.ones((height, width, 4), dtype=np.float32)
+
+        result[:, :, :3] = diffuse[:, :, :3]
+        base_alpha = diffuse[:, :, 3] if diffuse.shape[2] >= 4 else np.ones((height, width))
+
+        if ao is not None:
+            ao_channel = ao if len(ao.shape) == 2 else ao[:, :, 0]
+            strength = ao_strength / 100.0
+            ao_effect = 1.0 - (1.0 - ao_channel) * strength
+            result[:, :, :3] *= ao_effect[:, :, np.newaxis]
+
+        metal_channel = metal if len(metal.shape) == 2 else metal[:, :, 0]
+
+        if darken_diffuse_metal:
+            # Apply diffuse darkening based on metal
+            darkened = self.apply_curve(result[:, :, :3], [[0, 0], [255, 100]])
+            result[:, :, :3] = (
+                result[:, :, :3] * (1.0 - metal_channel[:, :, np.newaxis])
+                + darkened * metal_channel[:, :, np.newaxis]
+            )
+
+        elif use_color_darken:
+            metal_channel = metal if len(metal.shape) == 2 else metal[:, :, 0]
+            result[:, :, 3] = metal_channel
+
+            rgb = result[:, :, :3]
+
+            # Photoshop-style contrast factor (contrast = 60%)
+            contrast = 10
+            f = (259 * (contrast + 255)) / (255 * (259 - contrast))  # Photoshop formula
+
+            # Apply per-pixel contrast, masked by metal
+            contrasted = np.clip(f * (rgb - 0.5) + 0.5, 0.0, 1.0)
+
+            metal_mask = metal_channel[:, :, np.newaxis]
+            result[:, :, :3] = rgb * (1.0 - metal_mask) + contrasted * metal_mask
+
+        elif use_envmap:
+            # Use exponent red channel for alpha
+            result[:, :, 3] = exponent[:, :, 0]
+
+        else:
+            # Fallback: diffuse alpha or 1.0
+            result[:, :, 3] = base_alpha
+
+        return result
+    
+    def create_normal_map(self, normal, roughness, metal, normal_type):
+        height, width = normal.shape[:2]
+        result = np.ones((height, width, 4), dtype=np.float32)
+
+        if normal_type == 'DEF':
+            result[:, :, :3] = normal[:, :, :3]
+        elif normal_type == 'RED':
+            result[:, :, 2] = normal[:, :, 0]
+            result[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
+            result[:, :, 1] = normal[:, :, 1]
+        elif normal_type == 'YELLOW':
+            result[:, :, :3] = 1.0 - normal[:, :, :3]
+        elif normal_type == 'OPENGL':
+            result[:, :, 0] = normal[:, :, 0]
+            result[:, :, 1] = 1.0 - normal[:, :, 1]
+            result[:, :, 2] = normal[:, :, 2]
+
+        rough_inverted = 1.0 - roughness
+        exp_red = self.apply_curve(rough_inverted, [[78, 0], [201, 20], [255, 255]])
+        exp_green = metal if len(metal.shape) == 2 else metal[:, :, 0]
+        
+        exp_green = np.clip(exp_green + 0.15, 0.0, 1.0)
+
+        # Color dodge
+        alpha = exp_red / (1.0 - exp_green + 1e-6)
+        alpha = np.clip(alpha, 0.0, 1.0)
+
+        result[:, :, 3] = alpha
+        return result
+        
+    def save_tga(self, data, filepath):
+        """Save NumPy image array as TGA.
+        Automatically drops alpha channel if it's fully opaque (all 1.0)."""
+        height, width = data.shape[:2]
+
+        # Check for alpha presence
+        has_alpha = data.shape[2] >= 4
+
+        if has_alpha:
+            alpha = data[:, :, 3]
+            # Detect if alpha is fully opaque (within tiny float tolerance)
+            if np.allclose(alpha, 1.0, atol=1e-5):
+                # Strip alpha entirely
+                data = data[:, :, :3]
+                has_alpha = False
+
+        img = bpy.data.images.new(
+            name="temp_export",
+            width=width,
+            height=height,
+            alpha=has_alpha
+        )
+
+        # Flatten pixels correctly
+        if has_alpha:
+            pixels = data.astype(np.float32).flatten()
+        else:
+            # Expand to RGBA because Blender expects 4 channels
+            alpha_filled = np.ones((height, width, 1), dtype=np.float32)
+            pixels = np.concatenate([data, alpha_filled], axis=2).flatten()
+
+        img.pixels = pixels.tolist()
+        img.filepath_raw = filepath
+        img.file_format = 'TARGA'
+        img.save()
+
+        bpy.data.images.remove(img)

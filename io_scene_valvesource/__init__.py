@@ -128,8 +128,59 @@ class ToolProps():
     
     smd_prefabs : CollectionProperty(type=SMD_PrefabItem)
     smd_prefabs_index : IntProperty()
+    
+pbr_to_phong_channels = [
+    ('RGB', 'RGB', 'Use all channel for the mask'),
+    ('R', 'Red', ''),
+    ('G', 'Green', ''),
+    ('B', 'Blue', ''),
+    ('A', 'Alpha', ''),
+]
+    
+class PBRtoPhong():
+    diffuse_map : StringProperty(name='Color Map')
+    
+    metal_map : StringProperty(name='Metal Map')
+    metal_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    roughness_map : StringProperty(name='Roughness Map')
+    roughness_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    ambientocclu_map : StringProperty(name='AO Map')
+    ambientocclu_strength : IntProperty(name='AO Map Strength', default= 100, min= 0, max=100)
+    ambientocclu_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    normal_map : StringProperty(name='Normal Map')
+    normal_map_type : EnumProperty(name='Normal Map Type', items=[
+        ('DEF', 'Default',''),
+        ('RED', 'Red','The normal map is a red-type normal map'),
+        ('YELLOW', 'Yellow','The normal map is a yello-type normal map that simply requires invert to all channel'),
+        ('OPENGL', 'OpenGL','The normal map is a OpenGL type that requires the green channel to be inverted'),
+    ])
+    
+    use_envmap: BoolProperty(
+        name="Use Color Envmap",
+        description="Adds the inverted roughness (with curve) to the color alpha channel. "
+                    "Mutually exclusive with 'Apply contrast on color using Metal' and "
+                    "'Apply metal map on color alpha channel'.",
+        default=False
+    )
 
-class ValveSource_SceneProps(ToolProps, PropertyGroup):
+    darken_diffuse_metal: BoolProperty(
+        name="Apply contrast on color using Metal",
+        description="Bakes the metal contrast effect into the color RGB. "
+                    "Cannot be used with 'Use Color Envmap' or 'Apply metal map on color alpha channel'.",
+        default=False
+    )
+
+    use_color_darken: BoolProperty(
+        name="Apply metal map on color alpha channel",
+        description="Adds the metal map as the alpha channel of the color texture for use with $color2. "
+                    "Incompatible with 'Use Color Envmap' and 'Apply contrast on color using Metal'.",
+        default=True
+    )
+
+class ValveSource_SceneProps(ToolProps, PBRtoPhong, PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options=_relativePathOptions)
     qc_compile : BoolProperty(name=get_id("qc_compileall"),description=get_id("qc_compileall_tip"),default=False)
     qc_path : StringProperty(name=get_id("qc_path"),description=get_id("qc_path_tip"),default="//*.qc",subtype="FILE_PATH", options=_relativePathOptions)
@@ -491,6 +542,8 @@ _classes = (
     valvemodel.VALVEMODEL_OT_ExportConstraintProportion,
     valvemodel.VALVEMODEL_PT_HitBox,
     valvemodel.VALVEMODEL_OT_ExportHitBox,
+    valvemodel.VALVEMODEL_PT_PBRtoPhong,
+    valvemodel.VALVEMODEL_OT_ConvertPBRmapsToPhong,
     
     developer.DEVELOPER_PT_PANEL,
     developer.DEVELOPER_OT_ImportLegacyData,

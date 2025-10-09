@@ -170,6 +170,58 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         default=False
     )
     
+    shape_key_weight_mode: bpy.props.EnumProperty(
+        name="Weight Mode",
+        description="How to apply shape key deformation as vertex weights",
+        items=[
+            ('ABSOLUTE', "Absolute", "Set all deformed vertices to weight 1.0"),
+            ('LINEAR', "Linear", "Map deformation linearly between min and max weights"),
+            ('SQUARED', "Squared", "Apply squared falloff for smoother transitions"),
+            ('SQRT', "Square Root", "Apply square root for sharper transitions"),
+        ],
+        default='LINEAR'
+    )
+    
+    weight_min: bpy.props.FloatProperty(
+        name="Min Weight",
+        description="Minimum weight value for shape key deformation",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+    )
+    
+    weight_max: bpy.props.FloatProperty(
+        name="Max Weight",
+        description="Maximum weight value for shape key deformation",
+        default=1.0,
+        min=0.0,
+        max=1.0,
+    )
+    
+    weight_threshold: bpy.props.FloatProperty(
+        name="Threshold",
+        description="Minimum deformation distance to consider (in scene units)",
+        default=0.0001,
+        min=0.0,
+        precision=5,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    weight_expansion: bpy.props.FloatProperty(
+        name="Weight Expansion",
+        description="Expand weights to neighboring vertices (0 = no expansion)",
+        default=0.0,
+        min=0.0,
+        max=10.0,
+    )
+    
+    normalize_per_shapekey: bpy.props.BoolProperty(
+        name="Normalize Per Shape Key",
+        description="Normalize weights for each shape key individually before combining",
+        default=False
+    )
+    
     edgeline_thickness: bpy.props.FloatProperty(
         name="Edgeline Thickness",
         description="Thickness of the toon edgeline (in scene units)",
@@ -185,7 +237,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         return bool({ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()})
 
     def execute(self, context : Context) -> Set:
-        obs = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
+        obs : set[Object]  = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
 
         for ob in obs:
             bpy.context.view_layer.objects.active = ob
@@ -236,10 +288,57 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
                 vertex_weights = [0.0] * len(ob.data.vertices)
 
                 for sk in ob.data.shape_keys.key_blocks[1:]:
+                    sk_weights = [0.0] * len(ob.data.vertices)
+                    
                     for i, vert in enumerate(sk.data):
                         delta = (vert.co - base[i].co).length
-                        if delta > 0:
-                            vertex_weights[i] += delta
+                        if delta > self.weight_threshold:
+                            sk_weights[i] = delta
+                    
+                    if self.normalize_per_shapekey and max(sk_weights) > 0:
+                        max_delta = max(sk_weights)
+                        sk_weights = [w / max_delta for w in sk_weights]
+                    
+                    for i, weight in enumerate(sk_weights):
+                        vertex_weights[i] += weight
+
+                if max(vertex_weights) > 0:
+                    max_weight = max(vertex_weights)
+                    
+                    for i, weight in enumerate(vertex_weights):
+                        if weight > 0:
+                            normalized = weight / max_weight
+                            
+                            if self.shape_key_weight_mode == 'ABSOLUTE':
+                                final_weight = self.weight_max
+                            elif self.shape_key_weight_mode == 'LINEAR':
+                                final_weight = self.weight_min + normalized * (self.weight_max - self.weight_min)
+                            elif self.shape_key_weight_mode == 'SQUARED':
+                                final_weight = self.weight_min + (normalized ** 2) * (self.weight_max - self.weight_min)
+                            elif self.shape_key_weight_mode == 'SQRT':
+                                final_weight = self.weight_min + (normalized ** 0.5) * (self.weight_max - self.weight_min)
+                            
+                            vertex_weights[i] = final_weight
+
+                if self.weight_expansion > 0:
+                    bm = bmesh.new()
+                    bm.from_mesh(ob.data) # type:ignore
+                    bm.verts.ensure_lookup_table()
+                    
+                    expanded_weights = vertex_weights.copy()
+                    iterations = int(self.weight_expansion)
+                    
+                    for _ in range(iterations):
+                        new_weights = expanded_weights.copy()
+                        for v in bm.verts:
+                            if expanded_weights[v.index] > 0:
+                                for edge in v.link_edges:
+                                    other = edge.other_vert(v)
+                                    new_weights[other.index] = max(new_weights[other.index], expanded_weights[v.index])
+                        expanded_weights = new_weights
+                    
+                    bm.free()
+                    vertex_weights = expanded_weights
 
                 for i, weight in enumerate(vertex_weights):
                     if weight > 0:

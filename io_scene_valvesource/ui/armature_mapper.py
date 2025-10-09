@@ -19,6 +19,11 @@ from ..core.commonutils import (
     draw_wrapped_text_col,
     is_armature,
 )
+
+from ..core.armatureutils import (
+    applyCurrPoseAsRest
+)
+
 from ..core.meshutils import getArmature
 from ..flex import get_id
 from ..utils import print
@@ -507,11 +512,10 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             print(f"[CREATE] {bone_name} (Parent: {parent_name})")
             return new_bone
 
-        if arm.vs.armature_map_ishumanoid:
-            bone_remapped = remapped_humanoid_armature_bones(arm)
-            if not bone_remapped:
-                self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
-                return {'CANCELLED'}
+        bone_remapped = remapped_humanoid_armature_bones(arm)
+        if not bone_remapped:
+            self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
+            return {'CANCELLED'}
 
         with PreserveContextMode(arm, 'OBJECT'):
             if arm.animation_data is not None:
@@ -520,10 +524,12 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             arm.show_in_front = True
             arm.display_type = 'WIRE'
             arm.data.show_axes = True
+            
+            applyCurrPoseAsRest(arm)
 
             default_collection : BoneCollection | None = arm.data.collections.get('Default') # type: ignore
             if default_collection is None:
-                if arm.data.collections is None:
+                if len(arm.data.collections) == 0:
                     default_collection = arm.data.collections.new(name='Default')
                 else:
                     default_collection = arm.data.collections[0]
@@ -535,7 +541,7 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 bone.lock_rotation_w = False
                 bone.lock_scale = [False for coord in bone.lock_scale]
 
-                if bone.bone.collections is None:
+                if len(bone.bone.collections) == 0:
                     default_collection.assign(bone.bone)
 
             if arm.data.collections_all is None:

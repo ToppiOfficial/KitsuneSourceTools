@@ -1,15 +1,11 @@
 import re
 
 class KVValue:
-    """Base class for KeyValues typed values.
-
-    Subclasses must implement __str__ to produce KV-compliant serialization.
-    """
+    """Base class for KeyValues typed values."""
     def __str__(self):
         raise NotImplementedError
     
 class KVVector2(KVValue):
-    """Represents a 2D vector."""
     def __init__(self, x, y):
         self.x, self.y = x, y
 
@@ -17,7 +13,6 @@ class KVVector2(KVValue):
         return f"[ {self.x}, {self.y} ]"
 
 class KVVector3(KVValue):
-    """Represents a 3D vector."""
     def __init__(self, x, y, z):
         self.x, self.y, self.z = x, y, z
 
@@ -25,7 +20,6 @@ class KVVector3(KVValue):
         return f"[ {self.x}, {self.y}, {self.z} ]"
     
 class KVVector4(KVValue):
-    """Represents a 4D vector."""
     def __init__(self, x, y, z, w):
         self.x, self.y, self.z, self.w = x, y, z, w
 
@@ -33,7 +27,6 @@ class KVVector4(KVValue):
         return f"[ {self.x}, {self.y}, {self.z}, {self.w} ]"
 
 class KVBool(KVValue):
-    """Represents a boolean literal (true/false)."""
     def __init__(self, value: bool):
         self.value = bool(value)
 
@@ -41,25 +34,21 @@ class KVBool(KVValue):
         return "true" if self.value else "false"
 
 class KVArray(KVValue):
-    """Represents an array of values (supports KVValue types, numbers, or strings)."""
     def __init__(self, *values):
         self.values = values
 
     def __str__(self):
-        formatted = ", ".join(KVNode._format_value_static(v) for v in self.values)
-        return f"[ {formatted} ]"
+        return self._format_multiline(0)
+    
+    def _format_multiline(self, indent):
+        tab = "\t" * (indent + 1)
+        close_tab = "\t" * indent
+        formatted = ",\n".join(f"{tab}{KVNode._format_value_static(v, indent + 1)}" for v in self.values)
+        return f"[\n{formatted},\n{close_tab}]"
 
 class KVHeader:
-    """Represents the header for KeyValues.
-
-    Attributes:
-        encoding: Encoding type (usually 'text')
-        encoding_version: GUID for KV encoding version
-        format: ModelDoc format version (e.g., 'modeldoc28')
-        format_version: GUID for the modeldoc format
-    """
     DEFAULT_ENCODING_GUID = "{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d}"
-    MODEL_DOC_GUID = "{fb63b6ca-f435-4aa0-a2c7-c66ddc651dca}"  # modeldoc28 GUID
+    MODEL_DOC_GUID = "{fb63b6ca-f435-4aa0-a2c7-c66ddc651dca}"
 
     def __init__(self, encoding="text", encoding_version=None,
                  format="modeldoc28", format_version=None):
@@ -76,27 +65,14 @@ class KVHeader:
                 f":version{self.format_version} -->")
 
 class KVNode:
-    """Represents a single node in a KeyValues tree.
-
-    Attributes:
-        _class: Type of the node (e.g., 'RootNode', 'DefineBone')
-        name: Optional human-readable name
-        children: List of child KVNode objects
-        properties: Arbitrary key-value pairs (str, KVValue, int, float, list, etc.)
-    """
     def __init__(self, **kwargs):
         self.children = []
         self.properties = kwargs
 
     def add_child(self, child: "KVNode"):
-        """Attach a child KVNode to this node."""
         self.children.append(child)
         
     def remove_child(self, child: "KVNode") -> bool:
-        """
-        Remove a child node. Returns True if the child was found and removed,
-        False otherwise.
-        """
         try:
             self.children.remove(child)
             return True
@@ -104,28 +80,25 @@ class KVNode:
             return False
 
     def _serialize(self, indent=0) -> str:
-        tab = "    " * indent
+        tab = "\t" * indent
         out = f"{tab}{{\n"
 
-        # Properties
         for key, value in self.properties.items():
             if isinstance(value, KVNode):
-                out += f"{tab}    {key} = {value._serialize(indent + 1)}\n"
+                out += f"{tab}\t{key} = {value._serialize(indent + 1)}\n"
             elif isinstance(value, dict):
-                out += f"{tab}    {key} = {{\n"
+                out += f"{tab}\t{key} =\n{tab}\t{{\n"
                 for k2, v2 in value.items():
-                    out += f"{tab}        {k2} = {self._format_value(v2)}\n"
-                out += f"{tab}    }}\n"
+                    out += f"{tab}\t\t{k2} = {self._format_value(v2, indent + 2)}\n"
+                out += f"{tab}\t}}\n"
             else:
-                out += f"{tab}    {key} = {self._format_value(value)}\n"
+                out += f"{tab}\t{key} = {self._format_value(value, indent + 1)}\n"
 
-        # Children
         if self.children:
-            out += f"{tab}    children = [\n"
+            out += f"{tab}\tchildren =\n{tab}\t[\n"
             for c in self.children:
-                out += c._serialize(indent + 2)
-                out += ",\n"
-            out += f"{tab}    ]\n"
+                out += f"{c._serialize(indent + 2)},\n"
+            out += f"{tab}\t]\n"
 
         out += f"{tab}}}"
         return out
@@ -133,55 +106,51 @@ class KVNode:
     @staticmethod
     def _format_value_static(value, indent=0):
         if isinstance(value, KVValue):
+            if isinstance(value, KVArray):
+                return value._format_multiline(indent)
             return str(value)
         if isinstance(value, KVNode):
-            return "\n" + value._serialize(indent=indent + 1)  # relative indent
+            return value._serialize(indent=indent)
         if isinstance(value, str):
-            # Detect typed literal: type:"value"
             if re.match(r"^\w+:\".*\"$", value):
-                return value  # leave as-is
+                return value
             escaped = value.replace("\n", "\\n")
             return f'"{escaped}"'
         if isinstance(value, (list, tuple)):
-            return "[ " + ", ".join(KVNode._format_value_static(v, indent=indent) for v in value) + " ]"
+            if not value:
+                return "[]"
+            tab = "\t" * indent
+            formatted = ",\n".join(f"{tab}\t{KVNode._format_value_static(v, indent + 1)}" for v in value)
+            return f"[\n{formatted},\n{tab}]"
+        if isinstance(value, float):
+            return f"{value:.5f}".rstrip('0').rstrip('.')
         return str(value)
 
-    def _format_value(self, value):
-        """Instance wrapper for static format method."""
-        return self._format_value_static(value)
+    def _format_value(self, value, indent=0):
+        return self._format_value_static(value, indent)
     
     def get(self, **conditions) -> "KVNode | None":
-        """
-        Find the first direct child node that matches all given property conditions.
-        
-        Example:
-            node.get(name="TestNode")
-            node.get(name="TestNode", enabled=True)
-        """
         for child in self.children:
             if all(child.properties.get(k) == v for k, v in conditions.items()):
                 return child
         return None
     
 class KVDocument:
-    """Represents a full KV3 document, including header and multiple top-level keys."""
     def __init__(self, format="modeldoc28", format_version=None, encoding="text", encoding_version=None):
         self.header = KVHeader(encoding=encoding, encoding_version=encoding_version,
                                format=format, format_version=format_version)
         self.roots: dict[str, KVNode] = {}
 
     def add_root(self, key: str, node: KVNode):
-        """Add a top-level root node."""
         self.roots[key] = node
         
     def remove_root(self, key: str) -> bool:
-        """Remove a root node by key. Returns True if removed, False if not found."""
         return self.roots.pop(key, None) is not None
 
     def to_text(self) -> str:
         out = str(self.header) + "\n{\n"
         for key, node in self.roots.items():
-            out += f"    {key} = {node._serialize(indent=1)}\n"
+            out += f"\t{key} = {node._serialize(indent=1)}\n"
         out += "}\n"
         return out
 
@@ -189,8 +158,6 @@ class KVParserError(Exception):
     pass
 
 class KVParser:
-    """Parses KV3 text into Python dicts or KVDocument objects."""
-
     def __init__(self, text: str):
         self.text = text
         self.pos = 0
@@ -202,7 +169,7 @@ class KVParser:
         self._expect("{")
         roots = self._parse_roots()
         self._expect("}")
-        doc = KVDocument(format=header.get("format"), encoding=header.get("encoding")) # type: ignore
+        doc = KVDocument(format=header.get("format"), encoding=header.get("encoding"))
         doc.roots = roots
         return doc
 
@@ -260,8 +227,6 @@ class KVParser:
             if self._peek() == "=":
                 self._advance()
                 self._consume_whitespace()
-            else:
-                pass
 
             if key == "children":
                 children = self._parse_children()
@@ -271,7 +236,6 @@ class KVParser:
         node = KVNode(**props)
         node.children = children
         return node
-
 
     def _parse_children(self) -> list:
         self._expect("[")
@@ -296,7 +260,6 @@ class KVParser:
 
         return children
 
-
     def _parse_value(self):
         c = self._peek()
         if c == "{":
@@ -306,7 +269,6 @@ class KVParser:
         if c == '"':
             return self._parse_string()
 
-        # read the next word (could be true, false, number, or typed literal)
         word = self._parse_word()
 
         if word.endswith(":") and self._peek() == '"':
