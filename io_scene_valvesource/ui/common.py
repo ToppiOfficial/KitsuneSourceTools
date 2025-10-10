@@ -1,5 +1,7 @@
+import bpy
 from typing import Literal, Set
 from bpy.types import Context, Panel, UILayout, UILayout
+from ..utils import toggle_show_ops
 
 class KITSUNE_PT_CustomToolPanel():
     "The primary panel that holds every UI"
@@ -25,4 +27,43 @@ class Tools_SubCategoryPanel(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = "SubTools"
     bl_parent_id : str = "TOOLS_PT_PANEL"
     bl_options : Set = {'DEFAULT_CLOSED'}
-  
+    
+def make_toggle_operator_scene(suffix: str):
+    """Create an operator that toggles a BoolProperty in context.scene.vs."""
+    class_name : str = f"KITSUNE_OT_toggle_{suffix}"
+    bl_idname : str = f"kitsunetoggle.{suffix}"
+    bl_label : str = f"{suffix.replace('_', ' ').title()}"
+    bl_options : set = {'INTERNAL'}
+
+    def execute(self, context):
+        vs = getattr(context.scene, "vs", None)
+        if not vs:
+            self.report({'ERROR'}, "context.scene.vs not found")
+            return {'CANCELLED'}
+
+        if not hasattr(vs, suffix):
+            self.report({'ERROR'}, f"vs.{suffix} not found")
+            return {'CANCELLED'}
+
+        current = getattr(vs, suffix)
+        if not isinstance(current, bool):
+            self.report({'ERROR'}, f"vs.{suffix} is not a BoolProperty")
+            return {'CANCELLED'}
+
+        setattr(vs, suffix, not current)
+        new_val = getattr(vs, suffix)
+        return {'FINISHED'}
+
+    return type(
+        class_name,
+        (bpy.types.Operator,),
+        {
+            "bl_idname": bl_idname,
+            "bl_label": bl_label,
+            "execute": execute,
+        }
+    )
+
+for name in toggle_show_ops:
+    cls = make_toggle_operator_scene(name)
+    bpy.utils.register_class(cls)

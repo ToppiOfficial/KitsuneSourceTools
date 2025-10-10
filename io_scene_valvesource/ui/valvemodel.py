@@ -978,7 +978,21 @@ class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
         
         bx.operator(VALVEMODEL_OT_ConvertPBRmapsToPhong.bl_idname)
         
-        draw_wrapped_text_col(bx,title='A good initial VMT phong setting', text='Use the following Phong settings for a balanced starting point: $phongboost 2.5, $phongalbedotint 1, $phongfresnelranges "[1 2 3]", and $phongalbedoboost 12 if applicable. When applying a metal map to the color alpha channel, include $color2 "[.2 .2 .2]" and $blendtintbybasealpha 1 to adjust tinting based on the alpha. However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can conflict visually.',max_chars=40)
+        messages = [
+            'Use the following Phong settings for a balanced starting point:',
+            '   - $phongboost 2.5',
+            '   - $phongalbedotint 1',
+            '   - $phongfresnelranges "[1 2 3]"',
+            '   - $phongalbedoboost 12 (if applicable)\n',
+            'When applying a metal map to the color alpha channel, include:',
+            '   - $color2 "[.2 .2 .2]"',
+            '   - $blendtintbybasealpha 1\n',
+            'However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.'
+        ]
+        
+        helpsection = create_toggle_section(bx,context.scene.vs,'show_pbrphong_help','Show Help','')
+        if context.scene.vs.show_pbrphong_help:
+            draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40)
 
 class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
     bl_idname = 'valvemodel.convert_pbrmaps_to_phong'

@@ -156,7 +156,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         l : UILayout | None = self.layout
         draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=40, icon='WARNING_LARGE', title='KitsuneSourceTool (Alpha 2.0)')
         
-        prophelpsection = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '')
+        prophelpsection = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '') #type:ignore
         if context.scene.vs.show_properties_help:
             draw_wrapped_text_col(prophelpsection,text='- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type',max_chars=40 , icon='HELP')
 
@@ -202,23 +202,16 @@ class SMD_PT_Mesh(ExportableConfigurationPanel):
 class DME_UL_FlexControllers(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
         ob : Object | None = context.object
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            box : UILayout = layout.box()
-            
-            row : UILayout = box.row(align=True)
-            row.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
-            op = row.operator("dme.remove_flexcontroller", text="", icon='X')
-            op.index = index
-            
-            row : UILayout = box.row(align=True)
-            row.label(text='Options:',icon='OPTIONS')
-            row.prop(item, "eyelid")
-            row.prop(item, "stereo")
-            
-
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text=item.shapekey)
+        
+        split = layout.split(factor=0.6)
+        row : UILayout = split.row(align=True)
+        row.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
+        row : UILayout = split.row(align=True)
+        row.prop(item, "eyelid", toggle=True)
+        row.prop(item, "stereo", toggle=True)
+        
+        op = row.operator("dme.remove_flexcontroller", text="", icon='X')
+        op.index = index
             
 class DME_OT_AddFlexController(Operator):
     bl_idname : str = "dme.add_flexcontroller"
@@ -270,7 +263,8 @@ class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
         col.separator()
         col = bx.column()
         col.scale_y = 1.2
-        col.prop(item.vs,"flex_controller_mode",text='')
+        row = col.row(align=True)
+        row.prop(item.vs,"flex_controller_mode",expand=True)
 
         col = bx.column()
         
@@ -310,7 +304,6 @@ class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
             
         elif item.vs.flex_controller_mode == 'STRICT':
             col = bx.column()
-            col.label(text='Flex Controllers')
             col.template_list("DME_UL_FlexControllers","",item.vs,"dme_flexcontrollers", item.vs,"dme_flexcontrollers_index",rows=3,)
 
             row = col.row(align=True)

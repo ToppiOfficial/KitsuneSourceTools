@@ -70,6 +70,18 @@ pbr_to_phong_channels = [
     ('A', 'Alpha', ''),
 ]
 
+toggle_show_ops = [
+    "show_jigglebones",
+    "show_hitboxes",
+    "show_attachments",
+    "show_materials",
+    "show_properties_help",
+    "show_armaturemapper_help",
+    "show_prefab_help",
+    "show_exportable_help",
+    "show_pbrphong_help",
+]
+
 class ExportFormat:
     SMD = 1
     DMX = 2

@@ -67,23 +67,6 @@ def menu_func_shapekeys(self,context):
 def menu_func_textedit(self,context):
     self.layout.operator(flex.InsertUUID.bl_idname)
 
-def export_active_changed(self, context):
-    if not context.scene.vs.export_list_active < len(context.scene.vs.export_list):
-        context.scene.vs.export_list_active = len(context.scene.vs.export_list) - 1
-        return
-
-    item = get_active_exportable(context).item
-    
-    if type(item) == bpy.types.Collection and item.vs.mute: return
-    for ob in context.scene.objects: ob.select_set(False)
-    
-    if type(item) == bpy.types.Collection:
-        context.view_layer.objects.active = item.objects[0]
-        for ob in item.objects: ob.select_set(True)
-    else:
-        item.select_set(True)
-        context.view_layer.objects.active = item
-        
 #
 # Property Groups
 #
@@ -98,10 +81,10 @@ formats.sort(key = lambda f: f[0])
 
 _relativePathOptions : Set = {'PATH_SUPPORTS_BLEND_RELATIVE'} if bpy.app.version >= (4,5,0) else set()
 
-class SMD_PrefabItem(PropertyGroup):
+class ValveSource_PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options=_relativePathOptions)
 
-class ToolProps():
+class KitsuneTool_PanelProps():
     merge_keep_bone : BoolProperty(name='Keep Bones', default=False)
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     snap_parent_tip : BoolProperty(name='Re-Align Parent Tip (TO PARENT)', default=False)
@@ -126,19 +109,14 @@ class ToolProps():
         ('WRITE', 'Write', ''),
     ])
     
-    smd_prefabs : CollectionProperty(type=SMD_PrefabItem)
-    smd_prefabs_index : IntProperty()
+    smd_prefabs : CollectionProperty(type=ValveSource_PrefabItem)
+    smd_prefabs_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
+    smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     
-    show_jigglebones : BoolProperty()
-    show_hitboxes : BoolProperty()
-    show_attachments : BoolProperty()
-    show_materials : BoolProperty()
-    
-    show_properties_help : BoolProperty()
-    show_armaturemapper_help : BoolProperty()
-    show_prefab_help : BoolProperty()
+    for _name in toggle_show_ops:
+        exec(f"{_name} : BoolProperty(name='{_name.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
         
-class PBRtoPhong():
+class KitsuneTool_PBRMapsToPhongProps():
     diffuse_map : StringProperty(name='Color Map')
     
     metal_map : StringProperty(name='Metal Map')
@@ -181,7 +159,7 @@ class PBRtoPhong():
         default=True
     )
 
-class ValveSource_SceneProps(ToolProps, PBRtoPhong, PropertyGroup):
+class ValveSource_SceneProps(KitsuneTool_PanelProps, KitsuneTool_PBRMapsToPhongProps, PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options=_relativePathOptions)
     qc_compile : BoolProperty(name=get_id("qc_compileall"),description=get_id("qc_compileall_tip"),default=False)
     qc_path : StringProperty(name=get_id("qc_path"),description=get_id("qc_path_tip"),default="//*.qc",subtype="FILE_PATH", options=_relativePathOptions)
@@ -195,7 +173,7 @@ class ValveSource_SceneProps(ToolProps, PBRtoPhong, PropertyGroup):
     up_axis_offset : FloatProperty(name=get_id("up_axis_offset"),description=get_id("up_axis_tip"), soft_max=30,soft_min=-30,default=0,precision=2)
     forward_axis : EnumProperty(name=get_id("forward_axis"),items=axes_forward,default='-Y',description=get_id("up_axis_tip"))
     material_path : StringProperty(name=get_id("dmx_mat_path"),description=get_id("dmx_mat_path_tip"))
-    export_list_active : IntProperty(name=get_id("active_exportable"),default=0,min=0,update=export_active_changed)
+    export_list_active : IntProperty(name=get_id("active_exportable"),default=-1,get=lambda self: -1,set=lambda self, context: None)
     export_list : CollectionProperty(type=ValveSource_Exportable,options={'SKIP_SAVE','HIDDEN'})
     use_kv2 : BoolProperty(name="Write KeyValues2 (DEBUG)",description="Write ASCII DMX files",default=False)
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
@@ -211,7 +189,7 @@ class ValveSource_VertexAnimation(PropertyGroup):
     end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
     export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
 
-class DMEflexcontrollers(PropertyGroup):
+class StrictShapekeyItem(PropertyGroup):
     expand_option : BoolProperty(name='Show Options', default=False)
     shapekey : StringProperty(name='shapekey')
     eyelid : BoolProperty(name='Eyelid')
@@ -232,7 +210,10 @@ class ExportableProps():
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=ValveSource_VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
     
-class VertexMapRemap(PropertyGroup):
+    show_items : BoolProperty()
+    show_vertexanim_items : BoolProperty()
+    
+class ValveSource_FloatMapRemap(PropertyGroup):
     group : StringProperty(name="Group name",default="")
     min : FloatProperty(name="Min",description="Maps to 0.0",default=0.0)
     max : FloatProperty(name="Max",description="Maps to 1.0",default=1.0)
@@ -302,10 +283,10 @@ class ArmatureMapperProps():
 class ValveSource_ObjectProps(ExportableProps,ArmatureMapperProps, PropertyGroup,):
     action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"))
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
-    vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=VertexMapRemap)
+    vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
     
-    dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=DMEflexcontrollers)
-    dme_flexcontrollers_index : IntProperty()
+    dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=StrictShapekeyItem)
+    dme_flexcontrollers_index : IntProperty(default=-1,get=lambda self: -1,set=lambda self, context: None)
     
     dmx_attachment : BoolProperty(name='DMX Attachment',default=False, update=sceneutils.make_update('dmx_attachment'))
     smd_hitbox : BoolProperty(name='SMD Hitbox',default=False, update=sceneutils.make_update('smd_hitbox'))    
@@ -369,11 +350,10 @@ class ValveSource_CurveProps(ShapeTypeProps,CurveTypeProps,PropertyGroup):
     pass
 class ValveSource_TextProps(CurveTypeProps,PropertyGroup):
     pass
-
 class ValveSource_BoneCollectionProps(PropertyGroup):
     pass
 
-class JiggleBones():
+class JiggleBoneProps():
     bone_is_jigglebone : BoolProperty(name='Bone is JiggleBone', default=False, update=sceneutils.make_update('bone_is_jigglebone'))
     use_bone_length_for_jigglebone_length : BoolProperty(name="Use Bone's Length for JiggleBone Length", default=True, update=sceneutils.make_update('use_bone_length_for_jigglebone_length'))
     
@@ -430,7 +410,7 @@ class JiggleBones():
     jiggle_frequency : FloatProperty(name='Frequency', precision=3, default=0.0, min=0, soft_max=1000, update=sceneutils.make_update('jiggle_frequency'))
     jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000, update=sceneutils.make_update('jiggle_amplitude'))
     
-class ValveSource_BoneProps(LocationOffset,RotationOffset,JiggleBones,PropertyGroup):
+class ValveSource_BoneProps(LocationOffset,RotationOffset,JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"))
     
 class ValveSource_MaterialProps(PropertyGroup):
@@ -440,10 +420,10 @@ class ValveSource_MaterialProps(PropertyGroup):
     non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='non_exportable_face')
 
 _classes = (
-    VertexMapRemap,
-    DMEflexcontrollers,
+    ValveSource_FloatMapRemap,
+    StrictShapekeyItem,
     ArmatureMapperKeyValue,
-    SMD_PrefabItem,
+    ValveSource_PrefabItem,
 
     ValveSource_Exportable,
     ValveSource_SceneProps,
@@ -463,6 +443,8 @@ _classes = (
     GUI.SMD_PT_Scene,
     GUI.SMD_MT_ConfigureScene,
     GUI.SMD_UL_ExportItems,
+    GUI.SMD_OT_ShowExportCollection,
+    GUI.SMD_OT_ShowVertexAnimation,
     GUI.SMD_UL_GroupItems,
     GUI.SMD_UL_VertexAnimationItem,
     GUI.SMD_OT_AddVertexAnimation,
@@ -471,10 +453,7 @@ _classes = (
     GUI.SMD_OT_GenerateVertexAnimationQCSnippet,
     GUI.SMD_OT_LaunchHLMV,
     GUI.SMD_PT_Object_Config,
-    GUI.SMD_PT_Group,
-    GUI.SMD_PT_VertexAnimation,
     GUI.SMD_PT_Scene_QC_Complie,
-    GUI.SMD_PT_Armature,
     
     GUI.SMD_OT_AddPrefab,
     GUI.SMD_OT_RemovePrefab,

@@ -55,8 +55,8 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
     def draw_write_mode(self, context : Context, layout : UILayout) -> None:
         col = layout.column(align=False)
         
-        armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_load_help', f'Show Help', '')
-        if context.scene.vs.show_armaturemapper_load_help:
+        armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_help', f'Show Help', '')
+        if context.scene.vs.show_armaturemapper_help:
             draw_wrapped_text_col(armaturemappersection,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP',boxed=False)
             
         col = layout.column()
@@ -113,8 +113,8 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
             '- Thumbs:\nBones follow the format Thumb0–2_L/R.\n'
             ]
         
-        armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_load_help', f'Show Help', '')
-        if context.scene.vs.show_armaturemapper_load_help:
+        armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_help', f'Show Help', '')
+        if context.scene.vs.show_armaturemapper_help:
             draw_wrapped_text_col(armaturemappersection,message,max_chars=40, icon='HELP',justified=False,boxed=False)
         
         self.draw_humanoid_bone_mapping(context, layout)

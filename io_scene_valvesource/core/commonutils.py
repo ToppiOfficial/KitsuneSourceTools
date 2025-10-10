@@ -473,7 +473,7 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-def create_toggle_section(layout, data, prop_name, show_text, hide_text="", use_alert=False):
+def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", use_alert=False):
     subbox = layout.box()
     if use_alert:
         subbox.alert = True
@@ -481,13 +481,15 @@ def create_toggle_section(layout, data, prop_name, show_text, hide_text="", use_
     is_active = getattr(data, prop_name)
     display_text = (hide_text or show_text) if is_active else show_text
     
-    subbox.prop(
-        data, 
-        prop_name,
-        text=display_text,
-        icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',
-        emboss=False
-    )
+    #subbox.prop(
+    #    data, 
+    #    prop_name,
+    #    text=display_text,
+    #    icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',
+    #    emboss=False
+    #)
+    
+    subbox.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
     
     if is_active:
         return subbox

@@ -25,6 +25,9 @@ from .export_smd import SmdExporter, SMD_OT_Compile
 from .flex import *
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
 
+from bpy.types import UILayout, Context
+from . import iconloader
+
 vca_icon = 'EDITMODE_HLT'
 
 class SMD_MT_ExportChoice(bpy.types.Menu):
@@ -73,7 +76,9 @@ class SMD_PT_Scene(bpy.types.Panel):
         scene = context.scene
         num_to_export = 0
 
-        l.operator(SmdExporter.bl_idname,text="Export")
+        col = l.column()
+        col.scale_y = 1.4
+        col.operator(SmdExporter.bl_idname,text="Export")
         
         row = l.row()
         row.alert = len(scene.vs.export_path) == 0
@@ -94,9 +99,6 @@ class SMD_PT_Scene(bpy.types.Panel):
         row = l.row().split(factor=0.33)
         row.label(text=get_id("forward_axis") + ":")
         row.row().prop(scene.vs,"forward_axis", expand=True)
-        
-        if State.exportFormat == ExportFormat.DMX:
-            l.prop(scene.vs,"use_kv2", toggle=True)
         
         row = l.row()
         row.alert = len(scene.vs.engine_path) > 0 and State.compiler == Compiler.UNKNOWN
@@ -122,14 +124,17 @@ class SMD_PT_Scene(bpy.types.Panel):
         col.prop(scene.vs,"weightlink_threshold",slider=True)
         col.prop(scene.vs,"vertex_influence_limit",slider=True)
         
+        if State.exportFormat == ExportFormat.DMX:
+            l.prop(scene.vs,"use_kv2")
+        
         col = l.column(align=True)
         row = col.row(align=True)
         self.HelpButton(row)
-        row.operator("wm.url_open",text=get_id("exportpanel_steam",True),icon='URL').url = "http://steamcommunity.com/groups/BlenderSourceTools"
+        row.operator("wm.url_open",text=get_id("exportpanel_steam",True),icon_value=iconloader.preview_collections["custom_icons"]["BLENDSRCTOOL"].icon_id).url = "http://steamcommunity.com/groups/BlenderSourceTools"
 
     @staticmethod
     def HelpButton(layout):
-        layout.operator("wm.url_open",text=get_id("help",True),icon='HELP').url = "http://developer.valvesoftware.com/wiki/Blender_Source_Tools_Help#Exporting"
+        layout.operator("wm.url_open",text=get_id("help",True),icon_value=iconloader.preview_collections["custom_icons"]["SOURCESDK"].icon_id).url = "http://developer.valvesoftware.com/wiki/Blender_Source_Tools_Help#Exporting"
 
 class SMD_MT_ConfigureScene(bpy.types.Menu):
     bl_label = get_id("exporter_report_menu")
@@ -140,28 +145,138 @@ class SMD_MT_ConfigureScene(bpy.types.Menu):
 class SMD_UL_ExportItems(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
         obj = item.item
-        enabled = not (isinstance(obj, bpy.types.Collection) and obj.vs.mute)
+        is_collection = isinstance(obj, bpy.types.Collection)
+        enabled = not (is_collection and obj.vs.mute)
         
-        row = layout.row(align=True)
-        row.alignment = 'LEFT'
-        row.enabled = enabled
-
-        row.prop(obj.vs,"export",icon='CHECKBOX_HLT' if obj.vs.export and enabled else 'CHECKBOX_DEHLT',text="",emboss=False)
-        row.label(text=item.name,icon=item.icon)
-
-        if not enabled: return
-
-        row = layout.row(align=True)
-        row.alignment='RIGHT'
-
+        col = layout.column()
+        
+        split1 = self._draw_header_row(col, obj, item, enabled, index)
+        
+        if obj.vs.show_items:
+            self._draw_expanded_content(col, obj, is_collection, enabled, index, item)
+        
+        if enabled:
+            self._draw_stats_row(split1, obj)
+    
+    def _draw_header_row(self, col, obj, item, enabled,index):
+        row = col.row(align=True)
+        
+        export_icon = 'CHECKBOX_HLT' if obj.vs.export and enabled else 'CHECKBOX_DEHLT'
+        row.prop(obj.vs, "export", icon=export_icon, text="", emboss=False)
+        row.label(text='', icon=item.icon)
+        
+        split1 = row.split(factor=0.8)
+        split1.alert = not enabled
+        toggle_icon = 'TRIA_DOWN' if obj.vs.show_items else 'TRIA_RIGHT'
+        op = split1.operator(SMD_OT_ShowExportCollection.bl_idname, icon=toggle_icon, text=item.name, emboss=False)
+        op.index = index
+        
+        return split1
+    
+    def _draw_expanded_content(self, col : UILayout, obj, is_collection, enabled,index,item):
+        row = col.row(align=True)
+        if is_collection:
+            row.prop(obj.vs, 'mute',toggle=True)
+        
+        if is_collection and obj.vs.mute:
+            pass
+        else: col.prop(obj.vs, 'subdir')
+        
+        if is_collection:
+            if enabled:
+                self._draw_collection_content(col, obj, row)
+                self._draw_mesh_content(col, obj,index,item)
+        elif obj.type == 'ARMATURE':
+            self._draw_armature_content(col, obj,index)
+        elif obj.type in mesh_compatible:
+            self._draw_mesh_content(col, obj,index,item)
+    
+    def _draw_collection_content(self, col : UILayout, obj, row):
+        row.prop(obj.vs, 'automerge',toggle=True)
+        
+        col.label(text='Exportable Objects')
+        col.template_list("SMD_UL_GroupItems", obj.name, obj, "objects", obj.vs, "selected_item", 
+                         type='GRID', columns=2, rows=2, maxrows=10)
+    
+    def _draw_armature_content(self, col : UILayout, obj,index):
+        col.row().prop(obj.data.vs, "action_selection", expand=True)
+        
+        if obj.data.vs.action_selection != 'CURRENT':
+            is_slot_filter = obj.data.vs.action_selection == 'FILTERED' and State.useActionSlots
+            filter_label = get_id("slot_filter") if is_slot_filter else get_id("action_filter")
+            col.prop(obj.vs, "action_filter", text=filter_label)
+        
+        if State.exportFormat == ExportFormat.SMD:
+            col.prop(obj.data.vs, "implicit_zero_bone")
+            col.prop(obj.data.vs, "legacy_rotation")
+        
+        if obj.animation_data and not State.useActionSlots:
+            col.template_ID(obj.animation_data, "action", new="action.new")
+    
+    def _draw_mesh_content(self, col : UILayout, obj, index,item):
+        col.separator(type='LINE')
+        
+        box = col.box()
+        
+        toggle_icon = 'TRIA_DOWN' if obj.vs.show_vertexanim_items else 'TRIA_RIGHT'
+        op = box.operator(SMD_OT_ShowVertexAnimation.bl_idname, icon=toggle_icon, text='Vertex Animation', emboss=False)
+        op.index = index
+        
+        if obj.vs.show_vertexanim_items:
+            row = box.row(align=True)
+            
+            row.enabled = type(obj) in [bpy.types.Object, bpy.types.Collection]
+            
+            add_op = row.operator(SMD_OT_AddVertexAnimation.bl_idname, icon="ADD", text="Add")
+            add_op.index = index
+            
+            remove_op = row.operator(SMD_OT_RemoveVertexAnimation.bl_idname, icon="REMOVE", text="Remove")
+            remove_op.index = index
+            remove_op.vertexindex = obj.vs.active_vertex_animation
+            
+            if obj.vs.vertex_animations:
+                box.template_list("SMD_UL_VertexAnimationItem", "", obj.vs, "vertex_animations", 
+                                obj.vs, "active_vertex_animation", rows=2, maxrows=4)
+                box.operator(SMD_OT_GenerateVertexAnimationQCSnippet.bl_idname, icon='FILE_TEXT')
+    
+    def _draw_stats_row(self, split1 : UILayout, obj):
+        row = split1.row(align=True)
+        row.alignment = 'RIGHT'
+        
         num_shapes, num_correctives = countShapes(obj)
-        num_shapes += num_correctives
-        if num_shapes > 0:
-            row.label(text=str(num_shapes),icon='SHAPEKEY_DATA')
-
+        total_shapes = num_shapes + num_correctives
+        if total_shapes > 0:
+            row.label(text=str(total_shapes), icon='SHAPEKEY_DATA')
+        
         num_vca = len(obj.vs.vertex_animations)
         if num_vca > 0:
-            row.label(text=str(num_vca),icon=vca_icon)
+            row.label(text=str(num_vca), icon=vca_icon)
+            
+class SMD_OT_ShowExportCollection(bpy.types.Operator):
+    """Toggle visibility of expanded UIList items (no undo)"""
+    bl_idname = "smd.show_exportableitems"
+    bl_label = 'Show Options'
+    bl_options = {'INTERNAL'}
+
+    index: bpy.props.IntProperty()
+
+    def execute(self, context) -> set:
+        obj = context.scene.vs.export_list[self.index].item
+        obj.vs.show_items = not obj.vs.show_items
+        return {'FINISHED'}
+    
+class SMD_OT_ShowVertexAnimation(bpy.types.Operator):
+    """Toggle visibility of expanded UIList items (no undo)"""
+    bl_idname = "smd.show_vertexanims"
+    bl_label = 'Show Options'
+    bl_options = {'INTERNAL'}
+
+    index: bpy.props.IntProperty()
+
+    def execute(self, context) -> set:
+        obj = context.scene.vs.export_list[self.index].item
+        obj.vs.show_vertexanim_items = not obj.vs.show_vertexanim_items
+        return {'FINISHED'}
 
 class FilterCache:
     def __init__(self):
@@ -207,14 +322,12 @@ class SMD_OT_AddVertexAnimation(bpy.types.Operator):
     bl_idname = "smd.vertexanim_add"
     bl_label = get_id("vca_add")
     bl_description = get_id("vca_add_tip")
-    bl_options = {'INTERNAL'}
-
-    @classmethod
-    def poll(cls,c):
-        return type(get_active_exportable(c).item) in [bpy.types.Object, bpy.types.Collection]
+    bl_options = {'INTERNAL', 'UNDO'}
     
-    def execute(self,c):
-        item = get_active_exportable(c).item
+    index: bpy.props.IntProperty()
+    
+    def execute(self,context):
+        item = context.scene.vs.export_list[self.index].item
         item.vs.vertex_animations.add()
         item.vs.active_vertex_animation = len(item.vs.vertex_animations) - 1
         return {'FINISHED'}
@@ -223,19 +336,18 @@ class SMD_OT_RemoveVertexAnimation(bpy.types.Operator):
     bl_idname = "smd.vertexanim_remove"
     bl_label = get_id("vca_remove")
     bl_description = get_id("vca_remove_tip")
-    bl_options = {'INTERNAL'}
+    bl_options = {'INTERNAL', 'UNDO'}
 
     index : bpy.props.IntProperty(min=0)
+    vertexindex : bpy.props.IntProperty(min=0)
 
-    @classmethod
-    def poll(cls,c):
-        item = get_active_exportable(c).item
-        return type(item) in [bpy.types.Object, bpy.types.Collection] and len(item.vs.vertex_animations)
-    
-    def execute(self,c):
-        item = get_active_exportable(c).item
-        item.vs.vertex_animations.remove(self.index)
-        item.vs.active_vertex_animation -= 1
+    def execute(self, context) -> set:
+        item = context.scene.vs.export_list[self.index].item
+        if len(item.vs.vertex_animations) > self.vertexindex:
+            item.vs.vertex_animations.remove(self.vertexindex)
+            item.vs.active_vertex_animation = max(
+                0, min(self.vertexindex, len(item.vs.vertex_animations) - 1)
+            )
         return {'FINISHED'}
         
 class SMD_OT_PreviewVertexAnimation(bpy.types.Operator):
@@ -244,15 +356,31 @@ class SMD_OT_PreviewVertexAnimation(bpy.types.Operator):
     bl_description = get_id("vca_preview_tip")
     bl_options = {'INTERNAL'}
 
-    def execute(self,c):
-        item = get_active_exportable(c).item
-        anim = item.vs.vertex_animations[item.vs.active_vertex_animation]
-        c.scene.use_preview_range = True
-        c.scene.frame_preview_start = anim.start
-        c.scene.frame_preview_end = anim.end
-        if not c.screen.is_animation_playing:
-            c.scene.frame_set(anim.start)
+    index: bpy.props.IntProperty(min=0)
+    vertexindex: bpy.props.IntProperty(min=0)
+
+    def execute(self, context):
+        scene = context.scene
+
+        if self.index >= len(scene.vs.export_list):
+            self.report({'ERROR'}, "Invalid export list index")
+            return {'CANCELLED'}
+
+        item = scene.vs.export_list[self.index].item
+        if self.vertexindex >= len(item.vs.vertex_animations):
+            self.report({'ERROR'}, "Invalid vertex animation index")
+            return {'CANCELLED'}
+
+        anim = item.vs.vertex_animations[self.vertexindex]
+
+        scene.use_preview_range = True
+        scene.frame_preview_start = anim.start
+        scene.frame_preview_end = anim.end
+
+        if not context.screen.is_animation_playing:
+            scene.frame_set(anim.start)
         bpy.ops.screen.animation_play()
+
         return {'FINISHED'}
 
 class SMD_OT_GenerateVertexAnimationQCSnippet(bpy.types.Operator):
@@ -261,26 +389,42 @@ class SMD_OT_GenerateVertexAnimationQCSnippet(bpy.types.Operator):
     bl_description = get_id("vca_qcgen_tip")
     bl_options = {'INTERNAL'}
 
+    index: bpy.props.IntProperty(min=0)
+
     @classmethod
-    def poll(cls,c):
-        return get_active_exportable(c) is not None
-    
-    def execute(self,c): # FIXME: DMX syntax
-        item = get_active_exportable(c).item
-        fps = c.scene.render.fps / c.scene.render.fps_base
+    def poll(cls, c):
+        return hasattr(c.scene, "vs") and len(c.scene.vs.export_list) > 0
+
+    def execute(self, c):
+        scene = c.scene
+        if self.index >= len(scene.vs.export_list):
+            self.report({'ERROR'}, "Invalid export list index")
+            return {'CANCELLED'}
+
+        item = scene.vs.export_list[self.index].item
+        fps = scene.render.fps / scene.render.fps_base
         wm = c.window_manager
-        wm.clipboard = '$model "merge_me" {0}{1}'.format(item.name,getFileExt())
-        if c.scene.vs.export_format == 'SMD':
-            wm.clipboard += ' {{\n{0}\n}}\n'.format("\n".join(["\tvcafile {0}.vta".format(vca.name) for vca in item.vs.vertex_animations]))
-        else: wm.clipboard += '\n'
+
+        wm.clipboard = '$model "merge_me" {0}{1}'.format(item.name, getFileExt())
+        if scene.vs.export_format == 'SMD':
+            wm.clipboard += ' {{\n{0}\n}}\n'.format(
+                "\n".join([f"\tvcafile {vca.name}.vta" for vca in item.vs.vertex_animations])
+            )
+        else:
+            wm.clipboard += '\n'
+
         wm.clipboard += "\n// vertex animation block begins\n$upaxis Y\n"
-        wm.clipboard += "\n".join(['''
-$boneflexdriver "vcabone_{0}" tx "{0}" 0 1
-$boneflexdriver "vcabone_{0}" ty "multi_{0}" 0 1
-$sequence "{0}" "vcaanim_{0}{1}" fps {2}
-'''.format(vca.name, getFileExt(), fps) for vca in item.vs.vertex_animations if vca.export_sequence])
+        wm.clipboard += "\n".join([
+            f'''
+$boneflexdriver "vcabone_{vca.name}" tx "{vca.name}" 0 1
+$boneflexdriver "vcabone_{vca.name}" ty "multi_{vca.name}" 0 1
+$sequence "{vca.name}" "vcaanim_{vca.name}{getFileExt()}" fps {fps}
+'''.strip()
+            for vca in item.vs.vertex_animations if vca.export_sequence
+        ])
         wm.clipboard += "\n// vertex animation block ends\n"
-        self.report({'INFO'},"QC segment copied to clipboard.")
+
+        self.report({'INFO'}, "QC segment copied to clipboard.")
         return {'FINISHED'}
 
 class SMD_PT_Object_Config(bpy.types.Panel):
@@ -294,153 +438,25 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         l = self.layout
         scene = context.scene
         
-        l.label(text='Exportable Prefabs')
+        l.label(text='Exportable Objects', icon='EXPORT')
+        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8, type='DEFAULT')
         
+        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '')
+        if scene.vs.show_exportable_help:
+            row = exportablehelp_section.row()
+            row.scale_y = 1.3
+            row.operator("wm.url_open", text='Vertex Animations Help', icon_value=iconloader.preview_collections["custom_icons"]["SOURCESDK"].icon_id).url = \
+            "http://developer.valvesoftware.com/wiki/Vertex_animation"
+            
+        l.separator(type='LINE')
+        
+        l.label(text='Prefabs', icon='FILE_TEXT')
         prefabhelpsection = create_toggle_section(l,context.scene.vs,'show_prefab_help','Read Me','')
         if context.scene.vs.show_prefab_help:
             draw_wrapped_text_col(prefabhelpsection,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=40, icon='WARNING_LARGE',boxed=False)
         
-        l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
         l.operator("smd.add_prefab", icon="ADD")
-        
-        l.separator(type='LINE')
-        
-        l.label(text='Exportable Objects')
-        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
-                
-        active_exportable = get_active_exportable(context)
-        if not active_exportable:
-            return
-
-        item = active_exportable.item
-        is_group = type(item) == bpy.types.Collection
-
-        if not (is_group and item.vs.mute):
-            l.column().prop(item.vs,"subdir",icon='FILE_FOLDER')
-
-class ExportableConfigurationPanel(bpy.types.Panel):
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "scene"
-    bl_parent_id = "SMD_PT_Object_Config"
-    bl_options = {'DEFAULT_CLOSED'}
-    vs_icon = ""
-
-    @classmethod
-    def get_item(cls, context):
-        active_exportable = get_active_exportable(context)
-        if not active_exportable:
-            return
-
-        return active_exportable.item
-
-    @classmethod
-    def poll(cls, context):
-        return (cls.get_item(context) is not None)
-
-    @classmethod
-    def is_collection(cls, item):
-        return isinstance(item, bpy.types.Collection)
-
-    @classmethod
-    def get_active_object(cls, context):
-        item = cls.get_item(context)
-        
-        if not cls.is_collection(item):
-            return item
-        
-        ob = context.active_object
-        if ob and ob.name in item.objects:
-            return ob
-
-    @classmethod
-    def unpack_collection(cls, context):
-        item = cls.get_item(context)
-        return [ob for ob in item.objects if ob.session_uid in State.exportableObjects] if cls.is_collection(item) else [item]
-
-    def draw_header(self, context):
-        if self.vs_icon:
-            self.layout.label(icon=self.vs_icon)	
-
-class SMD_PT_VertexAnimation(ExportableConfigurationPanel):
-    bl_label = get_id("vca_group_props")
-    vs_icon = vca_icon
-
-    @classmethod
-    def poll(cls, context):
-        item = cls.get_item(context)
-        return item and (cls.is_collection(item) or item.type in mesh_compatible)
-
-    def draw(self, context):
-        item = self.get_item(context)
-        r = self.layout.row(align=True)
-        r.operator(SMD_OT_AddVertexAnimation.bl_idname,icon="ADD",text="Add")
-        op = r.operator(SMD_OT_RemoveVertexAnimation.bl_idname,icon="REMOVE",text="Remove")
-        r.operator("wm.url_open", text=get_id("help",True), icon='HELP').url = "http://developer.valvesoftware.com/wiki/Vertex_animation"
-
-        if item.vs.vertex_animations:
-            op.index = item.vs.active_vertex_animation
-            self.layout.template_list("SMD_UL_VertexAnimationItem","",item.vs,"vertex_animations",item.vs,"active_vertex_animation",rows=2,maxrows=4)
-            self.layout.operator(SMD_OT_GenerateVertexAnimationQCSnippet.bl_idname,icon='FILE_TEXT')
-
-class SMD_PT_Group(ExportableConfigurationPanel):
-    bl_label = get_id("exportables_group_props")
-    bl_options = set() # override
-    vs_icon = 'GROUP'
-
-    @classmethod
-    def poll(cls, context):
-        item = cls.get_item(context)
-        return item and cls.is_collection(item)
-
-    def draw(self, context):
-        item = self.get_item(context)
-        if not item.vs.mute:				
-            self.layout.template_list("SMD_UL_GroupItems",item.name,item,"objects",item.vs,"selected_item",type='GRID',columns=2,rows=2,maxrows=10)
-        
-        r = self.layout.row()
-        r.alignment = 'CENTER'
-        r.prop(item.vs,"mute")
-        if item.vs.mute:
-            return
-        elif State.exportFormat == ExportFormat.DMX:
-            r.prop(item.vs,"automerge")
-
-class SMD_PT_Armature(ExportableConfigurationPanel):
-	bl_label = " "
-	bl_options = set() # override
-
-	@classmethod
-	def poll(cls, context):
-		item = cls.get_active_object(context)
-		return bool(item and (not cls.is_collection(item)) and (item.type == 'ARMATURE' or item.find_armature()))
-
-	def get_armature(self, context) -> bpy.types.Object | None:
-		item = self.get_active_object(context)
-		if item is None: return None
-		return item if isinstance(item, bpy.types.Object) and item.type == 'ARMATURE' else item.find_armature()
-
-	def draw_header(self, context):
-		armature = self.get_armature(context)
-		self.bl_label = get_id("exportables_armature_props", True).format(armature.name if armature else "NONE")
-		self.layout.label(icon='OUTLINER_OB_ARMATURE')
-
-	def draw(self, context):
-		item = self.get_item(context)
-		armature = self.get_armature(context)
-		col = self.layout
-		if armature == item: # only display action stuff if the user has actually selected the armature
-			col.row().prop(armature.data.vs,"action_selection",expand=True)
-			if armature.data.vs.action_selection != 'CURRENT':
-				is_slot_filter = armature.data.vs.action_selection == 'FILTERED' and State.useActionSlots
-				col.prop(armature.vs,"action_filter", text = get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
-
-		if State.exportFormat == ExportFormat.SMD:
-			col.prop(armature.data.vs,"implicit_zero_bone")
-			col.prop(armature.data.vs,"legacy_rotation")
-
-		if armature.animation_data and not State.useActionSlots:
-			col.template_ID(armature.animation_data, "action", new="action.new")
+        l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
 
 class SMD_PT_Scene_QC_Complie(bpy.types.Panel):
     bl_label = get_id("qc_title")
