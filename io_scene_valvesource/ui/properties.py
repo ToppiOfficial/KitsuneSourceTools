@@ -181,6 +181,7 @@ class SMD_PT_Object(ExportableConfigurationPanel):
             return
         
         bx.box().label(text=f'Active Object: ({ob.name})')
+        bx.prop(ob.vs, 'export')
 
 class SMD_PT_Mesh(ExportableConfigurationPanel):
     bl_label : str = get_id("panel_context_mesh")

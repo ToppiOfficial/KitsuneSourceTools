@@ -1549,6 +1549,9 @@ skeleton
         DmeModel["transform"] = makeTransform("",Matrix(),(DmeModel.name or "") + "transform")
 
         keywords = getDmxKeywords(dm.format_ver)
+        
+        if self.armature:
+            self.armature.data.pose_position = 'REST'
                 
         # skeleton
         root["skeleton"] = DmeModel
@@ -2154,6 +2157,10 @@ skeleton
                 print("- {} flexes ({} with wrinklemaps) + {} correctives".format(num_shapes - num_correctives,num_wrinkles,num_correctives))
             
             vca_matrix = ob.matrix_world.inverted()
+            
+            if self.armature:
+                self.armature.data.pose_position = 'POSE'
+                
             for vca_name,vca in bake_results[0].vertex_animations.items():
                 frame_shapes = []
 
@@ -2238,6 +2245,9 @@ skeleton
                     # finally, write it out
                     self.exportId(bpy.context,vca_arm)
                     written += 1
+                    
+            if self.armature:
+                self.armature.data.pose_position = 'REST'
 
             if delta_states:
                 DmeMesh["deltaStates"] = datamodel.make_array(delta_states,datamodel.Element)
@@ -2258,6 +2268,7 @@ skeleton
                     targets.append(DmeMesh)
 
         if len(bake_results) == 1 and bake_results[0].object.type == 'ARMATURE': # animation
+            self.armature.data.pose_position = 'POSE'
             ad = self.armature.animation_data
                         
             anim_len = animationLength(ad) if ad else 0
@@ -2368,6 +2379,9 @@ skeleton
                     
                 if two_percent and frame % two_percent:
                     print(".",debug_only=True,newline=False)
+                
+            self.armature.data.pose_position = 'REST'
+                    
             print(debug_only=True)
         
         bpy.context.window_manager.progress_update(0.99)
