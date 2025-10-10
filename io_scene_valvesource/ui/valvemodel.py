@@ -10,7 +10,7 @@ from ..ui.common import KITSUNE_PT_CustomToolPanel
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
     update_vmdl_container, is_empty, getSelectedBones, PreserveContextMode,
-    getArmature,
+    getArmature, getHitboxes, create_toggle_section, getJiggleBones
 )
 
 from ..utils import (
@@ -22,7 +22,7 @@ from ..core.boneutils import(
 )
 
 from ..core.armatureutils import(
-    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix
+    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix, getArmatureMeshes
 )
 
 class VALVEMODEL_PrefabExportOperator():
@@ -128,7 +128,6 @@ class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_Jigglebone.bl_label)
         ob : Object | None = context.object
 
         if is_armature(ob): pass
@@ -136,26 +135,33 @@ class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
             draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
 
-        bones : bpy.types.ArmatureBones = ob.data.bones
         bone : bpy.types.Bone | None = ob.data.bones.active
 
         if bone:
-            titlemessage : str = f'JiggleBones ({bone.name})'
+            titlemessage : str = f'({bone.name})'
         else:
             titlemessage : str = 'JiggleBones'
 
-        bx : UILayout = draw_title_box(bx, titlemessage)
+        bx : UILayout = draw_title_box(l, titlemessage)
 
-        if bones:
-            jigglebones : list[Bone] = [b for b in bones if b.vs.bone_is_jigglebone]
+        jigglebones = getJiggleBones(ob)
+        jigglebonesection = create_toggle_section(bx, context.scene.vs, 'show_jigglebones', f'Show Jigglebones: {len(jigglebones)}', '', use_alert=not bool(jigglebones))
+        if context.scene.vs.show_jigglebones:
+            for jigglebone in jigglebones:
+                row = jigglebonesection.row(align=True)
+                row.label(text=jigglebone.name,icon='BONE_DATA')
+                if len(jigglebone.collections) == 1:
+                    row.label(text=jigglebone.collections[0].name,icon='GROUP_BONE')
+                elif len(jigglebone.collections) > 1:
+                    row.label(text="In Multiple Collection",icon='GROUP_BONE')
+                else:
+                    row.label(text="Not in Collection",icon='GROUP_BONE')
 
-            if len(jigglebones) > 0:
-                bx.label(text=f'Write Jigglebones : {len(jigglebones)} Jigglebones',icon='FILE')
-                row = bx.row(align=True)
-                row.scale_y = 1.2
-                row.operator(VALVEMODEL_OT_ExportJiggleBone.bl_idname,text='Write to Clipboard').to_clipboard = True
-                row.operator(VALVEMODEL_OT_ExportJiggleBone.bl_idname,text='Write to File').to_clipboard = False
-
+        row = bx.row(align=True)
+        row.scale_y = 1.2
+        row.operator(VALVEMODEL_OT_ExportJiggleBone.bl_idname,text='Write to Clipboard').to_clipboard = True
+        row.operator(VALVEMODEL_OT_ExportJiggleBone.bl_idname,text='Write to File').to_clipboard = False
+                
         if bone and bone.select:
             self.draw_jigglebone_properties(bx, bone)
         else:
@@ -899,7 +905,17 @@ class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
             return
 
         bx : UILayout = draw_title_box(l, VALVEMODEL_PT_HitBox.bl_label)
-        draw_wrapped_text_col(bx,f'To setup a hitbox, add a en "Empty" cube shape and parent it to a bone of the target armature with "SMD Hitbox" property checked.',max_chars=40 , icon='HELP')
+        
+        hitboxes = getHitboxes(ob)
+        hitboxsection = create_toggle_section(bx, context.scene.vs, 'show_hitboxes', f'Show Hitboxes: {len(hitboxes)}', '', use_alert=not bool(hitboxes))
+        if context.scene.vs.show_hitboxes:
+            for hbox in hitboxes:
+                row = hitboxsection.row(align=True)
+                row.label(text=hbox.name, icon='CUBE')
+                row.label(text=hbox.parent_bone, icon='BONE_DATA')
+                row.prop(hbox.vs,'smd_hitbox_group',text='')
+        
+        draw_wrapped_text_col(bx,f'To setup a hitbox, add an "Empty" cube shape and parent it to a bone of the target armature with "SMD Hitbox" property checked.',max_chars=40 , icon='HELP')
         row : UILayout = bx.row(align=True)
         row.scale_y = 1.25
         row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to Clipboard', icon='FILE_TEXT').to_clipboard = True

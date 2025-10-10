@@ -129,14 +129,13 @@ class ToolProps():
     smd_prefabs : CollectionProperty(type=SMD_PrefabItem)
     smd_prefabs_index : IntProperty()
     
-pbr_to_phong_channels = [
-    ('RGB', 'RGB', 'Use all channel for the mask'),
-    ('R', 'Red', ''),
-    ('G', 'Green', ''),
-    ('B', 'Blue', ''),
-    ('A', 'Alpha', ''),
-]
+    show_jigglebones : BoolProperty()
+    show_hitboxes : BoolProperty()
+    show_attachments : BoolProperty()
     
+    show_properties_help : BoolProperty()
+    show_armaturemapper_load_help : BoolProperty()
+        
 class PBRtoPhong():
     diffuse_map : StringProperty(name='Color Map')
     
@@ -306,8 +305,18 @@ class ValveSource_ObjectProps(ExportableProps,ArmatureMapperProps, PropertyGroup
     dme_flexcontrollers_index : IntProperty()
     
     dmx_attachment : BoolProperty(name='DMX Attachment',default=False, update=sceneutils.make_update('dmx_attachment'))
-    smd_hitbox : BoolProperty(name='SMD Hitbox',default=False, update=sceneutils.make_update('smd_hitbox'))
-    smd_hitbox_group : IntProperty(name='Hitbox Group',default=0, min=0, max=7, update=sceneutils.make_update('smd_hitbox_group'))
+    smd_hitbox : BoolProperty(name='SMD Hitbox',default=False, update=sceneutils.make_update('smd_hitbox'))    
+    smd_hitbox_group : EnumProperty(name='Hitbox Group',items=[
+            ('0', 'Generic', 'the default group of hitboxes, appears White in HLMV'),
+            ('1', 'Head', 'Used for human NPC heads and to define where the player sits on the vehicle.mdl, appears Red in HLMV'),
+            ('2', 'Chest', 'Used for human NPC midsection and chest, appears Green in HLMV'),
+            ('3', 'Stomach', 'Used for human NPC stomach and pelvis, appears Yellow in HLMV'),
+            ('4', 'Left Arm', 'Used for human Left Arm, appears Deep Blue in HLMV'),
+            ('5', 'Right Arm', 'Used for human Right Arm, appears Bright Violet in HLMV'),
+            ('6', 'Left Leg', 'Used for human Left Leg, appears Bright Cyan in HLMV'),
+            ('7', 'Right Leg', 'Used for human Right Leg, appears White like the default group in HLMV (Orange in Garry\'s Mod'),
+            ('8', 'Neck', 'Used for human neck (to fix penetration to head from behind), appears Orange in HLMV (In all games since CS:GO)'),
+        ],default='0', update=sceneutils.make_update('smd_hitbox_group'))
     
     armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=ArmatureMapperKeyValue)
     armature_map_bonecollections_index : IntProperty()

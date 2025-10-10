@@ -62,6 +62,14 @@ axes_forward = (('-X','-X',''),('-Y','-Y',''),('-Z','-Z',''),('X','X',''),('Y','
 axes_lookup = { 'X':0, 'Y':1, 'Z':2 }
 axes_lookup_source2 = { 'X':1, 'Y':2, 'Z':3 }
 
+pbr_to_phong_channels = [
+    ('RGB', 'RGB', 'Use all channel for the mask'),
+    ('R', 'Red', ''),
+    ('G', 'Green', ''),
+    ('B', 'Blue', ''),
+    ('A', 'Alpha', ''),
+]
+
 class ExportFormat:
     SMD = 1
     DMX = 2

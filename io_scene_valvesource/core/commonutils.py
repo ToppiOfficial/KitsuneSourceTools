@@ -1,7 +1,7 @@
 import bpy, typing, re, os
 from contextlib import contextmanager
 from ..keyvalue3 import *
-from typing import Literal, TypedDict, cast
+from typing import Literal, List
 from bpy.types import UILayout
 
 def UnselectAll():
@@ -201,29 +201,64 @@ def has_materials(ob : bpy.types.Object) -> bool:
 
 def draw_wrapped_text_col(
     layout,
-    text: str,
-    max_chars: int = 32,
+    text: str | list[str],
+    max_chars: int = 38,
     icon: str | None = None,
     alert: bool = False,
     boxed: bool = True,
-    title: str | None = None
+    title: str | None = None,
+    justified: bool = True
 ):
-    words = text.split()
-    lines = []
-    current_line = []
-    current_len = 0
+    if isinstance(text, list):
+        text = '\n'.join(text)
+    
+    paragraphs = text.split('\n')
+    all_lines = []
+    
+    for paragraph in paragraphs:
+        words = paragraph.split()
+        lines = []
+        current_line = []
+        current_len = 0
 
-    for word in words:
-        if current_len + len(word) + (1 if current_line else 0) > max_chars:
-            lines.append(" ".join(current_line))
-            current_line = [word]
-            current_len = len(word)
+        for word in words:
+            if current_len + len(word) + (1 if current_line else 0) > max_chars:
+                lines.append(current_line)
+                current_line = [word]
+                current_len = len(word)
+            else:
+                current_line.append(word)
+                current_len += len(word) + (1 if current_line else 0)
+
+        if current_line:
+            lines.append(current_line)
+        elif not words:
+            lines.append([])
+        
+        if justified and len(lines) > 1:
+            for i, line in enumerate(lines[:-1]):
+                if len(line) > 1:
+                    text_len = sum(len(word) for word in line)
+                    total_spaces = max_chars - text_len
+                    gaps = len(line) - 1
+                    if gaps > 0:
+                        space_per_gap = total_spaces // gaps
+                        extra_spaces = total_spaces % gaps
+                        justified_line = ""
+                        for j, word in enumerate(line):
+                            justified_line += word
+                            if j < gaps:
+                                justified_line += " " * space_per_gap
+                                if j < extra_spaces:
+                                    justified_line += " "
+                        all_lines.append(justified_line)
+                    else:
+                        all_lines.append(line[0])
+                else:
+                    all_lines.append(" ".join(line))
+            all_lines.append(" ".join(lines[-1]))
         else:
-            current_line.append(word)
-            current_len += len(word) + (1 if current_line else 0)
-
-    if current_line:
-        lines.append(" ".join(current_line))
+            all_lines.extend([" ".join(line) for line in lines])
 
     col = layout.column(align=True)
     col.scale_y = 0.8
@@ -245,7 +280,7 @@ def draw_wrapped_text_col(
         else:
             col_lines = container.column(align=True)
 
-    for line in lines:
+    for line in all_lines:
         col_lines.label(text=line)
 
 def draw_title_box(layout, text: str, icon: str = 'NONE') -> UILayout:
@@ -437,3 +472,73 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc = KVDocument()
     kv_doc.add_root("rootNode", root)
     return kv_doc
+
+def create_toggle_section(layout, data, prop_name, show_text, hide_text="", use_alert=False):
+    subbox = layout.box()
+    if use_alert:
+        subbox.alert = True
+    
+    is_active = getattr(data, prop_name)
+    display_text = (hide_text or show_text) if is_active else show_text
+    
+    subbox.prop(
+        data, 
+        prop_name,
+        text=display_text,
+        icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',
+        emboss=False
+    )
+    
+    if is_active:
+        return subbox
+    return None
+
+def getHitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
+    
+    armature : bpy.types.Object | None = None
+    if ob is None:
+        armature = getArmature()
+    else:
+        armature = getArmature(ob)
+        
+    if armature is None: return []
+    
+    hitboxes = []
+    for ob in bpy.data.objects:
+        if not ob.type == 'EMPTY': continue
+        if ob.empty_display_type != 'CUBE' or not ob.vs.smd_hitbox: continue
+        if ob.parent is None or ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
+        
+        hitboxes.append(ob)
+        
+    return hitboxes
+
+def getJiggleBones(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
+    armature = None
+    if ob is None:
+        armature = getArmature()
+    else:
+        armature = getArmature(ob)
+        
+    if armature is None: return []
+    
+    return [b for b in armature.data.bones if b.vs.bone_is_jigglebone]
+
+def getDMXAttachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
+    armature = None
+    if ob is None:
+        armature = getArmature()
+    else:
+        armature = getArmature(ob)
+        
+    if armature is None: return []
+    
+    attchs = []
+    for ob in bpy.data.objects:
+        if ob.type != 'EMPTY' or ob.parent is None: continue
+        if ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
+        if not ob.vs.dmx_attachment: continue
+        
+        attchs.append(ob)
+        
+    return attchs

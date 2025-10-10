@@ -153,6 +153,10 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
         draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=40, icon='WARNING_LARGE', title='KitsuneSourceTool (Alpha 2.0)')
+        
+        prophelpsection = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '')
+        if context.scene.vs.show_properties_help:
+            draw_wrapped_text_col(prophelpsection,text='- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type',max_chars=40 , icon='HELP')
 
 class ExportableConfigurationPanel(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = ''
@@ -175,6 +179,14 @@ class SMD_PT_Object(ExportableConfigurationPanel):
             return
         
         bx.box().label(text=f'Active Object: ({ob.name})')
+        
+        attachments = getDMXAttachments(ob)
+        attachmentsection = create_toggle_section(bx, context.scene.vs, 'show_attachments', f'Show Attachments: {len(attachments)}', '', use_alert=not bool(attachments))
+        if context.scene.vs.show_attachments:
+            for attachment in attachments:
+                row = attachmentsection.row(align=True)
+                row.label(text=attachment.name,icon='EMPTY_DATA')
+                row.label(text=attachment.parent_bone,icon='BONE_DATA')
 
 class SMD_PT_Mesh(ExportableConfigurationPanel):
     bl_label : str = get_id("panel_context_mesh")

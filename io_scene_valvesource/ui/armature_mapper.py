@@ -17,7 +17,7 @@ from ..core.boneutils import getArmature, getCanonicalBoneName
 from ..core.commonutils import (
     draw_title_box,
     draw_wrapped_text_col,
-    is_armature,
+    is_armature, create_toggle_section
 )
 
 from ..core.armatureutils import (
@@ -54,7 +54,11 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
 
     def draw_write_mode(self, context : Context, layout : UILayout) -> None:
         col = layout.column(align=False)
-        draw_wrapped_text_col(col,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP')
+        
+        armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_load_help', f'Show Help', '')
+        if context.scene.vs.show_armaturemapper_load_help:
+            draw_wrapped_text_col(armaturemappersection,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP',boxed=False)
+            
         col = layout.column()
         col.operator(ARMATUREMAPPER_OT_LoadPreset.bl_idname)
 
@@ -99,7 +103,19 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
     def draw_read_mode(self, context : Context, layout : UILayout) -> None:
         col = layout.column(align=False)
         
-        draw_wrapped_text_col(col,'This will rename the bones to match a similar VRChat-style rig. The bone map includes Left and Right shoulder, arm, elbow, wrist, thigh,knee, ankle, and toe, as well as a central chain of Hips → Lower Spine → Spine → Lower Chest → Chest → Neck → Head. Finger bones follow the format Index/Middle/RingLittleFingers1–3_L/R and Thumb0–2_L/R.',max_chars=40, icon='HELP')
+        message = [
+            'This will rename the bones.',
+            'The bone map includes the following:\n',
+            '- Arms:\nLeft and Right Shoulder, Arm, Elbow, and Wrist.\n',
+            '- Legs:\nLeft and Right Thigh, Knee, Ankle, and Toe.\n',
+            '- Spine chain:\nHips → Lower Spine → Spine → Lower Chest → Chest → Neck → Head.\n',
+            '- Fingers:\nBones follow the format Index/Middle/Ring/LittleFingers1–3_L/R.\n',
+            '- Thumbs:\nBones follow the format Thumb0–2_L/R.\n'
+            ]
+        
+        armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_load_help', f'Show Help', '')
+        if context.scene.vs.show_armaturemapper_load_help:
+            draw_wrapped_text_col(armaturemappersection,message,max_chars=40, icon='HELP',justified=False,boxed=False)
         
         self.draw_humanoid_bone_mapping(context, layout)
 
