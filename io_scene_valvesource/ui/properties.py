@@ -10,6 +10,8 @@ from bpy.types import Panel, UIList, Operator, UILayout, Object, Context, Vertex
 from typing import Set, Any
 from ..keyvalue3 import *
 
+from bpy.props import IntProperty
+
 SMD_OT_CreateVertexMap_idname : str = "smd.vertex_map_create_"
 SMD_OT_SelectVertexMap_idname : str = "smd.vertex_map_select_"
 SMD_OT_RemoveVertexMap_idname : str = "smd.vertex_map_remove_"
@@ -179,14 +181,6 @@ class SMD_PT_Object(ExportableConfigurationPanel):
             return
         
         bx.box().label(text=f'Active Object: ({ob.name})')
-        
-        attachments = getDMXAttachments(ob)
-        attachmentsection = create_toggle_section(bx, context.scene.vs, 'show_attachments', f'Show Attachments: {len(attachments)}', '', use_alert=not bool(attachments))
-        if context.scene.vs.show_attachments:
-            for attachment in attachments:
-                row = attachmentsection.row(align=True)
-                row.label(text=attachment.name,icon='EMPTY_DATA')
-                row.label(text=attachment.parent_bone,icon='BONE_DATA')
 
 class SMD_PT_Mesh(ExportableConfigurationPanel):
     bl_label : str = get_id("panel_context_mesh")
@@ -208,14 +202,18 @@ class DME_UL_FlexControllers(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
         ob : Object | None = context.object
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row : UILayout = layout.row(align=True)
+            box : UILayout = layout.box()
             
-            split1 : UILayout = row.split(factor=0.4, align=True)
-            split1.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
-
-            split2 : UILayout = split1.split(align=True)
-            split2.prop(item, "eyelid", toggle=True)
-            split2.prop(item, "stereo", toggle=True)
+            row : UILayout = box.row(align=True)
+            row.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
+            op = row.operator("dme.remove_flexcontroller", text="", icon='X')
+            op.index = index
+            
+            row : UILayout = box.row(align=True)
+            row.label(text='Options:',icon='OPTIONS')
+            row.prop(item, "eyelid")
+            row.prop(item, "stereo")
+            
 
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
@@ -237,19 +235,15 @@ class DME_OT_AddFlexController(Operator):
 class DME_OT_RemoveFlexController(Operator):
     bl_idname : str = "dme.remove_flexcontroller"
     bl_label : str = "Remove Flex Controller"
-    bl_options : Set = {'INTERNAL', 'UNDO'}  
-
-    @classmethod
-    def poll(cls, context : Context) -> bool:
-        ob : Object | None = context.object
-        return bool(ob and hasattr(ob, "vs") and len(ob.vs.dme_flexcontrollers) > 0)
+    bl_options : Set = {'INTERNAL', 'UNDO'}
+    
+    index : IntProperty()
 
     def execute(self, context : Context) -> Set:
         ob : Object | None = context.object
 
-        idx : int = ob.vs.dme_flexcontrollers_index
-        ob.vs.dme_flexcontrollers.remove(idx)
-        ob.vs.dme_flexcontrollers_index = max(0, idx - 1)
+        ob.vs.dme_flexcontrollers.remove(self.index)
+        ob.vs.dme_flexcontrollers_index = max(0, min(self.index, len(ob.vs.dme_flexcontrollers) - 1))
         return {'FINISHED'}
 
 class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
@@ -266,16 +260,24 @@ class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
             draw_wrapped_text_col(bx,get_id("panel_select_mesh_sk"),max_chars=40 , icon='HELP')
             return
         
+        num_shapes, num_correctives = countShapes(item)
+        
         col = bx.column()
-        col.prop(item.data.vs, "bake_shapekey_as_basis_normals", toggle=True, icon='NORMALS_FACE')
-        col.prop(item.data.vs, "normalize_shapekeys", toggle=True, icon='NORMALS_VERTEX')
-        col.row().prop(item.vs,"flex_controller_mode",expand=True)
+        col.prop(item.data.vs, "bake_shapekey_as_basis_normals")
+        col.prop(item.data.vs, "normalize_shapekeys")
+        
+        col.separator()
+        col = bx.column()
+        col.scale_y = 1.2
+        col.prop(item.vs,"flex_controller_mode",text='')
 
+        col = bx.column()
+        
         def insertCorrectiveUi(parent):
             col = parent.column(align=True)
             col.operator(AddCorrectiveShapeDrivers.bl_idname, icon='DRIVER',text=get_id("gen_drivers",True))
             col.operator(RenameShapesToMatchCorrectiveDrivers.bl_idname, icon='SYNTAX_OFF',text=get_id("apply_drivers",True))
-            
+        
         if item.vs.flex_controller_mode == 'ADVANCED':
             controller_source = col.row()
             controller_source.alert = hasFlexControllerSource(item.vs.flex_controller_source) == False
@@ -308,18 +310,18 @@ class SMD_PT_ShapeKeys(ExportableConfigurationPanel):
         elif item.vs.flex_controller_mode == 'STRICT':
             col = bx.column()
             col.label(text='Flex Controllers')
-            draw_wrapped_text_col(col,'Empty List will export the object without shapekeys',32,icon='HELP')
-            
             col.template_list("DME_UL_FlexControllers","",item.vs,"dme_flexcontrollers", item.vs,"dme_flexcontrollers_index",rows=3,)
 
             row = col.row(align=True)
             row.operator("dme.add_flexcontroller", icon='ADD')
-            row.operator("dme.remove_flexcontroller", icon='REMOVE')
+            
+            if num_shapes == 0:
+                col.separator()
+                draw_wrapped_text_col(col,'Empty List will export the object without shapekeys',icon='HELP', boxed=False,justified=False)
             
         else:
             insertCorrectiveUi(col)
-        
-        num_shapes, num_correctives = countShapes(item)
+
         
         col.separator()
         row = col.row()
@@ -359,7 +361,7 @@ class SMD_PT_VertexMaps(ExportableConfigurationPanel):
 
 class SMD_OT_AddVertexMapRemap(Operator):
     bl_idname : str = "smd.add_vertex_map_remap"
-    bl_label : str = "Add Remap Range"
+    bl_label : str = "Apply Remap Range"
 
     map_name: bpy.props.StringProperty()
 
@@ -391,12 +393,13 @@ class SMD_PT_FloatMaps(ExportableConfigurationPanel):
         col.operator("wm.url_open", text=get_id("help", True), icon='HELP').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
     
         col = bx.column(align=False)
+        col.scale_y = 1.1
         if State.compiler != Compiler.MODELDOC or State.exportFormat != ExportFormat.DMX:
             messages = 'Only Applicable in Source 2 and DMX'
             draw_wrapped_text_col(col, messages, 32, alert=True, icon='ERROR')
             col.active = False
 
-        col = col.column(align=True)
+        col = col.column(align=False)
         for map_name in vertex_float_maps:
             r = col.row(align=True)
             r.operator(SMD_OT_SelectVertexFloatMap_idname + map_name, text=map_name.replace("cloth_", "").replace("_", " ").title(), icon='GROUP_VERTEX')
@@ -448,6 +451,30 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
         bx : UILayout = draw_title_box(l, SMD_PT_Materials.bl_label)
         ob : Object | None = context.object
         if ob is None: return
+        
+        allmats = getAllMats(ob)
+        allmaterials_section = create_toggle_section(bx,context.scene.vs,'show_materials',f'Show All Materials: {len(allmats)}','',use_alert=not bool(allmats))
+        if context.scene.vs.show_materials:
+            
+            if context.scene.vs.material_path.strip():
+                titlebox = draw_title_box(allmaterials_section,'Default Material Path')
+                titlebox.prop(context.scene.vs, 'material_path',text='', emboss=False)
+            
+            for mat in allmats:
+                subbx = allmaterials_section.box()
+                col = subbx.column(align=False)
+                row = col.row(align=True)
+                row.label(text=mat.name, icon_value=mat.preview.icon_id)
+                row.prop(mat.vs, 'do_not_export_faces',text='Do Not Export',toggle=True)
+                row.prop(mat.vs, 'do_not_export_faces_vgroup', text='Vertex Filtering',toggle=True)
+                
+                if not mat.vs.do_not_export_faces:
+                    col = subbx.column(align=True)
+                    col.scale_y = 1.05
+                    col.prop(mat.vs,'override_dmx_export_path',icon='FOLDER_REDIRECT', placeholder=context.scene.vs.material_path)
+                    if mat.vs.do_not_export_faces_vgroup:
+                        col.prop(mat.vs,'non_exportable_vgroup',icon='GROUP_VERTEX')
+        
         if is_mesh(ob) and has_materials(ob): pass
         else:
             draw_wrapped_text_col(bx,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
@@ -462,7 +489,7 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
         
         if not currMat.vs.do_not_export_faces:
             col = bx.column()
-            col.prop(currMat.vs, 'override_dmx_export_path')
+            col.prop(currMat.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
             col.prop(currMat.vs, 'non_exportable_vgroup')     
             
 class SMD_PT_Bones(ExportableConfigurationPanel):

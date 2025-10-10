@@ -542,3 +542,24 @@ def getDMXAttachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | N
         attchs.append(ob)
         
     return attchs
+
+def getAllMats(ob : bpy.types.Object | None) -> set[bpy.types.Material | None]:
+    armature = None
+    if ob is None:
+        armature = getArmature()
+    else:
+        armature = getArmature(ob)
+        
+    if armature is None: return set()
+    
+    meshes = getArmatureMeshes(armature)
+    
+    if meshes is None: return set()
+    
+    mats = set()
+    
+    for mesh in meshes:
+      for mat in mesh.data.materials:
+          mats.add(mat)
+          
+    return mats  

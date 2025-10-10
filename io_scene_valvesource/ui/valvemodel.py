@@ -10,7 +10,7 @@ from ..ui.common import KITSUNE_PT_CustomToolPanel
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
     update_vmdl_container, is_empty, getSelectedBones, PreserveContextMode,
-    getArmature, getHitboxes, create_toggle_section, getJiggleBones
+    getArmature, getHitboxes, create_toggle_section, getJiggleBones, getDMXAttachments
 )
 
 from ..utils import (
@@ -119,6 +119,31 @@ class VALVEMODEL_ModelConfig(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = "ValveModel Config"
     bl_parent_id : str = "VALVEMODEL_PT_PANEL"
     bl_options : Set = {'DEFAULT_CLOSED'}
+
+class VALVEMODEL_PT_Attachments(VALVEMODEL_ModelConfig):
+    bl_label : str = 'Attachment'
+
+    def draw_header(self, context : Context) -> None:
+        self.layout.label(icon='EMPTY_AXIS')
+
+    def draw(self, context : Context) -> None:
+        l : UILayout | None = self.layout
+        ob : Object | None = context.object
+        
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
+        bx : UILayout = draw_title_box(l, 'Attachment')
+        
+        attachments = getDMXAttachments(ob)
+        attachmentsection = create_toggle_section(bx, context.scene.vs, 'show_attachments', f'Show Attachments: {len(attachments)}', '', use_alert=not bool(attachments))
+        if context.scene.vs.show_attachments:
+            for attachment in attachments:
+                row = attachmentsection.row(align=True)
+                row.label(text=attachment.name,icon='EMPTY_DATA')
+                row.label(text=attachment.parent_bone,icon='BONE_DATA')
 
 class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
     bl_label : str = 'JiggleBone'

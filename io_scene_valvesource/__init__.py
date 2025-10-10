@@ -132,9 +132,11 @@ class ToolProps():
     show_jigglebones : BoolProperty()
     show_hitboxes : BoolProperty()
     show_attachments : BoolProperty()
+    show_materials : BoolProperty()
     
     show_properties_help : BoolProperty()
-    show_armaturemapper_load_help : BoolProperty()
+    show_armaturemapper_help : BoolProperty()
+    show_prefab_help : BoolProperty()
         
 class PBRtoPhong():
     diffuse_map : StringProperty(name='Color Map')
@@ -210,6 +212,7 @@ class ValveSource_VertexAnimation(PropertyGroup):
     export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
 
 class DMEflexcontrollers(PropertyGroup):
+    expand_option : BoolProperty(name='Show Options', default=False)
     shapekey : StringProperty(name='shapekey')
     eyelid : BoolProperty(name='Eyelid')
     stereo : BoolProperty(name='Stereo')
@@ -544,6 +547,7 @@ _classes = (
     armature_mapper.ARMATUREMAPPER_OT_LoadPreset,
     
     valvemodel.VALVEMODEL_PT_PANEL,
+    valvemodel.VALVEMODEL_PT_Attachments,
     valvemodel.VALVEMODEL_PT_Jigglebone,
     valvemodel.VALVEMODEL_OT_ExportJiggleBone,
     valvemodel.VALVEMODEL_PT_Animation,
