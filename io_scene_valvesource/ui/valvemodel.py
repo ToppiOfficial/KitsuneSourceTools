@@ -1090,9 +1090,9 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         exponent = np.ones((height, width, 4))
         
         rough_inverted = 1.0 - roughness
-        exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [201, 50], [255, 255]])
+        exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [221, 32], [255, 255]])
         exponent[:, :, 1] = metal if len(metal.shape) == 2 else metal[:, :, 0]
-        exponent[:, :, 2] = 1.0
+        exponent[:, :, 2] = 0.0
         exponent[:, :, 3] = 1.0
         
         return exponent
@@ -1163,14 +1163,12 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
             result[:, :, 1] = 1.0 - normal[:, :, 1]
             result[:, :, 2] = normal[:, :, 2]
 
-        rough_inverted = 1.0 - roughness
-        exp_red = self.apply_curve(rough_inverted, [[78, 0], [201, 20], [255, 255]])
+        rough_inverted = 1 - roughness
+        exp_red = self.apply_curve(rough_inverted, [[57, 0], [201, 20], [255, 255]])
         exp_green = metal if len(metal.shape) == 2 else metal[:, :, 0]
         
-        exp_green = np.clip(exp_green + 0.15, 0.0, 1.0)
-
         # Color dodge
-        alpha = exp_red / (1.0 - exp_green + 1e-6)
+        alpha = exp_red / (1.0 - exp_green)
         alpha = np.clip(alpha, 0.0, 1.0)
 
         result[:, :, 3] = alpha

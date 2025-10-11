@@ -6,11 +6,11 @@ from mathutils import Vector
 
 from ..core.commonutils import(
     is_armature, is_mesh, draw_title_box, draw_wrapped_text_col,
-    getArmature, PreserveContextMode, getSelectedBones
+    getArmature, PreserveContextMode, getSelectedBones,
 )
 
 from ..core.armatureutils import(
-    split_bone, PreserveArmatureState, removeBone, mergeBones
+    split_bone, PreserveArmatureState, removeBone, mergeBones, CentralizeBonePairs
 )
 
 from ..utils import get_id
