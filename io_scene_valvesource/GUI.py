@@ -77,7 +77,6 @@ class SMD_PT_Scene(bpy.types.Panel):
         num_to_export = 0
 
         col = l.column()
-        col.scale_y = 1.4
         col.operator(SmdExporter.bl_idname,text="Export")
         
         row = l.row()

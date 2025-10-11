@@ -5,6 +5,9 @@
 KitsuneSourceTool is a forked and modified of BlenderSourceTool that adds toolsets from my old unreleased extensions in Blender.  The tool is specifically tailored for my workflow but I decided to release publicly nonetheless.  Originally this project is under the name "Fubukitek" but was renamed to Kitsune.  Not all tools are added currently as I am slowly adding the features that originated from older extensions that I made but are on older version of Blender such as 3.8 to 4.2
 
 > [!WARNING]
+> The original code for export and others are being modified as well, use at your own risk for your project at this current version
+
+> [!WARNING]
 > Some panels and tools lack translation support, and most labels are in English.  
 > Additionally, many tools do not have tooltips.
 

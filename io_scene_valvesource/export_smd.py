@@ -872,6 +872,21 @@ class SmdExporter(bpy.types.Operator, Logger):
         del cur
 
         if id.type == 'MESH':
+            if hasShapes(id) and id.data.vs.normalize_shapekeys:
+                base_key = id.data.shape_keys.key_blocks[0]
+                
+                for key in id.data.shape_keys.key_blocks[1:]:
+                    if key.slider_max == 1.0:
+                        continue
+                    
+                    for i in range(len(key.data)):
+                        base_co = base_key.data[i].co
+                        shape_co = key.data[i].co
+                        key.data[i].co = base_co + (shape_co - base_co) * key.slider_max
+                    
+                    key.slider_max = 1.0
+                    key.slider_min = -1.0 if key.slider_min < 0.0 else 0.0
+            
             normalize_weights(ob=id, vgroup_limit=bpy.context.scene.vs.vertex_influence_limit,
                               clean_tolerance=bpy.context.scene.vs.weightlink_threshold)
             
@@ -1064,39 +1079,6 @@ class SmdExporter(bpy.types.Operator, Logger):
                             else: result.balance_vg.add([vert.index], balance, 'REPLACE')
                     result.balance_vg.add(ones, 1, 'REPLACE')
                     result.balance_vg.add(zeroes, 0, 'REPLACE')
-            
-            if id.data.vs.normalize_shapekeys:
-                for si, key in enumerate(id.data.shape_keys.key_blocks):
-                    if si == 0:
-                        continue
-                    
-                    # Determine normalization factor
-                    scale_factor = 1.0
-                    
-                    if key.slider_min < 0.0:
-                        # Min is negative: use the larger scale between max and abs(min)
-                        scale_factor = max(key.slider_max, abs(key.slider_min))
-                    elif key.slider_min == 0.0:
-                        # Min is zero: normalize by max
-                        scale_factor = key.slider_max
-                    else:
-                        # Min is positive: only normalize by max (ignore min in calculation)
-                        scale_factor = key.slider_max
-                    
-                    # Skip if already normalized
-                    if scale_factor == 1.0:
-                        continue
-                    
-                    # Apply normalization
-                    if scale_factor != 0.0:
-                        for i in range(len(key.data)):
-                            base_co = id.data.shape_keys.key_blocks[0].data[i].co
-                            shape_co = key.data[i].co
-                            key.data[i].co = base_co + (shape_co - base_co) * scale_factor
-                        
-                        # Update slider range
-                        key.slider_max = key.slider_max / scale_factor
-                        key.slider_min = key.slider_min / scale_factor
                         
             # bake shapes
             id.show_only_shape_key = True
