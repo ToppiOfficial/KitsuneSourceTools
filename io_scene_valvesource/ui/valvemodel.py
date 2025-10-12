@@ -954,7 +954,7 @@ class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
         
     def draw_material_selection(self, context : Context, layout : UILayout, matmap : str) -> None:
         split = layout.split(factor=0.8, align=True)
-        split.prop_search(context.scene.vs, matmap, bpy.data, 'images')
+        split.prop_search(context.scene.vs, matmap, bpy.data, 'images',text='')
         split.prop(context.scene.vs, matmap + '_ch',text='')
         
     def draw(self, context : Context) -> None:
@@ -962,14 +962,30 @@ class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
         
         bx : UILayout = draw_title_box(l, VALVEMODEL_PT_PBRtoPhong.bl_label)
         
+        noticebox = draw_wrapped_text_col(bx,text='The conversion may or may not be accurate!',icon='WARNING_LARGE',justified=False)
+        
         col = bx.column(align=True)
-        col.prop_search(context.scene.vs, 'diffuse_map', bpy.data, 'images')
-        self.draw_material_selection(context, col, 'roughness_map')
-        self.draw_material_selection(context, col, 'metal_map')
-        self.draw_material_selection(context, col, 'ambientocclu_map')
-        col.prop(context.scene.vs, 'ambientocclu_strength', slider=True)
-        col.prop_search(context.scene.vs, 'normal_map', bpy.data, 'images')
-        col.prop(context.scene.vs, 'normal_map_type')
+        
+        subbox = draw_title_box(col,text='Diffuse/Color Map',icon='MATERIAL_DATA')
+        subbox.prop_search(context.scene.vs, 'diffuse_map', bpy.data, 'images',text='')
+        
+        subbox = draw_title_box(col,text='Normal Map',icon='MATERIAL_DATA')
+        split = subbox.split(align=True, factor=0.7)
+        split.prop_search(context.scene.vs, 'normal_map', bpy.data, 'images',text='')
+        split.prop(context.scene.vs, 'normal_map_type',text='')
+        
+        subbox = draw_title_box(col,text='Roughness Map',icon='MATERIAL_DATA')
+        self.draw_material_selection(context, subbox, 'roughness_map')
+        
+        subbox = draw_title_box(col,text='Metal Map',icon='MATERIAL_DATA')
+        self.draw_material_selection(context, subbox, 'metal_map')
+        
+        subbox = draw_title_box(col,text='AO Map (Optional)',icon='MATERIAL_DATA')
+        self.draw_material_selection(context, subbox, 'ambientocclu_map')
+        subbox.prop(context.scene.vs, 'ambientocclu_strength', slider=True)
+        
+        subbox = draw_title_box(col,text='Emissive Map (Optional)',icon='MATERIAL_DATA')
+        self.draw_material_selection(context, subbox, 'emissive_map')
         
         col = bx.column(align=True)
         col.prop(context.scene.vs, 'use_envmap')
@@ -1004,9 +1020,10 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
     @classmethod
     def poll(cls, context: Context) -> bool:
         valvesourceprop = context.scene.vs
-        return bool(valvesourceprop.diffuse_map and valvesourceprop.roughness_map and valvesourceprop.metal_map and valvesourceprop.normal_map)
+        return bool(valvesourceprop.diffuse_map and valvesourceprop.roughness_map and 
+                   valvesourceprop.metal_map and valvesourceprop.normal_map)
     
-    def invoke(self, context: Context, event : Event) -> Set:
+    def invoke(self, context: Context, event: Event) -> Set:
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
     
@@ -1017,21 +1034,20 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
             self.report({'ERROR'}, "No export path selected")
             return {'CANCELLED'}
         
-        # Normalize and extract directory + base name from filepath
         filepath = bpy.path.abspath(self.filepath)
         export_dir = os.path.dirname(filepath)
-        base_name = os.path.splitext(os.path.basename(filepath))[0]  # remove extension if present
+        base_name = os.path.splitext(os.path.basename(filepath))[0]
         
         if not export_dir or not base_name:
             self.report({'ERROR'}, "Invalid export path or filename")
             return {'CANCELLED'}
         
-        # read images with explicit colorspace choices
         diffuse_img = self.get_image_data(vs.diffuse_map, 'RGB')
         roughness_img = self.get_image_data(vs.roughness_map, vs.roughness_map_ch)
         metal_img = self.get_image_data(vs.metal_map, vs.metal_map_ch)
         normal_img = self.get_image_data(vs.normal_map, 'RGB')
         ao_img = self.get_image_data(vs.ambientocclu_map, vs.ambientocclu_map_ch) if vs.ambientocclu_map else None
+        emissive_img = self.get_image_data(vs.emissive_map, vs.emissive_map_ch) if vs.emissive_map else None
         
         if diffuse_img is None or roughness_img is None or metal_img is None or normal_img is None:
             self.report({'ERROR'}, "Failed to load one or more textures")
@@ -1040,11 +1056,18 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         exponent_map = self.create_exponent_map(roughness_img, metal_img)
         self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
         
-        diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, vs.ambientocclu_strength, vs.use_envmap, vs.darken_diffuse_metal, vs.use_color_darken)
+        diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, 
+                                              vs.ambientocclu_strength, vs.use_envmap, 
+                                              vs.darken_diffuse_metal, vs.use_color_darken)
         self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
         
-        normal_map = self.create_normal_map(normal_img, metal=metal_img, roughness=roughness_img, normal_type=vs.normal_map_type)
+        normal_map = self.create_normal_map(normal_img, metal=metal_img, roughness=roughness_img, 
+                                            normal_type=vs.normal_map_type)
         self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
+        
+        if emissive_img is not None and diffuse_img is not None:
+            emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
+            self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
         
         self.report({'INFO'}, f"Exported PBR to Phong maps to {export_dir}")
         return {'FINISHED'}
@@ -1054,36 +1077,35 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
             return None
         
         img = bpy.data.images[img_name]
-        
         original_colorspace = img.colorspace_settings.name
         img.colorspace_settings.name = 'Non-Color'
         
         width, height = img.size
-        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels)) #type:ignore
+        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels))
         
         img.colorspace_settings.name = original_colorspace
         
         if channel == 'RGB':
             if img.channels >= 3:
-                return pixels[:, :, :4] if img.channels == 4 else np.dstack([pixels[:, :, :3], np.ones((height, width))])
+                return pixels[:, :, :4] if img.channels == 4 else np.dstack([pixels[:, :, :3], 
+                                                                              np.ones((height, width))])
             return np.dstack([pixels[:, :, 0]] * 3 + [np.ones((height, width))])
-        elif channel == 'R':
-            return pixels[:, :, 0]
-        elif channel == 'G':
-            return pixels[:, :, 1] if img.channels > 1 else pixels[:, :, 0]
-        elif channel == 'B':
-            return pixels[:, :, 2] if img.channels > 2 else pixels[:, :, 0]
-        elif channel == 'A':
-            return pixels[:, :, 3] if img.channels > 3 else np.ones((height, width))
         
-        return pixels
+        channel_map = {'R': 0, 'G': 1, 'B': 2, 'A': 3}
+        ch_idx = channel_map.get(channel, 0)
+        
+        if ch_idx < img.channels:
+            return pixels[:, :, ch_idx]
+        elif ch_idx == 3:
+            return np.ones((height, width))
+        else:
+            return pixels[:, :, 0]
     
     def apply_curve(self, data, points):
         points_array = np.array(points)
         input_vals = points_array[:, 0] / 255.0
         output_vals = points_array[:, 1] / 255.0
-        result = np.interp(data, input_vals, output_vals)
-        return result
+        return np.interp(data, input_vals, output_vals)
     
     def create_exponent_map(self, roughness, metal):
         height, width = roughness.shape if len(roughness.shape) == 2 else roughness.shape[:2]
@@ -1097,10 +1119,10 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         
         return exponent
     
-    def create_diffuse_map(self, diffuse, metal, exponent, ao, ao_strength, use_envmap, darken_diffuse_metal, use_color_darken):
+    def create_diffuse_map(self, diffuse, metal, exponent, ao, ao_strength, use_envmap, 
+                          darken_diffuse_metal, use_color_darken):
         height, width = diffuse.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
-
         result[:, :, :3] = diffuse[:, :, :3]
         base_alpha = diffuse[:, :, 3] if diffuse.shape[2] >= 4 else np.ones((height, width))
 
@@ -1113,35 +1135,20 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         metal_channel = metal if len(metal.shape) == 2 else metal[:, :, 0]
 
         if darken_diffuse_metal:
-            # Apply diffuse darkening based on metal
             darkened = self.apply_curve(result[:, :, :3], [[0, 0], [255, 100]])
-            result[:, :, :3] = (
-                result[:, :, :3] * (1.0 - metal_channel[:, :, np.newaxis])
-                + darkened * metal_channel[:, :, np.newaxis]
-            )
-
+            result[:, :, :3] = (result[:, :, :3] * (1.0 - metal_channel[:, :, np.newaxis]) + 
+                               darkened * metal_channel[:, :, np.newaxis])
         elif use_color_darken:
-            metal_channel = metal if len(metal.shape) == 2 else metal[:, :, 0]
             result[:, :, 3] = metal_channel
-
             rgb = result[:, :, :3]
-
-            # Photoshop-style contrast factor (contrast = 60%)
             contrast = 10
-            f = (259 * (contrast + 255)) / (255 * (259 - contrast))  # Photoshop formula
-
-            # Apply per-pixel contrast, masked by metal
+            f = (259 * (contrast + 255)) / (255 * (259 - contrast))
             contrasted = np.clip(f * (rgb - 0.5) + 0.5, 0.0, 1.0)
-
             metal_mask = metal_channel[:, :, np.newaxis]
             result[:, :, :3] = rgb * (1.0 - metal_mask) + contrasted * metal_mask
-
         elif use_envmap:
-            # Use exponent red channel for alpha
             result[:, :, 3] = exponent[:, :, 0]
-
         else:
-            # Fallback: diffuse alpha or 1.0
             result[:, :, 3] = base_alpha
 
         return result
@@ -1167,41 +1174,36 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         exp_red = self.apply_curve(rough_inverted, [[57, 0], [201, 20], [255, 255]])
         exp_green = metal if len(metal.shape) == 2 else metal[:, :, 0]
         
-        # Color dodge
-        alpha = exp_red / (1.0 - exp_green)
-        alpha = np.clip(alpha, 0.0, 1.0)
-
+        alpha = np.clip(exp_red / (1.0 - exp_green + 1e-7), 0.0, 1.0)
         result[:, :, 3] = alpha
+        return result
+    
+    def create_emissive_map(self, diffuse, emissive):
+        height, width = diffuse.shape[:2]
+        result = np.zeros((height, width, 4), dtype=np.float32)
+        
+        emissive_mask = emissive if len(emissive.shape) == 2 else emissive[:, :, 0]
+        
+        result[:, :, :3] = diffuse[:, :, :3] * emissive_mask[:, :, np.newaxis]
+        result[:, :, 3] = 1.0
+        
         return result
         
     def save_tga(self, data, filepath):
-        """Save NumPy image array as TGA.
-        Automatically drops alpha channel if it's fully opaque (all 1.0)."""
         height, width = data.shape[:2]
-
-        # Check for alpha presence
         has_alpha = data.shape[2] >= 4
 
         if has_alpha:
             alpha = data[:, :, 3]
-            # Detect if alpha is fully opaque (within tiny float tolerance)
             if np.allclose(alpha, 1.0, atol=1e-5):
-                # Strip alpha entirely
                 data = data[:, :, :3]
                 has_alpha = False
 
-        img = bpy.data.images.new(
-            name="temp_export",
-            width=width,
-            height=height,
-            alpha=has_alpha
-        )
+        img = bpy.data.images.new(name="temp_export", width=width, height=height, alpha=has_alpha)
 
-        # Flatten pixels correctly
         if has_alpha:
             pixels = data.astype(np.float32).flatten()
         else:
-            # Expand to RGBA because Blender expects 4 channels
             alpha_filled = np.ones((height, width, 1), dtype=np.float32)
             pixels = np.concatenate([data, alpha_filled], axis=2).flatten()
 
@@ -1209,5 +1211,4 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         img.filepath_raw = filepath
         img.file_format = 'TARGA'
         img.save()
-
         bpy.data.images.remove(img)

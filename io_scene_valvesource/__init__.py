@@ -129,6 +129,9 @@ class KitsuneTool_PBRMapsToPhongProps():
     ambientocclu_strength : IntProperty(name='AO Map Strength', default= 100, min= 0, max=100)
     ambientocclu_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
     
+    emissive_map : StringProperty(name='Emissive Map')
+    emissive_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
     normal_map : StringProperty(name='Normal Map')
     normal_map_type : EnumProperty(name='Normal Map Type', items=[
         ('DEF', 'Default',''),
@@ -209,6 +212,7 @@ class ExportableProps():
 
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=ValveSource_VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
+    reset_pose_per_anim : BoolProperty(name='Reset Pose Per Action', description='Reset the pose of the armature for every animation to be exported',default=True)
     
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()

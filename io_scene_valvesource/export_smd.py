@@ -2251,6 +2251,11 @@ skeleton
 
         if len(bake_results) == 1 and bake_results[0].object.type == 'ARMATURE': # animation
             self.armature.data.pose_position = 'POSE'
+            
+            if self.armature.data.vs.action_selection != 'CURRENT' and self.armature.vs.reset_pose_per_anim:
+                for pb in self.armature.pose.bones:
+                    pb.matrix_basis.identity()
+            
             ad = self.armature.animation_data
                         
             anim_len = animationLength(ad) if ad else 0
