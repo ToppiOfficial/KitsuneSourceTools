@@ -14,7 +14,12 @@ def get_used_vertex_groups(mesh: bpy.types.Object, vertex_groups: set[int] | Non
     """
     vgroup_used = set()
     vertex_groups_set = vertex_groups if vertex_groups is None else set(vertex_groups)
-
+    
+    for mat in mesh.data.materials:
+        if mat.vs.non_exportable_vgroup.strip() is not None:
+            exp_vgroup = mesh.vertex_groups.get(mat.vs.non_exportable_vgroup)
+            if exp_vgroup: vgroup_used.add(exp_vgroup)
+    
     for v in mesh.data.vertices:
         for g in v.groups:
             if g.weight > tolerance and (vertex_groups_set is None or g.group in vertex_groups_set):

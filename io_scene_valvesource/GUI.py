@@ -261,8 +261,14 @@ class SMD_OT_ShowExportCollection(bpy.types.Operator):
     index: bpy.props.IntProperty()
 
     def execute(self, context) -> set:
-        obj = context.scene.vs.export_list[self.index].item
-        obj.vs.show_items = not obj.vs.show_items
+        export_list = context.scene.vs.export_list
+        current_obj = export_list[self.index].item
+        current_state = current_obj.vs.show_items
+        
+        for item in export_list:
+            item.item.vs.show_items = False
+        
+        current_obj.vs.show_items = not current_state
         return {'FINISHED'}
     
 class SMD_OT_ShowVertexAnimation(bpy.types.Operator):

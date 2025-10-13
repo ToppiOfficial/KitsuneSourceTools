@@ -1,0 +1,9 @@
+pbr
+{
+    $basetexture "models/dev/pbr_sphere/realpbr_color"
+    $mraotexture "models/dev/pbr_sphere/realpbr_mrao"
+    $bumpmap "models/dev/pbr_sphere/realpbr_normal"
+    $model 1
+    $envmap env_cubemap
+    $envmaptint "[0 0 0]"
+}

@@ -119,6 +119,11 @@ class KitsuneTool_PanelProps():
 class KitsuneTool_PBRMapsToPhongProps():
     diffuse_map : StringProperty(name='Color Map')
     
+    skin_map : StringProperty(name='Skin Map')
+    skin_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    skin_map_gamma : FloatProperty(name='Gamma Correction', soft_min=-10, soft_max=10,default=0)
+    skin_map_contrast : FloatProperty(name='Contrast', soft_min=-5, soft_max=5,default=0)
+    
     metal_map : StringProperty(name='Metal Map')
     metal_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
     
@@ -126,13 +131,14 @@ class KitsuneTool_PBRMapsToPhongProps():
     roughness_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
     
     ambientocclu_map : StringProperty(name='AO Map')
-    ambientocclu_strength : IntProperty(name='AO Map Strength', default= 100, min= 0, max=100)
+    ambientocclu_strength : IntProperty(name='AO Map Strength', default= 80, min= 0, max=100)
     ambientocclu_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
     
     emissive_map : StringProperty(name='Emissive Map')
     emissive_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
     
     normal_map : StringProperty(name='Normal Map')
+    normal_metal_strength : FloatProperty(name='Normal Map Metal Strength', min=0,max=100, default=100)
     normal_map_type : EnumProperty(name='Normal Map Type', items=[
         ('DEF', 'Default',''),
         ('RED', 'Red','The normal map is a red-type normal map'),
