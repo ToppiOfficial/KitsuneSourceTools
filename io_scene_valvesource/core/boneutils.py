@@ -189,3 +189,23 @@ def getRelativeTargetMatrix(
 
     except Exception:
         return "0.0 0.0 0.0" if is_string else [0.0, 0.0, 0.0]
+    
+def get_conflicting_clothjiggle(armature : bpy.types.Object | None) -> list[str]:
+    """
+    Returns list of bone names where both jigglebone and clothnode are enabled.
+    
+    Args:
+        armature: Blender armature object
+        
+    Returns:
+        list: Bone names with conflicting properties
+    """
+    if armature is None: return []
+    
+    conflicts : list = []
+    
+    for bone in armature.data.bones:
+        if bone.vs.bone_is_jigglebone and bone.vs.bone_is_clothnode:
+            conflicts.append(bone.name)
+    
+    return conflicts

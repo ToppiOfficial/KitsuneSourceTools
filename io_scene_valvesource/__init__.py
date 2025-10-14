@@ -420,7 +420,47 @@ class JiggleBoneProps():
     jiggle_frequency : FloatProperty(name='Frequency', precision=3, default=0.0, min=0, soft_max=1000, update=sceneutils.make_update('jiggle_frequency'))
     jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000, update=sceneutils.make_update('jiggle_amplitude'))
     
-class ValveSource_BoneProps(LocationOffset,RotationOffset,JiggleBoneProps,PropertyGroup):
+class ClothNodeProps():
+    bone_is_clothnode : BoolProperty(name='Bone is Cloth Node', default=False, update=sceneutils.make_update('bone_is_clothnode'))
+    cloth_goal_strength : FloatProperty(name='Goal Strength', default=0.6,min=0,max=1.0, precision=4, update=sceneutils.make_update('cloth_goal_strength'))
+    cloth_goal_damping : FloatProperty(name='Goal Damping', default=0,min=0,max=1.0, precision=4, update=sceneutils.make_update('cloth_goal_damping'))
+    cloth_mass : FloatProperty(name='Mass', default=1,min=0.001,soft_max=1000.0, precision=4, update=sceneutils.make_update('cloth_mass'))
+    cloth_gravity : FloatProperty(name='Gravity', default=1.0,max=1.0,precision=4, update=sceneutils.make_update('cloth_gravity'))
+    cloth_lock_translation : BoolProperty(name='Lock Translation', default=True, update=sceneutils.make_update('cloth_lock_translation'))
+    cloth_static : BoolProperty(name='Static', default=False, update=sceneutils.make_update('cloth_static'))
+    cloth_allow_rotation : BoolProperty(name='Allow Rotation', default=False, update=sceneutils.make_update('cloth_allow_rotation'))
+    cloth_collision_radius : FloatProperty(name='Collision Radius', min=0,soft_max=20,precision=2, update=sceneutils.make_update('cloth_collision_radius'))
+    cloth_friction : FloatProperty(name='Friction', min=0,soft_max=20,precision=4, update=sceneutils.make_update('cloth_friction'))
+    
+    cloth_transform_alignment : EnumProperty(name='Axis Alignment', items=[
+        ('AUTO', 'Auto-detect', ''),
+        ('XAXIS', 'Align X Along Chain', ''),
+        ('TAIL', 'Tail End of Rope', ''),
+    ], default='XAXIS', update=sceneutils.make_update('cloth_transform_alignment'))
+    
+    cloth_stray_radius : FloatProperty(name='Stray Radius', min=0,soft_max=100,default=0, precision=4, update=sceneutils.make_update('cloth_stray_radius'))
+    cloth_has_world_collision : BoolProperty(name='Has World Collision', default=False, update=sceneutils.make_update('cloth_has_world_collision'))
+    
+    cloth_collision_layer: EnumProperty(
+        name="Collision Layer",
+        items=[
+            ('LAYER0', "Collision Layer 0", ""),
+            ('LAYER1', "Collision Layer 1", ""),
+            ('LAYER2', "Collision Layer 2", ""),
+            ('LAYER3', "Collision Layer 3", ""),
+        ],
+        default={'LAYER0', 'LAYER1', 'LAYER2', 'LAYER3'},
+        options={'ENUM_FLAG'}, update=sceneutils.make_update('cloth_collision_layer')
+    )
+    
+    cloth_make_spring : BoolProperty(name='Make Spring Between Parent and Child', default=True, update=sceneutils.make_update('cloth_make_spring'))
+    
+    cloth_generate_tip : BoolProperty(name='Generate Tip Node', default=False, update=sceneutils.make_update('cloth_generate_tip'))
+    cloth_tip_goal_strength : FloatProperty(name='Goal Stength (Tip)', default=0.6,max=1.0,min=0, precision=4, update=sceneutils.make_update('cloth_tip_goal_strength'))
+    cloth_tip_mass : FloatProperty(name='Mass (Tip)', default=1,min=0.001,soft_max=1000.0, precision=4, update=sceneutils.make_update('cloth_tip_mass'))
+    cloth_tip_gravity : FloatProperty(name='Gravity (Tip)', default=1.0,max=1.0,precision=4, update=sceneutils.make_update('cloth_tip_gravity'))
+    
+class ValveSource_BoneProps(LocationOffset,RotationOffset,JiggleBoneProps, ClothNodeProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"))
     
 class ValveSource_MaterialProps(PropertyGroup):
@@ -537,13 +577,17 @@ _classes = (
     
     valvemodel.VALVEMODEL_PT_PANEL,
     valvemodel.VALVEMODEL_PT_Attachments,
+    valvemodel.VALVEMODEL_OT_FixAttachment,
     valvemodel.VALVEMODEL_PT_Jigglebone,
     valvemodel.VALVEMODEL_OT_ExportJiggleBone,
+    #valvemodel.VALVEMODEL_PT_ClothNode,
     valvemodel.VALVEMODEL_PT_Animation,
     valvemodel.VALVEMODEL_OT_CreateProportionActions,
     valvemodel.VALVEMODEL_OT_ExportConstraintProportion,
     valvemodel.VALVEMODEL_PT_HitBox,
     valvemodel.VALVEMODEL_OT_ExportHitBox,
+    valvemodel.VALVEMODEL_OT_FixHitBox,
+    valvemodel.VALVEMODEL_OT_AddHitbox,
     valvemodel.VALVEMODEL_PT_PBRtoPhong,
     valvemodel.VALVEMODEL_OT_ConvertPBRmapsToPhong,
     

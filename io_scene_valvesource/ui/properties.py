@@ -156,10 +156,77 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         l : UILayout | None = self.layout
         draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=40, icon='WARNING_LARGE', title='KitsuneSourceTool (Alpha 2.0)')
         
-        prophelpsection = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '') #type:ignore
+        num_warnings = 0
+        
+        prophelpsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '')
         if context.scene.vs.show_properties_help:
             draw_wrapped_text_col(prophelpsection,text='- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type',max_chars=40 , icon='HELP')
 
+        has_warnings = self.check_has_warnings(context)
+        warningsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_objectwarnings', f'Show Validation Check', '', alert=has_warnings)
+        if context.scene.vs.show_objectwarnings:
+            num_warnings = self.draw_warning_checks(context,warningsection)
+
+    def check_has_warnings(self, context: Context) -> bool:
+        if is_armature(context.object):
+            conflictProceduralBones = get_conflicting_clothjiggle(context.object)
+            if conflictProceduralBones:
+                return True
+        
+        unparented_hitboxes = get_unparented_hitboxes()
+        if unparented_hitboxes:
+            return True
+        
+        unparented_attachments = get_unparented_attachments()
+        if unparented_attachments:
+            return True
+        
+        bugged_hitboxes = get_bugged_hitboxes()
+        if bugged_hitboxes:
+            return True
+        
+        bugged_attachments = get_bugged_attachments()
+        if bugged_attachments:
+            return True
+        
+        return False
+
+    def draw_warning_checks(self,context: Context, layout : UILayout) -> int:
+        l : UILayout = layout
+        
+        num_warnings = 0
+        
+        if is_armature(context.object):
+            conflictProceduralBones = get_conflicting_clothjiggle(context.object)
+            if conflictProceduralBones:
+                num_warnings += 1  
+                draw_wrapped_text_col(l,f'Bone(s): {", ".join(conflictProceduralBones)} is/are marked as Jigglebone and Cloth!', alert=True, justified=False)
+        
+        unparented_hitboxes = get_unparented_hitboxes()
+        if unparented_hitboxes:
+            num_warnings += 1
+            draw_wrapped_text_col(l,f'Hitbox(es): {", ".join(unparented_hitboxes)} must be parented to a bone!', alert=True, justified=False)
+        
+        unparented_attachments = get_unparented_attachments()
+        if unparented_attachments:
+            num_warnings += 1
+            draw_wrapped_text_col(l,f'Attachment(s): {", ".join(unparented_attachments)} must be parented to a bone!', alert=True, justified=False)
+        
+        bugged_hitboxes = get_bugged_hitboxes()
+        if bugged_hitboxes:
+            num_warnings += 1
+            draw_wrapped_text_col(l,f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True, justified=False)
+        
+        bugged_attachments = get_bugged_attachments()
+        if bugged_attachments:
+            num_warnings += 1
+            draw_wrapped_text_col(l,f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True, justified=False)
+                
+        if num_warnings == 0:
+            draw_wrapped_text_col(l,f'No Errors found on selected object')
+            
+        return num_warnings
+        
 class ExportableConfigurationPanel(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = ''
     bl_parent_id : str = "SMD_PT_ContextObject"
@@ -377,7 +444,7 @@ class SMD_PT_FloatMaps(ExportableConfigurationPanel):
         bx : UILayout = draw_title_box(l, SMD_PT_FloatMaps.bl_label)
         
         ob = context.active_object
-        if ob: pass
+        if is_mesh(ob): pass
         else:
             draw_wrapped_text_col(bx,"No Mesh Selected",max_chars=40 , icon='HELP')
             return
@@ -394,13 +461,15 @@ class SMD_PT_FloatMaps(ExportableConfigurationPanel):
             col.active = False
 
         col = col.column(align=False)
+        col.scale_y = 1.15
         for map_name in vertex_float_maps:
-            r = col.row(align=True)
+            split1 = col.split(align=True, factor=0.55)
+            r = split1.row(align=True)
             r.operator(SMD_OT_SelectVertexFloatMap_idname + map_name, text=map_name.replace("cloth_", "").replace("_", " ").title(), icon='GROUP_VERTEX')
-            add_remove = r.row(align=True)
-            add_remove.operator(SMD_OT_CreateVertexFloatMap_idname + map_name, icon='ADD', text="")
-            add_remove.operator(SMD_OT_RemoveVertexFloatMap_idname + map_name, icon='REMOVE', text="")
+            r.operator(SMD_OT_CreateVertexFloatMap_idname + map_name, icon='ADD', text="")
+            r.operator(SMD_OT_RemoveVertexFloatMap_idname + map_name, icon='REMOVE', text="")
             
+            r = split1.row(align=True)
             found = False
             for group in ob.vs.vertex_map_remaps:
                 if group.group == map_name:
@@ -447,7 +516,7 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
         if ob is None: return
         
         allmats = getAllMats(ob)
-        allmaterials_section = create_toggle_section(bx,context.scene.vs,'show_materials',f'Show All Materials: {len(allmats)}','',use_alert=not bool(allmats))
+        allmaterials_section = create_toggle_section(bx,context.scene.vs,'show_materials',f'Show All Materials: {len(allmats)}','',alert=not bool(allmats))
         if context.scene.vs.show_materials:
             
             if context.scene.vs.material_path.strip():

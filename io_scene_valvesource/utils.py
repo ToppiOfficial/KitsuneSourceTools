@@ -80,6 +80,8 @@ toggle_show_ops = [
     "show_prefab_help",
     "show_exportable_help",
     "show_pbrphong_help",
+    "show_clothnodes",
+    "show_objectwarnings",
 ]
 
 class ExportFormat:

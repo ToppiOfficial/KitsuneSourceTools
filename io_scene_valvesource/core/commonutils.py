@@ -1,4 +1,4 @@
-import bpy, typing, re, os
+import bpy, typing, re, os, mathutils
 from contextlib import contextmanager
 from ..keyvalue3 import *
 from typing import Literal, List
@@ -261,7 +261,7 @@ def draw_wrapped_text_col(
             all_lines.extend([" ".join(line) for line in lines])
 
     col = layout.column(align=True)
-    col.scale_y = 0.8
+    col.scale_y = 0.7
     col.alert = alert
     container = col.box() if boxed else col
 
@@ -473,21 +473,16 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", use_alert=False):
+def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False ) -> UILayout | None:
     subbox = layout.box()
-    if use_alert:
+    if alert:
         subbox.alert = True
+        
+    if align:
+        subbox = subbox.column(align=True)
     
     is_active = getattr(data, prop_name)
     display_text = (hide_text or show_text) if is_active else show_text
-    
-    #subbox.prop(
-    #    data, 
-    #    prop_name,
-    #    text=display_text,
-    #    icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',
-    #    emboss=False
-    #)
     
     subbox.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
     
@@ -525,6 +520,17 @@ def getJiggleBones(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
     if armature is None: return []
     
     return [b for b in armature.data.bones if b.vs.bone_is_jigglebone]
+
+def getBoneClothNodes(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
+    armature = None
+    if ob is None:
+        armature = getArmature()
+    else:
+        armature = getArmature(ob)
+        
+    if armature is None: return []
+    
+    return [b for b in armature.data.bones if b.vs.bone_is_clothnode]
 
 def getDMXAttachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
     armature = None
@@ -565,3 +571,97 @@ def getAllMats(ob : bpy.types.Object | None) -> set[bpy.types.Material | None]:
           mats.add(mat)
           
     return mats  
+
+def get_unparented_hitboxes() -> List[str]:
+    """Returns list of hitbox empties without bone parent"""
+    unparented = []
+    
+    for obj in bpy.data.objects:
+        if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
+            continue
+        
+        if not obj.vs.smd_hitbox_group:
+            continue
+        
+        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE' or not obj.parent_bone.strip():
+            unparented.append(obj.name)
+    
+    return unparented
+
+def get_unparented_attachments() -> List[str]:
+    """Returns list of attachment empties without bone parent"""
+    unparented = []
+    
+    for obj in bpy.data.objects:
+        if obj.type != 'EMPTY':
+            continue
+        
+        if not obj.vs.dmx_attachment:
+            continue
+        
+        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE' or not obj.parent_bone.strip():
+            unparented.append(obj.name)
+    
+    return unparented
+
+def get_bugged_hitboxes() -> List[str]:
+    """Returns list of hitbox empties with world-space matrix bug"""
+    bugged = []
+    
+    for obj in bpy.data.objects:
+        if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
+            continue
+        
+        if not obj.vs.smd_hitbox_group:
+            continue
+        
+        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
+            continue
+        
+        armature = obj.parent
+        bone_name = obj.parent_bone
+        
+        if bone_name not in armature.pose.bones:
+            continue
+        
+        pose_bone = armature.pose.bones[bone_name]
+        bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
+        
+        local_matrix = bone_tip_matrix.inverted() @ obj.matrix_world
+        local_location = local_matrix.to_translation()
+        
+        if local_location.length > 0.001 and (abs(obj.location.x) < 0.001 and abs(obj.location.y) < 0.001 and abs(obj.location.z) < 0.001):
+            bugged.append(obj.name)
+    
+    return bugged
+
+def get_bugged_attachments() -> List[str]:
+    """Returns list of attachment empties with world-space matrix bug"""
+    bugged = []
+    
+    for obj in bpy.data.objects:
+        if obj.type != 'EMPTY':
+            continue
+        
+        if not obj.vs.dmx_attachment:
+            continue
+        
+        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
+            continue
+        
+        armature = obj.parent
+        bone_name = obj.parent_bone
+        
+        if bone_name not in armature.pose.bones:
+            continue
+        
+        pose_bone = armature.pose.bones[bone_name]
+        bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
+        
+        local_matrix = bone_tip_matrix.inverted() @ obj.matrix_world
+        local_location = local_matrix.to_translation()
+        
+        if local_location.length > 0.001 and (abs(obj.location.x) < 0.001 and abs(obj.location.y) < 0.001 and abs(obj.location.z) < 0.001):
+            bugged.append(obj.name)
+    
+    return bugged

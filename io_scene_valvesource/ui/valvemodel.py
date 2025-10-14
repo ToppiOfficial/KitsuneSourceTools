@@ -1,6 +1,6 @@
 import os, math, bpy, mathutils
 import numpy as np
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 from typing import Set, Any
 from bpy import props
 from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, Scene
@@ -10,7 +10,7 @@ from ..ui.common import KITSUNE_PT_CustomToolPanel
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
     update_vmdl_container, is_empty, getSelectedBones, PreserveContextMode,
-    getArmature, getHitboxes, create_toggle_section, getJiggleBones, getDMXAttachments
+    getArmature, getHitboxes, create_toggle_section, getJiggleBones, getDMXAttachments, getBoneClothNodes
 )
 
 from ..utils import (
@@ -130,7 +130,7 @@ class VALVEMODEL_PT_Attachments(VALVEMODEL_ModelConfig):
         l : UILayout | None = self.layout
         ob : Object | None = context.object
         
-        if is_armature(ob): pass
+        if is_armature(ob) or is_empty(ob): pass
         else:
             draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
@@ -138,12 +138,69 @@ class VALVEMODEL_PT_Attachments(VALVEMODEL_ModelConfig):
         bx : UILayout = draw_title_box(l, 'Attachment')
         
         attachments = getDMXAttachments(ob)
-        attachmentsection = create_toggle_section(bx, context.scene.vs, 'show_attachments', f'Show Attachments: {len(attachments)}', '', use_alert=not bool(attachments))
+        attachmentsection = create_toggle_section(bx, context.scene.vs, 'show_attachments', f'Show Attachments: {len(attachments)}', '', alert=not bool(attachments), align=True)
         if context.scene.vs.show_attachments:
             for attachment in attachments:
                 row = attachmentsection.row(align=True)
                 row.label(text=attachment.name,icon='EMPTY_DATA')
                 row.label(text=attachment.parent_bone,icon='BONE_DATA')
+                
+        bx.operator(VALVEMODEL_OT_FixAttachment.bl_idname,icon='OPTIONS')
+
+class VALVEMODEL_OT_FixAttachment(Operator):
+    bl_idname : str = "smd.fix_attachments"
+    bl_label : str = "Fix Source Attachment Empties Matrix"
+    bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
+    bl_options : Set = {'INTERNAL', 'UNDO'}
+    
+    def execute(self, context : Context) -> set:
+        fixed_count = 0
+        
+        for obj in bpy.data.objects:
+            if obj.type != 'EMPTY':
+                continue
+            
+            if not obj.vs.dmx_attachment:
+                continue
+            
+            if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
+                continue
+            
+            armature = obj.parent
+            bone_name = obj.parent_bone
+            
+            if bone_name not in armature.data.bones:
+                continue
+            
+            world_matrix = obj.matrix_world.copy()
+            world_location = obj.matrix_world.to_translation()
+            world_rotation = obj.matrix_world.to_euler()
+            world_scale = obj.matrix_world.to_scale()
+            
+            pose_bone = armature.pose.bones[bone_name]
+            bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
+            
+            obj.parent = None
+            
+            obj.parent = armature
+            obj.parent_type = 'BONE'
+            obj.parent_bone = bone_name
+            
+            local_location = bone_tip_matrix.inverted() @ world_location
+            local_rotation = (bone_tip_matrix.inverted() @ world_matrix).to_euler()
+            
+            obj.location = local_location
+            obj.rotation_euler = local_rotation
+            obj.scale = world_scale
+            
+            fixed_count += 1
+        
+        if fixed_count > 0:
+            self.report({'INFO'}, f'Fixed {fixed_count} attachment(s)')
+        else:
+            self.report({'INFO'}, 'No attachments needed fixing')
+        
+        return {'FINISHED'}
 
 class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
     bl_label : str = 'JiggleBone'
@@ -163,18 +220,20 @@ class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
         bone : bpy.types.Bone | None = ob.data.bones.active
 
         if bone:
-            titlemessage : str = f'({bone.name})'
+            titlemessage : str = f'JiggleBone ({bone.name})'
         else:
             titlemessage : str = 'JiggleBones'
 
         bx : UILayout = draw_title_box(l, titlemessage)
 
         jigglebones = getJiggleBones(ob)
-        jigglebonesection = create_toggle_section(bx, context.scene.vs, 'show_jigglebones', f'Show Jigglebones: {len(jigglebones)}', '', use_alert=not bool(jigglebones))
+        jigglebonesection = create_toggle_section(bx, context.scene.vs, 'show_jigglebones', f'Show Jigglebones: {len(jigglebones)}', '', alert=not bool(jigglebones), align=True)
         if context.scene.vs.show_jigglebones:
             for jigglebone in jigglebones:
                 row = jigglebonesection.row(align=True)
                 row.label(text=jigglebone.name,icon='BONE_DATA')
+                
+                row.alignment = 'RIGHT'
                 if len(jigglebone.collections) == 1:
                     row.label(text=jigglebone.collections[0].name,icon='GROUP_BONE')
                 elif len(jigglebone.collections) > 1:
@@ -497,6 +556,87 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
 
         return kv_doc.to_text()
 
+class VALVEMODEL_PT_ClothNode(VALVEMODEL_ModelConfig):
+    bl_label : str = 'ClothNode (Source 2)'
+
+    def draw_header(self, context : Context) -> None:
+        self.layout.label(icon='CONSTRAINT_BONE')
+        
+    def draw(self, context):
+        l : UILayout | None = self.layout
+        ob = context.object
+        
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+        
+        bone = context.object.data.bones.active
+        
+        if bone:
+            titlemessage : str = f'ClothNode ({bone.name})'
+        else:
+            titlemessage : str = 'ClothNode'
+        
+        titlebox = draw_title_box(l,titlemessage)
+        
+        clothnodebones = getBoneClothNodes(ob)
+        clothnodesection = create_toggle_section(titlebox, context.scene.vs, 'show_clothnodes', f'Show ClothNodes: {len(clothnodebones)}', '', alert=not bool(clothnodebones), align=True)
+        if context.scene.vs.show_clothnodes:
+            for clothnode in clothnodebones:
+                row = clothnodesection.row(align=True)
+                row.label(text=clothnode.name,icon='BONE_DATA')
+                if len(clothnode.collections) == 1:
+                    row.label(text=clothnode.collections[0].name,icon='GROUP_BONE')
+                elif len(clothnode.collections) > 1:
+                    row.label(text="In Multiple Collection",icon='GROUP_BONE')
+                else:
+                    row.label(text="Not in Collection",icon='GROUP_BONE')
+        
+        if bone and bone.select:
+            self.draw_clothnode_params(context, titlebox, bone)
+        else:
+            titlebox.box().label(text='Select a Valid Bone', icon='ERROR')
+            return
+        
+    def draw_clothnode_params(self, context : Context, layout : UILayout, bone : bpy.types.Bone): 
+        layout.prop(bone.vs, 'bone_is_clothnode', toggle=True, icon='DOWNARROW_HLT' if bone.vs.bone_is_clothnode else 'RIGHTARROW_THIN')
+        
+        if bone.vs.bone_is_clothnode:
+            col = layout.column(align=False)
+            
+            row = col.row(align=True)
+            row.prop(bone.vs, 'cloth_static', toggle=True)
+            if bone.vs.cloth_static: row.prop(bone.vs, 'cloth_allow_rotation', toggle=True) 
+            col.prop(bone.vs, 'cloth_transform_alignment')
+            col.prop(bone.vs, 'cloth_make_spring')
+            col.prop(bone.vs, 'cloth_lock_translation')
+            
+            paramcol = col.column()
+            paramcol.enabled = not bone.vs.cloth_static
+            col = paramcol.column(align=True)
+            col.prop(bone.vs, 'cloth_goal_strength', slider=True)
+            col.prop(bone.vs, 'cloth_goal_damping', slider=True)
+            col.prop(bone.vs, 'cloth_mass', slider=True)
+            col.prop(bone.vs, 'cloth_gravity', slider=True)
+            
+            col = paramcol.column(align=True)
+            col.prop(bone.vs,'cloth_collision_radius', slider=True)
+            col.prop(bone.vs,'cloth_friction', slider=True)
+            col.prop(bone.vs,'cloth_collision_layer', expand=True)
+            col.prop(bone.vs,'cloth_has_world_collision')
+            
+            col = paramcol.column(align=True)
+            col.prop(bone.vs,'cloth_stray_radius', slider=True)
+            
+            col = paramcol.column(align=True)
+            col.prop(bone.vs,'cloth_generate_tip', toggle=True)
+            
+            if bone.vs.cloth_generate_tip:
+                col.prop(bone.vs,'cloth_tip_goal_strength', slider=True)
+                col.prop(bone.vs,'cloth_tip_mass', slider=True)
+                col.prop(bone.vs,'cloth_tip_gravity', slider=True)
+
 class VALVEMODEL_OT_CreateProportionActions(Operator):
     bl_idname : str = 'smd.create_proportion_actions'
     bl_label : str = 'Create Delta Proportion Pose'
@@ -742,6 +882,42 @@ class VALVEMODEL_PT_Animation(VALVEMODEL_ModelConfig):
         row.operator(VALVEMODEL_OT_ExportConstraintProportion.bl_idname,text='Write to Clipboard', icon='CONSTRAINT_BONE').to_clipboard = True
         row.operator(VALVEMODEL_OT_ExportConstraintProportion.bl_idname,text='Write to File', icon='CONSTRAINT_BONE').to_clipboard = False
 
+class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
+    bl_label : str = 'Hitbox'
+
+    def draw_header(self, context : Context) -> None:
+        self.layout.label(icon='CUBE')
+
+    def draw(self, context : Context) -> None:
+        l : UILayout | None = self.layout
+        ob : Object | None = context.object
+
+        if is_empty(ob) or is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
+            return
+
+        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_HitBox.bl_label)
+        
+        hitboxes = getHitboxes(ob)
+        hitboxsection = create_toggle_section(bx, context.scene.vs, 'show_hitboxes', f'Show Hitboxes: {len(hitboxes)}', '', alert=not bool(hitboxes), align=True)
+        if context.scene.vs.show_hitboxes:
+            for hbox in hitboxes:
+                try:
+                    row = hitboxsection.row()
+                    row.label(text=hbox.name, icon='CUBE')
+                    row.label(text=hbox.parent_bone,icon='BONE_DATA')
+                    row.prop(hbox.vs,'smd_hitbox_group',text='')
+                except:
+                    continue
+        
+        bx.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
+        bx.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        row : UILayout = bx.row(align=True)
+        row.scale_y = 1.25
+        row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to Clipboard', icon='FILE_TEXT').to_clipboard = True
+        row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to File', icon='TEXT').to_clipboard = False
+
 class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
     bl_idname : str = "smd.export_hitboxes"
     bl_label : str = "Export Source Hitboxes"
@@ -913,39 +1089,112 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                 return {'CANCELLED'}
 
         return {'FINISHED'}
-
-class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
-    bl_label : str = 'Hitbox'
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='CUBE')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        ob : Object | None = context.object
-
-        if is_empty(ob) or is_armature(ob): pass
+    
+class VALVEMODEL_OT_FixHitBox(Operator):
+    bl_idname : str = "smd.fix_hitboxes"
+    bl_label : str = "Fix Source Hitboxes Empties Matrix"
+    bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
+    bl_options : Set = {'INTERNAL', 'UNDO'}
+    
+    def execute(self, context : Context) -> set:
+        fixed_count = 0
+        
+        for obj in bpy.data.objects:
+            if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
+                continue
+            
+            if not obj.vs.smd_hitbox_group:
+                continue
+            
+            if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
+                continue
+            
+            armature = obj.parent
+            bone_name = obj.parent_bone
+            
+            if bone_name not in armature.data.bones:
+                continue
+            
+            world_matrix = obj.matrix_world.copy()
+            world_location = obj.matrix_world.to_translation()
+            world_scale = obj.matrix_world.to_scale()
+            
+            pose_bone = armature.pose.bones[bone_name]
+            bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
+            
+            obj.parent = None
+            
+            obj.parent = armature
+            obj.parent_type = 'BONE'
+            obj.parent_bone = bone_name
+            
+            local_location = bone_tip_matrix.inverted() @ world_location
+            
+            obj.location = local_location
+            obj.rotation_euler = (0, 0, 0)
+            obj.scale = world_scale
+            
+            fixed_count += 1
+        
+        if fixed_count > 0:
+            self.report({'INFO'}, f'Fixed {fixed_count} hitbox(es)')
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
-            return
-
-        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_HitBox.bl_label)
+            self.report({'INFO'}, 'No hitboxes needed fixing')
         
-        hitboxes = getHitboxes(ob)
-        hitboxsection = create_toggle_section(bx, context.scene.vs, 'show_hitboxes', f'Show Hitboxes: {len(hitboxes)}', '', use_alert=not bool(hitboxes))
-        if context.scene.vs.show_hitboxes:
-            for hbox in hitboxes:
-                row = hitboxsection.row(align=True)
-                row.label(text=hbox.name, icon='CUBE')
-                row.label(text=hbox.parent_bone, icon='BONE_DATA')
-                row.prop(hbox.vs,'smd_hitbox_group',text='')
+        return {'FINISHED'}
+    
+class VALVEMODEL_OT_AddHitbox(Operator, VALVEMODEL_ModelConfig):
+    bl_idname : str = "smd.add_hitboxes"
+    bl_label : str = "Add Source Hitboxes"
+    bl_description = "Add empty cubes as Source Engine hitbox format"
+    bl_options : Set = {'REGISTER', 'UNDO'}
+    
+    parent_bone: StringProperty(
+        name="Parent Bone",
+        description="Bone to parent the hitbox to"
+    )
+    
+    def invoke(self, context : Context, event : Event) -> set:
+        armature = getArmature()
         
-        draw_wrapped_text_col(bx,f'To setup a hitbox, add an "Empty" cube shape and parent it to a bone of the target armature with "SMD Hitbox" property checked.',max_chars=40 , icon='HELP')
-        row : UILayout = bx.row(align=True)
-        row.scale_y = 1.25
-        row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to Clipboard', icon='FILE_TEXT').to_clipboard = True
-        row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to File', icon='TEXT').to_clipboard = False
+        if not armature or len(armature.data.bones) == 0:
+            self.report({'WARNING'}, 'Armature has no bones')
+            return {'CANCELLED'}
         
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context : Context):
+        layout = self.layout
+        armature = getArmature()
+        
+        layout.prop_search(self, "parent_bone", armature.data, "bones", text="Parent Bone")
+    
+    def execute(self, context : Context) -> set:
+        armature = getArmature()
+        
+        if not self.parent_bone:
+            self.report({'WARNING'}, 'No parent bone selected')
+            return {'CANCELLED'}
+        
+        if self.parent_bone not in armature.data.bones:
+            self.report({'WARNING'}, f'Bone "{self.parent_bone}" not found')
+            return {'CANCELLED'}
+        
+        bpy.ops.object.empty_add(type='CUBE')
+        empty = context.active_object
+        empty.name = f"hbox_{self.parent_bone}"
+        
+        empty.parent = armature
+        empty.parent_type = 'BONE'
+        empty.parent_bone = self.parent_bone
+        empty.location = [0,0,0]
+        empty.vs.smd_hitbox = True
+        
+        self.report({'INFO'}, f'Created hitbox parented to {self.parent_bone}')
+        
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return {'FINISHED'}
+               
 class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
     bl_label : str = 'PBR To Phong'
     
@@ -1026,6 +1275,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
     bl_options = {'INTERNAL'}
     
     filepath: StringProperty(subtype='FILE_PATH')
+    debug_mode: BoolProperty(name="Debug Mode", default=False, description="Export intermediate processing steps")
     
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -1066,24 +1316,49 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         emissive_img = self.get_channel_data(vs.emissive_map, vs.emissive_map_ch, height, width) if vs.emissive_map else None
         skin_img = self.get_channel_data(vs.skin_map, vs.skin_map_ch, height, width) if vs.skin_map else None
         
-        exponent_map = self.create_exponent_map(roughness_img, metal_img)
+        if self.debug_mode:
+            self.export_debug_grayscale(roughness_img, export_dir, f"{base_name}_debug_roughness_raw.tga")
+            self.export_debug_grayscale(metal_img, export_dir, f"{base_name}_debug_metal_raw.tga")
+            self.export_debug_grayscale(ao_img, export_dir, f"{base_name}_debug_ao_raw.tga")
+            if skin_img is not None:
+                self.export_debug_grayscale(skin_img, export_dir, f"{base_name}_debug_skin_raw.tga")
+        
+        rough_inverted = 1.0 - roughness_img # type:ignore
+        if self.debug_mode:
+            self.export_debug_grayscale(rough_inverted, export_dir, f"{base_name}_debug_roughness_inverted.tga")
+        
+        exponent_map = self.create_exponent_map(roughness_img, metal_img, export_dir, base_name if self.debug_mode else None)
         self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
         
         diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, skin_img,
                                               vs.ambientocclu_strength, vs.skin_map_gamma, vs.skin_map_contrast,
-                                              vs.use_envmap, vs.darken_diffuse_metal, vs.use_color_darken)
+                                              vs.use_envmap, vs.darken_diffuse_metal, vs.use_color_darken,
+                                              export_dir, base_name if self.debug_mode else None)
         self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
         
         normal_map = self.create_normal_map(normal_img, metal_img, roughness_img, 
-                                            vs.normal_map_type, vs.normal_metal_strength)
+                                            vs.normal_map_type, vs.normal_metal_strength,
+                                            export_dir, base_name if self.debug_mode else None)
         self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
         
         if emissive_img is not None:
+            if self.debug_mode:
+                self.export_debug_grayscale(emissive_img, export_dir, f"{base_name}_debug_emissive_raw.tga")
             emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
             self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
         
-        self.report({'INFO'}, f"Exported PBR to Phong maps to {export_dir}")
+        status = "with debug outputs" if self.debug_mode else ""
+        self.report({'INFO'}, f"Exported PBR to Phong maps {status} to {export_dir}")
         return {'FINISHED'}
+    
+    def export_debug_grayscale(self, data, export_dir, filename):
+        height, width = data.shape
+        debug_img = np.zeros((height, width, 4), dtype=np.float32)
+        debug_img[:, :, 0] = data
+        debug_img[:, :, 1] = data
+        debug_img[:, :, 2] = data
+        debug_img[:, :, 3] = 1.0
+        self.save_tga(debug_img, os.path.join(export_dir, filename))
     
     def get_image_data(self, img_name: str):
         if not img_name or img_name not in bpy.data.images:
@@ -1094,7 +1369,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         img.colorspace_settings.name = 'Non-Color'
         
         width, height = img.size
-        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels))
+        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels)) # type:ignore
         
         img.colorspace_settings.name = original_colorspace
         
@@ -1111,7 +1386,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         img.colorspace_settings.name = 'Non-Color'
         
         w, h = img.size
-        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels))
+        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels)) # type:ignore
         
         img.colorspace_settings.name = original_colorspace
         
@@ -1171,21 +1446,25 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         output_vals = points_array[:, 1] / 255.0
         return np.interp(data, input_vals, output_vals)
     
-    def create_exponent_map(self, roughness, metal):
+    def create_exponent_map(self, roughness, metal, export_dir=None, base_name=None):
         height, width = roughness.shape
         exponent = np.ones((height, width, 4))
         
         rough_inverted = 1.0 - roughness
         
-        exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [221, 60], [255, 255]])
+        exponent_red = self.apply_curve(rough_inverted, [[90, 0], [221, 60], [255, 255]])
+        exponent[:, :, 0] = exponent_red
         exponent[:, :, 1] = metal
         exponent[:, :, 2] = 0.0
         exponent[:, :, 3] = 1.0
         
+        if export_dir and base_name:
+            self.export_debug_grayscale(exponent_red, export_dir, f"{base_name}_debug_exponent_red_curved.tga")
+        
         return exponent
     
     def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, skin_gamma, skin_contrast,
-                          use_envmap, darken_diffuse_metal, use_color_darken):
+                          use_envmap, darken_diffuse_metal, use_color_darken, export_dir=None, base_name=None):
         height, width = diffuse.shape[:2]
         result = diffuse.copy()
         
@@ -1212,10 +1491,18 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         if skin is not None:
             ao_effect = ao_effect * (1.0 - skin) + skin
         
+        if export_dir and base_name:
+            self.export_debug_grayscale(ao_effect, export_dir, f"{base_name}_debug_ao_effect.tga")
+        
         result[:, :, :3] *= ao_effect[:, :, np.newaxis]
 
         if darken_diffuse_metal:
             darkened = self.apply_curve(result[:, :, :3], [[0, 0], [255, 100]])
+            if export_dir and base_name:
+                debug_darkened = np.zeros((height, width, 4), dtype=np.float32)
+                debug_darkened[:, :, :3] = darkened
+                debug_darkened[:, :, 3] = 1.0
+                self.save_tga(debug_darkened, os.path.join(export_dir, f"{base_name}_debug_diffuse_darkened.tga"))
             result[:, :, :3] = (result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + 
                                darkened * metal[:, :, np.newaxis])
         elif use_color_darken:
@@ -1230,7 +1517,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
 
         return result
     
-    def create_normal_map(self, normal, metal, roughness, normal_type, metal_strength=100.0):
+    def create_normal_map(self, normal, metal, roughness, normal_type, metal_strength=100.0, export_dir=None, base_name=None):
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
@@ -1252,8 +1539,16 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         exp_red = self.apply_curve(rough_inverted, [[57, 0], [201, 20], [255, 255]])
         exp_green_adjusted = metal * (metal_strength / 100.0)
         
+        if export_dir and base_name:
+            self.export_debug_grayscale(exp_red, export_dir, f"{base_name}_debug_normal_alpha_exp_red.tga")
+            self.export_debug_grayscale(exp_green_adjusted, export_dir, f"{base_name}_debug_normal_alpha_metal_adj.tga")
+        
         alpha = np.clip(exp_red / (1.0 - exp_green_adjusted + 1e-7), 0.0, 1.0)
         result[:, :, 3] = alpha
+        
+        if export_dir and base_name:
+            self.export_debug_grayscale(alpha, export_dir, f"{base_name}_debug_normal_alpha_final.tga")
+        
         return result
     
     def create_emissive_map(self, diffuse, emissive):
