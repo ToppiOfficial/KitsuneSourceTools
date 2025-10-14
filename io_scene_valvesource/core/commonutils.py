@@ -202,12 +202,12 @@ def has_materials(ob : bpy.types.Object) -> bool:
 def draw_wrapped_text_col(
     layout,
     text: str | list[str],
-    max_chars: int = 38,
+    max_chars: int = 40,
     icon: str | None = None,
     alert: bool = False,
     boxed: bool = True,
     title: str | None = None,
-    justified: bool = True
+    justified: bool = False
 ):
     if isinstance(text, list):
         text = '\n'.join(text)
@@ -222,40 +222,43 @@ def draw_wrapped_text_col(
         current_len = 0
 
         for word in words:
-            if current_len + len(word) + (1 if current_line else 0) > max_chars:
+            word_len = len(word)
+            space_needed = word_len + (1 if current_line else 0)
+            
+            if current_len + space_needed > max_chars:
                 lines.append(current_line)
                 current_line = [word]
-                current_len = len(word)
+                current_len = word_len
             else:
+                if current_line:
+                    current_len += 1
                 current_line.append(word)
-                current_len += len(word) + (1 if current_line else 0)
+                current_len += word_len
 
         if current_line:
             lines.append(current_line)
         elif not words:
             lines.append([])
         
-        if justified and len(lines) > 1:
+        if justified and len(lines) > 0:
             for i, line in enumerate(lines[:-1]):
                 if len(line) > 1:
                     text_len = sum(len(word) for word in line)
                     total_spaces = max_chars - text_len
                     gaps = len(line) - 1
-                    if gaps > 0:
-                        space_per_gap = total_spaces // gaps
-                        extra_spaces = total_spaces % gaps
-                        justified_line = ""
-                        for j, word in enumerate(line):
-                            justified_line += word
-                            if j < gaps:
-                                justified_line += " " * space_per_gap
-                                if j < extra_spaces:
-                                    justified_line += " "
-                        all_lines.append(justified_line)
-                    else:
-                        all_lines.append(line[0])
+                    space_per_gap = total_spaces // gaps
+                    extra_spaces = total_spaces % gaps
+                    
+                    justified_line = ""
+                    for j, word in enumerate(line):
+                        justified_line += word
+                        if j < gaps:
+                            justified_line += " " * space_per_gap
+                            if j < extra_spaces:
+                                justified_line += " "
+                    all_lines.append(justified_line)
                 else:
-                    all_lines.append(" ".join(line))
+                    all_lines.append(line[0])
             all_lines.append(" ".join(lines[-1]))
         else:
             all_lines.extend([" ".join(line) for line in lines])
@@ -274,7 +277,7 @@ def draw_wrapped_text_col(
         col_lines = container.column(align=True)
     else:
         if icon:
-            split = container.split(factor=0.08,)
+            split = container.split(factor=0.08)
             split.label(icon=icon)
             col_lines = split.column(align=True)
         else:
@@ -282,6 +285,8 @@ def draw_wrapped_text_col(
 
     for line in all_lines:
         col_lines.label(text=line)
+        
+    col = layout.column()
 
 def draw_title_box(layout, text: str, icon: str = 'NONE') -> UILayout:
     box = layout.box()
@@ -473,7 +478,7 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False ) -> UILayout | None:
+def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False, icon : str | None = None) -> UILayout | None:
     subbox = layout.box()
     if alert:
         subbox.alert = True
@@ -484,7 +489,12 @@ def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : 
     is_active = getattr(data, prop_name)
     display_text = (hide_text or show_text) if is_active else show_text
     
-    subbox.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
+    if icon is not None:
+        row = subbox.row(align=True)
+        row.label(text='',icon=icon)
+        row.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
+    else:
+        subbox.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
     
     if is_active:
         return subbox
@@ -537,13 +547,16 @@ def getDMXAttachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | N
     if ob is None:
         armature = getArmature()
     else:
-        armature = getArmature(ob)
+        if ob.type == 'ARMATURE':
+            armature = ob
+        else:
+            armature = getArmature(ob)
         
     if armature is None: return []
     
     attchs = []
     for ob in bpy.data.objects:
-        if ob.type != 'EMPTY' or ob.parent is None: continue
+        if ob.type != 'EMPTY' or ob.parent is None or ob.parent != armature: continue
         if ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
         if not ob.vs.dmx_attachment: continue
         
@@ -665,3 +678,24 @@ def get_bugged_attachments() -> List[str]:
             bugged.append(obj.name)
     
     return bugged
+
+def get_object_path(obj, view_layer) -> str:
+    if obj is None:
+        return "None"
+    
+    def find_collection_path(collections, target_obj, path=[]):
+        for col in collections:
+            if target_obj.name in col.objects:
+                return path + [col.name]
+            
+            result = find_collection_path(col.children, target_obj, path + [col.name])
+            if result:
+                return result
+        return None
+    
+    col_path = find_collection_path([view_layer.layer_collection.collection], obj)
+    
+    if col_path:
+        return f"{view_layer.name} > {' > '.join(col_path)} > {obj.name}"
+    else:
+        return f"{view_layer.name} > {obj.name}"

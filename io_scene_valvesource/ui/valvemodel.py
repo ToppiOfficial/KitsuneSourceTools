@@ -7,10 +7,13 @@ from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, S
 from ..keyvalue3 import KVBool, KVNode, KVVector3
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
+from .. import iconloader
+
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
     update_vmdl_container, is_empty, getSelectedBones, PreserveContextMode,
-    getArmature, getHitboxes, create_toggle_section, getJiggleBones, getDMXAttachments, getBoneClothNodes
+    getArmature, getHitboxes, create_toggle_section, getJiggleBones, getDMXAttachments, getBoneClothNodes,
+    get_object_path
 )
 
 from ..utils import (
@@ -110,10 +113,16 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_options : Set = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='TOOL_SETTINGS')
+        self.layout.label(icon='OBJECT_DATA')
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
+        armature = getArmature(context.object)
+        if armature is not None:
+            path = get_object_path(armature, context.view_layer)
+            draw_wrapped_text_col(l, text=f'Active Armature: {armature.name}\n\n{path}', icon='ARMATURE_DATA')
+        else:
+            draw_wrapped_text_col(l, text='Active Armature: None', icon='ARMATURE_DATA')
 
 class VALVEMODEL_ModelConfig(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = "ValveModel Config"
@@ -128,7 +137,7 @@ class VALVEMODEL_PT_Attachments(VALVEMODEL_ModelConfig):
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
-        ob : Object | None = context.object
+        ob : bpy.types.Object | None = getArmature(context.object)
         
         if is_armature(ob) or is_empty(ob): pass
         else:
@@ -210,7 +219,7 @@ class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
-        ob : Object | None = context.object
+        ob : bpy.types.Object | None = getArmature(context.object)
 
         if is_armature(ob): pass
         else:
@@ -229,11 +238,11 @@ class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
         jigglebones = getJiggleBones(ob)
         jigglebonesection = create_toggle_section(bx, context.scene.vs, 'show_jigglebones', f'Show Jigglebones: {len(jigglebones)}', '', alert=not bool(jigglebones), align=True)
         if context.scene.vs.show_jigglebones:
+            col = jigglebonesection.column()
             for jigglebone in jigglebones:
-                row = jigglebonesection.row(align=True)
+                row = col.row(align=True)
                 row.label(text=jigglebone.name,icon='BONE_DATA')
                 
-                row.alignment = 'RIGHT'
                 if len(jigglebone.collections) == 1:
                     row.label(text=jigglebone.collections[0].name,icon='GROUP_BONE')
                 elif len(jigglebone.collections) > 1:
@@ -367,11 +376,11 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
 
     @staticmethod
     def _has_jigglebones(context):
-        ob : Object | None = context.object
+        ob : Object | None = getArmature(context.object)
         return ob and is_armature(ob) and any(b.vs.bone_is_jigglebone for b in ob.data.bones)
 
     def execute(self, context : Context) -> Set:
-        arm = context.object
+        arm = getArmature(context.object)
         jigglebones = [b for b in arm.data.bones if b.vs.bone_is_jigglebone]
 
         if not jigglebones:
@@ -564,7 +573,7 @@ class VALVEMODEL_PT_ClothNode(VALVEMODEL_ModelConfig):
         
     def draw(self, context):
         l : UILayout | None = self.layout
-        ob = context.object
+        ob : bpy.types.Object | None = getArmature(context.object)
         
         if is_armature(ob): pass
         else:
@@ -863,14 +872,14 @@ class VALVEMODEL_PT_Animation(VALVEMODEL_ModelConfig):
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_Animation.bl_label)
 
-        ob : Object | None = context.object
+        ob : Object | None = getArmature(context.object)
         if is_armature(ob): pass
         else:
-            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
 
+        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_Animation.bl_label)
         col = bx.column()
 
         col.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname,icon='ACTION_TWEAK')
@@ -890,7 +899,7 @@ class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
-        ob : Object | None = context.object
+        ob : bpy.types.Object | None = getArmature(context.object)
 
         if is_empty(ob) or is_armature(ob): pass
         else:
@@ -979,14 +988,11 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
         return min_point, max_point
 
     def execute(self, context : Context) -> Set:
-        active_armature = context.object
+        active_armature = getArmature(context.object)
 
-        if not is_armature(active_armature):
-            active_armature = getArmature(context.object)
-
-            if active_armature is None or not is_armature(active_armature):
-                self.report({'WARNING'}, "Active object is not an armature")
-                return {'CANCELLED'}
+        if active_armature is None:
+            self.report({'WARNING'}, "Active object is not an armature")
+            return {'CANCELLED'}
 
         hitbox_data = []
         skipped_count = 0
@@ -1211,7 +1217,7 @@ class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
         
         bx : UILayout = draw_title_box(l, VALVEMODEL_PT_PBRtoPhong.bl_label)
         
-        noticebox = draw_wrapped_text_col(bx,text='The conversion may or may not be accurate!',icon='WARNING_LARGE',justified=False)
+        noticebox = draw_wrapped_text_col(bx,text='The conversion may or may not be accurate!',icon='WARNING_LARGE')
         
         col = bx.column(align=True)
         

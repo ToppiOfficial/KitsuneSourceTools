@@ -14,10 +14,9 @@ icons_dir = os.path.join(addon_dir, "icons")
 
 def load_other_icons():
     pcoll: typing.Type[ImagePreviewCollection] = bpy.utils.previews.new()
-    pcoll.load('LENNASMUG', os.path.join(icons_dir, 'lennasmug.png'), 'IMAGE')
-    pcoll.load('LENNABEG', os.path.join(icons_dir, 'lennabeg.png'), 'IMAGE')
     pcoll.load('BLENDSRCTOOL', os.path.join(icons_dir, 'blendsrctool.png'), 'IMAGE')
     pcoll.load('SOURCESDK', os.path.join(icons_dir, 'sourcesdk.png'), 'IMAGE')
+    pcoll.load('KITSUNE', os.path.join(icons_dir, 'kitsunelogo.png'), 'IMAGE')
 
     preview_collections['custom_icons'] = pcoll
 

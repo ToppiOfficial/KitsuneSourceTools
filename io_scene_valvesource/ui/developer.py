@@ -1,9 +1,12 @@
 import bpy, math
 from .. import iconloader
 from .common import KITSUNE_PT_CustomToolPanel
-from ..core import commonutils
 from bpy.types import Context, Panel, UILayout, Operator
 from typing import Set
+
+from ..core.commonutils import (
+    draw_title_box, draw_wrapped_text_col, create_toggle_section
+)
 
 class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = 'Developer Tools'
@@ -16,19 +19,25 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
-        bx = l.box()
-
-        bx.template_icon(icon_value=iconloader.preview_collections["custom_icons"]["LENNABEG"].icon_id, scale=5) # type: ignore
-        commonutils.draw_wrapped_text_col(bx, text='This no use to you so ignore this as to import you need my old add-on that I never released')
-
-        col = bx.column()
-        col.scale_y = 1.3
-        col.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
+        bx = draw_title_box(l,text='Developer Only Options', icon='OPTIONS')
+        
+        developertools = create_toggle_section(bx, context.scene.vs, 'show_developer_config','Show Developer Tools','')
+        if context.scene.vs.show_developer_config:
+            col = developertools.column()
+            draw_wrapped_text_col(col,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
+            
+            boolsection = draw_title_box(col,text='Bool Parameters')
+            boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
+            
+            operatorsection = draw_title_box(col,text='Operators')
+            operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
+        
+        bx.template_icon(icon_value=iconloader.preview_collections["custom_icons"]["KITSUNE"].icon_id, scale=8) # type: ignore
  
-#TODO: When will I remove it this??       
 class DEVELOPER_OT_ImportLegacyData(Operator):
     bl_idname : str = "smd.importlegacydata"
-    bl_label : str = "Import Legacy Data"
+    bl_label : str = "Import FubukiTek Data"
+    bl_description : str = "Import all plugin properties of the name 'FubukiTek' of the current blend file to KitsuneSourceTool properties"
     bl_options : Set = {'REGISTER','UNDO'}
 
     @classmethod

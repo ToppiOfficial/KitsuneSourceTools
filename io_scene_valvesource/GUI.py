@@ -123,9 +123,6 @@ class SMD_PT_Scene(bpy.types.Panel):
         col.prop(scene.vs,"weightlink_threshold",slider=True)
         col.prop(scene.vs,"vertex_influence_limit",slider=True)
         
-        if State.exportFormat == ExportFormat.DMX:
-            l.prop(scene.vs,"use_kv2")
-        
         col = l.column(align=True)
         row = col.row(align=True)
         self.HelpButton(row)
@@ -447,7 +444,7 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         l.label(text='Exportable Objects', icon='EXPORT')
         l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8, type='DEFAULT')
         
-        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '')
+        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '', icon='HELP')
         if scene.vs.show_exportable_help:
             row = exportablehelp_section.row()
             row.scale_y = 1.3
@@ -459,7 +456,7 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         l.label(text='Prefabs', icon='FILE_TEXT')
         prefabhelpsection = create_toggle_section(l,context.scene.vs,'show_prefab_help','Read Me','')
         if context.scene.vs.show_prefab_help:
-            draw_wrapped_text_col(prefabhelpsection,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=40, icon='WARNING_LARGE',boxed=False)
+            draw_wrapped_text_col(prefabhelpsection,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=45, icon='WARNING_LARGE',boxed=False)
         
         l.operator("smd.add_prefab", icon="ADD")
         l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")

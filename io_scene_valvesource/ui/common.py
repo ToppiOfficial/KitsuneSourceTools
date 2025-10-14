@@ -28,7 +28,7 @@ class Tools_SubCategoryPanel(KITSUNE_PT_CustomToolPanel, Panel):
     bl_parent_id : str = "TOOLS_PT_PANEL"
     bl_options : Set = {'DEFAULT_CLOSED'}
     
-def make_toggle_operator_scene(suffix: str):
+def make_toggle_operator_scene(suffix: str, mutual_exclusive_group: list[str] | None = None):
     """Create an operator that toggles a BoolProperty in context.scene.vs."""
     class_name : str = f"KITSUNE_OT_toggle_{suffix}"
     bl_idname : str = f"kitsunetoggle.{suffix}"
@@ -50,8 +50,14 @@ def make_toggle_operator_scene(suffix: str):
             self.report({'ERROR'}, f"vs.{suffix} is not a BoolProperty")
             return {'CANCELLED'}
 
-        setattr(vs, suffix, not current)
-        new_val = getattr(vs, suffix)
+        new_val = not current
+        
+        if new_val and mutual_exclusive_group:
+            for prop in mutual_exclusive_group:
+                if prop != suffix and hasattr(vs, prop):
+                    setattr(vs, prop, False)
+        
+        setattr(vs, suffix, new_val)
         return {'FINISHED'}
 
     return type(
@@ -64,6 +70,11 @@ def make_toggle_operator_scene(suffix: str):
         }
     )
 
-for name in toggle_show_ops:
-    cls = make_toggle_operator_scene(name)
-    bpy.utils.register_class(cls)
+for entry in toggle_show_ops:
+    if isinstance(entry, list):
+        for name in entry:
+            cls = make_toggle_operator_scene(name, mutual_exclusive_group=entry)
+            bpy.utils.register_class(cls)
+    else:
+        cls = make_toggle_operator_scene(entry)
+        bpy.utils.register_class(cls)

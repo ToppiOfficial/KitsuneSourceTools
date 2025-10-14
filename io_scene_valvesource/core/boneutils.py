@@ -137,7 +137,6 @@ def getBoneMatrix(
     # Apply offsets in bone space
     return matrix @ offset_matrix
 
-
 def getRelativeTargetMatrix(
     slave: bpy.types.PoseBone,
     master: bpy.types.PoseBone | None = None,

@@ -115,7 +115,7 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         
         armaturemappersection = create_toggle_section(col, context.scene.vs, 'show_armaturemapper_help', f'Show Help', '')
         if context.scene.vs.show_armaturemapper_help:
-            draw_wrapped_text_col(armaturemappersection,message,max_chars=40, icon='HELP',justified=False,boxed=False)
+            draw_wrapped_text_col(armaturemappersection,message,max_chars=40, icon='HELP',boxed=False)
         
         self.draw_humanoid_bone_mapping(context, layout)
 

@@ -113,8 +113,12 @@ class KitsuneTool_PanelProps():
     smd_prefabs_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     
-    for _name in toggle_show_ops:
-        exec(f"{_name} : BoolProperty(name='{_name.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
+    for entry in toggle_show_ops:
+        if isinstance(entry, list):
+            for _name in entry:
+                exec(f"{_name} : BoolProperty(name='{_name.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
+        else:
+            exec(f"{entry} : BoolProperty(name='{entry.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
         
 class KitsuneTool_PBRMapsToPhongProps():
     diffuse_map : StringProperty(name='Color Map')
@@ -517,12 +521,9 @@ _classes = (
     
     # MESH PANEL
     properties.SMD_PT_Mesh,
-    properties.SMD_PT_ShapeKeys,
     properties.DME_UL_FlexControllers,
     properties.DME_OT_AddFlexController,
     properties.DME_OT_RemoveFlexController,
-    properties.SMD_PT_VertexMaps,
-    properties.SMD_PT_FloatMaps,
     properties.SMD_OT_AddVertexMapRemap,
     
     # CURVE PANEL

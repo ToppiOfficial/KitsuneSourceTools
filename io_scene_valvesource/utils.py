@@ -82,6 +82,8 @@ toggle_show_ops = [
     "show_pbrphong_help",
     "show_clothnodes",
     "show_objectwarnings",
+    "show_developer_config",
+    ['show_flex','show_vertexmap','show_floatmaps'],
 ]
 
 class ExportFormat:
