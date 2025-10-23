@@ -157,7 +157,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
         
-        draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=38, title='KitsuneSourceTool (Alpha 2.3)')
+        draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=38, title='KitsuneSourceTool (Alpha 2.4)')
         
         num_warnings = 0
         
@@ -513,7 +513,12 @@ class SMD_PT_Materials(ExportableConfigurationPanel):
                 subbx = allmaterials_section.box()
                 col = subbx.column(align=False)
                 row = col.row(align=True)
-                row.label(text=mat.name, icon_value=mat.preview.icon_id)
+                
+                if mat.preview is not None:
+                    row.label(text=mat.name, icon_value=mat.preview.icon_id)
+                else:
+                    row.label(text=mat.name, icon='MATERIAL')
+                    
                 row.prop(mat.vs, 'do_not_export_faces',text='Do Not Export',toggle=True)
                 row.prop(mat.vs, 'do_not_export_faces_vgroup', text='Vertex Filtering',toggle=True)
                 

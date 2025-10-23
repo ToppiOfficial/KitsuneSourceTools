@@ -23,13 +23,19 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         
         developertools = create_toggle_section(bx, context.scene.vs, 'show_developer_config','Show Developer Tools','')
         if context.scene.vs.show_developer_config:
-            col = developertools.column()
-            draw_wrapped_text_col(col,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
+            maincol = developertools.column()
+            draw_wrapped_text_col(maincol,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
             
-            boolsection = draw_title_box(col,text='Bool Parameters')
+            boolsection = draw_title_box(maincol,text='Bool Parameters')
             boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
             
-            operatorsection = draw_title_box(col,text='Operators')
+            col = boolsection.column(align=True)
+            col.prop(context.scene.vs,"propagate_enabled")
+            split = col.split(align=True, factor=0.1)
+            split.label(text='└')
+            split.prop(context.scene.vs,"propagate_include_active")
+            
+            operatorsection = draw_title_box(maincol,text='Operators')
             operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
         
         bx.template_icon(icon_value=iconloader.preview_collections["custom_icons"]["KITSUNE"].icon_id, scale=8) # type: ignore

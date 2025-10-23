@@ -944,7 +944,7 @@ class SmdExporter(bpy.types.Operator, Logger):
         
         def removeFacesByMaterials(obj: bpy.types.Object, tolerance: float = 1.0):
             """Remove faces based on material flags or vertex group filtering."""
-
+            
             me = obj.data
             mats = me.materials
             if not mats:
@@ -978,18 +978,19 @@ class SmdExporter(bpy.types.Operator, Logger):
             if not faces_to_delete:
                 return
 
-            bpy.context.view_layer.objects.active = obj
-            bpy.ops.object.mode_set(mode='EDIT')
-
-            bm = bmesh.from_edit_mesh(me)
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            bm.faces.ensure_lookup_table()
+            
             delete_geom = [f for f in bm.faces if f.index in faces_to_delete]
 
             if delete_geom:
                 print(f"- Excluding {len(delete_geom)} faces on '{obj.name}'")
                 bmesh.ops.delete(bm, geom=delete_geom, context='FACES')
-                bmesh.update_edit_mesh(me)
-
-            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            bm.to_mesh(me)
+            bm.free()
+            me.update()
         
         if id.type in exportable_types:
             # Bake reference mesh
@@ -1020,11 +1021,12 @@ class SmdExporter(bpy.types.Operator, Logger):
                     if id.data.vs.faces != 'FORWARD':
                         ops.mesh.flip_normals()
                     ops.object.mode_set(mode='OBJECT')
-
+                
+                removeFacesByMaterials(ob)
+                
                 return ob
 
             baked = put_in_object(id,data)
-            removeFacesByMaterials(baked)
 
             if should_triangulate: triangulate()
 
@@ -1105,7 +1107,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                     id.active_shape_key_index = 0  # switch to basis shape
 
                     mod = shape_ob.modifiers.new(name="PreserveBasisNormals", type='DATA_TRANSFER')
-                    mod.object = id
+                    mod.object = baked
                     mod.use_loop_data = True
                     mod.data_types_loops = {'CUSTOM_NORMAL'}
                     mod.loop_mapping = 'TOPOLOGY'

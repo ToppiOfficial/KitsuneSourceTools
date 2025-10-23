@@ -1527,6 +1527,12 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
+        if metal.shape != (height, width):
+            metal = self.resize_array(metal, height, width)
+        
+        if roughness.shape != (height, width):
+            roughness = self.resize_array(roughness, height, width)
+
         if normal_type == 'DEF':
             result[:, :, :3] = normal[:, :, :3]
         elif normal_type == 'RED':

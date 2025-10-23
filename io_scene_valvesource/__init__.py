@@ -119,6 +119,17 @@ class KitsuneTool_PanelProps():
                 exec(f"{_name} : BoolProperty(name='{_name.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
         else:
             exec(f"{entry} : BoolProperty(name='{entry.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
+            
+    propagate_enabled: BoolProperty(
+        name="Enable Property Propagation",
+        description="When enabled, property changes automatically sync to all selected objects and bones",
+        default=True
+    )
+
+    propagate_include_active: BoolProperty(
+        name="Include Active Object",
+        default=True
+    )
         
 class KitsuneTool_PBRMapsToPhongProps():
     diffuse_map : StringProperty(name='Color Map')

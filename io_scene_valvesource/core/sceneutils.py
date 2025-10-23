@@ -73,9 +73,9 @@ def resolve_attr_path(obj, path: str):
             return None
     return obj
 
-def propagateProperty(self, context, prop_name: str, group_path="vs"):
+def propagateProperty(self, context, prop_name: str, group_path="vs", propagate_enabled=True, include_active=False):
     global _property_updating
-    if _property_updating:
+    if _property_updating or not propagate_enabled:
         return
 
     new_value = getattr(self, prop_name)
@@ -84,11 +84,11 @@ def propagateProperty(self, context, prop_name: str, group_path="vs"):
     
     for obj in context.selected_objects:
         if obj.type == 'ARMATURE':
-            selectedBones = getSelectedBones(obj, 'BONE', exclude_active=True)
+            selectedBones = getSelectedBones(obj, 'BONE', exclude_active=not include_active)
             for b in selectedBones:
                 targets[b] = obj
         else:
-            if obj != context.active_object:
+            if include_active or obj != context.active_object:
                 targets[obj] = None
 
     _property_updating = True
@@ -101,5 +101,9 @@ def propagateProperty(self, context, prop_name: str, group_path="vs"):
         _property_updating = False
 
 
-def make_update(prop_name, group_path="vs"):
-    return lambda self, context: propagateProperty(self, context, prop_name, group_path)
+def make_update(prop_name, group_path="vs", propagate_enabled_attr="propagate_enabled", include_active_attr="propagate_include_active"):
+    def update_func(self, context):
+        propagate_enabled = getattr(self, propagate_enabled_attr, True)
+        include_active = getattr(self, include_active_attr, False)
+        propagateProperty(self, context, prop_name, group_path, propagate_enabled, include_active)
+    return update_func
