@@ -5,6 +5,7 @@ from .commonutils import getArmatureMeshes, UnselectAll, HideObject, PreserveCon
 from .sceneutils import ExposeAllObjects
 from contextlib import contextmanager
 from mathutils import Vector
+from typing import Set, Optional, Callable
 
 unweightedBoneFilters = [ "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
                          'Left shoulder', 'Left arm', 'Left elbow', 'Left wrist', 'Left leg', 'Left knee', 'Left ankle',
@@ -136,6 +137,75 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                     else:
                         pbone.rotation_euler = values["rotation"]
 
+def fix_bone_parented_empties(
+    armature: Optional[bpy.types.Object] = None,
+    filter_func: Optional[Callable[[bpy.types.Object], bool]] = None,
+    preserve_rotation: bool = True
+) -> int:
+    """
+    Universal function to fix matrix for empties parented to bones.
+    
+    Args:
+        armature: Specific armature to process. If None, processes all armatures.
+        filter_func: Optional function to filter which empties to process.
+        preserve_rotation: If True, preserves world rotation. If False, resets to (0,0,0).
+    
+    Returns:
+        Number of empties fixed.
+    """
+    fixed_count = 0
+    
+    objects_to_process = []
+    if armature:
+        objects_to_process = armature.children
+    else:
+        objects_to_process = bpy.data.objects
+    
+    for obj in objects_to_process:
+        if obj.type != 'EMPTY':
+            continue
+        
+        if filter_func and not filter_func(obj):
+            continue
+        
+        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
+            continue
+        
+        arm = obj.parent
+        bone_name = obj.parent_bone
+        
+        if bone_name not in arm.data.bones:
+            continue
+        
+        world_matrix = obj.matrix_world.copy()
+        world_location = obj.matrix_world.to_translation()
+        world_scale = obj.matrix_world.to_scale()
+        
+        pose_bone = arm.pose.bones[bone_name]
+        bone_tip_matrix = arm.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
+        
+        obj.parent = None
+        obj.parent = arm
+        obj.parent_type = 'BONE'
+        obj.parent_bone = bone_name
+        
+        local_location = bone_tip_matrix.inverted() @ world_location
+        obj.location = local_location
+        obj.scale = world_scale
+        
+        if preserve_rotation:
+            local_rotation = (bone_tip_matrix.inverted() @ world_matrix).to_euler()
+            obj.rotation_euler = tuple(
+                round(angle, 6) if abs(angle) > 1e-6 else 0.0 
+                for angle in local_rotation
+            )
+        else:
+            obj.rotation_euler = (0, 0, 0)
+        
+        fixed_count += 1
+    
+    return fixed_count
+
 def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
     if armature is None: return False
     
@@ -185,6 +255,13 @@ def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
 
                 op_override(bpy.ops.pose.armature_apply, {'active_object': armature})
                 bpy.ops.object.mode_set(mode='OBJECT')
+
+                fixed_count = fix_bone_parented_empties(
+                    armature=armature,
+                    preserve_rotation=True
+                )
+                if fixed_count > 0:
+                    print(f"Fixed {fixed_count} empty object(s)")
 
                 bpy.ops.object.select_all(action='DESELECT')
                 for obj in selected_objects:

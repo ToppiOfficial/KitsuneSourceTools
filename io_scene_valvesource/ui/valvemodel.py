@@ -25,7 +25,7 @@ from ..core.boneutils import(
 )
 
 from ..core.armatureutils import(
-    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix, getArmatureMeshes
+    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix, getArmatureMeshes, fix_bone_parented_empties
 )
 
 class VALVEMODEL_PrefabExportOperator():
@@ -157,52 +157,19 @@ class VALVEMODEL_PT_Attachments(VALVEMODEL_ModelConfig):
         bx.operator(VALVEMODEL_OT_FixAttachment.bl_idname,icon='OPTIONS')
 
 class VALVEMODEL_OT_FixAttachment(Operator):
-    bl_idname : str = "smd.fix_attachments"
-    bl_label : str = "Fix Source Attachment Empties Matrix"
+    bl_idname: str = "smd.fix_attachments"
+    bl_label: str = "Fix Source Attachment Empties Matrix"
     bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
-    bl_options : Set = {'INTERNAL', 'UNDO'}
+    bl_options: Set = {'INTERNAL', 'UNDO'}
     
-    def execute(self, context : Context) -> set:
-        fixed_count = 0
+    def execute(self, context: Context) -> set:
+        def is_attachment(obj):
+            return obj.vs.dmx_attachment
         
-        for obj in bpy.data.objects:
-            if obj.type != 'EMPTY':
-                continue
-            
-            if not obj.vs.dmx_attachment:
-                continue
-            
-            if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
-                continue
-            
-            armature = obj.parent
-            bone_name = obj.parent_bone
-            
-            if bone_name not in armature.data.bones:
-                continue
-            
-            world_matrix = obj.matrix_world.copy()
-            world_location = obj.matrix_world.to_translation()
-            world_rotation = obj.matrix_world.to_euler()
-            world_scale = obj.matrix_world.to_scale()
-            
-            pose_bone = armature.pose.bones[bone_name]
-            bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
-            
-            obj.parent = None
-            
-            obj.parent = armature
-            obj.parent_type = 'BONE'
-            obj.parent_bone = bone_name
-            
-            local_location = bone_tip_matrix.inverted() @ world_location
-            local_rotation = (bone_tip_matrix.inverted() @ world_matrix).to_euler()
-            
-            obj.location = local_location
-            obj.rotation_euler = local_rotation
-            obj.scale = world_scale
-            
-            fixed_count += 1
+        fixed_count = fix_bone_parented_empties(
+            filter_func=is_attachment,
+            preserve_rotation=True
+        )
         
         if fixed_count > 0:
             self.report({'INFO'}, f'Fixed {fixed_count} attachment(s)')
@@ -1097,50 +1064,20 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
         return {'FINISHED'}
     
 class VALVEMODEL_OT_FixHitBox(Operator):
-    bl_idname : str = "smd.fix_hitboxes"
-    bl_label : str = "Fix Source Hitboxes Empties Matrix"
+    bl_idname: str = "smd.fix_hitboxes"
+    bl_label: str = "Fix Source Hitboxes Empties Matrix"
     bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
-    bl_options : Set = {'INTERNAL', 'UNDO'}
+    bl_options: Set = {'INTERNAL', 'UNDO'}
     
-    def execute(self, context : Context) -> set:
-        fixed_count = 0
+    def execute(self, context: Context) -> set:
+        def is_hitbox(obj):
+            return (obj.empty_display_type == 'CUBE' and 
+                    obj.vs.smd_hitbox_group)
         
-        for obj in bpy.data.objects:
-            if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
-                continue
-            
-            if not obj.vs.smd_hitbox_group:
-                continue
-            
-            if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
-                continue
-            
-            armature = obj.parent
-            bone_name = obj.parent_bone
-            
-            if bone_name not in armature.data.bones:
-                continue
-            
-            world_matrix = obj.matrix_world.copy()
-            world_location = obj.matrix_world.to_translation()
-            world_scale = obj.matrix_world.to_scale()
-            
-            pose_bone = armature.pose.bones[bone_name]
-            bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
-            
-            obj.parent = None
-            
-            obj.parent = armature
-            obj.parent_type = 'BONE'
-            obj.parent_bone = bone_name
-            
-            local_location = bone_tip_matrix.inverted() @ world_location
-            
-            obj.location = local_location
-            obj.rotation_euler = (0, 0, 0)
-            obj.scale = world_scale
-            
-            fixed_count += 1
+        fixed_count = fix_bone_parented_empties(
+            filter_func=is_hitbox,
+            preserve_rotation=False
+        )
         
         if fixed_count > 0:
             self.report({'INFO'}, f'Fixed {fixed_count} hitbox(es)')

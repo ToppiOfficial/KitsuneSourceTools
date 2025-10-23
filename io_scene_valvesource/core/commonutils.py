@@ -699,3 +699,34 @@ def get_object_path(obj, view_layer) -> str:
         return f"{view_layer.name} > {' > '.join(col_path)} > {obj.name}"
     else:
         return f"{view_layer.name} > {obj.name}"
+    
+def create_subitem_ui(parent_column, indent_factor=0.1, indent_char='└'):
+    """
+    Creates an indented sub-item UI pattern.
+    
+    Args:
+        parent_column: The parent UI column to add items to
+        indent_factor: Split factor for indentation (default: 0.1)
+        indent_char: Character to use for indent indicator (default: '└')
+    
+    Returns:
+        tuple: (root_column, sub_wrapper) where:
+            - root_column: Column for the main item
+            - sub_wrapper: Wrapper object with add_prop() method for sub-items
+    """
+    root_col = parent_column.column(align=True)
+    
+    class SubItemWrapper:
+        def __init__(self, parent, factor, char):
+            self.parent = parent
+            self.factor = factor
+            self.char = char
+        
+        def prop(self, data, property, **kwargs):
+            split = self.parent.split(align=True, factor=self.factor)
+            split.label(text=self.char)
+            split.prop(data, property, **kwargs)
+    
+    sub_wrapper = SubItemWrapper(root_col, indent_factor, indent_char)
+    
+    return root_col, sub_wrapper

@@ -5,7 +5,7 @@ from bpy.types import Context, Panel, UILayout, Operator
 from typing import Set
 
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col, create_toggle_section
+    draw_title_box, draw_wrapped_text_col, create_toggle_section, create_subitem_ui
 )
 
 class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
@@ -29,11 +29,9 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             boolsection = draw_title_box(maincol,text='Bool Parameters')
             boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
             
-            col = boolsection.column(align=True)
-            col.prop(context.scene.vs,"propagate_enabled")
-            split = col.split(align=True, factor=0.1)
-            split.label(text='└')
-            split.prop(context.scene.vs,"propagate_include_active")
+            rootcol, itemcol = create_subitem_ui(boolsection)
+            rootcol.prop(context.scene.vs,"propagate_enabled")
+            itemcol.prop(context.scene.vs,"propagate_include_active")
             
             operatorsection = draw_title_box(maincol,text='Operators')
             operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
