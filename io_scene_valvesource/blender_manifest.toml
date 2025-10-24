@@ -19,7 +19,7 @@ license = [
 ]
 
 # Permissions
-permissions = ["files"]
+permissions = ["files", "network"]
 
 # Optional Metadata
 tags = [

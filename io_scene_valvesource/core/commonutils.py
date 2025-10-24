@@ -730,3 +730,10 @@ def create_subitem_ui(parent_column, indent_factor=0.1, indent_char='└'):
     sub_wrapper = SubItemWrapper(root_col, indent_factor, indent_char)
     
     return root_col, sub_wrapper
+
+def get_all_children(parent_obj):
+    children = []
+    for child in parent_obj.children:
+        children.append(child)
+        children.extend(get_all_children(child))
+    return children

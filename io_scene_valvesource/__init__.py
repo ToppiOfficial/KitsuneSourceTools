@@ -39,8 +39,8 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
             collection.remove(func)
 
 from . import datamodel, import_smd, export_smd, flex, GUI, iconloader
-from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, sceneutils
-from .ui import developer, armature_mapper, common, properties, valvemodel, animation, vertexgroup, armature, mesh, bone
+from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, sceneutils, networkutils
+from .ui import developer, armature_mapper, common, properties, translate, valvemodel, animation, vertexgroup, armature, mesh, bone
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -586,6 +586,9 @@ _classes = (
     armature_mapper.ARMATUREMAPPER_OT_WriteJson,
     armature_mapper.ARMATUREMAPPER_OT_LoadJson,
     armature_mapper.ARMATUREMAPPER_OT_LoadPreset,
+    
+    translate.TRANSLATE_PT_translate_panel,
+    translate.TRANSLATE_OT_translate_names,
     
     valvemodel.VALVEMODEL_PT_PANEL,
     valvemodel.VALVEMODEL_PT_Attachments,

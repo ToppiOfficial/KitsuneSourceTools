@@ -1,11 +1,11 @@
 import bpy
-from bpy.props import BoolProperty, EnumProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty
 from bpy.types import UILayout, Context, Operator, Object
 from typing import Set
 
 from ..core.commonutils import (
     is_armature, is_mesh, draw_title_box, draw_wrapped_text_col,
-    getArmature, getArmatureMeshes, PreserveContextMode
+    getArmature, getArmatureMeshes, PreserveContextMode, create_subitem_ui
 )
 
 from ..core.meshutils import (
@@ -74,43 +74,69 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
         return {'FINISHED'} if success else {'CANCELLED'}
     
 class TOOLS_OT_CleanUnWeightedBones(Operator):
-    bl_idname : str = 'tools.clean_unweighted_bones'
-    bl_label : str = 'Clean Unweighted Bones'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname: str = 'tools.clean_unweighted_bones'
+    bl_label: str = 'Clean Unweighted Bones'
+    bl_options: Set = {'REGISTER', 'UNDO'}
     
-    respect_animation : BoolProperty(
-    name='Respect Animation Bones',
-    description='Preserve bones that have animation keyframes or are part of a hierarchy that does',
-    default=True
-)
-
-    aggressive_cleaning : BoolProperty(
-    name='Aggressive Removal',
-    description='Remove all bones without weight painting, even if they have animated or weighted child bones. '
-                'WARNING: This will not respect hierarchy-dependent armature structures and may break rig constraints.',
-    default=False
+    cleaning_mode: EnumProperty(
+        name='Cleaning Mode',
+        description='How to handle animated and constrained bones',
+        items=[
+            ('RESPECT_ANIMATION', 'Respect Animation Rigging', 
+             'Preserve bones with keyframes, constraints, drivers, or that are constraint targets'),
+            ('HIERARCHY_ONLY', 'Respect Hierarchy', 
+             'Only preserve bones with weighted children, ignoring animation'),
+            ('FULL_CLEAN', 'Full Clean', 
+             'Remove all unweighted bones regardless of animation or hierarchy')
+        ],
+        default='RESPECT_ANIMATION'
+    )
+    
+    remove_empty_vertex_groups: BoolProperty(
+        name='Remove Empty Vertex Groups',
+        description='Also remove vertex groups with no weights',
+        default=True
+    )
+    
+    weight_threshold: FloatProperty(
+        name='Weight Threshold',
+        description='Remove weights below this value',
+        default=0.001,
+        min=0.0001,
+        max=0.1,
+        precision=4
+    )
+    
+    preserve_deform_bones: BoolProperty(
+        name='Preserve Deform Bones',
+        description='Keep bones marked as deform even if unweighted',
+        default=False
     )
 
     @classmethod
-    def poll(cls, context : Context) -> bool:
+    def poll(cls, context: Context) -> bool:
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
         
     def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, width=400)
     
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        l.prop(self, 'aggressive_cleaning')
+    def draw(self, context: Context) -> None:
+        l: UILayout | None = self.layout
+        col = l.column(align=True)
+        col.prop(self, 'cleaning_mode', expand=False)
         
-        if not self.aggressive_cleaning:
-            l.prop(self, 'respect_animation')
-        else:
+        col.separator()
+        col.prop(self, 'preserve_deform_bones')
+        rootcol, itemcol = create_subitem_ui(col,indent_factor=0.05)
+        rootcol.prop(self, 'remove_empty_vertex_groups')
+        itemcol.prop(self, 'weight_threshold', slider=True)
+        
+        if self.cleaning_mode == 'FULL_CLEAN':
             bx = l.box()
-            bx.label(text='Cleaning will break constraints and IK!', icon='ERROR')
+            bx.label(text='WARNING: May break rigs with IK/constraints!', icon='ERROR')
 
-    def execute(self, context : Context) -> Set:
-        
-        armatures : Set[Object | None] = {getArmature(ob) for ob in context.selected_objects}
+    def execute(self, context: Context) -> Set:
+        armatures: Set[Object | None] = {getArmature(ob) for ob in context.selected_objects}
         
         total_vgroups_removed = 0
         total_bones_removed = 0
@@ -118,34 +144,35 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         for armature in armatures:
             bones = armature.pose.bones
             meshes = getArmatureMeshes(armature)
-            
-            if self.aggressive_cleaning:
-                self.respect_animation = False
 
             if not meshes or not bones:
                 self.report({'WARNING'}, "No meshes or bones associated with the armature.")
                 return {'CANCELLED'}
 
-            removed_vgroups = clean_vertex_groups(armature, armature.data.bones)
+            if self.remove_empty_vertex_groups:
+                removed_vgroups = clean_vertex_groups(
+                    armature, 
+                    armature.data.bones,
+                    weight_limit=self.weight_threshold
+                )
+                total_vgroups_removed += sum(len(vgs) for vgs in removed_vgroups.values())
 
             remaining_vgroups = {
                 mesh: set(vg.name for vg in mesh.vertex_groups)
                 for mesh in meshes
             }
 
+            constraint_targets = self.get_constraint_targets(armature)
+            constraint_owners = self.get_constraint_owners(armature)
+
             while True:
                 bones_to_remove = set()
                 for b in bones:
-                    if b.children and not self.aggressive_cleaning:
+                    if self.should_preserve_bone(
+                        armature, b, meshes, remaining_vgroups, 
+                        constraint_targets, constraint_owners
+                    ):
                         continue
-
-                    has_weight = any(b.name in remaining_vgroups[mesh] for mesh in meshes)
-                    if has_weight:
-                        continue
-
-                    if self.respect_animation and not self.aggressive_cleaning:
-                        if self.hierarchy_has_animation(armature, b):
-                            continue
                     
                     if b.name not in unweightedBoneFilters:
                         bones_to_remove.add(b.name)
@@ -161,42 +188,112 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                             mesh: set(vg.name for vg in mesh.vertex_groups)
                             for mesh in meshes
                         }
+                        
+                        constraint_targets = self.get_constraint_targets(armature)
+                        constraint_owners = self.get_constraint_owners(armature)
                 else:
                     break
 
-            total_vgroups_removed += sum(len(vgs) for vgs in removed_vgroups.values())
-
-        self.report({'INFO'}, f'{total_bones_removed} bones removed with {total_vgroups_removed} empty vertex groups removed.')
+        self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_vgroups_removed} empty vertex groups cleaned.')
         return {'FINISHED'}
+
+    def should_preserve_bone(self, armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners):
+        if self.preserve_deform_bones and bone.bone.use_deform:
+            return True
+        
+        has_weight = any(bone.name in remaining_vgroups[mesh] for mesh in meshes)
+        if has_weight:
+            return True
+        
+        if self.cleaning_mode == 'FULL_CLEAN':
+            return False
+        
+        if self.cleaning_mode == 'HIERARCHY_ONLY':
+            return self.has_weighted_descendants(bone, meshes, remaining_vgroups)
+        
+        if self.cleaning_mode == 'RESPECT_ANIMATION':
+            if self.bone_has_animation(armature, bone.name):
+                return True
+            
+            if bone.name in constraint_targets or bone.name in constraint_owners:
+                return True
+            
+            if self.has_animated_or_constrained_descendants(
+                armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners
+            ):
+                return True
+        
+        return False
+
+    def has_weighted_descendants(self, bone, meshes, remaining_vgroups):
+        for child in bone.children:
+            if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
+                return True
+            if self.has_weighted_descendants(child, meshes, remaining_vgroups):
+                return True
+        return False
+
+    def has_animated_or_constrained_descendants(self, armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners):
+        for child in bone.children:
+            if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
+                return True
+            
+            if self.bone_has_animation(armature, child.name):
+                return True
+            
+            if child.name in constraint_targets or child.name in constraint_owners:
+                return True
+            
+            if self.has_animated_or_constrained_descendants(
+                armature, child, meshes, remaining_vgroups, constraint_targets, constraint_owners
+            ):
+                return True
+        return False
 
     def bone_has_animation(self, armature, bone_name):
         bone = armature.pose.bones.get(bone_name)
         if not bone:
             return False
 
-        # Check keyframes
         for action in bpy.data.actions:
             for fcurve in action.fcurves:
                 if fcurve.data_path.startswith(f'pose.bones["{bone_name}"]'):
                     if any(kw in fcurve.data_path for kw in ('location', 'rotation', 'scale')):
-                        keyframes = set(kf.co[1] for kf in fcurve.keyframe_points)
-                        if len(keyframes) > 1:
+                        if len(fcurve.keyframe_points) > 1:
                             return True
 
-        # Check constraints
-        for constr in bone.constraints:
-            if getattr(constr, "target", None) or getattr(constr, "driver_add", None):
-                return True
+        if armature.animation_data and armature.animation_data.drivers:
+            bone_path = f'pose.bones["{bone_name}"]'
+            for driver in armature.animation_data.drivers:
+                if driver.data_path.startswith(bone_path):
+                    if any(kw in driver.data_path for kw in ('location', 'rotation', 'scale')):
+                        return True
 
         return False
 
-    def hierarchy_has_animation(self, armature, bone):
-        if self.bone_has_animation(armature, bone.name):
-            return True
-        for child in bone.children:
-            if self.hierarchy_has_animation(armature, child):
-                return True
-        return False
+    def get_constraint_targets(self, armature):
+        targets = set()
+        for bone in armature.pose.bones:
+            for constraint in bone.constraints:
+                target = getattr(constraint, 'target', None)
+                if target == armature:
+                    subtarget = getattr(constraint, 'subtarget', None)
+                    if subtarget:
+                        targets.add(subtarget)
+                    
+                    if constraint.type == 'IK':
+                        pole_target = getattr(constraint, 'pole_target', None)
+                        pole_subtarget = getattr(constraint, 'pole_subtarget', None)
+                        if pole_target == armature and pole_subtarget:
+                            targets.add(pole_subtarget)
+        return targets
+
+    def get_constraint_owners(self, armature):
+        owners = set()
+        for bone in armature.pose.bones:
+            if bone.constraints:
+                owners.add(bone.name)
+        return owners
     
 class TOOLS_OT_MergeArmatures(Operator):
     bl_idname : str = "tools.merge_armatures"
