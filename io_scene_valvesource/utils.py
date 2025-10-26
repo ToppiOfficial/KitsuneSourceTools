@@ -71,6 +71,7 @@ pbr_to_phong_channels = [
 ]
 
 toggle_show_ops = [
+    "show_addoninfo",
     "show_jigglebones",
     "show_hitboxes",
     "show_attachments",

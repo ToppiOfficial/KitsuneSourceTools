@@ -306,27 +306,33 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
+
+        col = l.column(align=True)
         
         addonver, addondevstate = format_version()
-        draw_wrapped_text_col(l, get_id('introduction_message'), max_chars=38, title=f'KitsuneSourceTool {addonver}_{addondevstate}')
+        addoninfo_section : UILayout = create_toggle_section(col, context.scene.vs, 'show_addoninfo', show_text=f'KitsuneSourceTool {addonver}_{addondevstate}', hide_text='')
+        if addoninfo_section is not None:
+            draw_wrapped_text_col(addoninfo_section, get_id('introduction_message'), max_chars=38)
         
-        prophelpsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '', icon='HELP')
+        prophelpsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_properties_help', f'Show Tips', '')
         if context.scene.vs.show_properties_help:
             help_text = [
                 '- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type.\n\n',
                 '- Exporting bones with non alphanumeric character will be sanitize and can lead to issues with bone mixup.',
             ]
             draw_wrapped_text_col(prophelpsection, text="".join(help_text), max_chars=40)
+            
+        col.separator()
 
         warning_count = ValidationChecker.count_warnings(context)
         has_warnings = warning_count > 0
         
         section_title = 'Show Validation Check' if warning_count == 0 else f'Show Validation Check ({warning_count})'
-        warningsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings, icon='SCENE_DATA')
+        warningsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings, icon='OBJECT_DATA')
         
         if context.scene.vs.show_objectwarnings:
             self.draw_warning_checks(context, warningsection)
-
+            
     def draw_warning_checks(self, context: Context, layout: UILayout) -> int:
         num_warnings = 0
         

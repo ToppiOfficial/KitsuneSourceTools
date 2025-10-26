@@ -18,24 +18,6 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-ADDONVER = 252
-ADDONDEVSTATE = 'ALPHA'
-
-def format_version(ver: int = ADDONVER) -> tuple[str, str]:
-    if ver < 10:
-        version_str = f"0.{ver}"
-    elif ver < 100:
-        major = ver // 10
-        minor = ver % 10
-        version_str = f"{major}.{minor}"
-    else:
-        major = ver // 100
-        minor = (ver % 100) // 10
-        patch = ver % 10
-        version_str = f"{major}.{minor}.{patch}"
-    
-    return version_str, ADDONDEVSTATE.lower()
-
 import bpy, math
 from typing import Set
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
@@ -55,6 +37,24 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
     for func in collection[:]:
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
+
+ADDONVER = 253
+ADDONDEVSTATE = 'ALPHA'
+
+def format_version(ver: int = ADDONVER) -> tuple[str, str]:
+    if ver < 10:
+        version_str = f"0.{ver}"
+    elif ver < 100:
+        major = ver // 10
+        minor = ver % 10
+        version_str = f"{major}.{minor}"
+    else:
+        major = ver // 100
+        minor = (ver % 100) // 10
+        patch = ver % 10
+        version_str = f"{major}.{minor}.{patch}"
+    
+    return version_str, ADDONDEVSTATE.lower()
 
 from . import datamodel, import_smd, export_smd, flex, GUI, iconloader
 from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, sceneutils, networkutils
