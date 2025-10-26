@@ -3,6 +3,14 @@ from typing import Literal, Set
 from bpy.types import Context, Panel, UILayout, UILayout
 from ..utils import toggle_show_ops
 
+from ..core.commonutils import (
+    create_toggle_section
+)
+
+from . import (
+    armature, bone, mesh
+)
+
 class KITSUNE_PT_CustomToolPanel():
     "The primary panel that holds every UI"
     bl_label : str = 'sample_toolpanel'

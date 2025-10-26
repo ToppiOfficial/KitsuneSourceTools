@@ -24,7 +24,7 @@ class TOOLS_PT_Armature(Tools_SubCategoryPanel):
     bl_label : str = "Armature Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx : UILayout = draw_title_box(l, TOOLS_PT_Armature.bl_label, icon='ARMATURE_DATA')
         
         if is_armature(context.object) or is_mesh(context.object): pass

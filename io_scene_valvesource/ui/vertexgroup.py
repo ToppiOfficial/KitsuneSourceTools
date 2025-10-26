@@ -33,6 +33,7 @@ class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
             return
         
         col = bx.column()
+        col.prop(context.scene.vs, 'visible_mesh_only')
         col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
         col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
         col.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname,icon='SPLIT_VERTICAL')

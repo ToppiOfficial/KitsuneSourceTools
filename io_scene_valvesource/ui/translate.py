@@ -122,7 +122,7 @@ class TRANSLATE_OT_translate_names(Operator):
             if 'BONES' in self.translate_types and current_obj.type == 'ARMATURE':
                 bone_names = [bone.name for bone in current_obj.data.bones]
                 if bone_names:
-                    self.report({'INFO'}, f"Translating {len(bone_names)} bone names...")
+                    print(f"Translating {len(bone_names)} bone names...")
                     translated_names = translate_to_english(bone_names, source_lang=self.source_lang)
                     
                     bone_map = {old: process_name(new) for old, new in zip(bone_names, translated_names)}
@@ -137,7 +137,7 @@ class TRANSLATE_OT_translate_names(Operator):
                 if hasattr(current_obj.data, 'collections'):
                     collection_names = [col.name for col in current_obj.data.collections]
                     if collection_names:
-                        self.report({'INFO'}, f"Translating {len(collection_names)} bone collection names...")
+                        print(f"Translating {len(collection_names)} bone collection names...")
                         translated_names = translate_to_english(collection_names, source_lang=self.source_lang)
                         
                         for col, new_name in zip(current_obj.data.collections, translated_names):
@@ -152,7 +152,7 @@ class TRANSLATE_OT_translate_names(Operator):
                     shapekey_names = [kb.name for kb in key_blocks]
                     
                     if shapekey_names:
-                        self.report({'INFO'}, f"Translating {len(shapekey_names)} shape key names...")
+                        print(f"Translating {len(shapekey_names)} shape key names...")
                         translated_names = translate_to_english(shapekey_names, source_lang=self.source_lang)
                         
                         for kb, new_name in zip(key_blocks, translated_names):
@@ -166,7 +166,7 @@ class TRANSLATE_OT_translate_names(Operator):
                 if current_obj.data and hasattr(current_obj.data, 'name'):
                     names_to_translate.append(current_obj.data.name)
                 
-                self.report({'INFO'}, f"Translating object names...")
+                print(f"Translating object names...")
                 translated_names = translate_to_english(names_to_translate, source_lang=self.source_lang)
                 
                 new_obj_name = process_name(translated_names[0])
@@ -186,7 +186,7 @@ class TRANSLATE_OT_translate_names(Operator):
                     material_names = [mat.name for mat in materials]
                     
                     if material_names:
-                        self.report({'INFO'}, f"Translating {len(material_names)} material names...")
+                        print(f"Translating {len(material_names)} material names...")
                         translated_names = translate_to_english(material_names, source_lang=self.source_lang)
                         
                         for mat, new_name in zip(materials, translated_names):

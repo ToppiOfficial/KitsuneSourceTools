@@ -18,6 +18,24 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
+ADDONVER = 252
+ADDONDEVSTATE = 'ALPHA'
+
+def format_version(ver: int = ADDONVER) -> tuple[str, str]:
+    if ver < 10:
+        version_str = f"0.{ver}"
+    elif ver < 100:
+        major = ver // 10
+        minor = ver % 10
+        version_str = f"{major}.{minor}"
+    else:
+        major = ver // 100
+        minor = (ver % 100) // 10
+        patch = ver % 10
+        version_str = f"{major}.{minor}.{patch}"
+    
+    return version_str, ADDONDEVSTATE.lower()
+
 import bpy, math
 from typing import Set
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
@@ -85,11 +103,20 @@ class ValveSource_PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options=_relativePathOptions)
 
 class KitsuneTool_PanelProps():
-    merge_keep_bone : BoolProperty(name='Keep Bones', default=False)
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
-    snap_parent_tip : BoolProperty(name='Re-Align Parent Tip (TO PARENT)', default=False)
-    recenter_bone : BoolProperty(name='Centralize Bone Head & Tip', default=False)
-    keep_original_weight : BoolProperty(name='Keep Original Weight', default=False)
+    
+    merge_bone_options: EnumProperty(
+        name='Merge Options',
+        description='Options for merging bones',
+        items=[
+            ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
+            ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
+            ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
+            ('CENTRALIZE', 'Centralize', 'Centralize bone position between source and target', 'PIVOT_MEDIAN', 3),
+            ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 4),
+        ],
+        default='DEFAULT'
+    )
     
     alignment_exclude_axes: EnumProperty(
             name="Exclude Axes",

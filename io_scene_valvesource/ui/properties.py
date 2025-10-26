@@ -12,6 +12,8 @@ from ..keyvalue3 import *
 
 from .. import iconloader
 
+from .. import format_version
+
 from bpy.props import IntProperty
 
 SMD_OT_CreateVertexMap_idname : str = "smd.vertex_map_create_"
@@ -147,6 +149,154 @@ for map_name in vertex_float_maps:
     bpy.utils.register_class(CreateVertexFloatMap)
     bpy.utils.register_class(RemoveVertexFloatMap)
 
+class ValidationChecker:
+    @staticmethod
+    def is_valid_name(name: str) -> bool:
+        for char in name:
+            if not (char.isascii() and (char.isalnum() or char in (' ', '_'))):
+                return False
+        return True
+
+    @staticmethod
+    def get_invalid_names(armature_obj) -> dict:
+        invalid_names = {
+            'armature': [],
+            'bones': [],
+            'meshes': [],
+            'materials': [],
+            'shapekeys': []
+        }
+        
+        armature = None
+        if not is_armature(armature_obj):
+            armature = getArmature(armature_obj)
+        else:
+            armature = armature_obj
+            
+        if armature is None: 
+            return invalid_names
+        
+        for bone in armature.data.bones:
+            if not ValidationChecker.is_valid_name(bone.name):
+                invalid_names['bones'].append(bone.name)
+                
+        if not ValidationChecker.is_valid_name(armature.name):
+            invalid_names['armature'].append(armature.name)
+            
+        meshes = getArmatureMeshes(armature)
+        for mesh in meshes:
+            if not ValidationChecker.is_valid_name(mesh.name):
+                invalid_names['meshes'].append(mesh.name)
+            
+            for mat in mesh.data.materials:
+                if mat and not ValidationChecker.is_valid_name(mat.name):
+                    invalid_names['materials'].append(mat.name)
+            
+            if mesh.data.shape_keys:
+                for key in mesh.data.shape_keys.key_blocks:
+                    if not ValidationChecker.is_valid_name(key.name):
+                        invalid_names['shapekeys'].append(key.name)
+        
+        return invalid_names
+
+    @staticmethod
+    def count_warnings(context: Context) -> int:
+        count = 0
+        
+        if is_armature(context.object):
+            conflictProceduralBones = get_conflicting_clothjiggle(context.object)
+            if conflictProceduralBones and len(conflictProceduralBones) > 0:
+                count += 1
+        
+        invalid_names = ValidationChecker.get_invalid_names(context.object)
+        count += sum(1 for category in invalid_names.values() if category)
+        
+        if get_unparented_hitboxes():
+            count += 1
+        
+        if get_unparented_attachments():
+            count += 1
+        
+        if get_bugged_hitboxes():
+            count += 1
+        
+        if get_bugged_attachments():
+            count += 1
+        
+        return count
+
+class WarningRenderer:
+    INVALID_CHAR_MESSAGE = '\n\ncontain invalid characters! Only alphanumeric, spaces, and underscores are allowed for Source Engine.'
+    
+    @staticmethod
+    def draw_conflicting_procedural_bones(layout: UILayout, armature_obj) -> int:
+        if not is_armature(armature_obj):
+            return 0
+            
+        conflictProceduralBones = get_conflicting_clothjiggle(armature_obj)
+        if conflictProceduralBones:
+            draw_wrapped_text_col(layout, f'Bone(s): {", ".join(conflictProceduralBones)} is/are marked as Jigglebone and Cloth!', alert=True)
+            return 1
+        return 0
+    
+    @staticmethod
+    def draw_invalid_names(layout: UILayout, invalid_names: dict) -> int:
+        count = 0
+        
+        if invalid_names['armature']:
+            draw_wrapped_text_col(layout, f'Armature Name: {", ".join(invalid_names["armature"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            count += 1
+        
+        if invalid_names['bones']:
+            draw_wrapped_text_col(layout, f'Bone(s): {", ".join(invalid_names["bones"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            count += 1
+        
+        if invalid_names['meshes']:
+            draw_wrapped_text_col(layout, f'Mesh Object(s): {", ".join(invalid_names["meshes"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            count += 1
+        
+        if invalid_names['materials']:
+            draw_wrapped_text_col(layout, f'Material(s): {", ".join(invalid_names["materials"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            count += 1
+        
+        if invalid_names['shapekeys']:
+            draw_wrapped_text_col(layout, f'Shapekey(s): {", ".join(invalid_names["shapekeys"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            count += 1
+        
+        return count
+    
+    @staticmethod
+    def draw_unparented_items(layout: UILayout) -> int:
+        count = 0
+        
+        unparented_hitboxes = get_unparented_hitboxes()
+        if unparented_hitboxes:
+            draw_wrapped_text_col(layout, f'Hitbox(es): {", ".join(unparented_hitboxes)} must be parented to a bone!', alert=True)
+            count += 1
+        
+        unparented_attachments = get_unparented_attachments()
+        if unparented_attachments:
+            draw_wrapped_text_col(layout, f'Attachment(s): {", ".join(unparented_attachments)} must be parented to a bone!', alert=True)
+            count += 1
+        
+        return count
+    
+    @staticmethod
+    def draw_bugged_items(layout: UILayout) -> int:
+        count = 0
+        
+        bugged_hitboxes = get_bugged_hitboxes()
+        if bugged_hitboxes:
+            draw_wrapped_text_col(layout, f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True)
+            count += 1
+        
+        bugged_attachments = get_bugged_attachments()
+        if bugged_attachments:
+            draw_wrapped_text_col(layout, f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
+            count += 1
+        
+        return count
+
 class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     """Displays the Main Panel for Object Properties"""
     bl_label : str = get_id("panel_context_properties")
@@ -157,76 +307,39 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
         
-        draw_wrapped_text_col(l,get_id('introduction_message'),max_chars=38, title='KitsuneSourceTool (Alpha 2.4)')
-        
-        num_warnings = 0
+        addonver, addondevstate = format_version()
+        draw_wrapped_text_col(l, get_id('introduction_message'), max_chars=38, title=f'KitsuneSourceTool {addonver}_{addondevstate}')
         
         prophelpsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_properties_help', f'Show Tips', '', icon='HELP')
         if context.scene.vs.show_properties_help:
-            draw_wrapped_text_col(prophelpsection,text='- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type',max_chars=40)
+            help_text = [
+                '- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type.\n\n',
+                '- Exporting bones with non alphanumeric character will be sanitize and can lead to issues with bone mixup.',
+            ]
+            draw_wrapped_text_col(prophelpsection, text="".join(help_text), max_chars=40)
 
-        has_warnings = self.check_has_warnings(context)
-        warningsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_objectwarnings', f'Show Validation Check', '', alert=has_warnings, icon='SCENE_DATA')
+        warning_count = ValidationChecker.count_warnings(context)
+        has_warnings = warning_count > 0
+        
+        section_title = 'Show Validation Check' if warning_count == 0 else f'Show Validation Check ({warning_count})'
+        warningsection : UILayout = create_toggle_section(l, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings, icon='SCENE_DATA')
+        
         if context.scene.vs.show_objectwarnings:
-            num_warnings = self.draw_warning_checks(context,warningsection)
+            self.draw_warning_checks(context, warningsection)
 
-    def check_has_warnings(self, context: Context) -> bool:
-        if is_armature(context.object):
-            conflictProceduralBones = get_conflicting_clothjiggle(context.object)
-            if conflictProceduralBones:
-                return True
-        
-        unparented_hitboxes = get_unparented_hitboxes()
-        if unparented_hitboxes:
-            return True
-        
-        unparented_attachments = get_unparented_attachments()
-        if unparented_attachments:
-            return True
-        
-        bugged_hitboxes = get_bugged_hitboxes()
-        if bugged_hitboxes:
-            return True
-        
-        bugged_attachments = get_bugged_attachments()
-        if bugged_attachments:
-            return True
-        
-        return False
-
-    def draw_warning_checks(self,context: Context, layout : UILayout) -> int:
-        l : UILayout = layout
-        
+    def draw_warning_checks(self, context: Context, layout: UILayout) -> int:
         num_warnings = 0
         
-        if is_armature(context.object):
-            conflictProceduralBones = get_conflicting_clothjiggle(context.object)
-            if conflictProceduralBones:
-                num_warnings += 1  
-                draw_wrapped_text_col(l,f'Bone(s): {", ".join(conflictProceduralBones)} is/are marked as Jigglebone and Cloth!', alert=True)
+        num_warnings += WarningRenderer.draw_conflicting_procedural_bones(layout, context.object)
         
-        unparented_hitboxes = get_unparented_hitboxes()
-        if unparented_hitboxes:
-            num_warnings += 1
-            draw_wrapped_text_col(l,f'Hitbox(es): {", ".join(unparented_hitboxes)} must be parented to a bone!', alert=True)
+        invalid_names = ValidationChecker.get_invalid_names(context.object)
+        num_warnings += WarningRenderer.draw_invalid_names(layout, invalid_names)
         
-        unparented_attachments = get_unparented_attachments()
-        if unparented_attachments:
-            num_warnings += 1
-            draw_wrapped_text_col(l,f'Attachment(s): {", ".join(unparented_attachments)} must be parented to a bone!', alert=True)
-        
-        bugged_hitboxes = get_bugged_hitboxes()
-        if bugged_hitboxes:
-            num_warnings += 1
-            draw_wrapped_text_col(l,f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True)
-        
-        bugged_attachments = get_bugged_attachments()
-        if bugged_attachments:
-            num_warnings += 1
-            draw_wrapped_text_col(l,f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
+        num_warnings += WarningRenderer.draw_unparented_items(layout)
+        num_warnings += WarningRenderer.draw_bugged_items(layout)
                 
         if num_warnings == 0:
-            draw_wrapped_text_col(l,f'No Errors found on selected object')
+            draw_wrapped_text_col(layout, f'No Errors found on selected object')
             
         return num_warnings
         

@@ -17,54 +17,70 @@ from ..utils import get_id
 from .common import Tools_SubCategoryPanel
 
 class TOOLS_PT_Bone(Tools_SubCategoryPanel):
-    bl_label : str = "Bone Tools"
+    bl_label: str = "Bone Tools"
 
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, TOOLS_PT_Bone.bl_label, icon='BONE_DATA')
+    def draw(self, context: Context) -> None:
+        layout = self.layout
+        bx = draw_title_box(layout, TOOLS_PT_Bone.bl_label, icon='BONE_DATA')
         
-        armature : Object | None = getArmature(context.object)
+        armature = getArmature(context.object)
         
-        if is_armature(armature) or is_mesh(armature): pass
-        else:
-            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+        if not (is_armature(armature) or is_mesh(armature)):
+            draw_wrapped_text_col(bx, get_id("panel_select_armature"), max_chars=40, icon='HELP')
             return
         
-        col = bx.column(align=True)
-        if armature.mode == 'EDIT':
-            col.prop(armature.data, 'use_mirror_x', toggle=True, text='X-Axis Mirror')
-        else:
-            col.prop(armature.pose, 'use_mirror_x', toggle=True, text='X-Axis Mirror')
+        scene_vs = context.scene.vs
         
-        col.label(text='Bone Merging')
-        split : UILayout = col.split(align=True)
-        split.scale_y = 1.3
-        split.operator(TOOLS_OT_MergeBones.bl_idname,icon='AUTOMERGE_ON',text='TO ACTIVE').mode = 'TO_ACTIVE'
-        split.operator(TOOLS_OT_MergeBones.bl_idname,icon='AUTOMERGE_ON',text='TO PARENT').mode = 'TO_PARENT'
+        main_col = bx.column(align=False)
         
-        subbx : UILayout = col.box()
-        subbx.label(text='Options',icon='OPTIONS')
-        col : UILayout = subbx.column(align=True)
-        col.prop(context.scene.vs, 'merge_keep_bone')
-        col.prop(context.scene.vs, 'visible_mesh_only')
-        col.prop(context.scene.vs, 'snap_parent_tip')
-        col.prop(context.scene.vs, 'recenter_bone')
-        col.prop(context.scene.vs, 'keep_original_weight')
+        # Bone Merging Section
+        merge_box = main_col.box()
+        merge_col = merge_box.column(align=True)
+        merge_col.label(text='Bone Merging', icon='AUTOMERGE_ON')
         
-        col : UILayout = bx.column(align=True)
-        col.label(text='Bone Alignment')
-        col.operator(TOOLS_OT_ReAlignBones.bl_idname, icon='ALIGN_JUSTIFY')
-        col.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF').weights_only = False
+        merge_row = merge_col.row(align=True)
+        merge_row.scale_y = 1.3
+        merge_row.operator(TOOLS_OT_MergeBones.bl_idname, text='To Active').mode = 'TO_ACTIVE'
+        merge_row.operator(TOOLS_OT_MergeBones.bl_idname, text='To Parent').mode = 'TO_PARENT'
         
-        row : UILayout = col.row(align=True)
-        row.scale_y = 1.3
-        row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Rotation (ACTIVE)').copy_source = 'ACTIVE'
-        row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Rotation (PARENT)').copy_source = 'PARENT'
+        merge_col.separator(factor=0.5)
         
-        subbx : UILayout = col.box()
-        subbx.label(text='Options (Exlude Copy)',icon='OPTIONS')
-        row = subbx.row(align=True)
-        row.prop(context.scene.vs, 'alignment_exclude_axes', expand=True)
+        options_col = merge_col.column(align=True)
+        options_col.scale_y = 0.9
+        options_col.label(text='Merge Mode')
+        options_col.prop(scene_vs, 'merge_bone_options',expand=True)
+        options_col.prop(scene_vs, 'visible_mesh_only')
+        
+        main_col.separator()
+        
+        # Bone Alignment Section
+        align_box = main_col.box()
+        align_col = align_box.column(align=True)
+        align_col.label(text='Bone Alignment', icon='ORIENTATION_VIEW')
+        
+        align_col.operator(TOOLS_OT_ReAlignBones.bl_idname, icon='ALIGN_JUSTIFY', text='Re-Align Bones')
+        
+        align_col.separator(factor=0.5)
+        
+        copy_row = align_col.row(align=True)
+        copy_row.scale_y = 1.3
+        copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='From Active').copy_source = 'ACTIVE'
+        copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='From Parent').copy_source = 'PARENT'
+        
+        align_col.separator(factor=0.5)
+        
+        axis_col = align_col.column(align=True)
+        axis_col.scale_y = 0.9
+        axis_col.label(text='Exclude Axis:')
+        axis_col.prop(scene_vs, 'alignment_exclude_axes', expand=True)
+        
+        main_col.separator()
+        
+        # Bone Modifiers Section
+        mod_box = main_col.box()
+        mod_col = mod_box.column(align=True)
+        mod_col.label(text='Bone Modifiers', icon='MODIFIER')
+        mod_col.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text='Split Bone').weights_only = False
         
 class TOOLS_OT_CopyTargetRotation(Operator):
     bl_idname : str = "tools.copy_target_bone_rotation"
@@ -350,32 +366,27 @@ class TOOLS_OT_SplitBone(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_MergeBones(Operator):
-    bl_idname : str = 'tools.merge_bones'
-    bl_label : str = 'Merge Bones'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname: str = 'tools.merge_bones'
+    bl_label: str = 'Merge Bones'
+    bl_options: Set = {'REGISTER', 'UNDO'}
     
-    mode: EnumProperty(items=[('TO_PARENT', 'To Parent', ''), ('TO_ACTIVE', 'To Active', '')])
+    mode: EnumProperty(items=[
+        ('TO_PARENT', 'To Parent', ''),
+        ('TO_ACTIVE', 'To Active', '')
+    ])
     
     @classmethod
-    def poll(cls, context : Context) -> bool:
-        ob : Object | None = context.object
-        arm = None
-        if not is_armature(ob):
-            if is_mesh(ob): arm = getArmature(ob)
-        else:
-            arm = ob
+    def poll(cls, context: Context) -> bool:
+        ob: Object | None = context.object
+        arm = ob if is_armature(ob) else getArmature(ob) if is_mesh(ob) else None
         
-        if arm is None or arm.mode not in ['WEIGHT_PAINT', 'POSE', 'EDIT']: return False
+        if arm is None or arm.mode not in ['WEIGHT_PAINT', 'POSE', 'EDIT']:
+            return False
 
-        if arm.mode == 'EDIT':
-            bones = {b for b in arm.data.edit_bones if b.select and not b.hide}
-        else:
-            bones = {b for b in arm.data.bones if b.select and not b.hide}
-
-        return bool(bones)
+        bones = (arm.data.edit_bones if arm.mode == 'EDIT' else arm.data.bones)
+        return any(b.select and not b.hide for b in bones)
     
-    def execute(self, context : Context) -> Set:
-        
+    def execute(self, context: Context) -> Set:
         if context.mode == 'PAINT_WEIGHT':
             armatures = {getArmature(context.object)}
         else:
@@ -390,63 +401,77 @@ class TOOLS_OT_MergeBones(Operator):
                 bpy.context.view_layer.objects.active = arm
                 
                 if self.mode == 'TO_ACTIVE':
-                    sel_bones = getSelectedBones(arm,'BONE',sort_type='TO_FIRST',exclude_active=True)
-                    if not sel_bones: 
-                        continue
-
-                    if not context.active_bone:
-                        self.report({'WARNING'}, 'No active selected bone')
-                        return {'CANCELLED'}
-
-                    centralize_b = vs_sce.recenter_bone
-
-                    if centralize_b:
-                        bones_to_remove, merged_pairs, vgroups_processed = mergeBones( # type: ignore
-                            arm, # type: ignore
-                            context.active_bone,
-                            sel_bones,
-                            vs_sce.merge_keep_bone,
-                            vs_sce.visible_mesh_only,
-                            vs_sce.keep_original_weight,
-                            centralize_bone=True
-                        ) 
-                        CentralizeBonePairs(arm, merged_pairs) # type: ignore
-                    else:
-                        bones_to_remove, vgroups_processed = mergeBones( # type: ignore
-                            arm, # type: ignore
-                            context.active_bone,
-                            sel_bones,
-                            vs_sce.merge_keep_bone,
-                            vs_sce.visible_mesh_only,
-                            vs_sce.keep_original_weight,
-                            centralize_bone=False
-                        )
-
-                    bones_to_remove_map[arm] = bones_to_remove
-                    vgroups_processed_map[arm] = vgroups_processed
-
+                    result = self._merge_to_active(arm, context, vs_sce)
                 else:
-                    sel_bones = getSelectedBones(arm, sort_type='TO_FIRST', bone_type='BONE', exclude_active=False)
-                    if not sel_bones:
-                        continue
-                    merged_bones, vgroups_processed = mergeBones( # type: ignore
-                        arm, # type: ignore
-                        None,
-                        sel_bones,
-                        vs_sce.merge_keep_bone,
-                        vs_sce.visible_mesh_only,
-                        vs_sce.keep_original_weight
-                    )
-                    bones_to_remove_map[arm] = merged_bones
-                    vgroups_processed_map[arm] = vgroups_processed
+                    result = self._merge_to_parent(arm, vs_sce)
+                
+                if result:
+                    bones_to_remove_map[arm] = result[0]
+                    vgroups_processed_map[arm] = result[1]
 
             bpy.ops.object.mode_set(mode='EDIT')
+            
             for arm, bones_to_remove in bones_to_remove_map.items():
-                removeBone(arm,
-                           bones_to_remove,
-                           match_parent_to_head=vs_sce.snap_parent_tip if self.mode != 'TO_ACTIVE' else False,
-                           source=context.active_bone.name if self.mode == 'TO_ACTIVE' else None)
+                snap_parent = (self.mode == 'TO_PARENT' and 
+                             vs_sce.merge_bone_options == 'SNAP_PARENT')
+                source = context.active_bone.name if self.mode == 'TO_ACTIVE' else None
+                
+                removeBone(arm, bones_to_remove, 
+                          match_parent_to_head=snap_parent,
+                          source=source)
 
         total_merged = sum(len(vg) for vg in vgroups_processed_map.values())
         self.report({'INFO'}, f'{total_merged} Weights merged')
         return {'FINISHED'}
+    
+    def _merge_to_active(self, arm, context, vs_sce):
+        sel_bones = getSelectedBones(arm, 'BONE', sort_type='TO_FIRST', exclude_active=True)
+        if not sel_bones:
+            return None
+
+        if not context.active_bone:
+            self.report({'WARNING'}, 'No active selected bone')
+            return None
+
+        keep_bone = vs_sce.merge_bone_options in ['KEEP_BONE', 'KEEP_BOTH']
+        keep_weight = vs_sce.merge_bone_options == 'KEEP_BOTH'
+        centralize = vs_sce.merge_bone_options == 'CENTRALIZE'
+
+        if centralize:
+            bones_to_remove, merged_pairs, vgroups_processed = mergeBones(
+                arm, context.active_bone, sel_bones,
+                keep_bone=False,
+                visible_mesh_only=vs_sce.visible_mesh_only,
+                keep_original_weight=False,
+                centralize_bone=True
+            )
+            CentralizeBonePairs(arm, merged_pairs)
+        else:
+            bones_to_remove, vgroups_processed = mergeBones(
+                arm, context.active_bone, sel_bones,
+                keep_bone=keep_bone,
+                visible_mesh_only=vs_sce.visible_mesh_only,
+                keep_original_weight=keep_weight,
+                centralize_bone=False
+            )
+
+        return bones_to_remove, vgroups_processed
+    
+    def _merge_to_parent(self, arm, vs_sce):
+        sel_bones = getSelectedBones(arm, sort_type='TO_FIRST', 
+                                     bone_type='BONE', exclude_active=False)
+        if not sel_bones:
+            return None
+        
+        keep_bone = vs_sce.merge_bone_options in ['KEEP_BONE', 'KEEP_BOTH']
+        keep_weight = vs_sce.merge_bone_options == 'KEEP_BOTH'
+        
+        bones_to_remove, vgroups_processed = mergeBones(
+            arm, None, sel_bones,
+            keep_bone=keep_bone,
+            visible_mesh_only=vs_sce.visible_mesh_only,
+            keep_original_weight=keep_weight,
+            centralize_bone=False
+        )
+        
+        return bones_to_remove, vgroups_processed

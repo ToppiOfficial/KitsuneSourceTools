@@ -84,6 +84,7 @@ toggle_show_ops = [
     "show_objectwarnings",
     "show_developer_config",
     ['show_flex','show_vertexmap','show_floatmaps'],
+    ['show_armature_tools','show_bone_tools','show_mesh_tools'],
 ]
 
 class ExportFormat:

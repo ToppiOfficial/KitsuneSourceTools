@@ -478,7 +478,7 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False, icon : str | None = None) -> UILayout | None:
+def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False, icon : str | None = None, wrapper : bool = False) -> UILayout | None:
     subbox = layout.box()
     if alert:
         subbox.alert = True
@@ -497,6 +497,11 @@ def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : 
         subbox.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
     
     if is_active:
+        if wrapper:
+            class LayoutWrapper:
+                def __init__(self):
+                    self.layout = subbox
+            return LayoutWrapper()
         return subbox
     return None
 

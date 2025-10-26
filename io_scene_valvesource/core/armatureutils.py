@@ -514,7 +514,7 @@ def mergeBones(
     centralize_bone=False
 ):
     bones_to_remove = set()
-    merged_pairs = [] 
+    merged_pairs = []
     processed_groups = set()
 
     if not keep_bone:
@@ -522,13 +522,8 @@ def mergeBones(
 
     if isinstance(target, typing.Iterable) and not isinstance(target, str):
         for entry in target:
-            entry_source = source
-            if entry_source is None:
-                parent = entry.parent
-                while parent and parent.name in bones_to_remove:
-                    parent = parent.parent
-                entry_source = parent
-
+            entry_source = source or _find_valid_parent(entry, bones_to_remove)
+            
             if not entry_source:
                 continue
 
@@ -537,67 +532,73 @@ def mergeBones(
                 visible_mesh_only, keep_original_weight, centralize_bone
             )
 
+            bones_to_remove.update(result[0])
             if centralize_bone:
-                br, pairs, *rest = result
-                groups = rest[0] if rest else set()
-
-                bones_to_remove.update(br)
-                merged_pairs.extend(pairs)
-                processed_groups.update(groups)
+                merged_pairs.extend(result[1])
+                processed_groups.update(result[2])
             else:
-                br, *rest = result
-                groups = rest[0] if rest else set()
-
-                bones_to_remove.update(br)
-                processed_groups.update(groups)
+                processed_groups.update(result[1])
 
         return (bones_to_remove, merged_pairs, processed_groups) if centralize_bone else (bones_to_remove, processed_groups)
 
     if source is None:
-        parent = target.parent
-        while parent and parent.name in bones_to_remove:
-            parent = parent.parent
-        source = parent
+        source = _find_valid_parent(target, bones_to_remove)
         if not source:
             return (bones_to_remove, merged_pairs, processed_groups) if centralize_bone else (bones_to_remove, processed_groups)
 
-    for child in getArmatureMeshes(armature):
-        if visible_mesh_only and not child.visible_get():
-            continue
-
-        source_group = child.vertex_groups.get(source.name)
-        if not source_group:
-            source_group = child.vertex_groups.new(name=source.name)
-
-        target_group = child.vertex_groups.get(target.name)
-        if target_group:
-            weights = {
-                v.index: target_group.weight(v.index)
-                for v in child.data.vertices
-                if target_group.index in [g.group for g in v.groups]
-            }
-            for vertex_index, weight in weights.items():
-                source_group.add([vertex_index], weight, 'ADD')
-
-            processed_groups.add(target.name)
-
-            if not keep_original_weight:
-                child.vertex_groups.remove(target_group)
-
+    _merge_vertex_groups(armature, source, target, visible_mesh_only, keep_original_weight, processed_groups)
+    
     if not keep_bone:
-        if armature.pose:
-            for pbone in armature.pose.bones:
-                for constraint in pbone.constraints:
-                    if hasattr(constraint, "subtarget") and constraint.subtarget == target.name:
-                        constraint.subtarget = source.name
-
+        _update_constraints(armature, target.name, source.name)
         bones_to_remove.add(target.name)
 
     if centralize_bone:
         merged_pairs.append((source.name, target.name))
         return bones_to_remove, merged_pairs, processed_groups
-    else:
-        return bones_to_remove, processed_groups
+    
+    return bones_to_remove, processed_groups
+
+def _find_valid_parent(bone, bones_to_remove):
+    parent = bone.parent
+    while parent and parent.name in bones_to_remove:
+        parent = parent.parent
+    return parent
+
+def _merge_vertex_groups(armature, source, target, visible_mesh_only, keep_original_weight, processed_groups):
+    for mesh in getArmatureMeshes(armature):
+        if visible_mesh_only and not mesh.visible_get():
+            continue
+
+        source_group = mesh.vertex_groups.get(source.name)
+        if not source_group:
+            source_group = mesh.vertex_groups.new(name=source.name)
+
+        target_group = mesh.vertex_groups.get(target.name)
+        if not target_group:
+            continue
+
+        weights = {
+            v.index: target_group.weight(v.index)
+            for v in mesh.data.vertices
+            if target_group.index in [g.group for g in v.groups]
+        }
+        
+        for vertex_index, weight in weights.items():
+            source_group.add([vertex_index], weight, 'ADD')
+
+        processed_groups.add(target.name)
+
+        if not keep_original_weight:
+            mesh.vertex_groups.remove(target_group)
+
+def _update_constraints(armature, old_target, new_target):
+    if not armature.pose:
+        return
+    
+    for pose_bone in armature.pose.bones:
+        for constraint in pose_bone.constraints:
+            if hasattr(constraint, "subtarget") and constraint.subtarget == old_target:
+                constraint.subtarget = new_target
 
 def removeBone(
     arm: bpy.types.Object | None,
@@ -612,40 +613,47 @@ def removeBone(
     original_symmetry = arm.data.use_mirror_x
     arm.data.use_mirror_x = False
 
-    if isinstance(bone, str):
-        edit_bone = arm.data.edit_bones.get(bone)
-        if edit_bone:
-            edit_bone.use_connect = False
+    try:
+        if isinstance(bone, str):
+            _remove_single_bone(arm, bone, source, match_parent_to_head, match_parent_to_head_tolerance)
+        elif isinstance(bone, typing.Iterable):
+            for entry in bone:
+                _remove_single_bone(arm, entry, source, match_parent_to_head, match_parent_to_head_tolerance)
+    finally:
+        arm.data.use_mirror_x = original_symmetry
 
-            if edit_bone.children:
-                for child in edit_bone.children:
-                    child.use_connect = False
+def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance):
+    edit_bone = arm.data.edit_bones.get(bone_name)
+    if not edit_bone:
+        return
 
-            if match_parent_to_head and edit_bone.parent:
-                parent = edit_bone.parent
-                edit_bone.use_connect = False
-                parent.use_connect = False
-                if len(parent.children) == 1:
-                    parent.tail = edit_bone.tail
-                elif len(parent.children) > 1:
-                    for cbone in edit_bone.children:
-                        if (cbone.head - edit_bone.tail).length <= match_parent_to_head_tolerance:
-                            parent.tail = edit_bone.tail
-                            break
+    edit_bone.use_connect = False
+    
+    for child in edit_bone.children:
+        child.use_connect = False
 
-            if source:
-                source_bone = arm.data.edit_bones.get(source)
-                if source_bone:
-                    for child in edit_bone.children:
-                        child.parent = source_bone
+    if match_parent_to_head and edit_bone.parent:
+        _adjust_parent_tail(edit_bone, tolerance)
 
-            arm.data.edit_bones.remove(edit_bone)
+    if source:
+        source_bone = arm.data.edit_bones.get(source)
+        if source_bone:
+            for child in edit_bone.children:
+                child.parent = source_bone
 
-    elif isinstance(bone, typing.Iterable):
-        for entry in bone:
-            removeBone(arm, entry, source, match_parent_to_head=match_parent_to_head)
+    arm.data.edit_bones.remove(edit_bone)
 
-    arm.data.use_mirror_x = original_symmetry
+def _adjust_parent_tail(edit_bone, tolerance):
+    parent = edit_bone.parent
+    parent.use_connect = False
+    
+    if len(parent.children) == 1:
+        parent.tail = edit_bone.tail
+    elif len(parent.children) > 1:
+        for child in edit_bone.children:
+            if (child.head - edit_bone.tail).length <= tolerance:
+                parent.tail = edit_bone.tail
+                break
 
 def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 1e-4):
     """
