@@ -23,7 +23,11 @@ from ..core.boneutils import(
 )
 
 from ..core.armatureutils import(
-    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix, getArmatureMeshes, fix_bone_parented_empties
+    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix, getArmatureMeshes
+)
+
+from ..core.objectutils import(
+    fix_bone_parented_empties
 )
 
 class VALVEMODEL_PrefabExportOperator():

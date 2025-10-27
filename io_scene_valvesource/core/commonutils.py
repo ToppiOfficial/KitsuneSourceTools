@@ -500,7 +500,7 @@ def getHitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
     for ob in bpy.data.objects:
         if not ob.type == 'EMPTY': continue
         if ob.empty_display_type != 'CUBE' or not ob.vs.smd_hitbox: continue
-        if ob.parent is None or ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
+        if ob.parent is not armature or ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
         
         hitboxes.append(ob)
         

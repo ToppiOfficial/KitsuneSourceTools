@@ -6,36 +6,75 @@ from ..core.networkutils import (
 )
 
 from ..core.commonutils import (
-    draw_wrapped_text_col, draw_title_box, get_all_children, getArmatureMeshes
+    draw_wrapped_text_col, draw_title_box, get_all_children, getArmatureMeshes, create_toggle_section
+)
+
+from ..core.objectutils import (
+    apply_object_transforms
 )
 
 from .common import Tools_SubCategoryPanel
 
-class TRANSLATE_PT_translate_panel(Tools_SubCategoryPanel):
-    bl_label = "Translate Tools"
+class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
+    bl_label = "Object Tools"
     
     def draw(self, context):
         layout = self.layout
         
-        bx = draw_title_box(layout,text='Translate Tools',icon='NETWORK_DRIVE')
+        bx = draw_title_box(layout,text='Object Tools',icon='OBJECT_DATA')
         
         if context.active_object: pass
         else:
             draw_wrapped_text_col(bx, text="Select an Object",max_chars=40 , icon='HELP')
             return
+        
+        transformbox = draw_title_box(bx,text=f'Transform (Active: {context.active_object.name})',icon='TRANSFORM_ORIGINS',align=True)
+        
+        transformbox.separator()
+        
+        text = [
+            "Key Differences:\n",
+            "- Automatically applies transforms to child objects\n",
+            "- Filter which child types to include/exclude\n",
+            "- Fixes bone-parented empties on armatures (prevents position errors when scale is applied)\n\n",
             
+            "Use this when you need to apply transforms to complex hierarchies, ",
+            "especially armatures with bone-parented empties that would otherwise get misplaced.\n\n",
+            
+            "Note: This only applies object transforms. For armature pose application, use 'Apply Current Pose as Rest Pose' instead."
+        ]
+        
+        text2 = [
+            "Will only work on the current active object, multi apply is not applicable\n\n"
+            "Ideally should only be used for complex object hierarchies! Will work poorly for simple apply, just use blender's instead"
+        ]
+        
+        transform_helpsection = create_toggle_section(transformbox,context.scene.vs,'show_applytransform_help',show_text='Show Help',icon='HELP')
+        
+        if context.scene.vs.show_applytransform_help:
+            draw_wrapped_text_col(transform_helpsection, " ".join(text), alert=False, boxed=False)
+            draw_wrapped_text_col(transform_helpsection, " ".join(text2), alert=True, boxed=False)
+        
+        transformbox.separator()
+        
+        transformbox.operator(OBJECT_OT_apply_transform.bl_idname)
+            
+        translatebox = draw_title_box(bx,text=f'Translate (Active: {context.active_object.name})',icon='NETWORK_DRIVE',align=True)
+        
         text = [
             "This requires Internet Connection!\n",
             "Translator: Google Translate\n\n",
             "This will temporary freeze blender depending how much it will translate.",
             "If entries didn't get translate, try again later as you may have hit Google's limit"
         ]
-        draw_wrapped_text_col(bx," ".join(text),alert=True,)
         
-        draw_wrapped_text_col(bx,text=f"Active: {context.active_object.name}")   
-        op = bx.operator(TRANSLATE_OT_translate_names.bl_idname)
-
-class TRANSLATE_OT_translate_names(Operator):
+        draw_wrapped_text_col(translatebox," ".join(text),alert=True, boxed=False)
+        
+        translatebox.separator()
+        
+        op = translatebox.operator(OBJECT_OT_translate_names.bl_idname)
+        
+class OBJECT_OT_translate_names(Operator):
     bl_idname = "object.translate_names"
     bl_label = "Translate Names to English"
     bl_description = "Translate selected name types to English using Google Translate"
@@ -197,3 +236,113 @@ class TRANSLATE_OT_translate_names(Operator):
         
         self.report({'INFO'}, f"Translation complete! {translated_count} names updated")
         return {'FINISHED'}
+    
+class OBJECT_OT_apply_transform(Operator):
+    bl_idname = "object.apply_transform"
+    bl_label = "Apply Transform"
+    bl_description = "Apply transforms to object and optionally its children"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    location: BoolProperty(
+        name="Location",
+        description="Apply location transform",
+        default=True
+    )
+    
+    rotation: BoolProperty(
+        name="Rotation",
+        description="Apply rotation transform",
+        default=True
+    )
+    
+    scale: BoolProperty(
+        name="Scale",
+        description="Apply scale transform",
+        default=True
+    )
+    
+    include_children: BoolProperty(
+        name="Include Children",
+        description="Apply transforms to children as well",
+        default=True
+    )
+    
+    excluded_types: EnumProperty(
+        name="Exclude Types",
+        description="Object types to exclude from transform application",
+        items=[
+            ('EMPTY', "Empty", "Exclude empty objects"),
+            ('CURVE', "Curve", "Exclude curve objects"),
+            ('LIGHT', "Light", "Exclude light objects"),
+            ('CAMERA', "Camera", "Exclude camera objects"),
+        ],
+        options={'ENUM_FLAG'},
+        default={'EMPTY', 'CURVE'}
+    )
+    
+    fix_bone_empties: BoolProperty(
+        name="Fix Bone-Parented Empties",
+        description="Automatically fix bone-parented empties after applying transforms to armatures",
+        default=True
+    )
+    
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        
+        col = layout.column(align=True)
+        col.label(text="Transform Components:")
+        col.prop(self, "location")
+        col.prop(self, "rotation")
+        col.prop(self, "scale")
+        
+        if self.include_children:
+            col.label(text="Excluded Types:")
+            col.prop(self, "excluded_types")
+        
+        col = layout.column(align=True)
+        col.label(text="Options:")
+        col.prop(self, "include_children")
+        
+        if context.active_object and context.active_object.type == 'ARMATURE':
+            col.label(text="Armature Options:")
+            col.prop(self, "fix_bone_empties")
+    
+    def execute(self, context):
+        obj = context.active_object
+        
+        if obj is None:
+            self.report({'ERROR'}, "No active object")
+            return {'CANCELLED'}
+        
+        excluded_types = set(self.excluded_types)
+        
+        try:
+            count, fixed_count = apply_object_transforms(
+                obj=obj,
+                location=self.location,
+                rotation=self.rotation,
+                scale=self.scale,
+                include_children=self.include_children,
+                excluded_types=excluded_types,
+                fix_bone_empties=self.fix_bone_empties
+            )
+            
+            if fixed_count > 0:
+                self.report({'INFO'}, f"Applied transforms to {count} object(s), fixed {fixed_count} empty(s)")
+            else:
+                self.report({'INFO'}, f"Applied transforms to {count} object(s)")
+            
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to apply transforms: {str(e)}")
+            return {'CANCELLED'}

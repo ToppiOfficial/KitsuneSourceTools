@@ -1,8 +1,19 @@
 import bpy, math
 from .boneutils import *
-from .objectutils import op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys
-from .commonutils import getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
-from .sceneutils import ExposeAllObjects
+
+from .objectutils import (
+    op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys,
+    fix_bone_parented_empties
+    )
+
+from .commonutils import (
+    getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
+    
+    )
+from .sceneutils import (
+    ExposeAllObjects
+    )
+
 from contextlib import contextmanager
 from mathutils import Vector
 from typing import Set, Optional, Callable, Dict
@@ -137,86 +148,12 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                     else:
                         pbone.rotation_euler = values["rotation"]
 
-def fix_bone_parented_empties(
-    armature: Optional[bpy.types.Object] = None,
-    filter_func: Optional[Callable[[bpy.types.Object], bool]] = None,
-    preserve_rotation: bool = True,
-    pre_transform_snapshot: Optional[Dict] = None
-) -> int:
-    fixed_count = 0
-    
-    objects_to_process = []
-    if armature:
-        objects_to_process = armature.children
-    else:
-        objects_to_process = bpy.data.objects
-    
-    for obj in objects_to_process:
-        if obj.type != 'EMPTY':
-            continue
-        
-        if filter_func and not filter_func(obj):
-            continue
-        
-        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
-            continue
-        
-        arm = obj.parent
-        bone_name = obj.parent_bone
-        
-        if bone_name not in arm.data.bones:
-            continue
-        
-        if pre_transform_snapshot and obj.name in pre_transform_snapshot:
-            world_location = pre_transform_snapshot[obj.name]['location']
-            world_rotation_matrix = pre_transform_snapshot[obj.name]['rotation_matrix']
-            world_scale = pre_transform_snapshot[obj.name]['scale']
-        else:
-            world_location = obj.matrix_world.to_translation()
-            world_rotation_matrix = obj.matrix_world.to_3x3()
-            world_scale = obj.matrix_world.to_scale()
-        
-        pose_bone = arm.pose.bones[bone_name]
-        bone_tip_matrix = arm.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
-        
-        obj.parent = None
-        obj.parent = arm
-        obj.parent_type = 'BONE'
-        obj.parent_bone = bone_name
-        
-        local_location = bone_tip_matrix.inverted() @ world_location
-        obj.location = local_location
-        obj.scale = world_scale
-        
-        if preserve_rotation:
-            bone_tip_rotation = bone_tip_matrix.to_3x3()
-            local_rotation_matrix = bone_tip_rotation.inverted() @ world_rotation_matrix
-            obj.rotation_euler = tuple(
-                round(angle, 6) if abs(angle) > 1e-6 else 0.0 
-                for angle in local_rotation_matrix.to_euler()
-            )
-        else:
-            obj.rotation_euler = (0, 0, 0)
-        
-        fixed_count += 1
-    
-    return fixed_count
-
 def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
     if armature is None: return False
     
     with PreserveArmatureState(armature, reset_pose=False):
         try:
             with ExposeAllObjects():
-                empty_snapshot = {}
-                for obj in armature.children:
-                    if obj.type == 'EMPTY' and obj.parent_type == 'BONE':
-                        empty_snapshot[obj.name] = {
-                            'location': obj.matrix_world.to_translation().copy(),
-                            'rotation_matrix': obj.matrix_world.to_3x3().copy(),
-                            'scale': obj.matrix_world.to_scale().copy()
-                        }
-                
                 mesh_objs = getArmatureMeshes(armature)
                 selected_objects = bpy.context.selected_objects
                 active_object = bpy.context.view_layer.objects.active
@@ -230,6 +167,15 @@ def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
                 
                 for mesh_obj in mesh_objs:
                     objects_to_transform.add(mesh_obj)
+                
+                empty_snapshot = {}
+                for obj in armature.children:
+                    if obj.type == 'EMPTY' and obj.parent_type == 'BONE':
+                        empty_snapshot[obj.name] = {
+                            'location': obj.matrix_world.to_translation().copy(),
+                            'rotation_matrix': obj.matrix_world.to_3x3().copy(),
+                            'scale': obj.matrix_world.to_scale().copy()
+                        }
                 
                 bpy.ops.object.select_all(action='DESELECT')
                 for ob in objects_to_transform:

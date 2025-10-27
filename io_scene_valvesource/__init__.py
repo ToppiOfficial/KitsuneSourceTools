@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 254
+ADDONVER = 255
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -58,7 +58,7 @@ def format_version(ver: int = ADDONVER) -> tuple[str, str]:
 
 from . import datamodel, import_smd, export_smd, flex, GUI, iconloader
 from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, sceneutils, networkutils
-from .ui import developer, armature_mapper, common, properties, translate, valvemodel, animation, vertexgroup, armature, mesh, bone
+from .ui import developer, armature_mapper, common, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -577,6 +577,10 @@ _classes = (
     properties.SMD_PT_Materials,
     
     common.TOOLS_PT_PANEL,
+    
+    objectdata.OBJECT_PT_translate_panel,
+    objectdata.OBJECT_OT_translate_names,
+    objectdata.OBJECT_OT_apply_transform,
 
     armature.TOOLS_PT_Armature,
     armature.TOOLS_OT_ApplyCurrentPoseAsRestPose,
@@ -613,9 +617,6 @@ _classes = (
     armature_mapper.ARMATUREMAPPER_OT_WriteJson,
     armature_mapper.ARMATUREMAPPER_OT_LoadJson,
     armature_mapper.ARMATUREMAPPER_OT_LoadPreset,
-    
-    translate.TRANSLATE_PT_translate_panel,
-    translate.TRANSLATE_OT_translate_names,
     
     valvemodel.VALVEMODEL_PT_PANEL,
     valvemodel.VALVEMODEL_PT_Attachments,

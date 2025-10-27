@@ -1,5 +1,9 @@
 import bpy
-from .commonutils import getArmature, getArmatureMeshes
+
+from .commonutils import (
+    getArmature, getArmatureMeshes
+)
+
 from typing import cast
 
 direction_map = {

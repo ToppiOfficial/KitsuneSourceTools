@@ -102,9 +102,9 @@ def main():
         messages.append(msg)
         line_num += 1
     
-    commit_msg = "\n".join(messages)
     print(f"\n--- Commit message ---")
-    print(commit_msg)
+    for msg in messages:
+        print(msg)
     print("----------------------\n")
     
     print("--- Executing git commands ---\n")
@@ -113,10 +113,18 @@ def main():
         revert_addon_version(original_version)
         sys.exit(1)
     
-    escaped_msg = commit_msg.replace('"', '\\"')
-    if not run_command(f'git commit -m "{escaped_msg}"'):
+    commit_cmd_parts = ["git", "commit"]
+    for msg in messages:
+        commit_cmd_parts.extend(["-m", msg])
+    
+    result = subprocess.run(commit_cmd_parts, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error executing commit")
+        print(result.stderr)
         revert_addon_version(original_version)
         sys.exit(1)
+    if result.stdout:
+        print(result.stdout.strip())
     
     print("\nPushing to remote...")
     confirm = input("Continue? (y/n): ").lower()
