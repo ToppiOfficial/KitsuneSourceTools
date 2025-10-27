@@ -36,7 +36,7 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             operatorsection = draw_title_box(maincol,text='Operators')
             operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
         
-        bx.template_icon(icon_value=iconloader.preview_collections["custom_icons"]["KITSUNE"].icon_id, scale=8) # type: ignore
+        bx.template_icon(icon_value=iconloader.get_icon("KITSUNE"), scale=8) # type: ignore
  
 class DEVELOPER_OT_ImportLegacyData(Operator):
     bl_idname : str = "smd.importlegacydata"

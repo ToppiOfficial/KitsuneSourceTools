@@ -10,8 +10,6 @@ from bpy.types import Panel, UIList, Operator, UILayout, Object, Context, Vertex
 from typing import Set, Any
 from ..keyvalue3 import *
 
-from .. import iconloader
-
 from .. import format_version
 
 from bpy.props import IntProperty
@@ -248,19 +246,23 @@ class WarningRenderer:
             count += 1
         
         if invalid_names['bones']:
-            draw_wrapped_text_col(layout, f'Bone(s): {", ".join(invalid_names["bones"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            bone_list = "\n".join(invalid_names["bones"])
+            draw_wrapped_text_col(layout, f'Bone(s):\n\n{bone_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
-        
+
         if invalid_names['meshes']:
-            draw_wrapped_text_col(layout, f'Mesh Object(s): {", ".join(invalid_names["meshes"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            mesh_list = "\n".join(invalid_names["meshes"])
+            draw_wrapped_text_col(layout, f'Mesh Object(s):\n\n{mesh_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
-        
+
         if invalid_names['materials']:
-            draw_wrapped_text_col(layout, f'Material(s): {", ".join(invalid_names["materials"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            material_list = "\n".join(invalid_names["materials"])
+            draw_wrapped_text_col(layout, f'Material(s):\n\n{material_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
-        
+
         if invalid_names['shapekeys']:
-            draw_wrapped_text_col(layout, f'Shapekey(s): {", ".join(invalid_names["shapekeys"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            shapekey_list = "\n".join(invalid_names["shapekeys"])
+            draw_wrapped_text_col(layout, f'Shapekey(s):\n\n{shapekey_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
         
         return count
@@ -500,7 +502,7 @@ class SMD_PT_Mesh(ExportableConfigurationPanel):
         ob = context.active_object
         col = layout.column()
         
-        col.operator("wm.url_open", text=get_id("help", True), icon_value=iconloader.preview_collections["custom_icons"]["SOURCESDK"].icon_id).url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
+        col.operator("wm.url_open", text=get_id("help", True), icon='INTERNET').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
     
         col = layout.column(align=False)
         col.scale_y = 1.1

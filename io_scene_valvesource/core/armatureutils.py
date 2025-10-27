@@ -5,7 +5,7 @@ from .commonutils import getArmatureMeshes, UnselectAll, HideObject, PreserveCon
 from .sceneutils import ExposeAllObjects
 from contextlib import contextmanager
 from mathutils import Vector
-from typing import Set, Optional, Callable
+from typing import Set, Optional, Callable, Dict
 
 unweightedBoneFilters = [ "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
                          'Left shoulder', 'Left arm', 'Left elbow', 'Left wrist', 'Left leg', 'Left knee', 'Left ankle',
@@ -140,19 +140,9 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
 def fix_bone_parented_empties(
     armature: Optional[bpy.types.Object] = None,
     filter_func: Optional[Callable[[bpy.types.Object], bool]] = None,
-    preserve_rotation: bool = True
+    preserve_rotation: bool = True,
+    pre_transform_snapshot: Optional[Dict] = None
 ) -> int:
-    """
-    Universal function to fix matrix for empties parented to bones.
-    
-    Args:
-        armature: Specific armature to process. If None, processes all armatures.
-        filter_func: Optional function to filter which empties to process.
-        preserve_rotation: If True, preserves world rotation. If False, resets to (0,0,0).
-    
-    Returns:
-        Number of empties fixed.
-    """
     fixed_count = 0
     
     objects_to_process = []
@@ -177,9 +167,14 @@ def fix_bone_parented_empties(
         if bone_name not in arm.data.bones:
             continue
         
-        world_matrix = obj.matrix_world.copy()
-        world_location = obj.matrix_world.to_translation()
-        world_scale = obj.matrix_world.to_scale()
+        if pre_transform_snapshot and obj.name in pre_transform_snapshot:
+            world_location = pre_transform_snapshot[obj.name]['location']
+            world_rotation_matrix = pre_transform_snapshot[obj.name]['rotation_matrix']
+            world_scale = pre_transform_snapshot[obj.name]['scale']
+        else:
+            world_location = obj.matrix_world.to_translation()
+            world_rotation_matrix = obj.matrix_world.to_3x3()
+            world_scale = obj.matrix_world.to_scale()
         
         pose_bone = arm.pose.bones[bone_name]
         bone_tip_matrix = arm.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
@@ -194,10 +189,11 @@ def fix_bone_parented_empties(
         obj.scale = world_scale
         
         if preserve_rotation:
-            local_rotation = (bone_tip_matrix.inverted() @ world_matrix).to_euler()
+            bone_tip_rotation = bone_tip_matrix.to_3x3()
+            local_rotation_matrix = bone_tip_rotation.inverted() @ world_rotation_matrix
             obj.rotation_euler = tuple(
                 round(angle, 6) if abs(angle) > 1e-6 else 0.0 
-                for angle in local_rotation
+                for angle in local_rotation_matrix.to_euler()
             )
         else:
             obj.rotation_euler = (0, 0, 0)
@@ -212,6 +208,15 @@ def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
     with PreserveArmatureState(armature, reset_pose=False):
         try:
             with ExposeAllObjects():
+                empty_snapshot = {}
+                for obj in armature.children:
+                    if obj.type == 'EMPTY' and obj.parent_type == 'BONE':
+                        empty_snapshot[obj.name] = {
+                            'location': obj.matrix_world.to_translation().copy(),
+                            'rotation_matrix': obj.matrix_world.to_3x3().copy(),
+                            'scale': obj.matrix_world.to_scale().copy()
+                        }
+                
                 mesh_objs = getArmatureMeshes(armature)
                 selected_objects = bpy.context.selected_objects
                 active_object = bpy.context.view_layer.objects.active
@@ -258,7 +263,8 @@ def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
 
                 fixed_count = fix_bone_parented_empties(
                     armature=armature,
-                    preserve_rotation=True
+                    preserve_rotation=True,
+                    pre_transform_snapshot=empty_snapshot
                 )
                 if fixed_count > 0:
                     print(f"Fixed {fixed_count} empty object(s)")
@@ -288,36 +294,13 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
     if not base_armature or not target_armature:
         return False
     
-    bpy.ops.object.select_all(action='DESELECT')
-    base_armature.select_set(True)
-    target_armature.select_set(True)
-    bpy.context.view_layer.objects.active = base_armature
-
     base_bones = {getBoneExportName(b, for_write=True): b for b in base_armature.data.bones}
     base_bones.update({b.name: b for b in base_armature.data.bones})
-
     target_bones = list(target_armature.data.bones)
 
-    for bone in base_armature.data.bones:
-        bone.select = False
-    for bone in target_armature.data.bones:
-        bone.select = False
-
-    bpy.ops.object.mode_set(mode='POSE')
-
-    bpy.context.view_layer.objects.active = base_armature
-    bpy.ops.pose.select_all(action='DESELECT')
-
-    bpy.context.view_layer.objects.active = target_armature
-    bpy.ops.pose.select_all(action='DESELECT')
-
-    bpy.context.view_layer.objects.active = base_armature
-
-    # Store original hide states
     original_bone_states = {b: b.hide for b in base_armature.data.bones}
     original_bone_states.update({b: b.hide for b in target_armature.data.bones})
 
-    # Store collection states (solo + visible)
     original_collection_states = {
         col: (col.is_solo, col.is_visible)
         for col in base_armature.data.collections
@@ -327,12 +310,23 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
         for col in target_armature.data.collections
     })
 
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+    base_armature.select_set(True)
+    target_armature.select_set(True)
+    bpy.context.view_layer.objects.active = base_armature
+
     try:
         for b in original_bone_states:
             b.hide = False
         for col in original_collection_states:
             col.is_solo = False
             col.is_visible = True
+
+        bpy.ops.object.mode_set(mode='POSE')
+        bpy.ops.pose.select_all(action='DESELECT')
+
+        copy_op = bpy.ops.pose.copy_pose_vis_loc if copy_type == 'ORIGIN' else bpy.ops.pose.copy_pose_vis_rot
 
         for b in target_bones:
             export_name = getBoneExportName(b, for_write=True)
@@ -342,12 +336,7 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
 
             base_armature.data.bones.active = target_bone
             b.select = target_bone.select = True
-
-            if copy_type == 'ORIGIN':
-                bpy.ops.pose.copy_pose_vis_loc()
-            else:
-                bpy.ops.pose.copy_pose_vis_rot()
-
+            copy_op()
             b.select = target_bone.select = False
 
     finally:
@@ -356,7 +345,6 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
         for c, (solo_state, visible_state) in original_collection_states.items():
             c.is_solo = solo_state
             c.is_visible = visible_state
-
         bpy.ops.object.mode_set(mode='OBJECT')
 
     return True

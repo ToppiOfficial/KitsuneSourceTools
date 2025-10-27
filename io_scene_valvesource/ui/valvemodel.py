@@ -7,8 +7,6 @@ from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, S
 from ..keyvalue3 import KVBool, KVNode, KVVector3
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
-from .. import iconloader
-
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
     update_vmdl_container, is_empty, getSelectedBones, PreserveContextMode,
@@ -113,7 +111,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_options : Set = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='OBJECT_DATA')
+        self.layout.label(icon='LIBRARY_DATA_DIRECT')
 
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout

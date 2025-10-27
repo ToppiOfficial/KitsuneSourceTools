@@ -26,7 +26,6 @@ from .flex import *
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
 
 from bpy.types import UILayout, Context
-from . import iconloader
 
 vca_icon = 'EDITMODE_HLT'
 
@@ -74,7 +73,6 @@ class SMD_PT_Scene(bpy.types.Panel):
     def draw(self, context):
         l = self.layout
         scene = context.scene
-        num_to_export = 0
 
         col = l.column()
         col.operator(SmdExporter.bl_idname,text="Export")
@@ -125,13 +123,17 @@ class SMD_PT_Scene(bpy.types.Panel):
         
         col = l.column(align=True)
         row = col.row(align=True)
-        self.HelpButton(row)
-        row.operator("wm.url_open",text=get_id("exportpanel_steam",True),icon_value=iconloader.preview_collections["custom_icons"]["BLENDSRCTOOL"].icon_id).url = "http://steamcommunity.com/groups/BlenderSourceTools"
-
+        
+        self.draw_urls(layout=row)
+    
     @staticmethod
-    def HelpButton(layout):
-        layout.operator("wm.url_open",text=get_id("help",True),icon_value=iconloader.preview_collections["custom_icons"]["SOURCESDK"].icon_id).url = "http://developer.valvesoftware.com/wiki/Blender_Source_Tools_Help#Exporting"
-
+    def draw_urls(layout : UILayout):
+        op1 = layout.operator("wm.url_open", text=get_id("help",True), icon='INTERNET')
+        op1.url = "http://developer.valvesoftware.com/wiki/Blender_Source_Tools_Help#Exporting"
+        
+        op2 = layout.operator("wm.url_open", text=get_id("exportpanel_steam",True), icon='INTERNET')
+        op2.url = "http://steamcommunity.com/groups/BlenderSourceTools"
+        
 class SMD_MT_ConfigureScene(bpy.types.Menu):
     bl_label = get_id("exporter_report_menu")
     def draw(self, context):
@@ -448,7 +450,7 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         if scene.vs.show_exportable_help:
             row = exportablehelp_section.row()
             row.scale_y = 1.3
-            row.operator("wm.url_open", text='Vertex Animations Help', icon_value=iconloader.preview_collections["custom_icons"]["SOURCESDK"].icon_id).url = \
+            row.operator("wm.url_open", text='Vertex Animations Help', icon='INTERNET').url = \
             "http://developer.valvesoftware.com/wiki/Vertex_animation"
             
         l.separator(type='LINE')

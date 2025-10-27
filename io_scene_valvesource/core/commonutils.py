@@ -206,62 +206,35 @@ def draw_wrapped_text_col(
     icon: str | None = None,
     alert: bool = False,
     boxed: bool = True,
-    title: str | None = None,
-    justified: bool = False
+    title: str | None = None
 ):
     if isinstance(text, list):
         text = '\n'.join(text)
     
-    paragraphs = text.split('\n')
     all_lines = []
-    
-    for paragraph in paragraphs:
+    for paragraph in text.split('\n'):
+        if not paragraph:
+            all_lines.append('')
+            continue
+            
         words = paragraph.split()
-        lines = []
         current_line = []
         current_len = 0
 
         for word in words:
             word_len = len(word)
-            space_needed = word_len + (1 if current_line else 0)
+            needed = word_len + (1 if current_line else 0)
             
-            if current_len + space_needed > max_chars:
-                lines.append(current_line)
+            if current_len + needed > max_chars:
+                all_lines.append(' '.join(current_line))
                 current_line = [word]
                 current_len = word_len
             else:
-                if current_line:
-                    current_len += 1
                 current_line.append(word)
-                current_len += word_len
+                current_len += needed
 
         if current_line:
-            lines.append(current_line)
-        elif not words:
-            lines.append([])
-        
-        if justified and len(lines) > 0:
-            for i, line in enumerate(lines[:-1]):
-                if len(line) > 1:
-                    text_len = sum(len(word) for word in line)
-                    total_spaces = max_chars - text_len
-                    gaps = len(line) - 1
-                    space_per_gap = total_spaces // gaps
-                    extra_spaces = total_spaces % gaps
-                    
-                    justified_line = ""
-                    for j, word in enumerate(line):
-                        justified_line += word
-                        if j < gaps:
-                            justified_line += " " * space_per_gap
-                            if j < extra_spaces:
-                                justified_line += " "
-                    all_lines.append(justified_line)
-                else:
-                    all_lines.append(line[0])
-            all_lines.append(" ".join(lines[-1]))
-        else:
-            all_lines.extend([" ".join(line) for line in lines])
+            all_lines.append(' '.join(current_line))
 
     col = layout.column(align=True)
     col.scale_y = 0.7
@@ -288,10 +261,15 @@ def draw_wrapped_text_col(
         
     col = layout.column()
 
-def draw_title_box(layout, text: str, icon: str = 'NONE') -> UILayout:
-    box = layout.box()
+def draw_title_box(layout : UILayout, text: str, icon: str = 'NONE', align : bool = False) -> UILayout:
+    if align:
+        box = layout.box().column(align=True)
+    else:
+        box = layout.box()
+        
     row = box.row()
     row.label(text=text, icon=icon)
+    
     return box
 
 ModeType = Literal[
@@ -478,7 +456,7 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False, icon : str | None = None, wrapper : bool = False) -> UILayout | None:
+def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False, icon : str | None = None, icon_value : int = 0, wrapper : bool = False) -> UILayout | None:
     subbox = layout.box()
     if alert:
         subbox.alert = True
@@ -489,12 +467,15 @@ def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : 
     is_active = getattr(data, prop_name)
     display_text = (hide_text or show_text) if is_active else show_text
     
-    if icon is not None:
+    if icon is not None or icon_value != 0:
         row = subbox.row(align=True)
-        row.label(text='',icon=icon)
-        row.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
+        if icon_value != 0:
+            row.label(text='', icon_value=icon_value)
+        else:
+            row.label(text='', icon=icon)
+        row.operator(f"kitsunetoggle.{prop_name}", icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT', text=display_text, emboss=False)
     else:
-        subbox.operator(f"kitsunetoggle.{prop_name}",icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT',text=display_text, emboss=False)
+        subbox.operator(f"kitsunetoggle.{prop_name}", icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT', text=display_text, emboss=False)
     
     if is_active:
         if wrapper:

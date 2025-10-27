@@ -2,29 +2,41 @@ import os
 import bpy
 import pathlib
 import bpy.utils.previews
-from bpy.utils.previews import ImagePreviewCollection
-import typing
 
-# global variables
-preview_collections: typing.Type[ImagePreviewCollection] = {}
-reloading = False
+preview_collections = {}
 
 addon_dir = pathlib.Path(__file__).parent.resolve()
 icons_dir = os.path.join(addon_dir, "icons")
 
-def load_other_icons():
-    pcoll: typing.Type[ImagePreviewCollection] = bpy.utils.previews.new()
-    pcoll.load('BLENDSRCTOOL', os.path.join(icons_dir, 'blendsrctool.png'), 'IMAGE')
-    pcoll.load('SOURCESDK', os.path.join(icons_dir, 'sourcesdk.png'), 'IMAGE')
-    pcoll.load('KITSUNE', os.path.join(icons_dir, 'kitsunelogo.png'), 'IMAGE')
+ICON_REGISTRY = {
+    'KITSUNE': 'kitsunelogo.png',
+}
 
+def load_other_icons():
+    pcoll = bpy.utils.previews.new()
+    
+    for icon_name, filename in ICON_REGISTRY.items():
+        print(f'- Loaded Icon: {icon_name} using {filename}')
+        icon_path = os.path.abspath(os.path.join(icons_dir, filename))
+        pcoll.load(icon_name, icon_path, 'IMAGE')
+    
     preview_collections['custom_icons'] = pcoll
 
 
+def get_icon(icon_name: str) -> int:
+    if 'custom_icons' not in preview_collections:
+        return 0
+    
+    pcoll = preview_collections['custom_icons']
+    
+    if icon_name not in pcoll:
+        print(f"Warning: Icon '{icon_name}' not found")
+        return 0
+    
+    return pcoll[icon_name].icon_id
+
+
 def unload_icons():
-    print('UNLOADING ICONS!')
     for pcoll in preview_collections.values():
         bpy.utils.previews.remove(pcoll)
     preview_collections.clear()
-    print('DONE!')
-    

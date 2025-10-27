@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 253
+ADDONVER = 254
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -646,10 +646,10 @@ _classes = (
     import_smd.SmdImporter)
 
 def register():
+    iconloader.load_other_icons()
+    
     for cls in _classes:
         bpy.utils.register_class(cls)
-        
-    iconloader.load_other_icons()
     
     from . import translations
     bpy.app.translations.register(__name__,translations.translations)

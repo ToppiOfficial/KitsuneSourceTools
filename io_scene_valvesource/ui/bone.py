@@ -34,18 +34,16 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         main_col = bx.column(align=False)
         
         # Bone Merging Section
-        merge_box = main_col.box()
-        merge_col = merge_box.column(align=True)
-        merge_col.label(text='Bone Merging', icon='AUTOMERGE_ON')
+        merge_box = draw_title_box(main_col, text='Bone Merging', icon='AUTOMERGE_ON', align=True)
         
-        merge_row = merge_col.row(align=True)
+        merge_row = merge_box.row(align=True)
         merge_row.scale_y = 1.3
         merge_row.operator(TOOLS_OT_MergeBones.bl_idname, text='To Active').mode = 'TO_ACTIVE'
         merge_row.operator(TOOLS_OT_MergeBones.bl_idname, text='To Parent').mode = 'TO_PARENT'
         
-        merge_col.separator(factor=0.5)
+        merge_box.separator(factor=0.5)
         
-        options_col = merge_col.column(align=True)
+        options_col = merge_box.column(align=True)
         options_col.scale_y = 0.9
         options_col.label(text='Merge Mode')
         options_col.prop(scene_vs, 'merge_bone_options',expand=True)
@@ -54,22 +52,20 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         main_col.separator()
         
         # Bone Alignment Section
-        align_box = main_col.box()
-        align_col = align_box.column(align=True)
-        align_col.label(text='Bone Alignment', icon='ORIENTATION_VIEW')
+        align_box = draw_title_box(main_col, text='Bone Alignment', icon='ORIENTATION_VIEW', align=True)
         
-        align_col.operator(TOOLS_OT_ReAlignBones.bl_idname, icon='ALIGN_JUSTIFY', text='Re-Align Bones')
+        align_box.operator(TOOLS_OT_ReAlignBones.bl_idname, icon='ALIGN_JUSTIFY', text='Re-Align Bones')
         
-        align_col.separator(factor=0.5)
+        align_box.separator(factor=0.5)
         
-        copy_row = align_col.row(align=True)
+        copy_row = align_box.row(align=True)
         copy_row.scale_y = 1.3
         copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='From Active').copy_source = 'ACTIVE'
         copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='From Parent').copy_source = 'PARENT'
         
-        align_col.separator(factor=0.5)
+        align_box.separator(factor=0.5)
         
-        axis_col = align_col.column(align=True)
+        axis_col = align_box.column(align=True)
         axis_col.scale_y = 0.9
         axis_col.label(text='Exclude Axis:')
         axis_col.prop(scene_vs, 'alignment_exclude_axes', expand=True)
@@ -77,10 +73,8 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         main_col.separator()
         
         # Bone Modifiers Section
-        mod_box = main_col.box()
-        mod_col = mod_box.column(align=True)
-        mod_col.label(text='Bone Modifiers', icon='MODIFIER')
-        mod_col.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text='Split Bone').weights_only = False
+        mod_box = draw_title_box(main_col, text='Bone Modifiers', icon='MODIFIER', align=True)
+        mod_box.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text='Split Bone').weights_only = False
         
 class TOOLS_OT_CopyTargetRotation(Operator):
     bl_idname : str = "tools.copy_target_bone_rotation"
