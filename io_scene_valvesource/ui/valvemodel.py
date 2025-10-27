@@ -1,9 +1,9 @@
 import os, math, bpy, mathutils
 import numpy as np
-from bpy.props import StringProperty, BoolProperty
+from bpy.props import StringProperty, BoolProperty, IntProperty
 from typing import Set, Any
 from bpy import props
-from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, Scene
+from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, Scene, UIList
 from ..keyvalue3 import KVBool, KVNode, KVVector3
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
@@ -1139,171 +1139,54 @@ class VALVEMODEL_OT_AddHitbox(Operator, VALVEMODEL_ModelConfig):
         
         bpy.ops.object.mode_set(mode='OBJECT')
         return {'FINISHED'}
-               
-class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
-    bl_label : str = 'PBR To Phong'
-    
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='MATERIAL')
-        
-    def draw_material_selection(self, context : Context, layout : UILayout, matmap : str) -> None:
-        split = layout.split(factor=0.8, align=True)
-        split.prop_search(context.scene.vs, matmap, bpy.data, 'images',text='')
-        split.prop(context.scene.vs, matmap + '_ch',text='')
-        
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        
-        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_PBRtoPhong.bl_label)
-        
-        noticebox = draw_wrapped_text_col(bx,text='The conversion may or may not be accurate!',icon='WARNING_LARGE')
-        
-        col = bx.column(align=True)
-        
-        subbox = draw_title_box(col,text='Diffuse/Color Map',icon='MATERIAL_DATA')
-        subbox.prop_search(context.scene.vs, 'diffuse_map', bpy.data, 'images',text='')
-        
-        subbox = draw_title_box(col,text='Skin Map',icon='MATERIAL_DATA')
-        self.draw_material_selection(context, subbox, 'skin_map')
-        subcol = subbox.column(align=True)
-        subcol.prop(context.scene.vs, 'skin_map_gamma', slider=True)
-        subcol.prop(context.scene.vs, 'skin_map_contrast', slider=True)
-        
-        subbox = draw_title_box(col,text='Normal Map',icon='MATERIAL_DATA')
-        split = subbox.split(align=True, factor=0.7)
-        split.prop_search(context.scene.vs, 'normal_map', bpy.data, 'images',text='')
-        split.prop(context.scene.vs, 'normal_map_type',text='')
-        subbox.prop(context.scene.vs, 'normal_metal_strength', slider=True)
-        
-        subbox = draw_title_box(col,text='Roughness Map',icon='MATERIAL_DATA')
-        self.draw_material_selection(context, subbox, 'roughness_map')
-        
-        subbox = draw_title_box(col,text='Metal Map',icon='MATERIAL_DATA')
-        self.draw_material_selection(context, subbox, 'metal_map')
-        
-        subbox = draw_title_box(col,text='AO Map (Optional)',icon='MATERIAL_DATA')
-        self.draw_material_selection(context, subbox, 'ambientocclu_map')
-        subbox.prop(context.scene.vs, 'ambientocclu_strength', slider=True)
-        
-        subbox = draw_title_box(col,text='Emissive Map (Optional)',icon='MATERIAL_DATA')
-        self.draw_material_selection(context, subbox, 'emissive_map')
-        
-        col = bx.column(align=True)
-        col.prop(context.scene.vs, 'use_envmap')
-        col.prop(context.scene.vs, 'darken_diffuse_metal')
-        col.prop(context.scene.vs, 'use_color_darken')
-        
-        bx.operator(VALVEMODEL_OT_ConvertPBRmapsToPhong.bl_idname)
-        
-        messages = [
-            'Use the following Phong settings for a balanced starting point:',
-            '   - $phongboost 5',
-            '   - $phongalbedotint 1',
-            '   - $phongfresnelranges "[0.5 1 2]"',
-            '   - $phongalbedoboost 12 (if applicable)\n',
-            'When applying a metal map to the color alpha channel, include:',
-            '   - $color2 "[.18 .18 .18]"',
-            '   - $blendtintbybasealpha 1\n',
-            'However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.\n',
-            'If using envmap:',
-            '$envmaptint "[.3 .3 .3]"'
-        ]
-        
-        helpsection = create_toggle_section(bx,context.scene.vs,'show_pbrphong_help','Show Help','')
-        if context.scene.vs.show_pbrphong_help:
-            draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40)
 
-# exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [221, 32], [255, 255]]) old curve code for exponent
-class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
-    bl_idname = 'valvemodel.convert_pbrmaps_to_phong'
-    bl_label = 'Convert PBR to Phong'
-    bl_options = {'INTERNAL'}
+class VALVEMODEL_UL_PBRToPhongList(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row(align=True)
+            row.prop(item, "name", text="", emboss=False, icon='MATERIAL')
+            
+            has_diffuse = item.diffuse_map != ""
+            has_normal = item.normal_map != ""
+            
+            if has_diffuse and has_normal:
+                row.label(text="", icon='CHECKMARK')
+            else:
+                row.label(text="", icon='ERROR')
+                
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon='MATERIAL')
+            
+class VALVEMODEL_OT_AddPBRItem(Operator):
+    bl_idname = "valvemodel.add_pbr_item"
+    bl_label = "Add PBR Item"
+    bl_options = {'INTERNAL', 'UNDO'}
     
-    filepath: StringProperty(subtype='FILE_PATH')
-    debug_mode: BoolProperty(name="Debug Mode", default=False, description="Export intermediate processing steps")
+    def execute(self, context):
+        item = context.scene.vs.pbr_items.add()
+        item.name = f"PBR Item {len(context.scene.vs.pbr_items)}"
+        context.scene.vs.pbr_active_index = len(context.scene.vs.pbr_items) - 1
+        return {'FINISHED'}
+
+class VALVEMODEL_OT_RemovePBRItem(Operator):
+    bl_idname = "valvemodel.remove_pbr_item"
+    bl_label = "Remove PBR Item"
+    bl_options = {'INTERNAL', 'UNDO'}
     
     @classmethod
-    def poll(cls, context: Context) -> bool:
-        valvesourceprop = context.scene.vs
-        return bool(valvesourceprop.diffuse_map and valvesourceprop.normal_map)
+    def poll(cls, context):
+        return len(context.scene.vs.pbr_items) > 0
     
-    def invoke(self, context: Context, event: Event) -> Set:
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-    
-    def execute(self, context: Context) -> Set:
-        vs = context.scene.vs
-
-        if not self.filepath:
-            self.report({'ERROR'}, "No export path selected")
-            return {'CANCELLED'}
-        
-        filepath = bpy.path.abspath(self.filepath)
-        export_dir = os.path.dirname(filepath)
-        base_name = os.path.splitext(os.path.basename(filepath))[0]
-        
-        if not export_dir or not base_name:
-            self.report({'ERROR'}, "Invalid export path or filename")
-            return {'CANCELLED'}
-        
-        diffuse_img = self.get_image_data(vs.diffuse_map)
-        normal_img = self.get_image_data(vs.normal_map)
-        
-        if diffuse_img is None or normal_img is None:
-            self.report({'ERROR'}, "Failed to load diffuse or normal texture")
-            return {'CANCELLED'}
-        
-        height, width = diffuse_img.shape[:2]
-        
-        roughness_img = self.get_channel_data(vs.roughness_map, vs.roughness_map_ch, height, width) if vs.roughness_map else np.ones((height, width))
-        metal_img = self.get_channel_data(vs.metal_map, vs.metal_map_ch, height, width) if vs.metal_map else np.zeros((height, width))
-        ao_img = self.get_channel_data(vs.ambientocclu_map, vs.ambientocclu_map_ch, height, width) if vs.ambientocclu_map else np.ones((height, width))
-        emissive_img = self.get_channel_data(vs.emissive_map, vs.emissive_map_ch, height, width) if vs.emissive_map else None
-        skin_img = self.get_channel_data(vs.skin_map, vs.skin_map_ch, height, width) if vs.skin_map else None
-        
-        if self.debug_mode:
-            self.export_debug_grayscale(roughness_img, export_dir, f"{base_name}_debug_roughness_raw.tga")
-            self.export_debug_grayscale(metal_img, export_dir, f"{base_name}_debug_metal_raw.tga")
-            self.export_debug_grayscale(ao_img, export_dir, f"{base_name}_debug_ao_raw.tga")
-            if skin_img is not None:
-                self.export_debug_grayscale(skin_img, export_dir, f"{base_name}_debug_skin_raw.tga")
-        
-        rough_inverted = 1.0 - roughness_img # type:ignore
-        if self.debug_mode:
-            self.export_debug_grayscale(rough_inverted, export_dir, f"{base_name}_debug_roughness_inverted.tga")
-        
-        exponent_map = self.create_exponent_map(roughness_img, metal_img, export_dir, base_name if self.debug_mode else None)
-        self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
-        
-        diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, skin_img,
-                                              vs.ambientocclu_strength, vs.skin_map_gamma, vs.skin_map_contrast,
-                                              vs.use_envmap, vs.darken_diffuse_metal, vs.use_color_darken,
-                                              export_dir, base_name if self.debug_mode else None)
-        self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
-        
-        normal_map = self.create_normal_map(normal_img, metal_img, roughness_img, 
-                                            vs.normal_map_type, vs.normal_metal_strength,
-                                            export_dir, base_name if self.debug_mode else None)
-        self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
-        
-        if emissive_img is not None:
-            if self.debug_mode:
-                self.export_debug_grayscale(emissive_img, export_dir, f"{base_name}_debug_emissive_raw.tga")
-            emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
-            self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
-        
-        status = "with debug outputs" if self.debug_mode else ""
-        self.report({'INFO'}, f"Exported PBR to Phong maps {status} to {export_dir}")
+    def execute(self, context):
+        context.scene.vs.pbr_items.remove(context.scene.vs.pbr_active_index)
+        context.scene.vs.pbr_active_index = min(max(0, context.scene.vs.pbr_active_index - 1), 
+                                                 len(context.scene.vs.pbr_items) - 1)
         return {'FINISHED'}
-    
-    def export_debug_grayscale(self, data, export_dir, filename):
-        height, width = data.shape
-        debug_img = np.zeros((height, width, 4), dtype=np.float32)
-        debug_img[:, :, 0] = data
-        debug_img[:, :, 1] = data
-        debug_img[:, :, 2] = data
-        debug_img[:, :, 3] = 1.0
-        self.save_tga(debug_img, os.path.join(export_dir, filename))
+
+# exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [221, 32], [255, 255]]) old curve code for exponent
+class PBRConversionMixin:
+    """Mixin class containing shared conversion logic for PBR operators"""
     
     def get_image_data(self, img_name: str):
         if not img_name or img_name not in bpy.data.images:
@@ -1314,7 +1197,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         img.colorspace_settings.name = 'Non-Color'
         
         width, height = img.size
-        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels)) # type:ignore
+        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels))
         
         img.colorspace_settings.name = original_colorspace
         
@@ -1331,7 +1214,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         img.colorspace_settings.name = 'Non-Color'
         
         w, h = img.size
-        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels)) # type:ignore
+        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels))
         
         img.colorspace_settings.name = original_colorspace
         
@@ -1391,7 +1274,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         output_vals = points_array[:, 1] / 255.0
         return np.interp(data, input_vals, output_vals)
     
-    def create_exponent_map(self, roughness, metal, export_dir=None, base_name=None):
+    def create_exponent_map(self, roughness, metal):
         height, width = roughness.shape
         exponent = np.ones((height, width, 4))
         
@@ -1403,13 +1286,10 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         exponent[:, :, 2] = 0.0
         exponent[:, :, 3] = 1.0
         
-        if export_dir and base_name:
-            self.export_debug_grayscale(exponent_red, export_dir, f"{base_name}_debug_exponent_red_curved.tga")
-        
         return exponent
     
     def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, skin_gamma, skin_contrast,
-                          use_envmap, darken_diffuse_metal, use_color_darken, export_dir=None, base_name=None):
+                          use_envmap, darken_diffuse_metal, use_color_darken):
         height, width = diffuse.shape[:2]
         result = diffuse.copy()
         
@@ -1436,18 +1316,10 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         if skin is not None:
             ao_effect = ao_effect * (1.0 - skin) + skin
         
-        if export_dir and base_name:
-            self.export_debug_grayscale(ao_effect, export_dir, f"{base_name}_debug_ao_effect.tga")
-        
         result[:, :, :3] *= ao_effect[:, :, np.newaxis]
 
         if darken_diffuse_metal:
             darkened = self.apply_curve(result[:, :, :3], [[0, 0], [255, 100]])
-            if export_dir and base_name:
-                debug_darkened = np.zeros((height, width, 4), dtype=np.float32)
-                debug_darkened[:, :, :3] = darkened
-                debug_darkened[:, :, 3] = 1.0
-                self.save_tga(debug_darkened, os.path.join(export_dir, f"{base_name}_debug_diffuse_darkened.tga"))
             result[:, :, :3] = (result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + 
                                darkened * metal[:, :, np.newaxis])
         elif use_color_darken:
@@ -1462,7 +1334,7 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
 
         return result
     
-    def create_normal_map(self, normal, metal, roughness, normal_type, metal_strength=100.0, export_dir=None, base_name=None):
+    def create_normal_map(self, normal, metal, roughness, normal_type, metal_strength=100.0):
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
@@ -1490,15 +1362,8 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         exp_red = self.apply_curve(rough_inverted, [[57, 0], [201, 20], [255, 255]])
         exp_green_adjusted = metal * (metal_strength / 100.0)
         
-        if export_dir and base_name:
-            self.export_debug_grayscale(exp_red, export_dir, f"{base_name}_debug_normal_alpha_exp_red.tga")
-            self.export_debug_grayscale(exp_green_adjusted, export_dir, f"{base_name}_debug_normal_alpha_metal_adj.tga")
-        
         alpha = np.clip(exp_red / (1.0 - exp_green_adjusted + 1e-7), 0.0, 1.0)
         result[:, :, 3] = alpha
-        
-        if export_dir and base_name:
-            self.export_debug_grayscale(alpha, export_dir, f"{base_name}_debug_normal_alpha_final.tga")
         
         return result
     
@@ -1534,3 +1399,245 @@ class VALVEMODEL_OT_ConvertPBRmapsToPhong(Operator):
         img.file_format = 'TARGA'
         img.save()
         bpy.data.images.remove(img)
+    
+    def process_item_conversion(self, item, report_func):
+        """Core conversion logic shared by both operators"""
+        
+        export_path = bpy.path.abspath(item.export_path)
+        
+        if not export_path.strip():
+            export_path = bpy.context.scene.vs.pbr_to_phong_export_path
+        
+        export_dir = os.path.dirname(export_path)
+        base_name = item.name
+        
+        if not export_dir or not base_name:
+            report_func({'ERROR'}, f"Invalid export path or name for '{item.name}'")
+            return False
+        
+        # Load image data
+        diffuse_img = self.get_image_data(item.diffuse_map)
+        normal_img = self.get_image_data(item.normal_map)
+        
+        if diffuse_img is None or normal_img is None:
+            report_func({'ERROR'}, f"Failed to load diffuse or normal texture for '{item.name}'")
+            return False
+        
+        height, width = diffuse_img.shape[:2]
+        
+        # Load optional maps
+        roughness_img = self.get_channel_data(item.roughness_map, item.roughness_map_ch, height, width) if item.roughness_map else np.ones((height, width))
+        metal_img = self.get_channel_data(item.metal_map, item.metal_map_ch, height, width) if item.metal_map else np.zeros((height, width))
+        ao_img = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, height, width) if item.ambientocclu_map else np.ones((height, width))
+        emissive_img = self.get_channel_data(item.emissive_map, item.emissive_map_ch, height, width) if item.emissive_map else None
+        skin_img = self.get_channel_data(item.skin_map, item.skin_map_ch, height, width) if item.skin_map else None
+        
+        # Create exponent map
+        exponent_map = self.create_exponent_map(roughness_img, metal_img)
+        self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
+        
+        # Create diffuse map
+        diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, skin_img,
+                                              item.ambientocclu_strength, item.skin_map_gamma, item.skin_map_contrast,
+                                              item.use_envmap, item.darken_diffuse_metal, item.use_color_darken)
+        self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
+        
+        # Create normal map
+        normal_map = self.create_normal_map(normal_img, metal_img, roughness_img, 
+                                            item.normal_map_type, item.normal_metal_strength)
+        self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
+        
+        # Create emissive map if needed
+        if emissive_img is not None:
+            emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
+            self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
+        
+        return True
+
+class VALVEMODEL_OT_ConvertPBRItem(Operator, PBRConversionMixin):
+    bl_idname = 'valvemodel.convert_pbr_item'
+    bl_label = 'Convert Selected Item'
+    bl_options = {'INTERNAL'}
+    
+    item_index: IntProperty(default=-1)
+    
+    @classmethod
+    def poll(cls, context):
+        return len(context.scene.vs.pbr_items) > 0
+    
+    def execute(self, context):
+        vs = context.scene.vs
+        
+        if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
+            item = vs.pbr_items[self.item_index]
+        else:
+            if vs.pbr_active_index < len(vs.pbr_items):
+                item = vs.pbr_items[vs.pbr_active_index]
+            else:
+                self.report({'ERROR'}, "No valid item selected")
+                return {'CANCELLED'}
+        
+        if not item.diffuse_map or not item.normal_map:
+            self.report({'ERROR'}, f"Item '{item.name}' missing required maps (diffuse and normal)")
+            return {'CANCELLED'}
+        
+        result = self.process_item_conversion(item, self.report)
+        
+        if result:
+            self.report({'INFO'}, f"Converted '{item.name}' successfully")
+            return {'FINISHED'}
+        else:
+            return {'CANCELLED'}
+
+class VALVEMODEL_OT_ConvertAllPBRItems(Operator, PBRConversionMixin):
+    bl_idname = 'valvemodel.convert_all_pbr_items'
+    bl_label = 'Convert All Items'
+    bl_options = {'INTERNAL'}
+    
+    @classmethod
+    def poll(cls, context):
+        return len(context.scene.vs.pbr_items) > 0
+    
+    def execute(self, context):
+        vs = context.scene.vs
+        success_count = 0
+        failed_items = []
+        
+        for i, item in enumerate(vs.pbr_items):
+            if not item.diffuse_map or not item.normal_map:
+                failed_items.append(f"{item.name} (missing maps)")
+                continue
+            
+            result = self.process_item_conversion(item, self.report)
+            if result:
+                success_count += 1
+            else:
+                failed_items.append(item.name)
+        
+        if success_count > 0:
+            self.report({'INFO'}, f"Converted {success_count}/{len(vs.pbr_items)} items")
+        
+        if failed_items:
+            self.report({'WARNING'}, f"Failed: {', '.join(failed_items)}")
+        
+        return {'FINISHED'}
+
+class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
+    bl_label = 'PBR To Phong'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Valve Model'
+    
+    def draw_header(self, context):
+        self.layout.label(icon='MATERIAL')
+    
+    def draw(self, context):
+        layout = self.layout
+        vs = context.scene.vs
+        
+        box = draw_title_box(layout, text="PBR To Phong Conversion")
+    
+        draw_wrapped_text_col(box,text="The conversion may or may not be accurate!", icon='ERROR',max_chars=48)
+        
+        box.prop(vs, "pbr_to_phong_export_path")
+        row = box.row()
+        row.template_list("VALVEMODEL_UL_PBRToPhongList", "", vs, "pbr_items", 
+                         vs, "pbr_active_index", rows=3)
+        
+        col = row.column(align=True)
+        col.operator(VALVEMODEL_OT_AddPBRItem.bl_idname, icon='ADD', text="")
+        col.operator(VALVEMODEL_OT_RemovePBRItem.bl_idname, icon='REMOVE', text="")
+        
+        if len(vs.pbr_items) > 0 and vs.pbr_active_index < len(vs.pbr_items):
+            item = vs.pbr_items[vs.pbr_active_index]
+            
+            col = box.column(align=True)
+            if not item.name.strip(): col.alert = True
+            col.prop(item, "name")
+            col.alert = False
+            col.prop(item, "export_path")
+            
+            self.draw_material_maps(context, box, item)
+            
+            row = box.row(align=True)
+            op = row.operator(VALVEMODEL_OT_ConvertPBRItem.bl_idname, text="Convert This Item")
+            op.item_index = vs.pbr_active_index
+            row.operator(VALVEMODEL_OT_ConvertAllPBRItems.bl_idname, text="Convert All")
+            
+        self.draw_help_section(context, box)
+    
+    def draw_material_maps(self, context : Context, layout : UILayout, item):
+        col = layout.column(align=True)
+        
+        col.label(text="Diffuse/Color Map")
+        col.prop_search(item, 'diffuse_map', bpy.data, 'images', text='')
+        
+        col.separator(factor=3)
+        
+        col.label(text="Skin Map")
+        row = col.split(align=True,factor=0.8)
+        row.prop_search(item, 'skin_map', bpy.data, 'images', text='')
+        row.prop(item, 'skin_map_ch', text='')
+        col.prop(item, 'skin_map_gamma', slider=True)
+        col.prop(item, 'skin_map_contrast', slider=True)
+        
+        col.separator(factor=3)
+        
+        col.label(text="Normal Map")
+        row = col.split(align=True,factor=0.8)
+        row.prop_search(item, 'normal_map', bpy.data, 'images', text='')
+        row.prop(item, 'normal_map_type', text='')
+        col.prop(item, 'normal_metal_strength', slider=True)
+        
+        col.separator(factor=3)
+        
+        col.label(text="Roughness Map")
+        row = col.split(align=True,factor=0.8)
+        row.prop_search(item, 'roughness_map', bpy.data, 'images', text='')
+        row.prop(item, 'roughness_map_ch', text='')
+        
+        col.separator(factor=3)
+        
+        col.label(text="Metal Map")
+        row = col.split(align=True,factor=0.8)
+        row.prop_search(item, 'metal_map', bpy.data, 'images', text='')
+        row.prop(item, 'metal_map_ch', text='')
+        
+        col.separator(factor=3)
+        
+        col.label(text="AO Map (Optional)")
+        row = col.split(align=True,factor=0.8)
+        row.prop_search(item, 'ambientocclu_map', bpy.data, 'images', text='')
+        row.prop(item, 'ambientocclu_map_ch', text='')
+        col.prop(item, 'ambientocclu_strength', slider=True)
+        
+        col.separator(factor=3)
+        
+        col.label(text="Emissive Map (Optional)")
+        row = col.split(align=True,factor=0.8)
+        row.prop_search(item, 'emissive_map', bpy.data, 'images', text='')
+        row.prop(item, 'emissive_map_ch', text='')
+        
+        col = layout.column(align=True)
+        col.prop(item, 'use_envmap')
+        col.prop(item, 'darken_diffuse_metal')
+        col.prop(item, 'use_color_darken')
+    
+    def draw_help_section(self, context, layout):
+        messages = [
+            'Use the following Phong settings for a balanced starting point:',
+            '   - $phongboost 5',
+            '   - $phongalbedotint 1',
+            '   - $phongfresnelranges "[0.5 1 2]"',
+            '   - $phongalbedoboost 12 (if applicable)\n',
+            'When applying a metal map to the color alpha channel, include:',
+            '   - $color2 "[.18 .18 .18]"',
+            '   - $blendtintbybasealpha 1\n',
+            'However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.\n',
+            'If using envmap:',
+            '$envmaptint "[.3 .3 .3]"'
+        ]
+        
+        helpsection = create_toggle_section(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
+        if context.scene.vs.show_pbrphong_help:
+            draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40)

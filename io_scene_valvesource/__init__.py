@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 255
+ADDONVER = 256
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -102,6 +102,58 @@ _relativePathOptions : Set = {'PATH_SUPPORTS_BLEND_RELATIVE'} if bpy.app.version
 class ValveSource_PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options=_relativePathOptions)
 
+class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
+    name: StringProperty(name="Item Name", default="PBR Item")
+    
+    diffuse_map: StringProperty(name='Color Map')
+    
+    skin_map: StringProperty(name='Skin Map')
+    skin_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    skin_map_gamma: FloatProperty(name='Gamma Correction', soft_min=-10, soft_max=10, default=0)
+    skin_map_contrast: FloatProperty(name='Contrast', soft_min=-5, soft_max=5, default=0)
+    
+    metal_map: StringProperty(name='Metal Map')
+    metal_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    roughness_map: StringProperty(name='Roughness Map')
+    roughness_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    ambientocclu_map: StringProperty(name='AO Map')
+    ambientocclu_strength: IntProperty(name='AO Map Strength', default=80, min=0, max=100)
+    ambientocclu_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    emissive_map: StringProperty(name='Emissive Map')
+    emissive_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    
+    normal_map: StringProperty(name='Normal Map')
+    normal_metal_strength: FloatProperty(name='Normal Map Metal Strength', min=0, max=100, default=100)
+    normal_map_type: EnumProperty(name='Normal Map Type', items=[
+        ('DEF', 'Default', ''),
+        ('RED', 'Red', 'The normal map is a red-type normal map'),
+        ('YELLOW', 'Yellow', 'The normal map is a yellow-type normal map that simply requires invert to all channel'),
+        ('OPENGL', 'OpenGL', 'The normal map is a OpenGL type that requires the green channel to be inverted'),
+    ])
+    
+    use_envmap: BoolProperty(
+        name="Use Color Envmap",
+        description="Adds the inverted roughness (with curve) to the color alpha channel",
+        default=False
+    )
+
+    darken_diffuse_metal: BoolProperty(
+        name="Apply contrast on color using Metal",
+        description="Bakes the metal contrast effect into the color RGB",
+        default=False
+    )
+
+    use_color_darken: BoolProperty(
+        name="Apply metal map on color alpha channel",
+        description="Adds the metal map as the alpha channel of the color texture for use with $color2",
+        default=True
+    )
+    
+    export_path: StringProperty(name="Export Path", subtype='DIR_PATH', options=_relativePathOptions)
+
 class KitsuneTool_PanelProps():
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     
@@ -137,8 +189,11 @@ class KitsuneTool_PanelProps():
     ])
     
     smd_prefabs : CollectionProperty(type=ValveSource_PrefabItem)
-    smd_prefabs_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
+    smd_prefabs_index : IntProperty(default=-1)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
+    
+    pbr_items : CollectionProperty(type=KitsuneTool_PBRMapsToPhongItem)
+    pbr_active_index : IntProperty(default=0)
     
     for entry in toggle_show_ops:
         if isinstance(entry, list):
@@ -157,60 +212,10 @@ class KitsuneTool_PanelProps():
         name="Include Active Object",
         default=True
     )
+    
+    pbr_to_phong_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
         
-class KitsuneTool_PBRMapsToPhongProps():
-    diffuse_map : StringProperty(name='Color Map')
-    
-    skin_map : StringProperty(name='Skin Map')
-    skin_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
-    skin_map_gamma : FloatProperty(name='Gamma Correction', soft_min=-10, soft_max=10,default=0)
-    skin_map_contrast : FloatProperty(name='Contrast', soft_min=-5, soft_max=5,default=0)
-    
-    metal_map : StringProperty(name='Metal Map')
-    metal_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
-    
-    roughness_map : StringProperty(name='Roughness Map')
-    roughness_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
-    
-    ambientocclu_map : StringProperty(name='AO Map')
-    ambientocclu_strength : IntProperty(name='AO Map Strength', default= 80, min= 0, max=100)
-    ambientocclu_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
-    
-    emissive_map : StringProperty(name='Emissive Map')
-    emissive_map_ch : EnumProperty(name='Channel', items=pbr_to_phong_channels)
-    
-    normal_map : StringProperty(name='Normal Map')
-    normal_metal_strength : FloatProperty(name='Normal Map Metal Strength', min=0,max=100, default=100)
-    normal_map_type : EnumProperty(name='Normal Map Type', items=[
-        ('DEF', 'Default',''),
-        ('RED', 'Red','The normal map is a red-type normal map'),
-        ('YELLOW', 'Yellow','The normal map is a yello-type normal map that simply requires invert to all channel'),
-        ('OPENGL', 'OpenGL','The normal map is a OpenGL type that requires the green channel to be inverted'),
-    ])
-    
-    use_envmap: BoolProperty(
-        name="Use Color Envmap",
-        description="Adds the inverted roughness (with curve) to the color alpha channel. "
-                    "Mutually exclusive with 'Apply contrast on color using Metal' and "
-                    "'Apply metal map on color alpha channel'.",
-        default=False
-    )
-
-    darken_diffuse_metal: BoolProperty(
-        name="Apply contrast on color using Metal",
-        description="Bakes the metal contrast effect into the color RGB. "
-                    "Cannot be used with 'Use Color Envmap' or 'Apply metal map on color alpha channel'.",
-        default=False
-    )
-
-    use_color_darken: BoolProperty(
-        name="Apply metal map on color alpha channel",
-        description="Adds the metal map as the alpha channel of the color texture for use with $color2. "
-                    "Incompatible with 'Use Color Envmap' and 'Apply contrast on color using Metal'.",
-        default=True
-    )
-
-class ValveSource_SceneProps(KitsuneTool_PanelProps, KitsuneTool_PBRMapsToPhongProps, PropertyGroup):
+class ValveSource_SceneProps(KitsuneTool_PanelProps, PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options=_relativePathOptions)
     qc_compile : BoolProperty(name=get_id("qc_compileall"),description=get_id("qc_compileall_tip"),default=False)
     qc_path : StringProperty(name=get_id("qc_path"),description=get_id("qc_path_tip"),default="//*.qc",subtype="FILE_PATH", options=_relativePathOptions)
@@ -516,6 +521,7 @@ _classes = (
     StrictShapekeyItem,
     ArmatureMapperKeyValue,
     ValveSource_PrefabItem,
+    KitsuneTool_PBRMapsToPhongItem,
 
     ValveSource_Exportable,
     ValveSource_SceneProps,
@@ -549,7 +555,6 @@ _classes = (
     
     GUI.SMD_OT_AddPrefab,
     GUI.SMD_OT_RemovePrefab,
-    GUI.SMD_OT_BrowsePrefab,
     GUI.SMD_UL_Prefabs,
     
     properties.SMD_PT_ContextObject,
@@ -631,8 +636,13 @@ _classes = (
     valvemodel.VALVEMODEL_OT_ExportHitBox,
     valvemodel.VALVEMODEL_OT_FixHitBox,
     valvemodel.VALVEMODEL_OT_AddHitbox,
+    valvemodel.VALVEMODEL_UL_PBRToPhongList,
+    valvemodel.VALVEMODEL_OT_AddPBRItem,
+    valvemodel.VALVEMODEL_OT_RemovePBRItem,
+    valvemodel.VALVEMODEL_OT_ConvertPBRItem,
+    valvemodel.VALVEMODEL_OT_ConvertAllPBRItems,
     valvemodel.VALVEMODEL_PT_PBRtoPhong,
-    valvemodel.VALVEMODEL_OT_ConvertPBRmapsToPhong,
+    #valvemodel.VALVEMODEL_OT_ConvertPBRmapsToPhong,
     
     developer.DEVELOPER_PT_PANEL,
     developer.DEVELOPER_OT_ImportLegacyData,

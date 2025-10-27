@@ -124,15 +124,22 @@ class SMD_PT_Scene(bpy.types.Panel):
         col = l.column(align=True)
         row = col.row(align=True)
         
-        self.draw_urls(layout=row)
-    
+        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '', icon='HELP')
+        if scene.vs.show_exportable_help:
+            self.draw_urls(layout=exportablehelp_section)
+        
     @staticmethod
     def draw_urls(layout : UILayout):
-        op1 = layout.operator("wm.url_open", text=get_id("help",True), icon='INTERNET')
+        row = layout.row()
+        
+        op1 = row.operator("wm.url_open", text=get_id("help",True), icon='INTERNET')
         op1.url = "http://developer.valvesoftware.com/wiki/Blender_Source_Tools_Help#Exporting"
         
-        op2 = layout.operator("wm.url_open", text=get_id("exportpanel_steam",True), icon='INTERNET')
+        op2 = row.operator("wm.url_open", text=get_id("exportpanel_steam",True), icon='INTERNET')
         op2.url = "http://steamcommunity.com/groups/BlenderSourceTools"
+        
+        op3 = layout.operator("wm.url_open", text='Vertex Animations Help', icon='INTERNET')
+        op3.url = "http://developer.valvesoftware.com/wiki/Vertex_animation"
         
 class SMD_MT_ConfigureScene(bpy.types.Menu):
     bl_label = get_id("exporter_report_menu")
@@ -445,23 +452,22 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         
         l.label(text='Exportable Objects', icon='EXPORT')
         l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8, type='DEFAULT')
-        
-        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '', icon='HELP')
-        if scene.vs.show_exportable_help:
-            row = exportablehelp_section.row()
-            row.scale_y = 1.3
-            row.operator("wm.url_open", text='Vertex Animations Help', icon='INTERNET').url = \
-            "http://developer.valvesoftware.com/wiki/Vertex_animation"
             
         l.separator(type='LINE')
         
         l.label(text='Prefabs', icon='FILE_TEXT')
-        prefabhelpsection = create_toggle_section(l,context.scene.vs,'show_prefab_help','Read Me','')
+        
+        row = l.row()
+        
+        col = row.column(align=True)
+        col.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
+        prefabhelpsection = create_toggle_section(col,context.scene.vs,'show_prefab_help','Read Me','')
         if context.scene.vs.show_prefab_help:
             draw_wrapped_text_col(prefabhelpsection,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=45, icon='WARNING_LARGE',boxed=False)
         
-        l.operator("smd.add_prefab", icon="ADD")
-        l.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
+        col = row.column(align=True)
+        col.operator(SMD_OT_AddPrefab.bl_idname, icon="ADD", text='')
+        col.operator(SMD_OT_RemovePrefab.bl_idname, icon="REMOVE", text='')
 
 class SMD_PT_Scene_QC_Complie(bpy.types.Panel):
     bl_label = get_id("qc_title")
@@ -539,36 +545,14 @@ class SMD_OT_RemovePrefab(bpy.types.Operator):
     bl_idname = "smd.remove_prefab"
     bl_label = "Remove Prefab"
 
-    index: IntProperty()
-
+    @classmethod
+    def poll(cls, context):
+        return len(context.scene.vs.smd_prefabs) > 0
+    
     def execute(self, context):
-        prefabs = context.scene.vs.smd_prefabs
-        if 0 <= self.index < len(prefabs):
-            prefabs.remove(self.index)
-        return {'FINISHED'}
-
-class SMD_OT_BrowsePrefab(bpy.types.Operator):
-    bl_idname = "smd.browse_prefab"
-    bl_label = "Browse Prefab"
-    bl_description = "Open file location in system file explorer"
-
-    index: IntProperty()
-
-    def execute(self, context):
-        prefabs = context.scene.vs.smd_prefabs
-        if 0 <= self.index < len(prefabs):
-            path = bpy.path.abspath(prefabs[self.index].filepath)
-            folder = path if os.path.isdir(path) else os.path.dirname(path)
-
-            if os.path.exists(folder):
-                if os.name == "nt":  # Windows
-                    os.startfile(folder)
-                elif os.name == "posix":  # macOS / Linux
-                    subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", folder])
-                self.report({'INFO'}, f"Opened: {folder}")
-            else:
-                self.report({'WARNING'}, "Folder does not exist")
-
+        context.scene.vs.smd_prefabs.remove(context.scene.vs.smd_prefabs_index)
+        context.scene.vs.smd_prefabs_index = min(max(0, context.scene.vs.smd_prefabs_index - 1), 
+                                                 len(context.scene.vs.smd_prefabs) - 1)
         return {'FINISHED'}
 
 class SMD_UL_Prefabs(bpy.types.UIList):
@@ -576,14 +560,8 @@ class SMD_UL_Prefabs(bpy.types.UIList):
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         row = layout.row(align=True)
-        split = row.split(align=True, factor=0.7)
-        
+
         if not item.filepath:
-            split.alert = True
+            row.alert = True
         
-        split.prop(item, "filepath", text="")
-        split = split.split(align=True, factor=0.7)
-        
-        split.alert = False
-        split.operator("smd.browse_prefab", text="Open").index = index
-        split.operator("smd.remove_prefab", text="", icon='X').index = index
+        row.prop(item, "filepath", text="", emboss = False, icon='FILE')  
