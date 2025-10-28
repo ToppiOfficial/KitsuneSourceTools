@@ -10,7 +10,7 @@ type = "add-on"
 website = "http://steamcommunity.com/groups/BlenderSourceTools"
 
 # Blender Compatibility
-blender_version_min = "4.2.0"
+blender_version_min = "4.5.0"
 blender_version_max = "5.1.0"
 
 # Licensing

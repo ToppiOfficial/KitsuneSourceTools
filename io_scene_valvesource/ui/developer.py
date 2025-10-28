@@ -21,20 +21,18 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         l : UILayout | None = self.layout
         bx = draw_title_box(l,text='Developer Only Options', icon='OPTIONS')
         
-        developertools = create_toggle_section(bx, context.scene.vs, 'show_developer_config','Show Developer Tools','')
-        if context.scene.vs.show_developer_config:
-            maincol = developertools.column()
-            draw_wrapped_text_col(maincol,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
-            
-            boolsection = draw_title_box(maincol,text='Bool Parameters')
-            boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
-            
-            rootcol, itemcol = create_subitem_ui(boolsection)
-            rootcol.prop(context.scene.vs,"propagate_enabled")
-            itemcol.prop(context.scene.vs,"propagate_include_active")
-            
-            operatorsection = draw_title_box(maincol,text='Operators')
-            operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
+        maincol = bx.column()
+        draw_wrapped_text_col(maincol,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
+        
+        boolsection = draw_title_box(maincol,text='Bool Parameters')
+        boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
+        
+        rootcol, itemcol = create_subitem_ui(boolsection)
+        rootcol.prop(context.scene.vs,"propagate_enabled")
+        itemcol.prop(context.scene.vs,"propagate_include_active")
+        
+        operatorsection = draw_title_box(maincol,text='Operators')
+        operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
         
         bx.template_icon(icon_value=iconloader.get_icon("KITSUNE"), scale=8) # type: ignore
  

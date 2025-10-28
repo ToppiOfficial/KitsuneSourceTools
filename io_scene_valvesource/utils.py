@@ -70,6 +70,18 @@ pbr_to_phong_channels = [
     ('A', 'Alpha', ''),
 ]
 
+hitbox_group = [
+    ('0', 'Generic', 'the default group of hitboxes, appears White in HLMV'),
+    ('1', 'Head', 'Used for human NPC heads and to define where the player sits on the vehicle.mdl, appears Red in HLMV'),
+    ('2', 'Chest', 'Used for human NPC midsection and chest, appears Green in HLMV'),
+    ('3', 'Stomach', 'Used for human NPC stomach and pelvis, appears Yellow in HLMV'),
+    ('4', 'Left Arm', 'Used for human Left Arm, appears Deep Blue in HLMV'),
+    ('5', 'Right Arm', 'Used for human Right Arm, appears Bright Violet in HLMV'),
+    ('6', 'Left Leg', 'Used for human Left Leg, appears Bright Cyan in HLMV'),
+    ('7', 'Right Leg', 'Used for human Right Leg, appears White like the default group in HLMV (Orange in Garry\'s Mod'),
+    ('8', 'Neck', 'Used for human neck (to fix penetration to head from behind), appears Orange in HLMV (In all games since CS:GO)'),
+]
+
 toggle_show_ops = [
     "show_addoninfo",
     "show_jigglebones",
@@ -83,7 +95,6 @@ toggle_show_ops = [
     "show_pbrphong_help",
     "show_clothnodes",
     "show_objectwarnings",
-    "show_developer_config",
     ['show_flex','show_vertexmap','show_floatmaps'],
     ['show_armature_tools','show_bone_tools','show_mesh_tools'],
     'show_applytransform_help'

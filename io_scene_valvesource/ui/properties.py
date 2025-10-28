@@ -6,13 +6,23 @@ from ..core.commonutils import *
 from ..core.boneutils import *
 from ..core.armatureutils import *
 from ..core.meshutils import *
-from bpy.types import Panel, UIList, Operator, UILayout, Object, Context, VertexGroup, LoopColors, MeshLoopColorLayer
-from typing import Set, Any
-from ..keyvalue3 import *
+
+from bpy.types import (
+    Panel, UIList, Operator, UILayout, Object, Context,
+    VertexGroup, LoopColors, MeshLoopColorLayer
+)
+
+from typing import (
+    Set, Any
+)
 
 from .. import format_version
 
 from bpy.props import IntProperty
+
+from .valvemodel import (
+    VALVEMODEL_OT_FixAttachment, VALVEMODEL_OT_FixHitBox
+)
 
 SMD_OT_CreateVertexMap_idname : str = "smd.vertex_map_create_"
 SMD_OT_SelectVertexMap_idname : str = "smd.vertex_map_select_"
@@ -151,7 +161,7 @@ class ValidationChecker:
     @staticmethod
     def is_valid_name(name: str) -> bool:
         for char in name:
-            if not (char.isascii() and (char.isalnum() or char in (' ', '_'))):
+            if not (char.isascii() and (char.isalnum() or char in (' ', '_', '.'))):
                 return False
         return True
 
@@ -289,12 +299,16 @@ class WarningRenderer:
         
         bugged_hitboxes = get_bugged_hitboxes()
         if bugged_hitboxes:
-            draw_wrapped_text_col(layout, f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True)
+            col = layout.column(align=True)
+            col.operator(VALVEMODEL_OT_FixHitBox.bl_idname)
+            draw_wrapped_text_col(col, f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True)
             count += 1
         
         bugged_attachments = get_bugged_attachments()
         if bugged_attachments:
-            draw_wrapped_text_col(layout, f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
+            col = layout.column(align=True)
+            col.operator(VALVEMODEL_OT_FixAttachment.bl_idname)
+            draw_wrapped_text_col(col, f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
             count += 1
         
         return count

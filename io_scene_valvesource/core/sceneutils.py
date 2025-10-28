@@ -103,7 +103,7 @@ def propagateProperty(self, context, prop_name: str, group_path="vs", propagate_
 
 def make_update(prop_name, group_path="vs", propagate_enabled_attr="propagate_enabled", include_active_attr="propagate_include_active"):
     def update_func(self, context):
-        propagate_enabled = getattr(self, propagate_enabled_attr, True)
-        include_active = getattr(self, include_active_attr, False)
+        propagate_enabled = getattr(context.scene.vs, propagate_enabled_attr, True)
+        include_active = getattr(context.scene.vs, include_active_attr, False)
         propagateProperty(self, context, prop_name, group_path, propagate_enabled, include_active)
     return update_func

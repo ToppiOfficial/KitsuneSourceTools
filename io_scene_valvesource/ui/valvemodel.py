@@ -1,11 +1,13 @@
 import os, math, bpy, mathutils
 import numpy as np
-from bpy.props import StringProperty, BoolProperty, IntProperty
+from bpy.props import StringProperty, IntProperty, EnumProperty
 from typing import Set, Any
 from bpy import props
-from bpy.types import Context, Object, Operator, Panel, UILayout, Event, Bone, Scene, UIList
+from bpy.types import Context, Object, Operator, Panel, UILayout, Event, UIList
 from ..keyvalue3 import KVBool, KVNode, KVVector3
 from ..ui.common import KITSUNE_PT_CustomToolPanel
+
+from ..utils import hitbox_group
 
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
@@ -889,8 +891,8 @@ class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
                 except:
                     continue
         
-        bx.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
         bx.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        bx.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
         row : UILayout = bx.row(align=True)
         row.scale_y = 1.25
         row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to Clipboard', icon='FILE_TEXT').to_clipboard = True
@@ -1099,6 +1101,13 @@ class VALVEMODEL_OT_AddHitbox(Operator, VALVEMODEL_ModelConfig):
         description="Bone to parent the hitbox to"
     )
     
+    hitbox_group: EnumProperty(
+        name="Hitbox Group",
+        description="Hitbox group for collision detection",
+        items=hitbox_group,
+        default='0'
+    )
+    
     def invoke(self, context : Context, event : Event) -> set:
         armature = getArmature()
         
@@ -1112,32 +1121,60 @@ class VALVEMODEL_OT_AddHitbox(Operator, VALVEMODEL_ModelConfig):
         layout = self.layout
         armature = getArmature()
         
-        layout.prop_search(self, "parent_bone", armature.data, "bones", text="Parent Bone")
+        if armature.mode == 'POSE' and context.selected_pose_bones:
+            layout.label(text=f"{len(context.selected_pose_bones)} bone(s) selected")
+        else:
+            layout.prop_search(self, "parent_bone", armature.data, "bones", text="Parent Bone")
+        
+        layout.prop(self, "hitbox_group")
     
     def execute(self, context : Context) -> set:
         armature = getArmature()
         
-        if not self.parent_bone:
+        previous_mode = armature.mode if armature else 'OBJECT'
+        selected_pose_bones = []
+        
+        if previous_mode == 'POSE' and context.selected_pose_bones:
+            selected_pose_bones = [bone.name for bone in context.selected_pose_bones]
+        elif self.parent_bone:
+            selected_pose_bones = [self.parent_bone]
+        
+        if not selected_pose_bones:
             self.report({'WARNING'}, 'No parent bone selected')
             return {'CANCELLED'}
         
-        if self.parent_bone not in armature.data.bones:
-            self.report({'WARNING'}, f'Bone "{self.parent_bone}" not found')
-            return {'CANCELLED'}
+        if previous_mode == 'POSE':
+            bpy.ops.object.mode_set(mode='OBJECT')
         
-        bpy.ops.object.empty_add(type='CUBE')
-        empty = context.active_object
-        empty.name = f"hbox_{self.parent_bone}"
+        created_count = 0
+        for bone_name in selected_pose_bones:
+            if bone_name not in armature.data.bones:
+                self.report({'WARNING'}, f'Bone "{bone_name}" not found')
+                continue
+            
+            bpy.ops.object.empty_add(type='CUBE')
+            empty = context.active_object
+            empty.name = f"hbox_{bone_name}"
+            
+            empty.parent = armature
+            empty.parent_type = 'BONE'
+            empty.parent_bone = bone_name
+            empty.location = [0,0,0]
+            empty.vs.smd_hitbox = True
+            empty.vs.smd_hitbox_group = self.hitbox_group
+            
+            created_count += 1
         
-        empty.parent = armature
-        empty.parent_type = 'BONE'
-        empty.parent_bone = self.parent_bone
-        empty.location = [0,0,0]
-        empty.vs.smd_hitbox = True
+        if created_count > 0:
+            self.report({'INFO'}, f'Created {created_count} hitbox(es)')
         
-        self.report({'INFO'}, f'Created hitbox parented to {self.parent_bone}')
+        if previous_mode == 'POSE':
+            armature.select_set(True)
+            context.view_layer.objects.active = armature
+            bpy.ops.object.mode_set(mode='POSE')
+        else:
+            bpy.ops.object.mode_set(mode='OBJECT')
         
-        bpy.ops.object.mode_set(mode='OBJECT')
         return {'FINISHED'}
 
 class VALVEMODEL_UL_PBRToPhongList(UIList):
@@ -1536,10 +1573,9 @@ class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
         vs = context.scene.vs
         
         box = draw_title_box(layout, text="PBR To Phong Conversion")
-    
-        draw_wrapped_text_col(box,text="The conversion may or may not be accurate!", icon='ERROR',max_chars=48)
         
         box.prop(vs, "pbr_to_phong_export_path")
+        
         row = box.row()
         row.template_list("VALVEMODEL_UL_PBRToPhongList", "", vs, "pbr_items", 
                          vs, "pbr_active_index", rows=3)
@@ -1640,4 +1676,5 @@ class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
         
         helpsection = create_toggle_section(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
         if context.scene.vs.show_pbrphong_help:
-            draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40)
+            draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40, boxed=False)
+            draw_wrapped_text_col(helpsection,text="The conversion may or may not be accurate!", max_chars=40, alert=True, boxed=False)

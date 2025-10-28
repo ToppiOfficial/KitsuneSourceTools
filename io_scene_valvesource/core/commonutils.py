@@ -200,7 +200,7 @@ def has_materials(ob : bpy.types.Object) -> bool:
     return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
 
 def draw_wrapped_text_col(
-    layout,
+    layout : UILayout,
     text: str | list[str],
     max_chars: int = 40,
     icon: str | None = None,
