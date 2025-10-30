@@ -16,9 +16,6 @@ class TOOLS_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = 'Tools'
     bl_options : Set = {'DEFAULT_CLOSED'}
 
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='TOOL_SETTINGS')
-
     def draw(self, context : Context) -> None:
         l : UILayout | None = self.layout
 

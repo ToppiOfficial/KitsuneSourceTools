@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 257
+ADDONVER = 258
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -58,7 +58,7 @@ def format_version(ver: int = ADDONVER) -> tuple[str, str]:
 
 from . import datamodel, import_smd, export_smd, flex, GUI, iconloader
 from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, sceneutils, networkutils
-from .ui import developer, armature_mapper, common, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone
+from .ui import developer, armature_mapper, common, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone, pseudopbr
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -549,27 +549,20 @@ _classes = (
     
     properties.SMD_PT_ContextObject,
     
-    # OBJECT PANEL
-    properties.SMD_PT_Object,
-    
     # MESH PANEL
-    properties.SMD_PT_Mesh,
     properties.DME_UL_FlexControllers,
     properties.DME_OT_AddFlexController,
     properties.DME_OT_RemoveFlexController,
     properties.SMD_OT_AddVertexMapRemap,
     
-    # CURVE PANEL
-    properties.SMD_PT_Curves,
-    
-    # EMPTY PANEL
-    properties.SMD_PT_Empty,
-    
-    # BONE PANEL
-    properties.SMD_PT_Bones,
-    
-    # MATERIALS PANEL
-    properties.SMD_PT_Materials,
+    valvemodel.VALVEMODEL_PT_PANEL,
+    valvemodel.VALVEMODEL_OT_FixAttachment,
+    valvemodel.VALVEMODEL_OT_ExportJiggleBone,
+    valvemodel.VALVEMODEL_OT_CreateProportionActions,
+    valvemodel.VALVEMODEL_OT_ExportConstraintProportion,
+    valvemodel.VALVEMODEL_OT_ExportHitBox,
+    valvemodel.VALVEMODEL_OT_FixHitBox,
+    valvemodel.VALVEMODEL_OT_AddHitbox,
     
     common.TOOLS_PT_PANEL,
     
@@ -613,26 +606,12 @@ _classes = (
     armature_mapper.ARMATUREMAPPER_OT_LoadJson,
     armature_mapper.ARMATUREMAPPER_OT_LoadPreset,
     
-    valvemodel.VALVEMODEL_PT_PANEL,
-    valvemodel.VALVEMODEL_PT_Attachments,
-    valvemodel.VALVEMODEL_OT_FixAttachment,
-    valvemodel.VALVEMODEL_PT_Jigglebone,
-    valvemodel.VALVEMODEL_OT_ExportJiggleBone,
-    #valvemodel.VALVEMODEL_PT_ClothNode,
-    valvemodel.VALVEMODEL_PT_Animation,
-    valvemodel.VALVEMODEL_OT_CreateProportionActions,
-    valvemodel.VALVEMODEL_OT_ExportConstraintProportion,
-    valvemodel.VALVEMODEL_PT_HitBox,
-    valvemodel.VALVEMODEL_OT_ExportHitBox,
-    valvemodel.VALVEMODEL_OT_FixHitBox,
-    valvemodel.VALVEMODEL_OT_AddHitbox,
-    valvemodel.VALVEMODEL_UL_PBRToPhongList,
-    valvemodel.VALVEMODEL_OT_AddPBRItem,
-    valvemodel.VALVEMODEL_OT_RemovePBRItem,
-    valvemodel.VALVEMODEL_OT_ConvertPBRItem,
-    valvemodel.VALVEMODEL_OT_ConvertAllPBRItems,
-    valvemodel.VALVEMODEL_PT_PBRtoPhong,
-    #valvemodel.VALVEMODEL_OT_ConvertPBRmapsToPhong,
+    pseudopbr.PSEUDOPBR_UL_PBRToPhongList,
+    pseudopbr.PSEUDOPBR_OT_AddPBRItem,
+    pseudopbr.PSEUDOPBR_OT_RemovePBRItem,
+    pseudopbr.PSEUDOPBR_OT_ConvertPBRItem,
+    pseudopbr.PSEUDOPBR_OT_ConvertAllPBRItems,
+    pseudopbr.PSEUDOPBR_PT_PBRtoPhong,
     
     developer.DEVELOPER_PT_PANEL,
     developer.DEVELOPER_OT_ImportLegacyData,

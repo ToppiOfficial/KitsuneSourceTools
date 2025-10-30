@@ -874,7 +874,7 @@ _data = {
         'en': "Object Properties",
     },
     'panel_context_properties': {
-        'en': "Properties",
+        'en': "Active Object Properties",
     },
     'panel_context_material': {
         'en': "Materials Properties",

@@ -124,7 +124,7 @@ class SMD_PT_Scene(bpy.types.Panel):
         col = l.column(align=True)
         row = col.row(align=True)
         
-        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '', icon='HELP')
+        exportablehelp_section = create_toggle_section(l, context.scene.vs, 'show_exportable_help', f'Show Help', '', icon='HELP', toggle_scale_y=0.65)
         if scene.vs.show_exportable_help:
             self.draw_urls(layout=exportablehelp_section)
         
@@ -461,8 +461,8 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         
         col = row.column(align=True)
         col.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
-        prefabhelpsection = create_toggle_section(col,context.scene.vs,'show_prefab_help','Read Me','')
-        if context.scene.vs.show_prefab_help:
+        prefabhelpsection = create_toggle_section(col,context.scene.vs,'show_prefab_help','Read Me','', toggle_scale_y=0.65)
+        if prefabhelpsection is not None:
             draw_wrapped_text_col(prefabhelpsection,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=45, icon='WARNING_LARGE',boxed=False)
         
         col = row.column(align=True)

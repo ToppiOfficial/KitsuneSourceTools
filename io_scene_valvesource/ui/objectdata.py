@@ -51,7 +51,7 @@ class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
         
         transform_helpsection = create_toggle_section(transformbox,context.scene.vs,'show_applytransform_help',show_text='Show Help',icon='HELP')
         
-        if context.scene.vs.show_applytransform_help:
+        if transform_helpsection is not None:
             draw_wrapped_text_col(transform_helpsection, " ".join(text), alert=False, boxed=False)
             draw_wrapped_text_col(transform_helpsection, " ".join(text2), alert=True, boxed=False)
         

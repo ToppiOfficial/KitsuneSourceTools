@@ -200,73 +200,109 @@ def has_materials(ob : bpy.types.Object) -> bool:
     return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
 
 def draw_wrapped_text_col(
-    layout : UILayout,
+    layout: UILayout,
     text: str | list[str],
     max_chars: int = 40,
     icon: str | None = None,
     alert: bool = False,
     boxed: bool = True,
-    title: str | None = None
+    title: str | None = None,
+    scale_y: float = 0.7,
+    icon_factor: float = 0.08
 ):
+    """
+    Draw text with automatic word wrapping in a column layout.
+    Preserves paragraph breaks and handles both string and list inputs.
+    
+    Args:
+        layout: Blender UILayout to draw into
+        text: Text content as string or list of strings
+        max_chars: Maximum characters per line before wrapping
+        icon: Optional icon to display
+        alert: Whether to highlight with alert styling
+        boxed: Whether to wrap content in a box
+        title: Optional title text to display above content
+        scale_y: Vertical scale factor for text rows
+        icon_factor: Width factor for icon column (when title is None)
+    """
     if isinstance(text, list):
         text = '\n'.join(text)
     
-    all_lines = []
+    lines = []
     for paragraph in text.split('\n'):
         if not paragraph:
-            all_lines.append('')
+            lines.append('')
             continue
-            
+        
         words = paragraph.split()
-        current_line = []
-        current_len = 0
-
+        line = []
+        length = 0
+        
         for word in words:
             word_len = len(word)
-            needed = word_len + (1 if current_line else 0)
+            space = 1 if line else 0
             
-            if current_len + needed > max_chars:
-                all_lines.append(' '.join(current_line))
-                current_line = [word]
-                current_len = word_len
+            if length + word_len + space > max_chars:
+                lines.append(' '.join(line))
+                line = [word]
+                length = word_len
             else:
-                current_line.append(word)
-                current_len += needed
-
-        if current_line:
-            all_lines.append(' '.join(current_line))
-
+                line.append(word)
+                length += word_len + space
+        
+        if line:
+            lines.append(' '.join(line))
+    
     col = layout.column(align=True)
-    col.scale_y = 0.7
+    col.scale_y = scale_y
     col.alert = alert
     container = col.box() if boxed else col
-
+    
     if title:
         title_row = container.row(align=True)
-        if icon:
-            title_row.label(text=title, icon=icon)
-        else:
-            title_row.label(text=title)
-        col_lines = container.column(align=True)
+        title_row.label(text=title, icon=icon or 'NONE')
+        text_col = container.column(align=True)
+    elif icon:
+        split = container.split(factor=icon_factor)
+        split.label(icon=icon)
+        text_col = split.column(align=True)
     else:
-        if icon:
-            split = container.split(factor=0.08)
-            split.label(icon=icon)
-            col_lines = split.column(align=True)
-        else:
-            col_lines = container.column(align=True)
+        text_col = container.column(align=True)
+    
+    for line in lines:
+        text_col.label(text=line)
 
-    for line in all_lines:
-        col_lines.label(text=line)
+def draw_title_box(
+    layout: UILayout,
+    text: str,
+    icon: str = 'NONE',
+    align: bool = False,
+    alert: bool = False,
+    scale_y: float = 1.0
+) -> UILayout:
+    """
+    Create a box with a title row and return the box for further content.
+    
+    Args:
+        layout: Blender UILayout to draw into
+        text: Title text to display
+        icon: Icon to display next to title
+        align: Whether to align column content
+        alert: Whether to highlight with alert styling
+        scale_y: Vertical scale factor for the box
         
-    col = layout.column()
-
-def draw_title_box(layout : UILayout, text: str, icon: str = 'NONE', align : bool = False) -> UILayout:
+    Returns:
+        UILayout box for adding additional content
+    """
+    box = layout.box()
+    
     if align:
-        box = layout.box().column(align=True)
-    else:
-        box = layout.box()
-        
+        box = box.column(align=True)
+    
+    if alert:
+        box.alert = True
+    
+    box.scale_y = scale_y
     row = box.row()
     row.label(text=text, icon=icon)
     
@@ -456,34 +492,113 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-def create_toggle_section(layout : UILayout, data, prop_name : str, show_text : str, hide_text : str="", alert : bool =False, align : bool = False, icon : str | None = None, icon_value : int = 0, wrapper : bool = False) -> UILayout | None:
-    subbox = layout.box()
-    if alert:
-        subbox.alert = True
+def create_toggle_section(
+    layout: UILayout,
+    data,
+    prop_name: str,
+    show_text: str,
+    hide_text: str = "",
+    alert: bool = False,
+    align: bool = False,
+    icon: str | None = None,
+    icon_value: int = 0,
+    wrapper: bool = False,
+    boxed: bool = True,
+    emboss: bool = False,
+    depress : bool = False,
+    toggle_scale_y: float = 1.0,
+    enabled : bool = True,
+    icon_outside: bool = False
+) -> UILayout | None:
+    """
+    Create a collapsible section with a toggle operator.
+    Returns the layout if expanded, None if collapsed.
+    
+    Args:
+        layout: Blender UILayout to draw into
+        data: Data object containing the property
+        prop_name: Name of the boolean property controlling visibility
+        show_text: Text to display when section is collapsed
+        hide_text: Text to display when expanded (defaults to show_text)
+        alert: Whether to highlight with alert styling
+        align: Whether to align column content
+        icon: String icon identifier
+        icon_value: Integer icon value (alternative to icon)
+        wrapper: Return a wrapper object instead of direct layout
+        boxed: Whether to wrap in a box
+        emboss: Whether to emboss the toggle button
+        toggle_scale_y: Vertical scale factor for toggle button only
+        enabled: Whether the section is enabled
+        icon_outside: Whether to place icon outside the box (left side)
         
+    Returns:
+        UILayout if section is expanded, None if collapsed
+        If wrapper=True, returns object with .layout attribute
+    """
+    # If icon should be outside, only use it for the toggle row
+    if icon_outside and (icon is not None or icon_value != 0):
+        toggle_row = layout.row(align=True)
+        if icon_value != 0:
+            toggle_row.label(text='', icon_value=icon_value)
+        else:
+            toggle_row.label(text='', icon=icon)
+        container = toggle_row.box() if boxed else toggle_row.column()
+    else:
+        container = layout.box() if boxed else layout.column()
+    
+    container.enabled = enabled
+    
+    if alert:
+        container.alert = True
+    
     if align:
-        subbox = subbox.column(align=True)
+        container = container.column(align=True)
     
     is_active = getattr(data, prop_name)
     display_text = (hide_text or show_text) if is_active else show_text
+    toggle_icon = 'TRIA_DOWN' if is_active else 'TRIA_RIGHT'
     
-    if icon is not None or icon_value != 0:
-        row = subbox.row(align=True)
+    # Only show icon inside if not placing it outside
+    if (icon is not None or icon_value != 0) and not icon_outside:
+        row = container.row(align=True)
+        row.scale_y = toggle_scale_y
         if icon_value != 0:
             row.label(text='', icon_value=icon_value)
         else:
             row.label(text='', icon=icon)
-        row.operator(f"kitsunetoggle.{prop_name}", icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT', text=display_text, emboss=False)
+        row.operator(
+            f"kitsunetoggle.{prop_name}",
+            icon=toggle_icon,
+            text=display_text,
+            emboss=emboss,
+            depress=depress
+        )
     else:
-        subbox.operator(f"kitsunetoggle.{prop_name}", icon='TRIA_DOWN' if is_active else 'TRIA_RIGHT', text=display_text, emboss=False)
+        row = container.row()
+        row.scale_y = toggle_scale_y
+        row.operator(
+            f"kitsunetoggle.{prop_name}",
+            icon=toggle_icon,
+            text=display_text,
+            emboss=emboss,
+            depress=depress
+        )
     
     if is_active:
+        # If icon is outside, create content in the main layout (not in toggle_row)
+        if icon_outside and (icon is not None or icon_value != 0):
+            content_container = layout.box() if boxed else layout.column()
+            content = content_container.column()
+        else:
+            content = container.column()
+            
         if wrapper:
             class LayoutWrapper:
-                def __init__(self):
-                    self.layout = subbox
-            return LayoutWrapper()
-        return subbox
+                def __init__(self, layout):
+                    self.layout = layout
+            return LayoutWrapper(content)
+        return content
+    
     return None
 
 def getHitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:

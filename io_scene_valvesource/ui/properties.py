@@ -317,37 +317,59 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     """Displays the Main Panel for Object Properties"""
     bl_label : str = get_id("panel_context_properties")
     
-    def draw_header(self, context : Context) -> None :
-        self.layout.label(icon='PROPERTIES')
-    
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
 
         col = l.column(align=True)
         
         addonver, addondevstate = format_version()
-        addoninfo_section : UILayout = create_toggle_section(col, context.scene.vs, 'show_addoninfo', show_text=f'KitsuneSourceTool {addonver}_{addondevstate}', hide_text='')
+        addoninfo_section : UILayout = create_toggle_section(col, context.scene.vs, 'show_addoninfo', show_text=f'KitsuneSourceTool {addonver}_{addondevstate}', hide_text='', toggle_scale_y=1.2)
         if addoninfo_section is not None:
-            draw_wrapped_text_col(addoninfo_section, get_id('introduction_message'), max_chars=38)
+            draw_wrapped_text_col(addoninfo_section, get_id('introduction_message'))
         
-        prophelpsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_properties_help', f'Show Tips', '')
-        if context.scene.vs.show_properties_help:
+        prophelpsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_properties_help', f'Show Tips', '', toggle_scale_y=0.7)
+        if prophelpsection is not None:
             help_text = [
                 '- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type.\n\n',
                 '- Exporting bones with non alphanumeric character will be sanitize and can lead to issues with bone mixup.',
             ]
             draw_wrapped_text_col(prophelpsection, text="".join(help_text), max_chars=40)
-            
-        col.separator()
 
         warning_count = ValidationChecker.count_warnings(context)
         has_warnings = warning_count > 0
         
-        section_title = 'Show Validation Check' if warning_count == 0 else f'Show Validation Check ({warning_count})'
-        warningsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings, icon='OBJECT_DATA')
+        section_title = 'Object(s) Validation' if warning_count == 0 else f'Object(s) Validation ({warning_count})'
+        warningsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings, icon='SCENE')
         
-        if context.scene.vs.show_objectwarnings:
+        if warningsection is not None:
             self.draw_warning_checks(context, warningsection)
+            
+        sections = [
+            ('show_smdobject', get_id("panel_context_object"), 'OBJECT_DATA', self.draw_objectproperties, None),
+            ('show_smdbone', get_id("panel_context_bone"), 'BONE_DATA', self.draw_boneproperties, 'ARMATURE'),
+            ('show_smdmesh', get_id("panel_context_mesh"), 'MESH_DATA', self.draw_meshproperties, 'MESH'),
+            ('show_smdmaterials', get_id("panel_context_material"), 'MATERIAL_DATA', self.draw_materialproperties, ['MESH', 'ARMATURE']),
+            ('show_smdempty', get_id('panel_context_empty'), 'EMPTY_DATA', self.draw_emptyproperties, 'EMPTY'),
+            ('show_smdcurve', get_id("exportables_curve_props"), 'CURVE_DATA', self.draw_curveproperties, 'NONE'),
+        ]
+        
+        col.separator()
+        
+        for prop, label, icon, draw_func, object_type in sections:
+            
+            is_sametype = False
+            if object_type is None and context.object: is_sametype = True
+            elif context.object and (context.object.type == object_type or context.object.type in object_type): is_sametype = True
+            
+            section = create_toggle_section(
+                col, context.scene.vs, prop, 
+                show_text=label, icon=icon, 
+                enabled=is_sametype,
+                toggle_scale_y=0.9,
+                icon_outside=True
+            )
+            if section:
+                draw_func(context, section)
             
     def draw_warning_checks(self, context: Context, layout: UILayout) -> int:
         num_warnings = 0
@@ -361,64 +383,48 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         num_warnings += WarningRenderer.draw_bugged_items(layout)
                 
         if num_warnings == 0:
-            draw_wrapped_text_col(layout, f'No Errors found on selected object')
+            draw_wrapped_text_col(layout, f'No Errors found on active object', boxed=False)
             
         return num_warnings
-        
-class ExportableConfigurationPanel(KITSUNE_PT_CustomToolPanel, Panel):
-    bl_label : str = ''
-    bl_parent_id : str = "SMD_PT_ContextObject"
-    bl_options : Any = {'DEFAULT_CLOSED'}
-
-class SMD_PT_Object(ExportableConfigurationPanel):
-    bl_label : str = get_id("panel_context_object")
     
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='OBJECT_DATA')
-        
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, SMD_PT_Object.bl_label)
+    def draw_objectproperties(self, context : Context, layout : UILayout) -> None:
+        l : UILayout = layout
         ob : Object | None = context.object
         
         if not ob:
-            draw_wrapped_text_col(bx,get_id("panel_select_object"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(l,get_id("panel_select_object"),max_chars=40 , icon='HELP')
             return
         
-        bx.box().label(text=f'Active Object: ({ob.name})')
-        bx.prop(ob.vs, 'export')
-
-class SMD_PT_Mesh(ExportableConfigurationPanel):
-    bl_label : str = get_id("panel_context_mesh")
-    
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='MESH_DATA')
+        l.box().label(text=f'Active Object: ({ob.name})')
+        l.prop(ob.vs, 'export')
         
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+    def draw_meshproperties(self, context : Context, layout : UILayout) -> None:
+        l : UILayout = layout
         ob : Object | None = context.object
-        bx : UILayout = draw_title_box(l, SMD_PT_Mesh.bl_label)
         
         if is_mesh(ob): pass
         else:
-            draw_wrapped_text_col(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
         
-        col = bx.column()
-        shapekeysection = create_toggle_section(col, context.scene.vs, 'show_flex', 'Show Shapekey Conifg', icon='SHAPEKEY_DATA')
-        vertexmapsection = create_toggle_section(col, context.scene.vs, 'show_vertexmap', 'Show VertexMap Conifg', icon='GROUP_VERTEX')
-        floatmapssection = create_toggle_section(col, context.scene.vs, 'show_floatmaps', 'Show FloatMaps Conifg', icon='MOD_CLOTH')
+        sections = [
+            ('show_flex', 'Show Shapekey Conifg', 'SHAPEKEY_DATA', self._draw_shapekey_config),
+            ('show_vertexmap', 'Show VertexMap Conifg', 'GROUP_VERTEX', self._draw_vertexmap_config),
+            ('show_floatmaps', 'Show FloatMaps Conifg', 'MOD_CLOTH', self._draw_floatmaps_config),
+        ]
         
-        if context.scene.vs.show_flex:
-            self.draw_shapekey_config(context,shapekeysection)
+        col = l.column()
+        
+        for prop, label, icon, draw_func in sections:
+            section = create_toggle_section(
+                col, context.scene.vs, prop, 
+                show_text=label, icon=icon,
+                boxed=False
+            )
+            if section:
+                draw_func(context, section)
             
-        if context.scene.vs.show_vertexmap:
-            self.draw_vertexmap_config(context,vertexmapsection)
-            
-        if context.scene.vs.show_floatmaps:
-            self.draw_floatmaps_config(context, floatmapssection)
-            
-    def draw_shapekey_config(self,context : Context, layout : UILayout):
+    def _draw_shapekey_config(self,context : Context, layout : UILayout):
         bx : UILayout = layout
         ob = context.object
         
@@ -496,7 +502,7 @@ class SMD_PT_Mesh(ExportableConfigurationPanel):
         if ob.vs.flex_controller_mode != 'STRICT':
             row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count_corrective", True).format(num_correctives))
         
-    def draw_vertexmap_config(self, context : Context, layout : UILayout):
+    def _draw_vertexmap_config(self, context : Context, layout : UILayout):
         bx : UILayout = layout
         col = bx.column(align=True)
         
@@ -512,7 +518,7 @@ class SMD_PT_Mesh(ExportableConfigurationPanel):
             add_remove.operator(SMD_OT_RemoveVertexMap_idname + map_name,icon='REMOVE',text="")
             add_remove.operator(SMD_OT_SelectVertexMap_idname + map_name,text="Activate")
      
-    def draw_floatmaps_config(self, context : Context, layout :UILayout):
+    def _draw_floatmaps_config(self, context : Context, layout :UILayout):
         ob = context.active_object
         col = layout.column()
         
@@ -545,6 +551,159 @@ class SMD_PT_Mesh(ExportableConfigurationPanel):
 
             if not found:
                 r.operator("smd.add_vertex_map_remap").map_name = map_name
+    
+    def draw_boneproperties(self, context : Context, layout : UILayout) -> None:
+        l : UILayout = layout
+        ob : Object | None = context.object
+        
+        if is_armature(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            return
+            
+        try:
+            bone : bpy.types.Bone | None = ob.data.bones.active if context.mode != 'EDIT_ARMATURE' else ob.data.bones.get(ob.data.edit_bones.active.name)
+        except:
+            bone = None
+        
+        if bone is not None:
+            l.prop(ob.data.vs, "ignore_bone_exportnames", toggle=True)
+            draw_wrapped_text_col(l,'Ignore bone export name affects all bones',max_chars=40 , icon='ERROR')
+            subbx = l.box()  
+            subbx.label(text=f'Active Bone: {bone.name}')
+            subbx.separator(type='LINE')
+            subbx.label(text=f'Export Name : {getBoneExportName(bone)}')
+
+            if context.mode != 'EDIT_ARMATURE':
+                col = l.column(align=False)
+                col.prop(bone.vs, 'export_name')
+                row = col.split(align=True, factor=0.4)
+                row.label(text='Direction Naming:')
+                row.prop(ob.data.vs, 'bone_direction_naming_left',text='')
+                row.prop(ob.data.vs, 'bone_direction_naming_right',text='')
+                col.prop(ob.data.vs, 'bone_name_startcount', slider=True)
+                
+                row = l.row(align=True)
+                col = row.column(align=True)
+                col.prop(bone.vs, 'ignore_location_offset', toggle=True)
+                
+                col = col.column(align=True)
+                if bone.vs.ignore_location_offset: col.active = False
+                col.prop(bone.vs, 'export_location_offset_x')
+                col.prop(bone.vs, 'export_location_offset_y')
+                col.prop(bone.vs, 'export_location_offset_z')
+                
+                col = row.column(align=True)
+                col.prop(bone.vs, 'ignore_rotation_offset', toggle=True)
+                
+                col = col.column(align=True)
+                if bone.vs.ignore_rotation_offset: col.active = False
+                col.prop(bone.vs, 'export_rotation_offset_x')
+                col.prop(bone.vs, 'export_rotation_offset_y')
+                col.prop(bone.vs, 'export_rotation_offset_z')
+                
+                col = l.column()
+                draw_wrapped_text_col(
+                    col,
+                    'Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
+                    max_chars=36)
+                
+                col = l.column()
+                col.prop(bone, 'use_deform', toggle=True)
+
+            else:
+                col = l.column(align=True)
+                messages = 'Bone Properties is not editable in Edit Mode'
+                draw_wrapped_text_col(col, messages, max_chars=32, alert=True,icon='ERROR')
+        else:
+            l.label(text='Select a Valid Bone')
+    
+    def draw_materialproperties(self, context : Context, layout : UILayout) -> None:
+        l : UILayout = layout
+        ob : Object | None = context.object
+        if ob is None: return
+        
+        allmats = getAllMats(ob)
+        allmaterials_section = create_toggle_section(l,context.scene.vs,'show_materials',f'Show All Mesh Materials: {len(allmats)}','',alert=not bool(allmats), toggle_scale_y=0.7)
+        if allmaterials_section is not None:
+            
+            if context.scene.vs.material_path.strip():
+                titlebox = draw_title_box(allmaterials_section,'Default Material Path')
+                titlebox.prop(context.scene.vs, 'material_path',text='', emboss=False)
+            
+            for mat in allmats:
+                subbx = allmaterials_section.box()
+                col = subbx.column(align=False)
+                row = col.row(align=True)
+                
+                if mat.preview is not None:
+                    row.label(text=mat.name, icon_value=mat.preview.icon_id)
+                else:
+                    row.label(text=mat.name, icon='MATERIAL')
+                    
+                row.prop(mat.vs, 'do_not_export_faces',text='Do Not Export',toggle=True)
+                row.prop(mat.vs, 'do_not_export_faces_vgroup', text='Vertex Filtering',toggle=True)
+                
+                if not mat.vs.do_not_export_faces:
+                    col = subbx.column(align=True)
+                    col.scale_y = 1.05
+                    col.prop(mat.vs,'override_dmx_export_path',icon='FOLDER_REDIRECT', placeholder=context.scene.vs.material_path)
+                    if mat.vs.do_not_export_faces_vgroup:
+                        col.prop(mat.vs,'non_exportable_vgroup',icon='GROUP_VERTEX')
+        
+        if is_mesh(ob) and has_materials(ob): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
+            return
+        
+        currMat = ob.active_material
+        l.box().label(text=f'Active Material: ({currMat.name})')
+        
+        col = l.column(align=True)
+        col.prop(currMat.vs, 'do_not_export_faces')
+        col.prop(currMat.vs, 'do_not_export_faces_vgroup')
+        
+        if not currMat.vs.do_not_export_faces:
+            col = l.column()
+            col.prop(currMat.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
+            col.prop(currMat.vs, 'non_exportable_vgroup')   
+
+    def draw_emptyproperties(self, context : Context, layout : UILayout) -> None:
+        L : UILayout = layout
+        ob : Object | None = context.object
+        
+        if is_empty(ob): pass
+        else:
+            draw_wrapped_text_col(L,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
+            return
+        
+        col : UILayout = L.column()
+        
+        col.prop(ob.vs, 'dmx_attachment', toggle=False)
+        col.prop(ob.vs, 'smd_hitbox', toggle=False)
+        
+        if ob.vs.smd_hitbox:
+            col.prop(ob.vs, 'smd_hitbox_group', text='Hitbox Group')
+        
+        if ob.vs.dmx_attachment and ob.children:
+            col.alert = True
+            col.box().label(text="Attachment cannot be a parent",icon='WARNING_LARGE')
+
+    def draw_curveproperties(self, context : Context, layout :UILayout) -> None:
+        l : UILayout = layout
+        
+        if is_curve(context.object) and hasCurves(context.object): pass
+        else:
+            draw_wrapped_text_col(l,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
+            return
+        
+        done = set()
+        
+        row = l.split(factor=0.33)
+        row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False) # type: ignore
+        row.prop(context.object.data.vs,"faces",text="")
+        done.add(context.object.data)
+
         
 class DME_UL_FlexControllers(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
@@ -601,183 +760,3 @@ class SMD_OT_AddVertexMapRemap(Operator):
             group.min = 0.0
             group.max = 1.0
         return {'FINISHED'}
-
-class SMD_PT_Curves(ExportableConfigurationPanel):
-    bl_label : str = get_id("exportables_curve_props")
-    
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='CURVE_DATA')
-    
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, SMD_PT_Curves.bl_label)
-        
-        if is_curve(context.object) and hasCurves(context.object): pass
-        else:
-            draw_wrapped_text_col(bx,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
-            return
-        
-        done = set()
-        
-        row = bx.split(factor=0.33)
-        row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False) # type: ignore
-        row.prop(context.object.data.vs,"faces",text="")
-        done.add(context.object.data)
-
-class SMD_PT_Materials(ExportableConfigurationPanel):
-    bl_label : str = get_id("panel_context_material")
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='MATERIAL_DATA')
-    
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, SMD_PT_Materials.bl_label)
-        ob : Object | None = context.object
-        if ob is None: return
-        
-        allmats = getAllMats(ob)
-        allmaterials_section = create_toggle_section(bx,context.scene.vs,'show_materials',f'Show All Materials: {len(allmats)}','',alert=not bool(allmats))
-        if context.scene.vs.show_materials:
-            
-            if context.scene.vs.material_path.strip():
-                titlebox = draw_title_box(allmaterials_section,'Default Material Path')
-                titlebox.prop(context.scene.vs, 'material_path',text='', emboss=False)
-            
-            for mat in allmats:
-                subbx = allmaterials_section.box()
-                col = subbx.column(align=False)
-                row = col.row(align=True)
-                
-                if mat.preview is not None:
-                    row.label(text=mat.name, icon_value=mat.preview.icon_id)
-                else:
-                    row.label(text=mat.name, icon='MATERIAL')
-                    
-                row.prop(mat.vs, 'do_not_export_faces',text='Do Not Export',toggle=True)
-                row.prop(mat.vs, 'do_not_export_faces_vgroup', text='Vertex Filtering',toggle=True)
-                
-                if not mat.vs.do_not_export_faces:
-                    col = subbx.column(align=True)
-                    col.scale_y = 1.05
-                    col.prop(mat.vs,'override_dmx_export_path',icon='FOLDER_REDIRECT', placeholder=context.scene.vs.material_path)
-                    if mat.vs.do_not_export_faces_vgroup:
-                        col.prop(mat.vs,'non_exportable_vgroup',icon='GROUP_VERTEX')
-        
-        if is_mesh(ob) and has_materials(ob): pass
-        else:
-            draw_wrapped_text_col(bx,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
-            return
-        
-        currMat = ob.active_material
-        bx.box().label(text=f'Active Material: ({currMat.name})')
-        
-        col = bx.column(align=True)
-        col.prop(currMat.vs, 'do_not_export_faces')
-        col.prop(currMat.vs, 'do_not_export_faces_vgroup')
-        
-        if not currMat.vs.do_not_export_faces:
-            col = bx.column()
-            col.prop(currMat.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
-            col.prop(currMat.vs, 'non_exportable_vgroup')     
-            
-class SMD_PT_Bones(ExportableConfigurationPanel):
-    bl_label : str = get_id("panel_context_bone")
-    
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='BONE_DATA')
-    
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, SMD_PT_Bones.bl_label)
-        ob : Object | None = context.object
-        
-        if is_armature(ob): pass
-        else:
-            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
-            return
-            
-        try:
-            bone : bpy.types.Bone | None = ob.data.bones.active if context.mode != 'EDIT_ARMATURE' else ob.data.bones.get(ob.data.edit_bones.active.name)
-        except:
-            bone = None
-        
-        if bone is not None:
-            bx.prop(ob.data.vs, "ignore_bone_exportnames", toggle=True)
-            draw_wrapped_text_col(bx,'Ignore bone export name affects all bones',max_chars=40 , icon='ERROR')
-            subbx = bx.box()  
-            subbx.label(text=f'Active Bone: {bone.name}')
-            subbx.separator(type='LINE')
-            subbx.label(text=f'Export Name : {getBoneExportName(bone)}')
-
-            if context.mode != 'EDIT_ARMATURE':
-                col = bx.column(align=False)
-                col.prop(bone.vs, 'export_name')
-                row = col.split(align=True, factor=0.4)
-                row.label(text='Direction Naming:')
-                row.prop(ob.data.vs, 'bone_direction_naming_left',text='')
-                row.prop(ob.data.vs, 'bone_direction_naming_right',text='')
-                col.prop(ob.data.vs, 'bone_name_startcount', slider=True)
-                
-                row = bx.row(align=True)
-                col = row.column(align=True)
-                col.prop(bone.vs, 'ignore_location_offset', toggle=True)
-                
-                col = col.column(align=True)
-                if bone.vs.ignore_location_offset: col.active = False
-                col.prop(bone.vs, 'export_location_offset_x')
-                col.prop(bone.vs, 'export_location_offset_y')
-                col.prop(bone.vs, 'export_location_offset_z')
-                
-                col = row.column(align=True)
-                col.prop(bone.vs, 'ignore_rotation_offset', toggle=True)
-                
-                col = col.column(align=True)
-                if bone.vs.ignore_rotation_offset: col.active = False
-                col.prop(bone.vs, 'export_rotation_offset_x')
-                col.prop(bone.vs, 'export_rotation_offset_y')
-                col.prop(bone.vs, 'export_rotation_offset_z')
-                
-                col = bx.column()
-                draw_wrapped_text_col(
-                    col,
-                    'Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
-                    max_chars=36)
-                
-                col = bx.column()
-                col.prop(bone, 'use_deform', toggle=True)
-
-            else:
-                col = bx.column(align=True)
-                messages = 'Bone Properties is not editable in Edit Mode'
-                draw_wrapped_text_col(col, messages, max_chars=32, alert=True,icon='ERROR')
-        else:
-            bx.label(text='Select a Valid Bone')
- 
-class SMD_PT_Empty(ExportableConfigurationPanel):
-    bl_label : str = get_id('panel_context_empty')
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='EMPTY_DATA')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        bx : UILayout = draw_title_box(l, SMD_PT_Empty.bl_label)
-        ob : Object | None = context.object
-        
-        if is_empty(ob): pass
-        else:
-            draw_wrapped_text_col(bx,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
-            return
-        
-        col : UILayout = bx.column()
-        
-        col.prop(ob.vs, 'dmx_attachment', toggle=False)
-        col.prop(ob.vs, 'smd_hitbox', toggle=False)
-        
-        if ob.vs.smd_hitbox:
-            col.prop(ob.vs, 'smd_hitbox_group', text='Hitbox Group')
-        
-        if ob.vs.dmx_attachment and ob.children:
-            col.alert = True
-            col.box().label(text="Attachment cannot be a parent",icon='WARNING_LARGE')

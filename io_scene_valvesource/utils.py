@@ -95,8 +95,10 @@ toggle_show_ops = [
     "show_pbrphong_help",
     "show_clothnodes",
     "show_objectwarnings",
+    ['show_smdobject', 'show_smdmesh', 'show_smdcurve', 'show_smdbone', 'show_smdmaterials', 'show_smdempty'],
     ['show_flex','show_vertexmap','show_floatmaps'],
-    ['show_armature_tools','show_bone_tools','show_mesh_tools'],
+    'show_smdarmature',
+    ['show_smdattachments', 'show_smdjigglebone', 'show_smdanimation', 'show_smdhitbox'],
     'show_applytransform_help'
 ]
 

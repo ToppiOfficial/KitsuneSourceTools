@@ -1,9 +1,8 @@
 import os, math, bpy, mathutils
-import numpy as np
-from bpy.props import StringProperty, IntProperty, EnumProperty
+from bpy.props import StringProperty, EnumProperty
 from typing import Set, Any
 from bpy import props
-from bpy.types import Context, Object, Operator, Panel, UILayout, Event, UIList
+from bpy.types import Context, Object, Operator, Panel, UILayout, Event
 from ..keyvalue3 import KVBool, KVNode, KVVector3
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
@@ -25,7 +24,7 @@ from ..core.boneutils import(
 )
 
 from ..core.armatureutils import(
-    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix, getArmatureMeshes
+    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix
 )
 
 from ..core.objectutils import(
@@ -113,53 +112,333 @@ class VALVEMODEL_PrefabExportOperator():
         return True
 
 class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
-    bl_label : str = 'Valve Models'
-    bl_options : Set = {'DEFAULT_CLOSED'}
+    bl_label: str = 'ValveModels'
+    bl_options: Set = {'DEFAULT_CLOSED'}
 
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='LIBRARY_DATA_DIRECT')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        armature = getArmature(context.object)
-        if armature is not None:
-            path = get_object_path(armature, context.view_layer)
-            draw_wrapped_text_col(l, text=f'Active Armature: {armature.name}\n\n{path}', icon='ARMATURE_DATA')
-        else:
-            draw_wrapped_text_col(l, text='Active Armature: None', icon='ARMATURE_DATA')
-
-class VALVEMODEL_ModelConfig(KITSUNE_PT_CustomToolPanel, Panel):
-    bl_label : str = "ValveModel Config"
-    bl_parent_id : str = "VALVEMODEL_PT_PANEL"
-    bl_options : Set = {'DEFAULT_CLOSED'}
-
-class VALVEMODEL_PT_Attachments(VALVEMODEL_ModelConfig):
-    bl_label : str = 'Attachment'
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='EMPTY_AXIS')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        ob : bpy.types.Object | None = getArmature(context.object)
+    def draw(self, context: Context) -> None:
+        l = self.layout 
+        col = l.column(align=True)  
+        self._draw_active_armature_info(context, col)
         
-        if is_armature(ob) or is_empty(ob): pass
+        col.separator()
+        
+        sections = [
+            ('show_smdattachments', 'Attachment', 'EMPTY_AXIS', self.draw_attachment),
+            ('show_smdjigglebone', 'JiggleBone', 'BONE_DATA', self.draw_jigglebone),
+            ('show_smdhitbox', 'Hitbox', 'CUBE', self.draw_hitbox),
+            ('show_smdanimation', 'Animation', 'ANIM_DATA', self.draw_animation)
+        ]
+        
+        for prop, label, icon, draw_func in sections:
+            section = create_toggle_section(
+                col, context.scene.vs, prop, 
+                show_text=label, icon=icon, 
+                toggle_scale_y=0.9,
+                icon_outside=True
+            )
+            if section:
+                draw_func(context, section)
+    
+    def _draw_active_armature_info(self, context: Context, layout: UILayout) -> None:
+        armature = getArmature(context.object)
+        if armature:
+            path = get_object_path(armature, context.view_layer)
+            text = f'Active Armature: {armature.name}\n\n{path}'
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            text = 'Active Armature: None'
+        draw_wrapped_text_col(layout, text=text, icon='ARMATURE_DATA')
+        
+        ob = armature if armature else context.object
+        if not ob:
             return
         
-        bx : UILayout = draw_title_box(l, 'Attachment')
+        info_section = create_toggle_section(
+            layout, context.scene.vs, 'show_smdarmature',
+            show_text='Show All Lists',
+            icon='PRESET',
+            toggle_scale_y=0.8
+        )
+        
+        if not info_section:
+            return
         
         attachments = getDMXAttachments(ob)
-        attachmentsection = create_toggle_section(bx, context.scene.vs, 'show_attachments', f'Show Attachments: {len(attachments)}', '', alert=not bool(attachments), align=True)
-        if context.scene.vs.show_attachments:
+        att_section = create_toggle_section(
+            info_section, context.scene.vs, 'show_attachments',
+            f'Attachment List ({len(attachments)})',
+            alert=not bool(attachments),
+            align=True,
+            toggle_scale_y=0.8
+        )
+        if att_section:
             for attachment in attachments:
-                row = attachmentsection.row(align=True)
-                row.label(text=attachment.name,icon='EMPTY_DATA')
-                row.label(text=attachment.parent_bone,icon='BONE_DATA')
-                
-        bx.operator(VALVEMODEL_OT_FixAttachment.bl_idname,icon='OPTIONS')
+                row = att_section.row(align=True)
+                row.label(text=attachment.name, icon='EMPTY_DATA')
+                row.label(text=attachment.parent_bone, icon='BONE_DATA')
+        
+        if is_armature(ob):
+            jigglebones = getJiggleBones(ob)
+            jb_section = create_toggle_section(
+                info_section, context.scene.vs, 'show_jigglebones',
+                f'JiggleBone List ({len(jigglebones)})',
+                alert=not bool(jigglebones),
+                align=True,
+                toggle_scale_y=0.8
+            )
+            if jb_section:
+                for jigglebone in jigglebones:
+                    row = jb_section.row(align=True)
+                    row.label(text=jigglebone.name, icon='BONE_DATA')
+                    
+                    collection_count = len(jigglebone.collections)
+                    if collection_count == 1:
+                        row.label(text=jigglebone.collections[0].name, icon='GROUP_BONE')
+                    elif collection_count > 1:
+                        row.label(text="In Multiple Collection", icon='GROUP_BONE')
+                    else:
+                        row.label(text="Not in Collection", icon='GROUP_BONE')
+        
+        hitboxes = getHitboxes(ob)
+        hb_section = create_toggle_section(
+            info_section, context.scene.vs, 'show_hitboxes',
+            f'Hitbox List ({len(hitboxes)})',
+            alert=not bool(hitboxes),
+            align=True,
+            toggle_scale_y=0.8
+        )
+        if hb_section:
+            for hbox in hitboxes:
+                try:
+                    row = hb_section.row()
+                    row.label(text=hbox.name, icon='CUBE')
+                    row.label(text=hbox.parent_bone, icon='BONE_DATA')
+                    row.prop(hbox.vs, 'smd_hitbox_group', text='')
+                except:
+                    continue
+    
+    def _validate_object_type(self, layout: UILayout, obj, required_type: str) -> bool:
+        """Validate object type and show error if invalid. Returns True if valid."""
+        type_checks = {
+            'armature': is_armature,
+            'empty': is_empty,
+            'armature_or_empty': lambda o: is_armature(o) or is_empty(o)
+        }
+        
+        if obj and type_checks.get(required_type, lambda o: False)(obj):
+            return True
+        
+        message_map = {
+            'armature': 'panel_select_armature',
+            'empty': 'panel_select_empty',
+            'armature_or_empty': 'panel_select_armature'
+        }
+        
+        draw_wrapped_text_col(layout, get_id(message_map[required_type]), max_chars=40, icon='HELP')
+        return False
+    
+    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.2, 
+                            clipboard_text: str = 'Write to Clipboard',
+                            file_text: str = 'Write to File',
+                            clipboard_icon: str = 'FILE_TEXT',
+                            file_icon: str = 'TEXT') -> None:
+        """Draw standard export button pair (clipboard/file)."""
+        row = layout.row(align=True)
+        row.scale_y = scale_y
+        row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
+        row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
+    
+    def draw_attachment(self, context: Context, layout: UILayout) -> None:
+        ob = getArmature(context.object)
+        
+        if not self._validate_object_type(layout, ob, 'armature_or_empty'):
+            return
+        
+        layout.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
+    
+    def draw_jigglebone(self, context: Context, layout: UILayout) -> None:
+        ob = getArmature(context.object)
+        
+        if not self._validate_object_type(layout, ob, 'armature'):
+            return
+        
+        bone = ob.data.bones.active
 
+        self._draw_export_buttons(
+            layout, 
+            VALVEMODEL_OT_ExportJiggleBone.bl_idname,
+            scale_y=1.2
+        )
+        
+        if bone and bone.select:
+            self.draw_jigglebone_properties(layout, bone)
+        else:
+            layout.box().label(text='Select a Valid Bone', icon='ERROR')
+    
+    def draw_jigglebone_properties(self, layout: UILayout, bone: bpy.types.Bone) -> None:
+        vs_bone = bone.vs
+        col = layout.column()
+        maincol = col.column()
+        
+        maincol.prop(
+            vs_bone, 'bone_is_jigglebone', 
+            toggle=True, 
+            icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW_THIN',
+            text=f'[{bone.name}] is Jigglebone'
+        )
+        
+        if not vs_bone.bone_is_jigglebone:
+            return
+        
+        col = maincol.column(align=True)
+        col.prop(vs_bone, 'jiggle_flex_type')
+        col.prop(vs_bone, 'jiggle_base_type')
+        
+        self._draw_flexible_rigid_props(maincol, vs_bone)
+        
+        if vs_bone.jiggle_base_type == 'BASESPRING':
+            self._draw_basespring_props(maincol, vs_bone)
+        elif vs_bone.jiggle_base_type == 'BOING':
+            self._draw_boing_props(maincol, vs_bone)
+    
+    def _draw_flexible_rigid_props(self, layout: UILayout, vs_bone) -> None:
+        if vs_bone.jiggle_flex_type not in ['FLEXIBLE', 'RIGID']:
+            return
+        
+        col = layout.column(align=True)
+        col.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True)
+        if not vs_bone.use_bone_length_for_jigglebone_length:
+            col.prop(vs_bone, 'jiggle_length')
+        col.prop(vs_bone, 'jiggle_tip_mass')
+        
+        if vs_bone.jiggle_flex_type == 'FLEXIBLE':
+            col.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True)
+            col.prop(vs_bone, 'jiggle_yaw_damping', slider=True)
+            col.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True)
+            col.prop(vs_bone, 'jiggle_pitch_damping', slider=True)
+            col.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True)
+            
+            if vs_bone.jiggle_allow_length_flex:
+                col.prop(vs_bone, 'jiggle_along_stiffness', slider=True)
+                col.prop(vs_bone, 'jiggle_along_damping', slider=True)
+        
+        self._draw_angle_constraints(layout, vs_bone)
+    
+    def _draw_angle_constraints(self, layout: UILayout, vs_bone) -> None:
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True)
+        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True)
+        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True)
+        
+        has_any = any([
+            vs_bone.jiggle_has_angle_constraint,
+            vs_bone.jiggle_has_yaw_constraint,
+            vs_bone.jiggle_has_pitch_constraint
+        ])
+        
+        if not has_any:
+            return
+        
+        col = layout.column(align=True)
+        
+        if vs_bone.jiggle_has_angle_constraint:
+            col.prop(vs_bone, 'jiggle_angle_constraint')
+        
+        if vs_bone.jiggle_has_yaw_constraint:
+            row = col.row(align=True)
+            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True)
+            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True)
+            col.prop(vs_bone, 'jiggle_yaw_friction', slider=True)
+        
+        if vs_bone.jiggle_has_pitch_constraint:
+            row = col.row(align=True)
+            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True)
+            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True)
+            col.prop(vs_bone, 'jiggle_pitch_friction', slider=True)
+    
+    def _draw_basespring_props(self, layout: UILayout, vs_bone) -> None:
+        col = layout.column(align=True)
+        col.prop(vs_bone, 'jiggle_base_stiffness', slider=True)
+        col.prop(vs_bone, 'jiggle_base_damping', slider=True)
+        col.prop(vs_bone, 'jiggle_base_mass', slider=True)
+        
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True)
+        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True)
+        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True)
+        
+        has_any = any([
+            vs_bone.jiggle_has_left_constraint,
+            vs_bone.jiggle_has_up_constraint,
+            vs_bone.jiggle_has_forward_constraint
+        ])
+        
+        if not has_any:
+            return
+        
+        col = layout.column(align=True)
+        
+        constraint_props = [
+            (vs_bone.jiggle_has_left_constraint, 'left'),
+            (vs_bone.jiggle_has_up_constraint, 'up'),
+            (vs_bone.jiggle_has_forward_constraint, 'forward')
+        ]
+        
+        for has_constraint, direction in constraint_props:
+            if has_constraint:
+                row = col.row(align=True)
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True)
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True)
+                col.prop(vs_bone, f'jiggle_{direction}_friction', slider=True)
+    
+    def _draw_boing_props(self, layout: UILayout, vs_bone) -> None:
+        col = layout.column(align=True)
+        col.prop(vs_bone, 'jiggle_impact_speed', slider=True)
+        col.prop(vs_bone, 'jiggle_impact_angle', slider=True)
+        col.prop(vs_bone, 'jiggle_damping_rate', slider=True)
+        col.prop(vs_bone, 'jiggle_frequency', slider=True)
+        col.prop(vs_bone, 'jiggle_amplitude', slider=True)
+    
+    def draw_hitbox(self, context: Context, layout: UILayout) -> None:
+        ob = getArmature(context.object)
+        
+        if not self._validate_object_type(layout, ob, 'armature_or_empty'):
+            return
+        
+        layout.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        layout.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
+        
+        self._draw_export_buttons(
+            layout,
+            VALVEMODEL_OT_ExportHitBox.bl_idname,
+            scale_y=1.25
+        )
+    
+    def draw_animation(self, context: Context, layout: UILayout) -> None:
+        ob = getArmature(context.object)
+        
+        if not self._validate_object_type(layout, ob, 'armature'):
+            return
+        
+        layout.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname, icon='ACTION_TWEAK')
+        
+        bx = draw_title_box(layout, VALVEMODEL_OT_ExportConstraintProportion.bl_label)
+        draw_wrapped_text_col(
+            bx,
+            'Constraint Proportion exports Orient and Point constraints of bones with a valid export name',
+            max_chars=40
+        )
+        
+        self._draw_export_buttons(
+            bx,
+            VALVEMODEL_OT_ExportConstraintProportion.bl_idname,
+            scale_y=1.25,
+            clipboard_icon='CONSTRAINT_BONE',
+            file_icon='CONSTRAINT_BONE'
+        )
+      
+        
 class VALVEMODEL_OT_FixAttachment(Operator):
     bl_idname: str = "smd.fix_attachments"
     bl_label: str = "Fix Source Attachment Empties Matrix"
@@ -181,156 +460,6 @@ class VALVEMODEL_OT_FixAttachment(Operator):
             self.report({'INFO'}, 'No attachments needed fixing')
         
         return {'FINISHED'}
-
-class VALVEMODEL_PT_Jigglebone(VALVEMODEL_ModelConfig):
-    bl_label : str = 'JiggleBone'
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='CONSTRAINT_BONE')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        ob : bpy.types.Object | None = getArmature(context.object)
-
-        if is_armature(ob): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
-            return
-
-        bone : bpy.types.Bone | None = ob.data.bones.active
-
-        if bone:
-            titlemessage : str = f'JiggleBone ({bone.name})'
-        else:
-            titlemessage : str = 'JiggleBones'
-
-        bx : UILayout = draw_title_box(l, titlemessage)
-
-        jigglebones = getJiggleBones(ob)
-        jigglebonesection = create_toggle_section(bx, context.scene.vs, 'show_jigglebones', f'Show Jigglebones: {len(jigglebones)}', '', alert=not bool(jigglebones), align=True)
-        if context.scene.vs.show_jigglebones:
-            col = jigglebonesection.column()
-            for jigglebone in jigglebones:
-                row = col.row(align=True)
-                row.label(text=jigglebone.name,icon='BONE_DATA')
-                
-                if len(jigglebone.collections) == 1:
-                    row.label(text=jigglebone.collections[0].name,icon='GROUP_BONE')
-                elif len(jigglebone.collections) > 1:
-                    row.label(text="In Multiple Collection",icon='GROUP_BONE')
-                else:
-                    row.label(text="Not in Collection",icon='GROUP_BONE')
-
-        row = bx.row(align=True)
-        row.scale_y = 1.2
-        row.operator(VALVEMODEL_OT_ExportJiggleBone.bl_idname,text='Write to Clipboard').to_clipboard = True
-        row.operator(VALVEMODEL_OT_ExportJiggleBone.bl_idname,text='Write to File').to_clipboard = False
-                
-        if bone and bone.select:
-            self.draw_jigglebone_properties(bx, bone)
-        else:
-            bx.box().label(text='Select a Valid Bone', icon='ERROR')
-
-    def draw_jigglebone_properties(self, layout : UILayout, bone : bpy.types.Bone) -> None:
-        vs_bone = bone.vs
-        col : UILayout = layout.column()
-        maincol : UILayout = col.column()
-        maincol.prop(vs_bone, 'bone_is_jigglebone', toggle=True, icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW_THIN')
-
-        if vs_bone.bone_is_jigglebone:
-            col = maincol.column(align=True)
-            col.prop(vs_bone, 'jiggle_flex_type')
-            col.prop(vs_bone, "jiggle_base_type")
-
-            col = maincol.column(align=True)
-
-            if vs_bone.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
-                col.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True)
-                if not vs_bone.use_bone_length_for_jigglebone_length: col.prop(vs_bone, 'jiggle_length')
-                col.prop(vs_bone, 'jiggle_tip_mass')
-
-            if vs_bone.jiggle_flex_type == 'FLEXIBLE':
-                col.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True)
-                col.prop(vs_bone, 'jiggle_yaw_damping', slider=True)
-                col.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True)
-                col.prop(vs_bone, 'jiggle_pitch_damping', slider=True)
-                col.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True)
-                if vs_bone.jiggle_allow_length_flex:
-                    col.prop(vs_bone, 'jiggle_along_stiffness', slider=True)
-                    col.prop(vs_bone, 'jiggle_along_damping', slider=True)
-
-            if vs_bone.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
-                col = maincol.column(align=True)
-                row = col.row(align=True)
-                row.prop(vs_bone, 'jiggle_has_angle_constraint',toggle=True)
-                row.prop(vs_bone, 'jiggle_has_yaw_constraint',toggle=True)
-                row.prop(vs_bone, 'jiggle_has_pitch_constraint',toggle=True)
-
-                if any([vs_bone.jiggle_has_angle_constraint, vs_bone.jiggle_has_yaw_constraint, vs_bone.jiggle_has_pitch_constraint]):
-                    col = maincol.column(align=True)
-
-                if vs_bone.jiggle_has_angle_constraint:
-                    col.prop(vs_bone, 'jiggle_angle_constraint')
-
-                if vs_bone.jiggle_has_yaw_constraint:
-                    row = col.row(align=True)
-                    row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True)
-                    row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True)
-
-                    col.prop(vs_bone, 'jiggle_yaw_friction', slider=True)
-
-                if vs_bone.jiggle_has_pitch_constraint:
-                    row = col.row(align=True)
-                    row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True)
-                    row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True)
-
-                    col.prop(vs_bone, 'jiggle_pitch_friction', slider=True)
-
-            if vs_bone.jiggle_base_type == 'BASESPRING':
-                col = maincol.column(align=True)
-                col.prop(vs_bone, "jiggle_base_stiffness", slider=True)
-                col.prop(vs_bone, "jiggle_base_damping", slider=True)
-                col.prop(vs_bone, "jiggle_base_mass", slider=True)
-
-                col = maincol.column(align=True)
-
-                row = col.row(align=True)
-                row.prop(vs_bone, 'jiggle_has_left_constraint',toggle=True)
-                row.prop(vs_bone, 'jiggle_has_up_constraint',toggle=True)
-                row.prop(vs_bone, 'jiggle_has_forward_constraint',toggle=True)
-
-                if any([vs_bone.jiggle_has_left_constraint, vs_bone.jiggle_has_up_constraint, vs_bone.jiggle_has_forward_constraint]):
-                    col = maincol.column(align=True)
-
-                if vs_bone.jiggle_has_left_constraint:
-                    row = col.row(align=True)
-                    row.prop(vs_bone, 'jiggle_left_constraint_min', slider=True)
-                    row.prop(vs_bone, 'jiggle_left_constraint_max', slider=True)
-
-                    col.prop(vs_bone, 'jiggle_left_friction', slider=True)
-
-                if vs_bone.jiggle_has_up_constraint:
-                    row = col.row(align=True)
-                    row.prop(vs_bone, 'jiggle_up_constraint_min', slider=True)
-                    row.prop(vs_bone, 'jiggle_up_constraint_max', slider=True)
-
-                    col.prop(vs_bone, 'jiggle_up_friction', slider=True)
-
-                if vs_bone.jiggle_has_forward_constraint:
-                    row = col.row(align=True)
-                    row.prop(vs_bone, 'jiggle_forward_constraint_min', slider=True)
-                    row.prop(vs_bone, 'jiggle_forward_constraint_max', slider=True)
-
-                    col.prop(vs_bone, 'jiggle_forward_friction', slider=True)
-            elif vs_bone.jiggle_base_type == 'BOING':
-                col = maincol.column(align=True)
-                col.prop(vs_bone, "jiggle_impact_speed", slider=True)
-                col.prop(vs_bone, "jiggle_impact_angle", slider=True)
-                col.prop(vs_bone, "jiggle_damping_rate", slider=True)
-                col.prop(vs_bone, "jiggle_frequency", slider=True)
-                col.prop(vs_bone, "jiggle_amplitude", slider=True)
-            else:
-                pass
 
 class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
     bl_idname : str = "smd.write_jigglebone"
@@ -536,7 +665,7 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
 
         return kv_doc.to_text()
 
-class VALVEMODEL_PT_ClothNode(VALVEMODEL_ModelConfig):
+class VALVEMODEL_PT_ClothNode():
     bl_label : str = 'ClothNode (Source 2)'
 
     def draw_header(self, context : Context) -> None:
@@ -562,7 +691,7 @@ class VALVEMODEL_PT_ClothNode(VALVEMODEL_ModelConfig):
         
         clothnodebones = getBoneClothNodes(ob)
         clothnodesection = create_toggle_section(titlebox, context.scene.vs, 'show_clothnodes', f'Show ClothNodes: {len(clothnodebones)}', '', alert=not bool(clothnodebones), align=True)
-        if context.scene.vs.show_clothnodes:
+        if clothnodesection is not None:
             for clothnode in clothnodebones:
                 row = clothnodesection.row(align=True)
                 row.label(text=clothnode.name,icon='BONE_DATA')
@@ -835,69 +964,6 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExport
 
         return kv_doc.to_text()
 
-class VALVEMODEL_PT_Animation(VALVEMODEL_ModelConfig):
-    bl_label : str = 'Animation'
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='ANIM_DATA')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-
-        ob : Object | None = getArmature(context.object)
-        if is_armature(ob): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
-            return
-
-        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_Animation.bl_label)
-        col = bx.column()
-
-        col.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname,icon='ACTION_TWEAK')
-
-        bx : UILayout = draw_title_box(bx, VALVEMODEL_OT_ExportConstraintProportion.bl_label)
-        draw_wrapped_text_col(bx, 'Constraint Proportion exports Orient and Point constraints of bones with a valid export name',max_chars=40)
-        row = bx.row(align=True)
-        row.scale_y = 1.25
-        row.operator(VALVEMODEL_OT_ExportConstraintProportion.bl_idname,text='Write to Clipboard', icon='CONSTRAINT_BONE').to_clipboard = True
-        row.operator(VALVEMODEL_OT_ExportConstraintProportion.bl_idname,text='Write to File', icon='CONSTRAINT_BONE').to_clipboard = False
-
-class VALVEMODEL_PT_HitBox(VALVEMODEL_ModelConfig):
-    bl_label : str = 'Hitbox'
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='CUBE')
-
-    def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
-        ob : bpy.types.Object | None = getArmature(context.object)
-
-        if is_empty(ob) or is_armature(ob): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
-            return
-
-        bx : UILayout = draw_title_box(l, VALVEMODEL_PT_HitBox.bl_label)
-        
-        hitboxes = getHitboxes(ob)
-        hitboxsection = create_toggle_section(bx, context.scene.vs, 'show_hitboxes', f'Show Hitboxes: {len(hitboxes)}', '', alert=not bool(hitboxes), align=True)
-        if context.scene.vs.show_hitboxes:
-            for hbox in hitboxes:
-                try:
-                    row = hitboxsection.row()
-                    row.label(text=hbox.name, icon='CUBE')
-                    row.label(text=hbox.parent_bone,icon='BONE_DATA')
-                    row.prop(hbox.vs,'smd_hitbox_group',text='')
-                except:
-                    continue
-        
-        bx.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
-        bx.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
-        row : UILayout = bx.row(align=True)
-        row.scale_y = 1.25
-        row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to Clipboard', icon='FILE_TEXT').to_clipboard = True
-        row.operator(VALVEMODEL_OT_ExportHitBox.bl_idname,text='Write to File', icon='TEXT').to_clipboard = False
-
 class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
     bl_idname : str = "smd.export_hitboxes"
     bl_label : str = "Export Source Hitboxes"
@@ -1090,7 +1156,7 @@ class VALVEMODEL_OT_FixHitBox(Operator):
         
         return {'FINISHED'}
     
-class VALVEMODEL_OT_AddHitbox(Operator, VALVEMODEL_ModelConfig):
+class VALVEMODEL_OT_AddHitbox(Operator):
     bl_idname : str = "smd.add_hitboxes"
     bl_label : str = "Add Source Hitboxes"
     bl_description = "Add empty cubes as Source Engine hitbox format"
@@ -1176,505 +1242,3 @@ class VALVEMODEL_OT_AddHitbox(Operator, VALVEMODEL_ModelConfig):
             bpy.ops.object.mode_set(mode='OBJECT')
         
         return {'FINISHED'}
-
-class VALVEMODEL_UL_PBRToPhongList(UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            row.prop(item, "name", text="", emboss=False, icon='MATERIAL')
-            
-            has_diffuse = item.diffuse_map != ""
-            has_normal = item.normal_map != ""
-            
-            if has_diffuse and has_normal:
-                row.label(text="", icon='CHECKMARK')
-            else:
-                row.label(text="", icon='ERROR')
-                
-        elif self.layout_type in {'GRID'}:
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon='MATERIAL')
-            
-class VALVEMODEL_OT_AddPBRItem(Operator):
-    bl_idname = "valvemodel.add_pbr_item"
-    bl_label = "Add PBR Item"
-    bl_options = {'INTERNAL', 'UNDO'}
-    
-    def execute(self, context):
-        item = context.scene.vs.pbr_items.add()
-        item.name = f"PBR Item {len(context.scene.vs.pbr_items)}"
-        context.scene.vs.pbr_active_index = len(context.scene.vs.pbr_items) - 1
-        return {'FINISHED'}
-
-class VALVEMODEL_OT_RemovePBRItem(Operator):
-    bl_idname = "valvemodel.remove_pbr_item"
-    bl_label = "Remove PBR Item"
-    bl_options = {'INTERNAL', 'UNDO'}
-    
-    @classmethod
-    def poll(cls, context):
-        return len(context.scene.vs.pbr_items) > 0
-    
-    def execute(self, context):
-        context.scene.vs.pbr_items.remove(context.scene.vs.pbr_active_index)
-        context.scene.vs.pbr_active_index = min(max(0, context.scene.vs.pbr_active_index - 1), 
-                                                 len(context.scene.vs.pbr_items) - 1)
-        return {'FINISHED'}
-
-# exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [221, 32], [255, 255]]) old curve code for exponent
-class PBRConversionMixin:
-    """Mixin class containing shared conversion logic for PBR operators"""
-    
-    def get_image_data(self, img_name: str):
-        if not img_name or img_name not in bpy.data.images:
-            return None
-        
-        img = bpy.data.images[img_name]
-        original_colorspace = img.colorspace_settings.name
-        img.colorspace_settings.name = 'Non-Color'
-        
-        width, height = img.size
-        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels))
-        
-        img.colorspace_settings.name = original_colorspace
-        
-        if img.channels == 3:
-            return np.dstack([pixels, np.ones((height, width))])
-        return pixels
-    
-    def get_channel_data(self, img_name: str, channel: str, height: int, width: int):
-        if not img_name or img_name not in bpy.data.images:
-            return None
-        
-        img = bpy.data.images[img_name]
-        original_colorspace = img.colorspace_settings.name
-        img.colorspace_settings.name = 'Non-Color'
-        
-        w, h = img.size
-        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels))
-        
-        img.colorspace_settings.name = original_colorspace
-        
-        channel_map = {'R': 0, 'G': 1, 'B': 2, 'A': 3}
-        ch_idx = channel_map.get(channel)
-        
-        if ch_idx is not None:
-            if ch_idx < img.channels:
-                result = pixels[:, :, ch_idx]
-            elif ch_idx == 3:
-                result = np.ones((h, w))
-            else:
-                result = pixels[:, :, 0]
-        else:
-            result = np.mean(pixels[:, :, :3], axis=2)
-        
-        if (h, w) != (height, width):
-            result = self.resize_array(result, height, width)
-        
-        return result
-    
-    def resize_array(self, data, new_height, new_width):
-        old_height, old_width = data.shape
-        
-        y_ratio = old_height / new_height
-        x_ratio = old_width / new_width
-        
-        y_coords = np.arange(new_height) * y_ratio
-        x_coords = np.arange(new_width) * x_ratio
-        
-        y0 = np.floor(y_coords).astype(int)
-        x0 = np.floor(x_coords).astype(int)
-        y1 = np.minimum(y0 + 1, old_height - 1)
-        x1 = np.minimum(x0 + 1, old_width - 1)
-        
-        y_weight = y_coords - y0
-        x_weight = x_coords - x0
-        
-        result = np.zeros((new_height, new_width), dtype=np.float32)
-        
-        for i in range(new_height):
-            for j in range(new_width):
-                tl = data[y0[i], x0[j]]
-                tr = data[y0[i], x1[j]]
-                bl = data[y1[i], x0[j]]
-                br = data[y1[i], x1[j]]
-                
-                top = tl * (1 - x_weight[j]) + tr * x_weight[j]
-                bottom = bl * (1 - x_weight[j]) + br * x_weight[j]
-                result[i, j] = top * (1 - y_weight[i]) + bottom * y_weight[i]
-        
-        return result
-    
-    def apply_curve(self, data, points):
-        points_array = np.array(points)
-        input_vals = points_array[:, 0] / 255.0
-        output_vals = points_array[:, 1] / 255.0
-        return np.interp(data, input_vals, output_vals)
-    
-    def create_exponent_map(self, roughness, metal):
-        height, width = roughness.shape
-        exponent = np.ones((height, width, 4))
-        
-        rough_inverted = 1.0 - roughness
-        
-        exponent_red = self.apply_curve(rough_inverted, [[90, 0], [221, 60], [255, 255]])
-        exponent[:, :, 0] = exponent_red
-        exponent[:, :, 1] = metal
-        exponent[:, :, 2] = 0.0
-        exponent[:, :, 3] = 1.0
-        
-        return exponent
-    
-    def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, skin_gamma, skin_contrast,
-                          use_envmap, darken_diffuse_metal, use_color_darken):
-        height, width = diffuse.shape[:2]
-        result = diffuse.copy()
-        
-        if skin is not None:
-            if skin_gamma != 0 or skin_contrast != 0:
-                rgb = result[:, :, :3]
-                
-                if skin_gamma != 0:
-                    gamma_val = 1.0 / (1.0 + skin_gamma / 10.0) if skin_gamma > 0 else 1.0 - skin_gamma / 10.0
-                    gamma_corrected = np.power(rgb, gamma_val)
-                    rgb = rgb * (1.0 - skin[:, :, np.newaxis]) + gamma_corrected * skin[:, :, np.newaxis]
-                
-                if skin_contrast != 0:
-                    contrast_val = skin_contrast * 25.5
-                    f = (259 * (contrast_val + 255)) / (255 * (259 - contrast_val))
-                    contrasted = np.clip(f * (rgb - 0.5) + 0.5, 0.0, 1.0)
-                    rgb = rgb * (1.0 - skin[:, :, np.newaxis]) + contrasted * skin[:, :, np.newaxis]
-                
-                result[:, :, :3] = rgb
-        
-        strength = ao_strength / 100.0
-        ao_effect = 1.0 - (1.0 - ao) * strength
-        
-        if skin is not None:
-            ao_effect = ao_effect * (1.0 - skin) + skin
-        
-        result[:, :, :3] *= ao_effect[:, :, np.newaxis]
-
-        if darken_diffuse_metal:
-            darkened = self.apply_curve(result[:, :, :3], [[0, 0], [255, 100]])
-            result[:, :, :3] = (result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + 
-                               darkened * metal[:, :, np.newaxis])
-        elif use_color_darken:
-            result[:, :, 3] = metal
-            rgb = result[:, :, :3]
-            contrast = 10
-            f = (259 * (contrast + 255)) / (255 * (259 - contrast))
-            contrasted = np.clip(f * (rgb - 0.5) + 0.5, 0.0, 1.0)
-            result[:, :, :3] = rgb * (1.0 - metal[:, :, np.newaxis]) + contrasted * metal[:, :, np.newaxis]
-        elif use_envmap:
-            result[:, :, 3] = exponent[:, :, 0]
-
-        return result
-    
-    def create_normal_map(self, normal, metal, roughness, normal_type, metal_strength=100.0):
-        height, width = normal.shape[:2]
-        result = np.ones((height, width, 4), dtype=np.float32)
-
-        if metal.shape != (height, width):
-            metal = self.resize_array(metal, height, width)
-        
-        if roughness.shape != (height, width):
-            roughness = self.resize_array(roughness, height, width)
-
-        if normal_type == 'DEF':
-            result[:, :, :3] = normal[:, :, :3]
-        elif normal_type == 'RED':
-            result[:, :, 2] = normal[:, :, 0]
-            result[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
-            result[:, :, 1] = normal[:, :, 1]
-        elif normal_type == 'YELLOW':
-            result[:, :, :3] = 1.0 - normal[:, :, :3]
-        elif normal_type == 'OPENGL':
-            result[:, :, 0] = normal[:, :, 0]
-            result[:, :, 1] = 1.0 - normal[:, :, 1]
-            result[:, :, 2] = normal[:, :, 2]
-
-        rough_inverted = 1.0 - roughness
-        
-        exp_red = self.apply_curve(rough_inverted, [[57, 0], [201, 20], [255, 255]])
-        exp_green_adjusted = metal * (metal_strength / 100.0)
-        
-        alpha = np.clip(exp_red / (1.0 - exp_green_adjusted + 1e-7), 0.0, 1.0)
-        result[:, :, 3] = alpha
-        
-        return result
-    
-    def create_emissive_map(self, diffuse, emissive):
-        height, width = diffuse.shape[:2]
-        result = np.zeros((height, width, 4), dtype=np.float32)
-        
-        result[:, :, :3] = diffuse[:, :, :3] * emissive[:, :, np.newaxis]
-        result[:, :, 3] = 1.0
-        
-        return result
-        
-    def save_tga(self, data, filepath):
-        height, width = data.shape[:2]
-        has_alpha = data.shape[2] >= 4
-
-        if has_alpha:
-            alpha = data[:, :, 3]
-            if np.allclose(alpha, 1.0, atol=1e-5):
-                data = data[:, :, :3]
-                has_alpha = False
-
-        img = bpy.data.images.new(name="temp_export", width=width, height=height, alpha=has_alpha)
-
-        if has_alpha:
-            pixels = data.astype(np.float32).flatten()
-        else:
-            alpha_filled = np.ones((height, width, 1), dtype=np.float32)
-            pixels = np.concatenate([data, alpha_filled], axis=2).flatten()
-
-        img.pixels = pixels.tolist()
-        img.filepath_raw = filepath
-        img.file_format = 'TARGA'
-        img.save()
-        bpy.data.images.remove(img)
-    
-    def process_item_conversion(self, item, report_func):
-        """Core conversion logic shared by both operators"""
-        
-        export_path = bpy.path.abspath(item.export_path)
-        
-        if not export_path.strip():
-            export_path = bpy.context.scene.vs.pbr_to_phong_export_path
-        
-        export_dir = os.path.dirname(export_path)
-        base_name = item.name
-        
-        if not export_dir or not base_name:
-            report_func({'ERROR'}, f"Invalid export path or name for '{item.name}'")
-            return False
-        
-        # Load image data
-        diffuse_img = self.get_image_data(item.diffuse_map)
-        normal_img = self.get_image_data(item.normal_map)
-        
-        if diffuse_img is None or normal_img is None:
-            report_func({'ERROR'}, f"Failed to load diffuse or normal texture for '{item.name}'")
-            return False
-        
-        height, width = diffuse_img.shape[:2]
-        
-        # Load optional maps
-        roughness_img = self.get_channel_data(item.roughness_map, item.roughness_map_ch, height, width) if item.roughness_map else np.ones((height, width))
-        metal_img = self.get_channel_data(item.metal_map, item.metal_map_ch, height, width) if item.metal_map else np.zeros((height, width))
-        ao_img = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, height, width) if item.ambientocclu_map else np.ones((height, width))
-        emissive_img = self.get_channel_data(item.emissive_map, item.emissive_map_ch, height, width) if item.emissive_map else None
-        skin_img = self.get_channel_data(item.skin_map, item.skin_map_ch, height, width) if item.skin_map else None
-        
-        # Create exponent map
-        exponent_map = self.create_exponent_map(roughness_img, metal_img)
-        self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
-        
-        # Create diffuse map
-        diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, skin_img,
-                                              item.ambientocclu_strength, item.skin_map_gamma, item.skin_map_contrast,
-                                              item.use_envmap, item.darken_diffuse_metal, item.use_color_darken)
-        self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
-        
-        # Create normal map
-        normal_map = self.create_normal_map(normal_img, metal_img, roughness_img, 
-                                            item.normal_map_type, item.normal_metal_strength)
-        self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
-        
-        # Create emissive map if needed
-        if emissive_img is not None:
-            emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
-            self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
-        
-        return True
-
-class VALVEMODEL_OT_ConvertPBRItem(Operator, PBRConversionMixin):
-    bl_idname = 'valvemodel.convert_pbr_item'
-    bl_label = 'Convert Selected Item'
-    bl_options = {'INTERNAL'}
-    
-    item_index: IntProperty(default=-1)
-    
-    @classmethod
-    def poll(cls, context):
-        return len(context.scene.vs.pbr_items) > 0
-    
-    def execute(self, context):
-        vs = context.scene.vs
-        
-        if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
-            item = vs.pbr_items[self.item_index]
-        else:
-            if vs.pbr_active_index < len(vs.pbr_items):
-                item = vs.pbr_items[vs.pbr_active_index]
-            else:
-                self.report({'ERROR'}, "No valid item selected")
-                return {'CANCELLED'}
-        
-        if not item.diffuse_map or not item.normal_map:
-            self.report({'ERROR'}, f"Item '{item.name}' missing required maps (diffuse and normal)")
-            return {'CANCELLED'}
-        
-        result = self.process_item_conversion(item, self.report)
-        
-        if result:
-            self.report({'INFO'}, f"Converted '{item.name}' successfully")
-            return {'FINISHED'}
-        else:
-            return {'CANCELLED'}
-
-class VALVEMODEL_OT_ConvertAllPBRItems(Operator, PBRConversionMixin):
-    bl_idname = 'valvemodel.convert_all_pbr_items'
-    bl_label = 'Convert All Items'
-    bl_options = {'INTERNAL'}
-    
-    @classmethod
-    def poll(cls, context):
-        return len(context.scene.vs.pbr_items) > 0
-    
-    def execute(self, context):
-        vs = context.scene.vs
-        success_count = 0
-        failed_items = []
-        
-        for i, item in enumerate(vs.pbr_items):
-            if not item.diffuse_map or not item.normal_map:
-                failed_items.append(f"{item.name} (missing maps)")
-                continue
-            
-            result = self.process_item_conversion(item, self.report)
-            if result:
-                success_count += 1
-            else:
-                failed_items.append(item.name)
-        
-        if success_count > 0:
-            self.report({'INFO'}, f"Converted {success_count}/{len(vs.pbr_items)} items")
-        
-        if failed_items:
-            self.report({'WARNING'}, f"Failed: {', '.join(failed_items)}")
-        
-        return {'FINISHED'}
-
-class VALVEMODEL_PT_PBRtoPhong(VALVEMODEL_ModelConfig):
-    bl_label = 'PBR To Phong'
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Valve Model'
-    
-    def draw_header(self, context):
-        self.layout.label(icon='MATERIAL')
-    
-    def draw(self, context):
-        layout = self.layout
-        vs = context.scene.vs
-        
-        box = draw_title_box(layout, text="PBR To Phong Conversion")
-        
-        box.prop(vs, "pbr_to_phong_export_path")
-        
-        row = box.row()
-        row.template_list("VALVEMODEL_UL_PBRToPhongList", "", vs, "pbr_items", 
-                         vs, "pbr_active_index", rows=3)
-        
-        col = row.column(align=True)
-        col.operator(VALVEMODEL_OT_AddPBRItem.bl_idname, icon='ADD', text="")
-        col.operator(VALVEMODEL_OT_RemovePBRItem.bl_idname, icon='REMOVE', text="")
-        
-        if len(vs.pbr_items) > 0 and vs.pbr_active_index < len(vs.pbr_items):
-            item = vs.pbr_items[vs.pbr_active_index]
-            
-            col = box.column(align=True)
-            if not item.name.strip(): col.alert = True
-            col.prop(item, "name")
-            col.alert = False
-            col.prop(item, "export_path")
-            
-            self.draw_material_maps(context, box, item)
-            
-            row = box.row(align=True)
-            op = row.operator(VALVEMODEL_OT_ConvertPBRItem.bl_idname, text="Convert This Item")
-            op.item_index = vs.pbr_active_index
-            row.operator(VALVEMODEL_OT_ConvertAllPBRItems.bl_idname, text="Convert All")
-            
-        self.draw_help_section(context, box)
-    
-    def draw_material_maps(self, context : Context, layout : UILayout, item):
-        col = layout.column(align=True)
-        
-        col.label(text="Diffuse/Color Map")
-        col.prop_search(item, 'diffuse_map', bpy.data, 'images', text='')
-        
-        col.separator(factor=3)
-        
-        col.label(text="Skin Map")
-        row = col.split(align=True,factor=0.8)
-        row.prop_search(item, 'skin_map', bpy.data, 'images', text='')
-        row.prop(item, 'skin_map_ch', text='')
-        col.prop(item, 'skin_map_gamma', slider=True)
-        col.prop(item, 'skin_map_contrast', slider=True)
-        
-        col.separator(factor=3)
-        
-        col.label(text="Normal Map")
-        row = col.split(align=True,factor=0.8)
-        row.prop_search(item, 'normal_map', bpy.data, 'images', text='')
-        row.prop(item, 'normal_map_type', text='')
-        col.prop(item, 'normal_metal_strength', slider=True)
-        
-        col.separator(factor=3)
-        
-        col.label(text="Roughness Map")
-        row = col.split(align=True,factor=0.8)
-        row.prop_search(item, 'roughness_map', bpy.data, 'images', text='')
-        row.prop(item, 'roughness_map_ch', text='')
-        
-        col.separator(factor=3)
-        
-        col.label(text="Metal Map")
-        row = col.split(align=True,factor=0.8)
-        row.prop_search(item, 'metal_map', bpy.data, 'images', text='')
-        row.prop(item, 'metal_map_ch', text='')
-        
-        col.separator(factor=3)
-        
-        col.label(text="AO Map (Optional)")
-        row = col.split(align=True,factor=0.8)
-        row.prop_search(item, 'ambientocclu_map', bpy.data, 'images', text='')
-        row.prop(item, 'ambientocclu_map_ch', text='')
-        col.prop(item, 'ambientocclu_strength', slider=True)
-        
-        col.separator(factor=3)
-        
-        col.label(text="Emissive Map (Optional)")
-        row = col.split(align=True,factor=0.8)
-        row.prop_search(item, 'emissive_map', bpy.data, 'images', text='')
-        row.prop(item, 'emissive_map_ch', text='')
-        
-        col = layout.column(align=True)
-        col.prop(item, 'use_envmap')
-        col.prop(item, 'darken_diffuse_metal')
-        col.prop(item, 'use_color_darken')
-    
-    def draw_help_section(self, context, layout):
-        messages = [
-            'Use the following Phong settings for a balanced starting point:',
-            '   - $phongboost 5',
-            '   - $phongalbedotint 1',
-            '   - $phongfresnelranges "[0.5 1 2]"',
-            '   - $phongalbedoboost 12 (if applicable)\n',
-            'When applying a metal map to the color alpha channel, include:',
-            '   - $color2 "[.18 .18 .18]"',
-            '   - $blendtintbybasealpha 1\n',
-            'However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.\n',
-            'If using envmap:',
-            '$envmaptint "[.3 .3 .3]"'
-        ]
-        
-        helpsection = create_toggle_section(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
-        if context.scene.vs.show_pbrphong_help:
-            draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40, boxed=False)
-            draw_wrapped_text_col(helpsection,text="The conversion may or may not be accurate!", max_chars=40, alert=True, boxed=False)
