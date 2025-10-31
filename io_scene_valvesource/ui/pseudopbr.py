@@ -1,5 +1,7 @@
 import bpy, os
 import numpy as np
+from ..core.imageprocesser import ImageProcessor
+import numpy as np
 
 from bpy.types import (
     UIList, Operator, Context, UILayout
@@ -62,6 +64,12 @@ class PSEUDOPBR_OT_RemovePBRItem(Operator):
 # exponent[:, :, 0] = self.apply_curve(rough_inverted, [[90, 0], [221, 32], [255, 255]]) old curve code for exponent
 class PBRConversionMixin:
     """Mixin class containing shared conversion logic for PBR operators"""
+    
+    @property
+    def img_proc(self):
+        if not hasattr(self, '_img_proc'):
+            self._img_proc = ImageProcessor()
+        return self._img_proc
     
     def get_image_data(self, img_name: str):
         if not img_name or img_name not in bpy.data.images:
@@ -143,19 +151,20 @@ class PBRConversionMixin:
         
         return result
     
-    def apply_curve(self, data, points):
-        points_array = np.array(points)
-        input_vals = points_array[:, 0] / 255.0
-        output_vals = points_array[:, 1] / 255.0
-        return np.interp(data, input_vals, output_vals)
-    
     def create_exponent_map(self, roughness, metal):
         height, width = roughness.shape
         exponent = np.ones((height, width, 4))
         
         rough_inverted = 1.0 - roughness
         
-        exponent_red = self.apply_curve(rough_inverted, [[90, 0], [221, 60], [255, 255]])
+        #exponent_red = self.img_proc.curves(
+        #    np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
+        #    [(90, 0), (221, 60), (255, 255)]
+        #)[:, :, 0]
+        
+        # wtf is that image input.
+        exponent_red = self.img_proc.brightness_contrast(np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),brightness=-100)[:, :, 0]
+        
         exponent[:, :, 0] = exponent_red
         exponent[:, :, 1] = metal
         exponent[:, :, 2] = 0.0
@@ -169,47 +178,37 @@ class PBRConversionMixin:
         result = diffuse.copy()
         
         if skin is not None:
-            if skin_gamma != 0 or skin_contrast != 0:
-                rgb = result[:, :, :3]
-                
-                if skin_gamma != 0:
-                    gamma_val = 1.0 / (1.0 + skin_gamma / 10.0) if skin_gamma > 0 else 1.0 - skin_gamma / 10.0
-                    gamma_corrected = np.power(rgb, gamma_val)
-                    rgb = rgb * (1.0 - skin[:, :, np.newaxis]) + gamma_corrected * skin[:, :, np.newaxis]
-                
-                if skin_contrast != 0:
-                    contrast_val = skin_contrast * 25.5
-                    f = (259 * (contrast_val + 255)) / (255 * (259 - contrast_val))
-                    contrasted = np.clip(f * (rgb - 0.5) + 0.5, 0.0, 1.0)
-                    rgb = rgb * (1.0 - skin[:, :, np.newaxis]) + contrasted * skin[:, :, np.newaxis]
-                
-                result[:, :, :3] = rgb
+            if skin_gamma != 0:
+                gamma_val = 1.0 / (1.0 + skin_gamma / 10.0) if skin_gamma > 0 else 1.0 - skin_gamma / 10.0
+                gamma_corrected = self.img_proc.exposure(result, exposure=0.0, gamma_correction=gamma_val)
+                result[:, :, :3] = result[:, :, :3] * (1.0 - skin[:, :, np.newaxis]) + gamma_corrected[:, :, :3] * skin[:, :, np.newaxis]
+            
+            if skin_contrast != 0:
+                contrast_val = skin_contrast * 10.0
+                contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=contrast_val, legacy=True)
+                result[:, :, :3] = result[:, :, :3] * (1.0 - skin[:, :, np.newaxis]) + contrasted[:, :, :3] * skin[:, :, np.newaxis]
         
-        strength = ao_strength / 100.0
-        ao_effect = 1.0 - (1.0 - ao) * strength
+        ao_effect = np.ones((height, width))
+        ao_blend = np.stack([ao]*3 + [np.ones_like(ao)], axis=2)
+        result = self.img_proc.multiply(result, ao_blend, opacity=ao_strength / 100.0)
         
         if skin is not None:
-            ao_effect = ao_effect * (1.0 - skin) + skin
-        
-        result[:, :, :3] *= ao_effect[:, :, np.newaxis]
+            result[:, :, :3] = result[:, :, :3] * (1.0 - skin[:, :, np.newaxis]) + diffuse[:, :, :3] * skin[:, :, np.newaxis]
 
         if darken_diffuse_metal:
-            darkened = self.apply_curve(result[:, :, :3], [[0, 0], [255, 100]])
+            darkened = self.img_proc.curves(result, [(0, 0), (255, 100)])
             result[:, :, :3] = (result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + 
-                               darkened * metal[:, :, np.newaxis])
+                               darkened[:, :, :3] * metal[:, :, np.newaxis])
         elif use_color_darken:
             result[:, :, 3] = metal
-            rgb = result[:, :, :3]
-            contrast = 10
-            f = (259 * (contrast + 255)) / (255 * (259 - contrast))
-            contrasted = np.clip(f * (rgb - 0.5) + 0.5, 0.0, 1.0)
-            result[:, :, :3] = rgb * (1.0 - metal[:, :, np.newaxis]) + contrasted * metal[:, :, np.newaxis]
+            contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=10.0, legacy=True)
+            result[:, :, :3] = result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + contrasted[:, :, :3] * metal[:, :, np.newaxis]
         elif use_envmap:
             result[:, :, 3] = exponent[:, :, 0]
 
         return result
     
-    def create_normal_map(self, normal, metal, roughness, normal_type, metal_strength=100.0):
+    def create_normal_map(self, normal, metal, roughness, normal_type):
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
@@ -226,7 +225,7 @@ class PBRConversionMixin:
             result[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
             result[:, :, 1] = normal[:, :, 1]
         elif normal_type == 'YELLOW':
-            result[:, :, :3] = 1.0 - normal[:, :, :3]
+            result = self.img_proc.invert(normal)
         elif normal_type == 'OPENGL':
             result[:, :, 0] = normal[:, :, 0]
             result[:, :, 1] = 1.0 - normal[:, :, 1]
@@ -234,21 +233,39 @@ class PBRConversionMixin:
 
         rough_inverted = 1.0 - roughness
         
-        exp_red = self.apply_curve(rough_inverted, [[57, 0], [201, 20], [255, 255]])
-        exp_green_adjusted = metal * (metal_strength / 100.0)
+        #exp_red = self.img_proc.curves(
+        #    np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
+        #    [(70, 0), (240, 60), (255, 255)]
+        #)[:, :, 0]
         
-        alpha = np.clip(exp_red / (1.0 - exp_green_adjusted + 1e-7), 0.0, 1.0)
-        result[:, :, 3] = alpha
+        exp_red_img = self.img_proc.brightness_contrast(
+            np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
+            brightness=-100, contrast=0, legacy=True
+        )
+        
+        metal_blend = np.stack([metal]*3 + [np.ones_like(metal)], axis=2)
+        
+        exp_red_img = self.img_proc.brightness_contrast(
+            exp_red_img,
+            brightness=5, contrast=0, legacy=True
+        )
+        
+        exp_red_img = self.img_proc.multiply(exp_red_img, metal_blend, opacity=0.8)
+        
+        exp_red_img = self.img_proc.brightness_contrast(
+            exp_red_img,
+            brightness=150, legacy=False
+        )
+        
+        result[:, :, 3] = exp_red_img[:, :, 0]
         
         return result
     
     def create_emissive_map(self, diffuse, emissive):
         height, width = diffuse.shape[:2]
-        result = np.zeros((height, width, 4), dtype=np.float32)
-        
-        result[:, :, :3] = diffuse[:, :, :3] * emissive[:, :, np.newaxis]
+        emissive_4ch = np.stack([emissive]*3 + [np.ones_like(emissive)], axis=2)
+        result = self.img_proc.multiply(diffuse, emissive_4ch, opacity=1.0)
         result[:, :, 3] = 1.0
-        
         return result
         
     def save_tga(self, data, filepath):
@@ -290,7 +307,6 @@ class PBRConversionMixin:
             report_func({'ERROR'}, f"Invalid export path or name for '{item.name}'")
             return False
         
-        # Load image data
         diffuse_img = self.get_image_data(item.diffuse_map)
         normal_img = self.get_image_data(item.normal_map)
         
@@ -300,29 +316,24 @@ class PBRConversionMixin:
         
         height, width = diffuse_img.shape[:2]
         
-        # Load optional maps
         roughness_img = self.get_channel_data(item.roughness_map, item.roughness_map_ch, height, width) if item.roughness_map else np.ones((height, width))
         metal_img = self.get_channel_data(item.metal_map, item.metal_map_ch, height, width) if item.metal_map else np.zeros((height, width))
         ao_img = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, height, width) if item.ambientocclu_map else np.ones((height, width))
         emissive_img = self.get_channel_data(item.emissive_map, item.emissive_map_ch, height, width) if item.emissive_map else None
         skin_img = self.get_channel_data(item.skin_map, item.skin_map_ch, height, width) if item.skin_map else None
         
-        # Create exponent map
         exponent_map = self.create_exponent_map(roughness_img, metal_img)
         self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
         
-        # Create diffuse map
         diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, skin_img,
                                               item.ambientocclu_strength, item.skin_map_gamma, item.skin_map_contrast,
                                               item.use_envmap, item.darken_diffuse_metal, item.use_color_darken)
         self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
         
-        # Create normal map
         normal_map = self.create_normal_map(normal_img, metal_img, roughness_img, 
-                                            item.normal_map_type, item.normal_metal_strength)
+                                            item.normal_map_type)
         self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
         
-        # Create emissive map if needed
         if emissive_img is not None:
             emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
             self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
@@ -458,7 +469,6 @@ class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
         row = col.split(align=True,factor=0.8)
         row.prop_search(item, 'normal_map', bpy.data, 'images', text='')
         row.prop(item, 'normal_map_type', text='')
-        col.prop(item, 'normal_metal_strength', slider=True)
         
         col.separator(factor=3)
         

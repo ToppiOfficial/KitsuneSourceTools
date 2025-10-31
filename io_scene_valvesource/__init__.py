@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 258
+ADDONVER = 259
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -126,7 +126,6 @@ class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
     emissive_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
     
     normal_map: StringProperty(name='Normal Map')
-    normal_metal_strength: FloatProperty(name='Normal Map Metal Strength', min=0, max=100, default=100)
     normal_map_type: EnumProperty(name='Normal Map Type', items=[
         ('DEF', 'Default', ''),
         ('RED', 'Red', 'The normal map is a red-type normal map'),
@@ -180,7 +179,7 @@ class KitsuneTool_PanelProps():
                 ('EXCLUDE_Z', "Z", "Exclude Z axis modification"),
                 ('EXCLUDE_ROLL', "Roll", "Exclude roll modification"),
                 ('EXCLUDE_SCALE', "Scale", "Exclude scale modification"),
-            ],default={'EXCLUDE_SCALE'} # type: ignore
+            ],default={'EXCLUDE_SCALE', 'EXCLUDE_ROLL'}
         )
     
     defineArmatureCategory : EnumProperty(name='Define Armature Category', items=[
@@ -581,6 +580,7 @@ _classes = (
     bone.TOOLS_OT_ReAlignBones,
     bone.TOOLS_OT_CopyTargetRotation,
     bone.TOOLS_OT_SplitBone,
+    bone.TOOLS_OT_CreateCenterBone,
 
     mesh.TOOLS_PT_Mesh,
     mesh.TOOLS_OT_CleanShapeKeys,

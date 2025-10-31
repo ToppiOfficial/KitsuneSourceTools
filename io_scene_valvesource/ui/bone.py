@@ -75,6 +75,7 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         # Bone Modifiers Section
         mod_box = draw_title_box(main_col, text='Bone Modifiers', icon='MODIFIER', align=True)
         mod_box.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text='Split Bone').weights_only = False
+        mod_box.operator(TOOLS_OT_CreateCenterBone.bl_idname)
         
 class TOOLS_OT_CopyTargetRotation(Operator):
     bl_idname : str = "tools.copy_target_bone_rotation"
@@ -469,3 +470,110 @@ class TOOLS_OT_MergeBones(Operator):
         )
         
         return bones_to_remove, vgroups_processed
+    
+class TOOLS_OT_CreateCenterBone(Operator):
+    bl_idname: str = 'tools.create_centerbone'
+    bl_label: str = 'Create Center Bone'
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    
+    parent_choice: bpy.props.EnumProperty(
+        name="Parent Bone",
+        description="Choose which bone to use as parent",
+        items=[
+            ('BONE1', "First Bone's Parent", "Use the parent of the first selected bone"),
+            ('BONE2', "Second Bone's Parent", "Use the parent of the second selected bone"),
+            ('NONE', "No Parent", "Don't set a parent"),
+        ],
+        default='BONE1'
+    )
+    
+    _needs_parent_choice: bool = False
+    _bone1_name: str = ""
+    _bone2_name: str = ""
+    _parent1_name: str = ""
+    _parent2_name: str = ""
+    
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        return bool(context.mode in {'POSE', 'EDIT_ARMATURE'})
+    
+    def invoke(self, context: Context, event):
+        armature = getArmature(context.object)
+        
+        # Access bones directly based on current mode
+        if context.mode == 'EDIT_ARMATURE':
+            selected_bones = [b for b in armature.data.edit_bones if b.select]
+        else:  # POSE mode
+            selected_bones = [armature.data.bones[pb.name] for pb in armature.pose.bones if pb.bone.select]
+        
+        if len(selected_bones) != 2:
+            self.report({'ERROR'}, 'Only select 2 bones')
+            return {'CANCELLED'}
+        
+        bone1, bone2 = selected_bones[0], selected_bones[1]
+        self._bone1_name = bone1.name
+        self._bone2_name = bone2.name
+        
+        # Check if parents are the same
+        parent1 = bone1.parent
+        parent2 = bone2.parent
+        
+        # Store parent names for UI display
+        self._parent1_name = parent1.name if parent1 else "None"
+        self._parent2_name = parent2.name if parent2 else "None"
+        
+        if parent1 == parent2:
+            # Same parent (or both None), proceed directly
+            self._needs_parent_choice = False
+            return self.execute(context)
+        else:
+            # Different parents, ask user
+            self._needs_parent_choice = True
+            self.parent_choice = 'BONE1'  # Reset to default
+            
+            return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        if self._needs_parent_choice:
+            layout.label(text="Bones have different parents:")
+            layout.label(text=f"  {self._bone1_name}: {self._parent1_name}")
+            layout.label(text=f"  {self._bone2_name}: {self._parent2_name}")
+            layout.separator()
+            layout.prop(self, "parent_choice")
+    
+    def execute(self, context : Context) -> set:
+        armature = getArmature(context.object)
+        
+        with PreserveContextMode(armature, 'EDIT') as edit_bones:
+            selected_bones = getSelectedBones(armature, bone_type='EDITBONE')
+            
+            if len(selected_bones) != 2:
+                self.report({'ERROR'}, 'Only select 2 bones')
+                return {'CANCELLED'}
+            
+            bone1, bone2 = selected_bones[0], selected_bones[1]
+            
+            center_head = (bone1.head + bone2.head) / 2
+            center_tail = (bone1.tail + bone2.tail) / 2
+            
+            new_bone = edit_bones.new(bone1.name + "_" + bone2.name)
+            new_bone.head = center_head
+            new_bone.tail = center_tail
+            
+            # Set parent based on choice
+            if bone1.parent == bone2.parent:
+                # Same parent (including both None)
+                new_bone.parent = bone1.parent
+            else:
+                # User chose which parent to use
+                if self.parent_choice == 'BONE1':
+                    new_bone.parent = bone1.parent
+                elif self.parent_choice == 'BONE2':
+                    new_bone.parent = bone2.parent
+                # else 'NONE', leave parent as None
+            
+            self.report({'INFO'}, f'Created center bone: {new_bone.name}')
+        
+        return {'FINISHED'}
