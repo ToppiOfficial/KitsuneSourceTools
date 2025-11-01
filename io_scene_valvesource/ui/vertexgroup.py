@@ -327,6 +327,7 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
     @classmethod
     def poll(cls, context : Context) -> bool:
         ob : Object | None = context.object
+        if ob is None: return False
         if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
         
         return bool(getArmature(ob))

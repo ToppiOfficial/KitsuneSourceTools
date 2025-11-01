@@ -678,7 +678,8 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
                smoothness: float = 0.5,
                falloff : int = 10,
                min_weight_cap : float = 0.001,
-               weights_only: bool = False):
+               weights_only: bool = False,
+               force_locked: bool = False):
     
     if bpy.context.object.mode != 'EDIT':
         return
@@ -692,7 +693,7 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
         arm = getArmature(bone)
         if not arm:
             return
-        meshes = getArmatureMeshes(arm)
+        meshes = getArmatureMeshes(arm, bpy.context.scene.vs.visible_mesh_only)
         if not meshes:
             return
 
@@ -705,13 +706,11 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
         bone_chain = []
         
         if weights_only:
-            # Only process weights - expect bones to already exist
             for i in range(1, subdivisions + 1):
                 target_index = str(i)
                 matched_bone = None
 
-                for bone in eb.values(): # type: ignore
-                    # Match if base_name is in the name and the number appears somewhere after it
+                for bone in eb.values():
                     if base_name in bone.name and target_index in bone.name:
                         matched_bone = bone
                         break
@@ -742,7 +741,6 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
                     for col in collections:
                         col.assign(new_bone)
             
-            # Reassign children to nearest bone
             for child in bone.children:
                 child_head = child.head
                 closest_bone = bone_chain[0]
@@ -759,21 +757,24 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
             
             eb.remove(eb[old_bone_name])
         
-        # Handle vertex groups - projection-based approach
         arm_matrix = arm.matrix_world
         head_world = arm_matrix @ head
         tail_world = arm_matrix @ tail
         bone_vec = tail_world - head_world
         bone_length_sq = bone_vec.length_squared
         
-        # Collect all vertices from all meshes first for consistent evaluation
         all_vertex_data = []
         
         for mesh in meshes:
             if old_bone_name not in mesh.vertex_groups:
                 continue
-                
+            
             vg_old = mesh.vertex_groups[old_bone_name]
+            
+            if not force_locked and vg_old.lock_weight:
+                print(f"Skipping mesh '{mesh.name}': vertex group '{old_bone_name}' is locked")
+                continue
+                
             mesh_matrix = mesh.matrix_world
             
             for vert in mesh.data.vertices:
@@ -781,7 +782,6 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
                     if group.group == vg_old.index:
                         pos_world = mesh_matrix @ vert.co
                         
-                        # Project vertex onto bone axis to get normalized position (0 to 1)
                         vec_to_vert = pos_world - head_world
                         if bone_length_sq > 0:
                             t = vec_to_vert.dot(bone_vec) / bone_length_sq
@@ -800,6 +800,10 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
         mesh_vg_map = {}
         for mesh in meshes:
             if old_bone_name not in mesh.vertex_groups:
+                continue
+            
+            vg_old = mesh.vertex_groups[old_bone_name]
+            if not force_locked and vg_old.lock_weight:
                 continue
             
             vg_new_list = []
@@ -826,13 +830,10 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
             if total == 0.0:
                 continue
 
-            # Normalize, clamp small weights, and renormalize again
             normalized_weights = [inf / total for inf in influences]
 
-            # Zero out anything below min_weight
             filtered_weights = [w if w * weight >= min_weight else 0.0 for w in normalized_weights]
 
-            # Optional: renormalize after filtering (so total stays ~1.0)
             total_filtered = sum(filtered_weights)
             if total_filtered > 0.0:
                 filtered_weights = [w / total_filtered for w in filtered_weights]
@@ -844,11 +845,13 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
 
         for mesh in meshes:
             if old_bone_name in mesh.vertex_groups:
-                mesh.vertex_groups.remove(mesh.vertex_groups[old_bone_name])
+                vg_old = mesh.vertex_groups[old_bone_name]
+                if force_locked or not vg_old.lock_weight:
+                    mesh.vertex_groups.remove(vg_old)
 
     elif isinstance(bone, list):
         if len(bone) == 1:
-            split_bone(bone[0], subdivisions, smoothness, falloff, min_weight_cap, weights_only)
+            split_bone(bone[0], subdivisions, smoothness, falloff, min_weight_cap, weights_only, force_locked)
         else:
             for b in bone:
-                split_bone(b, subdivisions, smoothness, falloff, min_weight_cap, weights_only)
+                split_bone(b, subdivisions, smoothness, falloff, min_weight_cap, weights_only, force_locked)
