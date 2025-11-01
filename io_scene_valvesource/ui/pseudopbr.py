@@ -173,36 +173,39 @@ class PBRConversionMixin:
         return exponent
     
     def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, skin_gamma, skin_contrast,
-                          use_envmap, darken_diffuse_metal, use_color_darken):
+                      use_envmap, darken_diffuse_metal, use_color_darken):
         height, width = diffuse.shape[:2]
         result = diffuse.copy()
         
-        if skin is not None:
-            if skin_gamma != 0:
-                gamma_val = 1.0 / (1.0 + skin_gamma / 10.0) if skin_gamma > 0 else 1.0 - skin_gamma / 10.0
-                gamma_corrected = self.img_proc.exposure(result, exposure=0.0, gamma_correction=gamma_val)
-                result[:, :, :3] = result[:, :, :3] * (1.0 - skin[:, :, np.newaxis]) + gamma_corrected[:, :, :3] * skin[:, :, np.newaxis]
-            
-            if skin_contrast != 0:
-                contrast_val = skin_contrast * 10.0
-                contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=contrast_val, legacy=True)
-                result[:, :, :3] = result[:, :, :3] * (1.0 - skin[:, :, np.newaxis]) + contrasted[:, :, :3] * skin[:, :, np.newaxis]
-        
-        ao_effect = np.ones((height, width))
+        # Apply AO first
         ao_blend = np.stack([ao]*3 + [np.ones_like(ao)], axis=2)
         result = self.img_proc.multiply(result, ao_blend, opacity=ao_strength / 100.0)
         
+        # If skin mask exists, remove AO effect from skin areas
         if skin is not None:
-            result[:, :, :3] = result[:, :, :3] * (1.0 - skin[:, :, np.newaxis]) + diffuse[:, :, :3] * skin[:, :, np.newaxis]
+            skin_mask = skin[:, :, np.newaxis]
+            result[:, :, :3] = result[:, :, :3] * (1.0 - skin_mask) + diffuse[:, :, :3] * skin_mask
+            
+            # Apply gamma correction to skin areas only
+            if skin_gamma != 0:
+                gamma_corrected = self.img_proc.exposure(result, exposure=0.0, gamma_correction=skin_gamma)
+                result = self.img_proc.apply_with_mask(result, gamma_corrected, skin_mask)
+            
+            # Apply contrast to skin areas only
+            if skin_contrast != 0:
+                contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=skin_contrast, legacy=False)
+                result = self.img_proc.apply_with_mask(result, contrasted, skin_mask)
 
+        # Apply metal darkening
         if darken_diffuse_metal:
             darkened = self.img_proc.curves(result, [(0, 0), (255, 100)])
-            result[:, :, :3] = (result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + 
-                               darkened[:, :, :3] * metal[:, :, np.newaxis])
+            metal_mask = metal[:, :, np.newaxis]
+            result = self.img_proc.apply_with_mask(result, darkened, metal_mask)
         elif use_color_darken:
             result[:, :, 3] = metal
             contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=10.0, legacy=True)
-            result[:, :, :3] = result[:, :, :3] * (1.0 - metal[:, :, np.newaxis]) + contrasted[:, :, :3] * metal[:, :, np.newaxis]
+            metal_mask = metal[:, :, np.newaxis]
+            result = self.img_proc.apply_with_mask(result, contrasted, metal_mask)
         elif use_envmap:
             result[:, :, 3] = exponent[:, :, 0]
 

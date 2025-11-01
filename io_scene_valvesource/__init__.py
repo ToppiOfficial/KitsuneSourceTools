@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 259
+ADDONVER = 260
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -109,8 +109,8 @@ class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
     
     skin_map: StringProperty(name='Skin Map')
     skin_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
-    skin_map_gamma: FloatProperty(name='Gamma Correction', soft_min=-10, soft_max=10, default=0)
-    skin_map_contrast: FloatProperty(name='Contrast', soft_min=-5, soft_max=5, default=0)
+    skin_map_gamma: FloatProperty(name='Gamma Correction', soft_min=0, soft_max=10, default=1)
+    skin_map_contrast: FloatProperty(name='Contrast', soft_min=-100, soft_max=100, default=0)
     
     metal_map: StringProperty(name='Metal Map')
     metal_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)

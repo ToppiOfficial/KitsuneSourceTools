@@ -35,14 +35,26 @@ class ImageProcessor:
                 contrast_val = contrast * 2.55
                 factor = (259 * (contrast_val + 255)) / (255 * (259 - contrast_val))
                 rgb = np.clip(factor * (rgb - 0.5) + 0.5, 0.0, 1.0)
-        else:
+        else:  # non-legacy mode
             if brightness != 0:
+                # Brightness works like gamma/midtone adjustment
                 brightness_factor = 1.0 + brightness / 100.0
                 rgb = np.clip(rgb * brightness_factor, 0.0, 1.0)
             
             if contrast != 0:
-                factor = (contrast + 100) / 100.0
-                rgb = np.clip((rgb - 0.5) * factor + 0.5, 0.0, 1.0)
+                # Non-legacy contrast: S-curve that preserves endpoints
+                # and has a brightness-preserving property
+                # Contrast range: -100 to 100
+                if contrast > 0:
+                    # Positive contrast: expand around midpoint with preservation
+                    factor = np.tan((contrast / 100.0) * np.pi / 4.0)
+                    rgb = 0.5 + (rgb - 0.5) * (1.0 + factor)
+                else:
+                    # Negative contrast: compress toward midpoint
+                    factor = 1.0 + contrast / 100.0
+                    rgb = 0.5 + (rgb - 0.5) * factor
+                
+                rgb = np.clip(rgb, 0.0, 1.0)
         
         result[:, :, :3] = rgb
         return result
@@ -105,7 +117,7 @@ class ImageProcessor:
         Args:
             exposure: -20 to 20 (stops)
             offset: -0.5 to 0.5
-            gamma_correction: 0.01 to 9.99
+            gamma_correction: 0.01 to 10
         """
         result = img.copy()
         rgb = result[:, :, :3]
@@ -119,7 +131,7 @@ class ImageProcessor:
         
         result[:, :, :3] = np.clip(rgb, 0.0, 1.0)
         return result
-    
+        
     @staticmethod
     def vibrance(img: np.ndarray, vibrance: float = 0.0, saturation: float = 0.0) -> np.ndarray:
         """
@@ -398,3 +410,97 @@ class ImageProcessor:
         rgb[mask5] = np.stack([v[mask5], p[mask5], q[mask5]], axis=1)
         
         return np.clip(rgb, 0.0, 1.0)
+    
+    @staticmethod
+    def apply_with_mask(original: np.ndarray, adjusted: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """
+        Apply an adjustment using a mask
+        Args:
+            original: Original image (H, W, C)
+            adjusted: Adjusted image (H, W, C)
+            mask: Grayscale mask (H, W) or (H, W, 1) or (H, W, C) where white = 100% effect, black = 0% effect
+        Returns:
+            Blended result based on mask
+        """
+        result = original.copy()
+        
+        if len(mask.shape) == 2:
+            mask_normalized = mask[:, :, np.newaxis]
+        elif mask.shape[2] == 1:
+            mask_normalized = mask
+        else:
+            mask_normalized = np.mean(mask[:, :, :3], axis=2, keepdims=True)
+        
+        result[:, :, :3] = original[:, :, :3] * (1.0 - mask_normalized) + adjusted[:, :, :3] * mask_normalized
+        
+        return result
+
+    @staticmethod
+    def create_mask_from_luminosity(img: np.ndarray, invert: bool = False) -> np.ndarray:
+        """
+        Create a mask from image luminosity
+        Args:
+            img: Input image
+            invert: If True, dark areas become white in mask
+        Returns:
+            Grayscale mask (H, W, 1)
+        """
+        rgb = img[:, :, :3]
+        luminosity = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+        
+        if invert:
+            luminosity = 1.0 - luminosity
+        
+        return luminosity[:, :, np.newaxis]
+
+    @staticmethod
+    def create_mask_from_channel(img: np.ndarray, channel: int = 0) -> np.ndarray:
+        """
+        Create a mask from a specific channel
+        Args:
+            img: Input image
+            channel: 0=Red, 1=Green, 2=Blue, 3=Alpha
+        Returns:
+            Grayscale mask (H, W, 1)
+        """
+        if channel < img.shape[2]:
+            return img[:, :, channel:channel+1].copy()
+        return np.ones((img.shape[0], img.shape[1], 1), dtype=np.float32)
+
+    @staticmethod
+    def create_mask_from_range(img: np.ndarray, min_val: float = 0.0, max_val: float = 1.0, 
+                            feather: float = 0.0) -> np.ndarray:
+        """
+        Create a mask based on luminosity range
+        Args:
+            img: Input image
+            min_val: Minimum luminosity (0-1)
+            max_val: Maximum luminosity (0-1)
+            feather: Softness of edges (0-0.5)
+        Returns:
+            Grayscale mask (H, W, 1)
+        """
+        rgb = img[:, :, :3]
+        luminosity = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+        
+        if feather > 0:
+            lower_feather = min_val + feather
+            upper_feather = max_val - feather
+            
+            mask = np.where(
+                luminosity < min_val, 0.0,
+                np.where(
+                    luminosity < lower_feather, (luminosity - min_val) / feather,
+                    np.where(
+                        luminosity < upper_feather, 1.0,
+                        np.where(
+                            luminosity < max_val, (max_val - luminosity) / feather,
+                            0.0
+                        )
+                    )
+                )
+            )
+        else:
+            mask = np.where((luminosity >= min_val) & (luminosity <= max_val), 1.0, 0.0)
+        
+        return mask[:, :, np.newaxis]
