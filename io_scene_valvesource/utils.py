@@ -155,6 +155,9 @@ dmx_versions_source2 = {
 }
 
 def getAllDataNameTranslations(string : str) -> set[str]:
+    if not bpy.app.translations.locales:
+        return { string } # Blender was compiled without translations
+    
     translations = set()
         
     view_prefs = bpy.context.preferences.view
@@ -164,7 +167,7 @@ def getAllDataNameTranslations(string : str) -> set[str]:
     try:
         view_prefs.use_translate_new_dataname = True
         for language in bpy.app.translations.locales:
-            if language == "hr_HR":
+            if language == "hr_HR" and bpy.app.version < (4,5,3):
                 continue # enabling Croatian generates a C error message in the console, and it's very sparsely translated anyway
             try:
                 view_prefs.language = language
@@ -294,7 +297,7 @@ def get_id(str_id: str, format_string: bool = False, data: bool = False) -> str:
     if out is None:
         return ""
     if format_string or (data and bpy.context.preferences.view.use_translate_new_dataname):
-        return pgettext(out)
+        return typing.cast(str, pgettext(out))
     else:
         return out
 
@@ -505,14 +508,15 @@ def PrintVer(in_seq,sep="."):
         return out.rstrip(sep)
 
 def getUpAxisMat(axis):
-    if axis.upper() == 'X':
-        return Matrix.Rotation(pi/2,4,'Y')
-    if axis.upper() == 'Y':
-        return Matrix.Rotation(pi/2,4,'X')
-    if axis.upper() == 'Z':
-        return Matrix()
-    else:
-        raise AttributeError("getUpAxisMat got invalid axis argument '{}'".format(axis))
+    match axis.upper():
+        case 'X':
+            return Matrix.Rotation(pi/2, 4, 'Y')
+        case 'Y':
+            return Matrix.Rotation(pi/2, 4, 'X')
+        case 'Z':
+            return Matrix()
+        case _:
+            raise AttributeError("getUpAxisMat got invalid axis argument '{}'".format(axis))
     
 def getUpAxisOffsetMat(axis, offset):
     """
@@ -525,31 +529,33 @@ def getUpAxisOffsetMat(axis, offset):
     Returns:
         Matrix: Translation matrix along the up axis
     """
-    if axis.upper() == 'X':
-        return Matrix.Translation((offset, 0, 0))
-    if axis.upper() == 'Y':
-        return Matrix.Translation((0, offset, 0))
-    if axis.upper() == 'Z':
-        return Matrix.Translation((0, 0, offset))
-    else:
-        raise AttributeError("getUpAxisOffsetMat got invalid axis argument '{}'".format(axis))
+    match axis.upper():
+        case 'X':
+            return Matrix.Translation((offset, 0, 0))
+        case 'Y':
+            return Matrix.Translation((0, offset, 0))
+        case 'Z':
+            return Matrix.Translation((0, 0, offset))
+        case _:
+            raise AttributeError("getUpAxisOffsetMat got invalid axis argument '{}'".format(axis))
     
-def getForwardAxisMat(axis):
-    """Rotate object to face the specified forward direction"""
-    if axis.upper() == 'X':
-        return Matrix.Rotation(-pi/2, 4, 'Z')
-    if axis.upper() == 'Y':
-        return Matrix.Rotation(pi, 4, 'Z')
-    if axis.upper() == '-Y':
-        return Matrix()  # Blender default forward
-    if axis.upper() == 'Z':
-        return Matrix.Rotation(-pi/2, 4, 'X')
-    if axis.upper() == '-X':
-        return Matrix.Rotation(pi/2, 4, 'Z')
-    if axis.upper() == '-Z':
-        return Matrix.Rotation(pi/2, 4, 'X')
-    else:
-        raise AttributeError("getForwardAxisMat got invalid axis argument '{}'".format(axis))
+def getForwardAxisMat(axis: str) -> Matrix:
+    """Return a rotation matrix that orients an object to face the specified forward direction."""
+    match axis.upper():
+        case 'X':
+            return Matrix.Rotation(-pi / 2, 4, 'Z')
+        case 'Y':
+            return Matrix.Rotation(pi, 4, 'Z')
+        case '-Y':
+            return Matrix()
+        case 'Z':
+            return Matrix.Rotation(-pi / 2, 4, 'X')
+        case '-X':
+            return Matrix.Rotation(pi / 2, 4, 'Z')
+        case '-Z':
+            return Matrix.Rotation(pi / 2, 4, 'X')
+        case _:
+            raise AttributeError(f"getForwardAxisMat got invalid axis argument '{axis}'")
 
 def MakeObjectIcon(object,prefix=None,suffix=None):
     if not (prefix or suffix):
@@ -929,7 +935,7 @@ class SMD_OT_LaunchHLMV(bpy.types.Operator):
     def poll(cls,context):
         return bool(context.scene.vs.engine_path)
         
-    def execute(self,context):
+    def execute(self,context) -> set:
         args = [os.path.normpath(os.path.join(bpy.path.abspath(context.scene.vs.engine_path),"hlmv"))]
         if context.scene.vs.game_path:
             args.extend(["-game",os.path.normpath(bpy.path.abspath(context.scene.vs.game_path))])

@@ -200,8 +200,7 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         row.prop(obj.vs, 'automerge',toggle=True)
         
         col.label(text='Exportable Objects')
-        col.template_list("SMD_UL_GroupItems", obj.name, obj, "objects", obj.vs, "selected_item", 
-                         type='GRID', columns=2, rows=2, maxrows=10)
+        col.template_list("SMD_UL_GroupItems",obj.name,obj,"objects",obj.vs,"selected_item",rows=2,maxrows=10)
     
     def _draw_armature_content(self, col : UILayout, obj,index):
         col.row().prop(obj.data.vs, "action_selection", expand=True)
@@ -451,7 +450,7 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         scene = context.scene
         
         l.label(text='Exportable Objects', icon='EXPORT')
-        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8, type='DEFAULT')
+        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
             
         l.separator(type='LINE')
         

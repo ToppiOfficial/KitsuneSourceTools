@@ -319,8 +319,8 @@ class PBRConversionMixin:
         
         height, width = diffuse_img.shape[:2]
         
-        roughness_img = self.get_channel_data(item.roughness_map, item.roughness_map_ch, height, width) if item.roughness_map else np.ones((height, width))
-        metal_img = self.get_channel_data(item.metal_map, item.metal_map_ch, height, width) if item.metal_map else np.zeros((height, width))
+        roughness_img = self.get_channel_data(item.roughness_map, item.roughness_map_ch, height, width) if item.roughness_map else np.ones((32, 32))
+        metal_img = self.get_channel_data(item.metal_map, item.metal_map_ch, height, width) if item.metal_map else np.zeros((32, 32))
         ao_img = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, height, width) if item.ambientocclu_map else np.ones((height, width))
         emissive_img = self.get_channel_data(item.emissive_map, item.emissive_map_ch, height, width) if item.emissive_map else None
         skin_img = self.get_channel_data(item.skin_map, item.skin_map_ch, height, width) if item.skin_map else None
