@@ -235,18 +235,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         
         draw_wrapped_text_col(layout, get_id(message_map[required_type]), max_chars=40, icon='HELP')
         return False
-    
-    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.2, 
-                            clipboard_text: str = 'Write to Clipboard',
-                            file_text: str = 'Write to File',
-                            clipboard_icon: str = 'FILE_TEXT',
-                            file_icon: str = 'TEXT') -> None:
-        """Draw standard export button pair (clipboard/file)."""
-        row = layout.row(align=True)
-        row.scale_y = scale_y
-        row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
-        row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
-    
+       
     def draw_attachment(self, context: Context, layout: UILayout) -> None:
         ob = getArmature(context.object)
         
@@ -272,63 +261,99 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         if bone and bone.select:
             self.draw_jigglebone_properties(layout, bone)
         else:
-            layout.box().label(text='Select a Valid Bone', icon='ERROR')
-    
+            box = layout.box()
+            box.label(text='Select a Valid Bone', icon='ERROR')
+
+    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.2, 
+                            clipboard_text: str = 'Write to Clipboard',
+                            file_text: str = 'Write to File',
+                            clipboard_icon: str = 'FILE_TEXT',
+                            file_icon: str = 'TEXT') -> None:
+        """Draw standard export button pair (clipboard/file)."""
+        row = layout.row(align=True)
+        row.scale_y = scale_y
+        row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
+        row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
+
     def draw_jigglebone_properties(self, layout: UILayout, bone: bpy.types.Bone) -> None:
         vs_bone = bone.vs
-        col = layout.column()
-        maincol = col.column()
         
-        maincol.prop(
+        box = layout
+        row = box.row()
+        row.prop(
             vs_bone, 'bone_is_jigglebone', 
             toggle=True, 
-            icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW_THIN',
-            text=f'[{bone.name}] is Jigglebone'
+            icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW',
+            text=f'{bone.name}',
+            emboss=True
         )
         
         if not vs_bone.bone_is_jigglebone:
             return
         
-        col = maincol.column(align=True)
-        col.prop(vs_bone, 'jiggle_flex_type')
-        col.prop(vs_bone, 'jiggle_base_type')
+        box = layout
+        col = box.column(align=False)
         
-        self._draw_flexible_rigid_props(maincol, vs_bone)
+        col.label(text='Jiggle Type:', icon='DRIVER')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_flex_type', text='Flexibility')
+        subcol.prop(vs_bone, 'jiggle_base_type', text='Base Type')
+        
+        col.separator(factor=0.5)
+        
+        self._draw_flexible_rigid_props(col, vs_bone)
         
         if vs_bone.jiggle_base_type == 'BASESPRING':
-            self._draw_basespring_props(maincol, vs_bone)
+            self._draw_basespring_props(col, vs_bone)
         elif vs_bone.jiggle_base_type == 'BOING':
-            self._draw_boing_props(maincol, vs_bone)
+            self._draw_boing_props(col, vs_bone)
     
     def _draw_flexible_rigid_props(self, layout: UILayout, vs_bone) -> None:
         if vs_bone.jiggle_flex_type not in ['FLEXIBLE', 'RIGID']:
             return
         
-        col = layout.column(align=True)
-        col.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True)
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Physical Properties:', icon='PHYSICS')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text='Use Bone Length')
         if not vs_bone.use_bone_length_for_jigglebone_length:
-            col.prop(vs_bone, 'jiggle_length')
-        col.prop(vs_bone, 'jiggle_tip_mass')
+            subcol.prop(vs_bone, 'jiggle_length', text='Length')
+        subcol.prop(vs_bone, 'jiggle_tip_mass', text='Tip Mass')
         
         if vs_bone.jiggle_flex_type == 'FLEXIBLE':
-            col.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True)
-            col.prop(vs_bone, 'jiggle_yaw_damping', slider=True)
-            col.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True)
-            col.prop(vs_bone, 'jiggle_pitch_damping', slider=True)
-            col.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True)
+            col.separator(factor=0.5)
+            col.label(text='Stiffness & Damping:', icon='FORCE_TURBULENCE')
+            
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True, text='Yaw Stiffness')
+            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True, text='Yaw Damping')
+            
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True, text='Pitch Stiffness')
+            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True, text='Pitch Damping')
+            
+            col.separator(factor=0.5)
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True, text='Allow Length Flex')
             
             if vs_bone.jiggle_allow_length_flex:
-                col.prop(vs_bone, 'jiggle_along_stiffness', slider=True)
-                col.prop(vs_bone, 'jiggle_along_damping', slider=True)
+                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True, text='Along Stiffness')
+                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True, text='Along Damping')
         
+        layout.separator(factor=0.5)
         self._draw_angle_constraints(layout, vs_bone)
     
     def _draw_angle_constraints(self, layout: UILayout, vs_bone) -> None:
-        col = layout.column(align=True)
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Angle Constraints:', icon='CON_ROTLIMIT')
         row = col.row(align=True)
-        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True)
-        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True)
-        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True)
+        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True, text='Angle')
+        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True, text='Yaw')
+        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True, text='Pitch')
         
         has_any = any([
             vs_bone.jiggle_has_angle_constraint,
@@ -339,34 +364,46 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         if not has_any:
             return
         
-        col = layout.column(align=True)
+        col.separator(factor=0.3)
         
         if vs_bone.jiggle_has_angle_constraint:
-            col.prop(vs_bone, 'jiggle_angle_constraint')
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_angle_constraint', text='Angular Constraint')
+            col.separator(factor=0.3)
         
         if vs_bone.jiggle_has_yaw_constraint:
-            row = col.row(align=True)
-            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True)
-            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True)
-            col.prop(vs_bone, 'jiggle_yaw_friction', slider=True)
+            subcol = col.column(align=False)
+            subcol.label(text='Yaw Limits:', icon='EMPTY_SINGLE_ARROW')
+            row = subcol.row(align=True)
+            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True, text='Min')
+            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text='Max')
+            subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text='Friction')
+            col.separator(factor=0.3)
         
         if vs_bone.jiggle_has_pitch_constraint:
-            row = col.row(align=True)
-            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True)
-            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True)
-            col.prop(vs_bone, 'jiggle_pitch_friction', slider=True)
+            subcol = col.column(align=False)
+            subcol.label(text='Pitch Limits:', icon='EMPTY_SINGLE_ARROW')
+            row = subcol.row(align=True)
+            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True, text='Min')
+            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True, text='Max')
+            subcol.prop(vs_bone, 'jiggle_pitch_friction', slider=True, text='Friction')
     
     def _draw_basespring_props(self, layout: UILayout, vs_bone) -> None:
-        col = layout.column(align=True)
-        col.prop(vs_bone, 'jiggle_base_stiffness', slider=True)
-        col.prop(vs_bone, 'jiggle_base_damping', slider=True)
-        col.prop(vs_bone, 'jiggle_base_mass', slider=True)
+        box = layout.box()
+        col = box.column(align=False)
         
-        col = layout.column(align=True)
+        col.label(text='Base Spring Properties:', icon='FORCE_HARMONIC')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_base_stiffness', slider=True, text='Stiffness')
+        subcol.prop(vs_bone, 'jiggle_base_damping', slider=True, text='Damping')
+        subcol.prop(vs_bone, 'jiggle_base_mass', slider=True, text='Mass')
+        
+        col.separator(factor=0.5)
+        col.label(text='Side Constraints:', icon='CON_LOCLIMIT')
         row = col.row(align=True)
-        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True)
-        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True)
-        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True)
+        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True, text='Side')
+        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True, text='Up')
+        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True, text='Forward')
         
         has_any = any([
             vs_bone.jiggle_has_left_constraint,
@@ -377,28 +414,35 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         if not has_any:
             return
         
-        col = layout.column(align=True)
+        col.separator(factor=0.3)
         
         constraint_props = [
-            (vs_bone.jiggle_has_left_constraint, 'left'),
-            (vs_bone.jiggle_has_up_constraint, 'up'),
-            (vs_bone.jiggle_has_forward_constraint, 'forward')
+            (vs_bone.jiggle_has_left_constraint, 'left', 'Side'),
+            (vs_bone.jiggle_has_up_constraint, 'up', 'Up'),
+            (vs_bone.jiggle_has_forward_constraint, 'forward', 'Forward')
         ]
         
-        for has_constraint, direction in constraint_props:
+        for has_constraint, direction, label in constraint_props:
             if has_constraint:
-                row = col.row(align=True)
-                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True)
-                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True)
-                col.prop(vs_bone, f'jiggle_{direction}_friction', slider=True)
+                subcol = col.column(align=False)
+                subcol.label(text=f'{label} Limits:', icon='EMPTY_SINGLE_ARROW')
+                row = subcol.row(align=True)
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True, text='Min')
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True, text='Max')
+                subcol.prop(vs_bone, f'jiggle_{direction}_friction', slider=True, text='Friction')
+                col.separator(factor=0.3)
     
     def _draw_boing_props(self, layout: UILayout, vs_bone) -> None:
-        col = layout.column(align=True)
-        col.prop(vs_bone, 'jiggle_impact_speed', slider=True)
-        col.prop(vs_bone, 'jiggle_impact_angle', slider=True)
-        col.prop(vs_bone, 'jiggle_damping_rate', slider=True)
-        col.prop(vs_bone, 'jiggle_frequency', slider=True)
-        col.prop(vs_bone, 'jiggle_amplitude', slider=True)
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Boing Properties:', icon='FORCE_FORCE')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True, text='Impact Speed')
+        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True, text='Impact Angle')
+        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True, text='Damping Rate')
+        subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text='Frequency')
+        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text='Amplitude')
     
     def draw_hitbox(self, context: Context, layout: UILayout) -> None:
         ob = getArmature(context.object)

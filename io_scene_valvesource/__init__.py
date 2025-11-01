@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 262
+ADDONVER = 263
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -276,15 +276,15 @@ class ValveSource_FloatMapRemap(PropertyGroup):
 
 class RotationOffset():
     ignore_rotation_offset : BoolProperty(name='Ignore Rotation Offsets', default=False, update=sceneutils.make_update('ignore_rotation_offset'))
-    export_rotation_offset_x : FloatProperty(name=f'{get_id("offset_rotation")} X', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_x'))
-    export_rotation_offset_y : FloatProperty(name=f'{get_id("offset_rotation")} Y', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_y'))
-    export_rotation_offset_z : FloatProperty(name=f'{get_id("offset_rotation")} Z', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_z'))
+    export_rotation_offset_x : FloatProperty(name='Rotation X', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_x'))
+    export_rotation_offset_y : FloatProperty(name='Rotation Y', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_y'))
+    export_rotation_offset_z : FloatProperty(name='Rotation Z', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_z'))
 
 class LocationOffset():
     ignore_location_offset : BoolProperty(name='Ignore Location Offsets', default=True, update=sceneutils.make_update('ignore_location_offset'))
-    export_location_offset_x : FloatProperty(name=f'{get_id("offset_location")} X', default=0, precision=4, update=sceneutils.make_update('export_location_offset_x'))
-    export_location_offset_y : FloatProperty(name=f'{get_id("offset_location")} Y', default=0, precision=4, update=sceneutils.make_update('export_location_offset_y'))
-    export_location_offset_z : FloatProperty(name=f'{get_id("offset_location")} Z', default=0, precision=4, update=sceneutils.make_update('export_location_offset_z'))
+    export_location_offset_x : FloatProperty(name='Location X', default=0, precision=4, update=sceneutils.make_update('export_location_offset_x'))
+    export_location_offset_y : FloatProperty(name='Location Y', default=0, precision=4, update=sceneutils.make_update('export_location_offset_y'))
+    export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4, update=sceneutils.make_update('export_location_offset_z'))
 
 class ArmatureMapperKeyValue(PropertyGroup):
     boneExportName : StringProperty(

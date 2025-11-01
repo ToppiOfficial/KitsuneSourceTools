@@ -858,12 +858,6 @@ _data = {
     'ignore_bone_exportnames': {
         'en': "Ignore Bone Export Names",
     },
-    'offset_rotation': {
-        'en': "Rotation",
-    },
-    'offset_location': {
-        'en': "location",
-    },
     'bake_shapekey_as_basis_normals': {
         'en': "Use Basis Normals For Shapekeys",
     },

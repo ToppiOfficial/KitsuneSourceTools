@@ -694,7 +694,7 @@ def get_unparented_hitboxes() -> List[str]:
         if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
             continue
         
-        if not obj.vs.smd_hitbox_group:
+        if not obj.vs.smd_hitbox:
             continue
         
         if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE' or not obj.parent_bone.strip():

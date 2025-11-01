@@ -113,11 +113,9 @@ def main():
         revert_addon_version(original_version)
         sys.exit(1)
     
-    commit_cmd_parts = ["git", "commit"]
-    for msg in messages:
-        commit_cmd_parts.extend(["-m", msg])
+    full_message = "\n".join(messages) + f"\nbump version to {new_ver}"
     
-    result = subprocess.run(commit_cmd_parts, capture_output=True, text=True)
+    result = subprocess.run(["git", "commit", "-m", full_message], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error executing commit")
         print(result.stderr)
