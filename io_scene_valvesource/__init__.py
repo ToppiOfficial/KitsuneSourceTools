@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 264
+ADDONVER = 265
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -206,6 +206,15 @@ class KitsuneTool_PanelProps():
     )
     
     pbr_to_phong_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
+    
+    pbr_conversion_mode: EnumProperty(
+        name="Conversion Mode",
+        items=[
+            ('PHONG', "PBR to Phong", "Convert PBR to Source Engine Phong"),
+            ('NEKOPBR', "PBR to NekoPBR", "Convert to simple PBR format (_color, _mrao, _normal)")
+        ],
+        default='PHONG'
+    )
         
 class ValveSource_SceneProps(KitsuneTool_PanelProps, PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options=_relativePathOptions)
