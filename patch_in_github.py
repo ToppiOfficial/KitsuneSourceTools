@@ -113,7 +113,7 @@ def main():
         revert_addon_version(original_version)
         sys.exit(1)
     
-    full_message = "\n".join(messages) + f"\nbump version to {new_ver}"
+    full_message = "\n".join(messages) + f"\nBump version to {new_ver}"
     
     result = subprocess.run(["git", "commit", "-m", full_message], capture_output=True, text=True)
     if result.returncode != 0:

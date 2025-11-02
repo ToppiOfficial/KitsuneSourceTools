@@ -151,7 +151,7 @@ class PBRConversionMixin:
         
         return result
     
-    def create_exponent_map(self, roughness, metal):
+    def create_exponent_map(self, roughness, metal, color_alpha_mode):
         height, width = roughness.shape
         exponent = np.ones((height, width, 4))
         
@@ -166,14 +166,14 @@ class PBRConversionMixin:
         exponent_red = self.img_proc.brightness_contrast(np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),brightness=-100)[:, :, 0]
         
         exponent[:, :, 0] = exponent_red
-        exponent[:, :, 1] = metal
+        exponent[:, :, 1] = metal if color_alpha_mode != 'RGB_ALPHA' else metal * 0.5
         exponent[:, :, 2] = 0.0
         exponent[:, :, 3] = 1.0
         
         return exponent
     
     def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, skin_gamma, skin_contrast,
-                      use_envmap, darken_diffuse_metal, use_color_darken):
+                      color_alpha_mode):
         height, width = diffuse.shape[:2]
         result = diffuse.copy()
         
@@ -197,21 +197,22 @@ class PBRConversionMixin:
                 result = self.img_proc.apply_with_mask(result, contrasted, skin_mask)
 
         # Apply metal darkening
-        if darken_diffuse_metal:
+        if color_alpha_mode == 'RGB_ALPHA':
             darkened = self.img_proc.curves(result, [(0, 0), (255, 100)])
             metal_mask = metal[:, :, np.newaxis]
             result = self.img_proc.apply_with_mask(result, darkened, metal_mask)
-        elif use_color_darken:
+            saturated = self.img_proc.hue_saturation(result, saturation=20)
+            result = self.img_proc.apply_with_mask(result, saturated, metal_mask)
+            
+        elif color_alpha_mode == 'ALPHA':
             result[:, :, 3] = metal
             contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=10.0, legacy=True)
             metal_mask = metal[:, :, np.newaxis]
             result = self.img_proc.apply_with_mask(result, contrasted, metal_mask)
-        elif use_envmap:
-            result[:, :, 3] = exponent[:, :, 0]
 
         return result
     
-    def create_normal_map(self, normal, metal, roughness, normal_type):
+    def create_normal_map(self, normal, metal, roughness, normal_type, item):
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
@@ -236,31 +237,31 @@ class PBRConversionMixin:
 
         rough_inverted = 1.0 - roughness
         
-        #exp_red = self.img_proc.curves(
-        #    np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
-        #    [(70, 0), (240, 60), (255, 255)]
-        #)[:, :, 0]
-        
-        exp_red_img = self.img_proc.brightness_contrast(
-            np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
-            brightness=-100, contrast=0, legacy=True
-        )
-        
-        metal_blend = np.stack([metal]*3 + [np.ones_like(metal)], axis=2)
-        
-        exp_red_img = self.img_proc.brightness_contrast(
-            exp_red_img,
-            brightness=5, contrast=0, legacy=True
-        )
-        
-        exp_red_img = self.img_proc.multiply(exp_red_img, metal_blend, opacity=0.8)
-        
-        exp_red_img = self.img_proc.brightness_contrast(
-            exp_red_img,
-            brightness=150, legacy=False
-        )
-        
-        result[:, :, 3] = exp_red_img[:, :, 0]
+        if item.roughness_map is None:
+            result[:, :, 3] = 0.0
+        else:
+            rough_inverted = 1.0 - roughness
+            
+            exp_red_img = self.img_proc.brightness_contrast(
+                np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
+                brightness=-100, contrast=0, legacy=True
+            )
+            
+            metal_blend = np.stack([metal]*3 + [np.ones_like(metal)], axis=2)
+            
+            exp_red_img = self.img_proc.brightness_contrast(
+                exp_red_img,
+                brightness=5, contrast=0, legacy=True
+            )
+            
+            exp_red_img = self.img_proc.multiply(exp_red_img, metal_blend, opacity=0.8)
+            
+            exp_red_img = self.img_proc.brightness_contrast(
+                exp_red_img,
+                brightness=150, legacy=False
+            )
+            
+            result[:, :, 3] = exp_red_img[:, :, 0]
         
         return result
     
@@ -325,16 +326,16 @@ class PBRConversionMixin:
         emissive_img = self.get_channel_data(item.emissive_map, item.emissive_map_ch, height, width) if item.emissive_map else None
         skin_img = self.get_channel_data(item.skin_map, item.skin_map_ch, height, width) if item.skin_map else None
         
-        exponent_map = self.create_exponent_map(roughness_img, metal_img)
+        exponent_map = self.create_exponent_map(roughness_img, metal_img, item.color_alpha_mode)
         self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
         
         diffuse_map = self.create_diffuse_map(diffuse_img, metal_img, exponent_map, ao_img, skin_img,
                                               item.ambientocclu_strength, item.skin_map_gamma, item.skin_map_contrast,
-                                              item.use_envmap, item.darken_diffuse_metal, item.use_color_darken)
+                                              item.color_alpha_mode)
         self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
         
         normal_map = self.create_normal_map(normal_img, metal_img, roughness_img, 
-                                            item.normal_map_type)
+                                            item.normal_map_type, item)
         self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
         
         if emissive_img is not None:
@@ -503,9 +504,7 @@ class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
         row.prop(item, 'emissive_map_ch', text='')
         
         col = layout.column(align=True)
-        col.prop(item, 'use_envmap')
-        col.prop(item, 'darken_diffuse_metal')
-        col.prop(item, 'use_color_darken')
+        col.prop(item, 'color_alpha_mode')
     
     def draw_help_section(self, context, layout):
         messages = [

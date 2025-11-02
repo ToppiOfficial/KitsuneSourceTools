@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 263
+ADDONVER = 264
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -133,24 +133,17 @@ class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
         ('OPENGL', 'OpenGL', 'The normal map is a OpenGL type that requires the green channel to be inverted'),
     ])
     
-    use_envmap: BoolProperty(
-        name="Use Color Envmap",
-        description="Adds the inverted roughness (with curve) to the color alpha channel",
-        default=False
+    color_alpha_mode: EnumProperty(
+        name="Color Alpha Channel",
+        description="Controls metal map application to the color texture",
+        items=[
+            ('NONE', "None", "No metal map modification"),
+            ('ALPHA', "Alpha Only", "Adds metal map to alpha channel for use with $color2"),
+            ('RGB_ALPHA', "RGB + Alpha", "Bakes metal contrast into RGB and adds metal map to alpha"),
+        ],
+        default='RGB_ALPHA'
     )
 
-    darken_diffuse_metal: BoolProperty(
-        name="Apply contrast on color using Metal",
-        description="Bakes the metal contrast effect into the color RGB",
-        default=False
-    )
-
-    use_color_darken: BoolProperty(
-        name="Apply metal map on color alpha channel",
-        description="Adds the metal map as the alpha channel of the color texture for use with $color2",
-        default=True
-    )
-    
     export_path: StringProperty(name="Export Path", subtype='DIR_PATH', options=_relativePathOptions)
 
 class KitsuneTool_PanelProps():
