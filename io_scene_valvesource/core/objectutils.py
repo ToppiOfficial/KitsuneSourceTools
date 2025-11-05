@@ -263,7 +263,7 @@ def apply_object_transforms(
     rotation: bool = True,
     scale: bool = True,
     include_children: bool = True,
-    excluded_types: set = None,
+    excluded_types: set | None = None,
     fix_bone_empties: bool = True
 ) -> tuple[int, int]:
     """

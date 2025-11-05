@@ -32,7 +32,7 @@ def translate_to_english(text: Union[str, List[str]], source_lang: str = 'auto',
             print(f"Translation error: {e}")
             return text_str
     
-    def _translate_batch(text_list: List[str]) -> str:
+    def _translate_batch(text_list: List[str]) -> list[str]:
         combined = '\n'.join(text_list)
         translated_combined = _translate_single(combined)
         return translated_combined.split('\n')

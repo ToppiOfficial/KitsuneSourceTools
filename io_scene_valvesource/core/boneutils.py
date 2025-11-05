@@ -15,46 +15,42 @@ direction_map = {
 def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_write = False) -> str:
     """Generate the export name for a bone or posebone, respecting custom naming rules."""
     
-    if bone is None: return "None"
+    if bone is None: 
+        return "None"
     elif not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
         return bone.name if hasattr(bone, "name") else str(bone)
 
     data_bone = bone.bone if isinstance(bone, bpy.types.PoseBone) else bone
-
-    armature : bpy.types.Object | None = getArmature(data_bone)
+    armature = getArmature(data_bone)
     
-    if armature is None: return bone.name
+    if armature is None: 
+        return bone.name
     
     arm_prop = armature.data.vs
     
     if arm_prop.ignore_bone_exportnames and not for_write:
         return bone.name
 
-    # Determine side based on bone position
     def get_bone_side(b: bpy.types.Bone) -> str:
         bone_x = b.matrix_local.to_translation().x
         return (arm_prop.bone_direction_naming_right if bone_x < 0 
                 else arm_prop.bone_direction_naming_left)
 
-    # Build export names map for all bones in hierarchy
     ordered_bones = sortBonesByHierachy(armature.data.bones)
     name_count = collections.defaultdict(lambda: arm_prop.bone_name_startcount)
     export_names = {}
 
     for b in ordered_bones:
         b_side = get_bone_side(b)
-
         is_jigglebone = getattr(b.vs, "bone_is_jigglebone", False)
         raw_name = b.name if is_jigglebone else (b.vs.export_name.strip() or b.name)
         raw_name = raw_name.replace("*", b_side)
 
-        # Replace shortcuts like !vbip
         raw_name = _shortcut_pattern.sub(
             lambda match: shortcut_keywords.get(match.group(1), match.group(0)),
             raw_name
         )
 
-        # Handle counters for '$'
         if "$" in raw_name:
             key = (raw_name, b_side)
             export_names[b.name] = raw_name.replace("$", str(name_count[key])).strip()
@@ -62,7 +58,7 @@ def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_writ
         else:
             export_names[b.name] = raw_name
 
-    return sanitizeString(export_names[bone.name])
+    return sanitizeString(export_names[data_bone.name])
 
 def getCanonicalBoneName(export_name: str) -> str:
     """Convert an exported bone name back to its canonical form:

@@ -497,7 +497,7 @@ class TOOLS_OT_CreateCenterBone(Operator):
     def poll(cls, context : Context) -> bool:
         return bool(context.mode in {'POSE', 'EDIT_ARMATURE'})
     
-    def invoke(self, context: Context, event):
+    def invoke(self, context: Context, event : Event) -> set:
         armature = getArmature(context.object)
         
         # Access bones directly based on current mode
@@ -533,7 +533,7 @@ class TOOLS_OT_CreateCenterBone(Operator):
             
             return context.window_manager.invoke_props_dialog(self)
     
-    def draw(self, context):
+    def draw(self, context : Context):
         layout = self.layout
         
         if self._needs_parent_choice:

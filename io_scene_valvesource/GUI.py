@@ -337,7 +337,7 @@ class SMD_OT_AddVertexAnimation(bpy.types.Operator):
     
     index: bpy.props.IntProperty()
     
-    def execute(self,context):
+    def execute(self,context : Context) -> set:
         item = context.scene.vs.export_list[self.index].item
         item.vs.vertex_animations.add()
         item.vs.active_vertex_animation = len(item.vs.vertex_animations) - 1

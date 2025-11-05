@@ -308,18 +308,8 @@ def draw_title_box(
     
     return box
 
-ModeType = Literal[
-    "OBJECT",
-    "EDIT",
-    "POSE",
-    "SCULPT",
-    "VERTEX_PAINT",
-    "WEIGHT_PAINT",
-    "TEXTURE_PAINT"
-]
-
 # Blender’s mode name mapping (context.mode -> operator arg)
-MODE_MAP: dict[str, ModeType] = {
+MODE_MAP: dict[str, str] = {
     "OBJECT": "OBJECT",
     "EDIT_ARMATURE": "EDIT",
     "POSE": "POSE",
@@ -337,7 +327,7 @@ MODE_MAP: dict[str, ModeType] = {
 # current context the user is in.
 # NOTE : This code is horribly slow to be used in loop conditions !!
 @contextmanager
-def PreserveContextMode(obj: bpy.types.Object | None = None, mode: ModeType = "EDIT"):
+def PreserveContextMode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
     ctx = bpy.context
     view_layer = ctx.view_layer
     
@@ -394,7 +384,7 @@ def PreserveContextMode(obj: bpy.types.Object | None = None, mode: ModeType = "E
         if prev_active and prev_active.name in bpy.data.objects:
             view_layer.objects.active = prev_active
 
-        mapped_mode : ModeType = MODE_MAP.get(prev_mode, "OBJECT")
+        mapped_mode : str = MODE_MAP.get(prev_mode, "OBJECT")
         try:
             bpy.ops.object.mode_set(mode=mapped_mode)
         except RuntimeError:
@@ -492,6 +482,10 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
+class LayoutWrapper:
+    def __init__(self, layout):
+        self.layout = layout
+
 def create_toggle_section(
     layout: UILayout,
     data,
@@ -509,7 +503,7 @@ def create_toggle_section(
     toggle_scale_y: float = 1.0,
     enabled : bool = True,
     icon_outside: bool = False
-) -> UILayout | None:
+) -> UILayout | None | LayoutWrapper:
     """
     Create a collapsible section with a toggle operator.
     Returns the layout if expanded, None if collapsed.
@@ -593,9 +587,6 @@ def create_toggle_section(
             content = container.column()
             
         if wrapper:
-            class LayoutWrapper:
-                def __init__(self, layout):
-                    self.layout = layout
             return LayoutWrapper(content)
         return content
     

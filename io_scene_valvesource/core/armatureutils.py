@@ -548,15 +548,17 @@ def removeBone(
     arm.data.use_mirror_x = False
 
     try:
+        bones_to_remove = {bone} if isinstance(bone, str) else set(bone)
+        
         if isinstance(bone, str):
-            _remove_single_bone(arm, bone, source, match_parent_to_head, match_parent_to_head_tolerance)
+            _remove_single_bone(arm, bone, source, match_parent_to_head, match_parent_to_head_tolerance, bones_to_remove)
         elif isinstance(bone, typing.Iterable):
             for entry in bone:
-                _remove_single_bone(arm, entry, source, match_parent_to_head, match_parent_to_head_tolerance)
+                _remove_single_bone(arm, entry, source, match_parent_to_head, match_parent_to_head_tolerance, bones_to_remove)
     finally:
         arm.data.use_mirror_x = original_symmetry
 
-def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance):
+def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance, bones_to_remove):
     edit_bone = arm.data.edit_bones.get(bone_name)
     if not edit_bone:
         return
@@ -567,7 +569,7 @@ def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance)
         child.use_connect = False
 
     if match_parent_to_head and edit_bone.parent:
-        _adjust_parent_tail(edit_bone, tolerance)
+        _adjust_parent_tail(edit_bone, tolerance, bones_to_remove)
 
     if source:
         source_bone = arm.data.edit_bones.get(source)
@@ -577,17 +579,36 @@ def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance)
 
     arm.data.edit_bones.remove(edit_bone)
 
-def _adjust_parent_tail(edit_bone, tolerance):
+def _adjust_parent_tail(edit_bone, tolerance, bones_to_remove):
     parent = edit_bone.parent
     parent.use_connect = False
     
     if len(parent.children) == 1:
-        parent.tail = edit_bone.tail
+        tail_position = _find_final_tail(edit_bone, bones_to_remove, tolerance)
+        parent.tail = tail_position
     elif len(parent.children) > 1:
         for child in edit_bone.children:
             if (child.head - edit_bone.tail).length <= tolerance:
-                parent.tail = edit_bone.tail
+                tail_position = _find_final_tail(edit_bone, bones_to_remove, tolerance)
+                parent.tail = tail_position
                 break
+
+def _find_final_tail(edit_bone, bones_to_remove, tolerance):
+    current = edit_bone
+    
+    while current.children:
+        next_child = None
+        for child in current.children:
+            if child.name in bones_to_remove and (child.head - current.tail).length <= tolerance:
+                next_child = child
+                break
+        
+        if next_child:
+            current = next_child
+        else:
+            break
+    
+    return current.tail
 
 def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 1e-4):
     """

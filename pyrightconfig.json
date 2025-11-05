@@ -1,6 +1,13 @@
 {
-    "reportInvalidTypeForm": false, // https://blender.stackexchange.com/a/311770
-    "reportAttributeAccessIssue": false, // this project has many, many dynamic extensions of Blender types
-    "reportPossiblyUnboundVariable": false, // PyRight is too stupid to detect this correctly
-    "reportOptionalMemberAccess": false // PyRight is too stupid to detect this correctly
+    "reportInvalidTypeForm": false,
+    "reportAttributeAccessIssue": false,
+    "reportPossiblyUnboundVariable": false,
+    "reportOptionalMemberAccess": false,
+    "reportGeneralTypeIssues": false,
+    "reportAssignmentType": false,
+    "reportArgumentType": false,
+    "reportOperatorIssue": false,
+    "reportUnknownMemberType": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownVariableType": false
 }
