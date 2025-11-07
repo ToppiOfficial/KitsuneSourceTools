@@ -121,7 +121,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         return context.window_manager.invoke_props_dialog(self, width=400)
     
     def draw(self, context: Context) -> None:
-        l: UILayout | None = self.layout
+        l: UILayout = self.layout
         col = l.column(align=True)
         col.prop(self, 'cleaning_mode', expand=False)
         

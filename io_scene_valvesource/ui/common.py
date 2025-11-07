@@ -17,7 +17,7 @@ class TOOLS_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_options : Set = {'DEFAULT_CLOSED'}
 
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
 
 class Tools_SubCategoryPanel(KITSUNE_PT_CustomToolPanel, Panel):
     "Sub panel for the sub panel 'TOOLS_PT_PANEL'"

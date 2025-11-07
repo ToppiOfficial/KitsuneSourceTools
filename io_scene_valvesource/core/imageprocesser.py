@@ -362,7 +362,7 @@ class ImageProcessor:
         v = maxc
         
         delta = maxc - minc
-        s = np.where(maxc != 0, delta / maxc, 0)
+        s = np.divide(delta, maxc, out=np.zeros_like(maxc), where=maxc != 0)
         
         h = np.zeros_like(maxc)
         

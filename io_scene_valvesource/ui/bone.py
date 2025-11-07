@@ -309,11 +309,11 @@ class TOOLS_OT_SplitBone(Operator):
         
         constraint_data = []
         
-        with PreserveArmatureState(arm), PreserveContextMode(context.object, 'OBJECT'):
+        with PreserveContextMode(context.object, 'OBJECT'):
             context.view_layer.objects.active = arm
             
             bones = getSelectedBones(arm, bone_type='POSEBONE')
-            boneNames = [b.name for b in getSelectedBones(arm, bone_type='BONE')]
+            boneNames = [b.name for b in bones]
             
             if bones is None or boneNames is None:
                 return {'CANCELLED'}

@@ -23,7 +23,7 @@ class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
     bl_label : str = "Vertex Group Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx : UILayout = draw_title_box(l, TOOLS_PT_VertexGroup.bl_label, icon='GROUP_VERTEX')
         
         ob : Object | None = context.object

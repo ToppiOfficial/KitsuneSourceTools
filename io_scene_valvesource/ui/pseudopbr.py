@@ -548,7 +548,7 @@ class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
     bl_region_type = 'UI'
     bl_category = 'Valve Model'
     
-    def draw(self, context):
+    def draw(self, context : Context) -> None:
         layout = self.layout
         vs = context.scene.vs
         

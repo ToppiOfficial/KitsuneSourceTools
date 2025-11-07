@@ -2,7 +2,6 @@ import bpy, math
 from .. import iconloader
 from .common import KITSUNE_PT_CustomToolPanel
 from bpy.types import Context, Panel, UILayout, Operator
-from typing import Set
 
 from ..core.commonutils import (
     draw_title_box, draw_wrapped_text_col, create_toggle_section, create_subitem_ui
@@ -10,15 +9,15 @@ from ..core.commonutils import (
 
 class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label : str = 'Developer'
-    bl_order = 1000
-    bl_options : Set = {'DEFAULT_CLOSED'}
+    bl_order : int = 1000
+    bl_options : set = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context : Context) -> bool:
         return context.mode in ['OBJECT', 'POSE']
 
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx = draw_title_box(l,text='Developer Only Options', icon='OPTIONS')
         
         maincol = bx.column()
@@ -40,22 +39,22 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
     bl_idname : str = "smd.importlegacydata"
     bl_label : str = "Import FubukiTek Data"
     bl_description : str = "Import all plugin properties of the name 'FubukiTek' of the current blend file to KitsuneSourceTool properties"
-    bl_options : Set = {'REGISTER','UNDO'}
+    bl_options : set = {'REGISTER','UNDO'}
 
     @classmethod
     def poll(cls, context : Context) -> bool:
         return hasattr(context.scene, 'fubukitek')
 
-    def invoke(self, context, event):
+    def invoke(self, context, event) -> set:
         return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx = l.box()
 
         bx.label(text='This will overwrite every Object!', icon='ERROR')
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.context.view_layer.update()
         bpy.context.view_layer.depsgraph.update()

@@ -1,6 +1,8 @@
+
 import bpy
-from bpy.types import UILayout, Context, Object, Operator
-from typing import Set
+from bpy.types import UILayout, Context, Object, Operator, Event
+from bpy.props import StringProperty, BoolProperty, EnumProperty
+from bpy_extras import anim_utils
 
 from .common import Tools_SubCategoryPanel
 from ..core.commonutils import (
@@ -13,7 +15,7 @@ class TOOLS_PT_Animation(Tools_SubCategoryPanel):
     bl_label : str = "Animation Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx : UILayout = draw_title_box(l, TOOLS_PT_Animation.bl_label, icon='ACTION')
         
         ob : Object | None = context.object
@@ -29,50 +31,50 @@ class TOOLS_PT_Animation(Tools_SubCategoryPanel):
 class TOOLS_OT_merged_animations(Operator):
     bl_idname : str = 'tools.merged_animations'
     bl_label : str = 'Merge Slotted Animations'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_options : set = {'REGISTER', 'UNDO'}
 
-    action_1: bpy.props.StringProperty(
+    action_1: StringProperty(
         name="First Action",
         description="First Action to merge (base)"
     )
-    slot_1: bpy.props.StringProperty(
+    slot_1: StringProperty(
         name="First Slot",
         description="Slot from first action"
     )
-    action_2: bpy.props.StringProperty(
+    action_2: StringProperty(
         name="Second Action",
         description="Second Action to merge (added)"
     )
-    slot_2: bpy.props.StringProperty(
+    slot_2: StringProperty(
         name="Second Slot",
         description="Slot from second action"
     )
-    new_action_name: bpy.props.StringProperty(
+    new_action_name: StringProperty(
         name="New Action Name",
         description="Name for the merged action",
         default="MergedAction"
     )
-    use_existing_action: bpy.props.BoolProperty(
+    use_existing_action: BoolProperty(
         name="Use Existing Action",
         description="Merge into an existing action instead of creating a new one",
         default=False
     )
-    existing_action: bpy.props.StringProperty(
+    existing_action: StringProperty(
         name="Existing Action",
         description="Existing action to merge into"
     )
-    new_slot_name: bpy.props.StringProperty(
+    new_slot_name: StringProperty(
         name="New Slot Name",
         description="Name for the merged slot",
         default="MergedSlot"
     )
-    use_fake_user: bpy.props.BoolProperty(
+    use_fake_user: BoolProperty(
         name="Fake User",
         description="Assign fake user to the new action",
         default=True
     )
 
-    def invoke(self, context, event):
+    def invoke(self, context : Context, event : Event) -> set:
         if bpy.data.actions:
             self.action_1 = bpy.data.actions[0].name
             self.action_2 = bpy.data.actions[0].name
@@ -89,9 +91,9 @@ class TOOLS_OT_merged_animations(Operator):
         return context.window_manager.invoke_props_dialog(self, width=400)
 
     def draw(self, context : Context) -> None:
-        layout = self.layout
+        layout : UILayout = self.layout
         
-        box = layout.box()
+        box : UILayout = layout.box()
         box.label(text="First Animation:", icon='ACTION')
         
         row = box.row()
@@ -133,9 +135,7 @@ class TOOLS_OT_merged_animations(Operator):
         
         box.prop(self, "new_slot_name")
 
-    def execute(self, context : Context) -> Set:
-        from bpy_extras import anim_utils
-        
+    def execute(self, context : Context) -> set:
         act1 = bpy.data.actions.get(self.action_1)
         act2 = bpy.data.actions.get(self.action_2)
 
@@ -217,18 +217,18 @@ class TOOLS_OT_merged_animations(Operator):
 class TOOLS_OT_convert_rotation_keyframes(Operator):
     bl_idname : str = 'tools.convert_rotation_keyframes'
     bl_label : str = 'Convert Rotation Keyframes'
-    bl_description = 'Convert rotation keyframes between Euler and Quaternion in an action slot'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_description : str = 'Convert rotation keyframes between Euler and Quaternion in an action slot'
+    bl_options : set = {'REGISTER', 'UNDO'}
 
-    action_name: bpy.props.StringProperty(
+    action_name: StringProperty(
         name="Action",
         description="Action containing the slot to convert"
     )
-    slot_name: bpy.props.StringProperty(
+    slot_name: StringProperty(
         name="Slot",
         description="Action slot to convert"
     )
-    conversion_mode: bpy.props.EnumProperty(
+    conversion_mode: EnumProperty(
         name="Convert To",
         description="Target rotation mode",
         items=[
@@ -243,7 +243,7 @@ class TOOLS_OT_convert_rotation_keyframes(Operator):
         default='QUATERNION'
     )
 
-    def invoke(self, context, event):
+    def invoke(self, context : Context, event : Event) -> set:
         if bpy.data.actions:
             self.action_name = bpy.data.actions[0].name
             act = bpy.data.actions.get(self.action_name)
@@ -273,7 +273,7 @@ class TOOLS_OT_convert_rotation_keyframes(Operator):
         box.label(text="Conversion:", icon='FILE_REFRESH')
         box.prop(self, "conversion_mode")
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         from bpy_extras import anim_utils
         from mathutils import Euler, Quaternion
         

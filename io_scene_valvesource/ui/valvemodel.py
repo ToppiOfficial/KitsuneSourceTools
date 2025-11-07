@@ -511,7 +511,7 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
 
     def draw(self, context : Context) -> None:
         if not self.to_clipboard:
-            l : UILayout | None = self.layout
+            l : UILayout = self.layout
             l.prop(self, "prefab_index")
 
     @classmethod
@@ -715,8 +715,8 @@ class VALVEMODEL_PT_ClothNode():
     def draw_header(self, context : Context) -> None:
         self.layout.label(icon='CONSTRAINT_BONE')
         
-    def draw(self, context):
-        l : UILayout | None = self.layout
+    def draw(self, context : Context) -> None:
+        l : UILayout = self.layout
         ob : bpy.types.Object | None = getArmature(context.object)
         
         if is_armature(ob): pass

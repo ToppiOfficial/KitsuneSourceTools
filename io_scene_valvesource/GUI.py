@@ -32,7 +32,7 @@ vca_icon = 'EDITMODE_HLT'
 class SMD_MT_ExportChoice(bpy.types.Menu):
     bl_label = get_id("exportmenu_title")
 
-    def draw(self, context):
+    def draw(self, context : Context) -> None:
         l = self.layout
         l.operator_context = 'EXEC_DEFAULT'
         
@@ -70,7 +70,7 @@ class SMD_PT_Scene(bpy.types.Panel):
     bl_context = "scene"
     bl_options = {'DEFAULT_CLOSED'}
 
-    def draw(self, context):
+    def draw(self, context : Context) -> None:
         l = self.layout
         scene = context.scene
 
@@ -143,7 +143,7 @@ class SMD_PT_Scene(bpy.types.Panel):
         
 class SMD_MT_ConfigureScene(bpy.types.Menu):
     bl_label = get_id("exporter_report_menu")
-    def draw(self, context):
+    def draw(self, context : Context) -> None:
         self.layout.label(text=get_id("exporter_err_unconfigured"))
         SMD_PT_Scene.HelpButton(self.layout)
 

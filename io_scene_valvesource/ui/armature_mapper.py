@@ -34,7 +34,7 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
     bl_label : str = 'Armature Mapper'
 
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx : UILayout = draw_title_box(l, ARMATUREMAPPER_PT_ArmatureMapper.bl_label, icon='ARMATURE_DATA')
 
         ob : Object | None = context.object
@@ -268,7 +268,7 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
     )
 
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         col = l.column(align=True)
         col.label(text="Select parts to load:")
         col.prop(self, "load_options")

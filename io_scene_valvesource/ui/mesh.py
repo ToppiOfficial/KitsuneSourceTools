@@ -17,7 +17,7 @@ class TOOLS_PT_Mesh(Tools_SubCategoryPanel):
     bl_label : str = "Mesh Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout | None = self.layout
+        l : UILayout = self.layout
         bx : UILayout = draw_title_box(l, TOOLS_PT_Mesh.bl_label, icon='MESH_DATA')
         
         if is_mesh(context.object) or is_armature(context.object): pass
@@ -37,13 +37,13 @@ class TOOLS_PT_Mesh(Tools_SubCategoryPanel):
 class TOOLS_OT_CleanShapeKeys(Operator):
     bl_idname : str = 'tools.clean_shape_keys'
     bl_label : str = 'Clean Shape Keys'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_options : set = {'REGISTER', 'UNDO'}
     
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(is_mesh(context.object) and hasShapes(context.object, valid_only=True))
     
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         objects = context.selected_objects
         
         if not objects:

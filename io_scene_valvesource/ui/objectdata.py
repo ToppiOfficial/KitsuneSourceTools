@@ -1,4 +1,4 @@
-from bpy.types import Operator
+from bpy.types import Operator, Context, Event, UILayout
 from bpy.props import BoolProperty, StringProperty, EnumProperty
 
 from ..core.networkutils import (
@@ -16,10 +16,10 @@ from ..core.objectutils import (
 from .common import Tools_SubCategoryPanel
 
 class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
-    bl_label = "Object Tools"
+    bl_label : str = "Object Tools"
     
-    def draw(self, context):
-        layout = self.layout
+    def draw(self, context : Context) -> None:
+        layout : UILayout = self.layout
         
         bx = draw_title_box(layout,text='Object Tools',icon='OBJECT_DATA')
         
@@ -75,10 +75,10 @@ class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
         op = translatebox.operator(OBJECT_OT_translate_names.bl_idname)
         
 class OBJECT_OT_translate_names(Operator):
-    bl_idname = "object.translate_names"
-    bl_label = "Translate Names to English"
-    bl_description = "Translate selected name types to English using Google Translate"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_idname : str = "object.translate_names"
+    bl_label : str = "Translate Names to English"
+    bl_description : str = "Translate selected name types to English using Google Translate"
+    bl_options : set = {'REGISTER', 'UNDO'}
     
     translate_types:EnumProperty(
         name="Translate",
@@ -111,10 +111,10 @@ class OBJECT_OT_translate_names(Operator):
         default="auto"
     )
     
-    def invoke(self, context, event):
+    def invoke(self, context : Context, event : Event) -> set:
         return context.window_manager.invoke_props_dialog(self)
     
-    def draw(self, context):
+    def draw(self, context : Context) -> None:
         layout = self.layout
         
         layout.label(text="Translation Options:", icon='WORLD')
@@ -133,7 +133,7 @@ class OBJECT_OT_translate_names(Operator):
         
         layout.prop(self, "source_lang")
     
-    def execute(self, context):
+    def execute(self, context : Context) -> set:
         obj = context.active_object
         
         if not obj:
@@ -238,10 +238,10 @@ class OBJECT_OT_translate_names(Operator):
         return {'FINISHED'}
     
 class OBJECT_OT_apply_transform(Operator):
-    bl_idname = "object.apply_transform"
-    bl_label = "Apply Transform"
-    bl_description = "Apply transforms to object and optionally its children"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_idname : str = "object.apply_transform"
+    bl_label : str = "Apply Transform"
+    bl_description : str = "Apply transforms to object and optionally its children"
+    bl_options : set = {'REGISTER', 'UNDO'}
     
     location: BoolProperty(
         name="Location",
@@ -287,13 +287,13 @@ class OBJECT_OT_apply_transform(Operator):
     )
     
     @classmethod
-    def poll(cls, context):
-        return context.active_object is not None
+    def poll(cls, context : Context) -> bool:
+        return bool(context.active_object)
     
-    def invoke(self, context, event):
+    def invoke(self, context : Context, event : Event) -> set:
         return context.window_manager.invoke_props_dialog(self, width=300)
     
-    def draw(self, context):
+    def draw(self, context : Context) -> None:
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
@@ -316,7 +316,7 @@ class OBJECT_OT_apply_transform(Operator):
             col.label(text="Armature Options:")
             col.prop(self, "fix_bone_empties")
     
-    def execute(self, context):
+    def execute(self, context : Context) -> set:
         obj = context.active_object
         
         if obj is None:
