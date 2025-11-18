@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 267
+ADDONVER = 268
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -56,8 +56,8 @@ def format_version(ver: int = ADDONVER) -> tuple[str, str]:
     
     return version_str, ADDONDEVSTATE.lower()
 
-from . import datamodel, import_smd, export_smd, flex, GUI, iconloader
-from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, sceneutils, networkutils
+from . import datamodel, import_smd, export_smd, flex, GUI
+from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, proputils, networkutils
 from .ui import developer, armature_mapper, common, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone, pseudopbr
 from .utils import *
 
@@ -104,6 +104,7 @@ class ValveSource_PrefabItem(PropertyGroup):
 
 class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
     name: StringProperty(name="Item Name", default="PBR Item")
+    export_path: StringProperty(name="Export Path", subtype='DIR_PATH', options=_relativePathOptions)
     
     diffuse_map: StringProperty(name='Color Map')
     
@@ -111,16 +112,20 @@ class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
     skin_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
     skin_map_gamma: FloatProperty(name='Gamma Correction', soft_min=0, soft_max=10, default=1)
     skin_map_contrast: FloatProperty(name='Contrast', soft_min=-100, soft_max=100, default=0)
+    invert_skin_map : BoolProperty(name='Invert Skin Map', default=False)
     
     metal_map: StringProperty(name='Metal Map')
     metal_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    invert_metal_map : BoolProperty(name='Invert Metal Map', default=False)
     
     roughness_map: StringProperty(name='Roughness Map')
     roughness_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    invert_roughness_map : BoolProperty(name='Invert Roughness Map', default=False)
     
     ambientocclu_map: StringProperty(name='AO Map')
     ambientocclu_strength: IntProperty(name='AO Map Strength', default=80, min=0, max=100)
     ambientocclu_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    invert_ambientocclu_map : BoolProperty(name='Invert AO Map', default=False)
     
     emissive_map: StringProperty(name='Emissive Map')
     emissive_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
@@ -138,13 +143,12 @@ class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
         description="Controls metal map application to the color texture",
         items=[
             ('NONE', "None", "No metal map modification"),
-            ('ALPHA', "Alpha Only", "Adds metal map to alpha channel for use with $color2"),
-            ('RGB_ALPHA', "RGB + Alpha", "Bakes metal contrast into RGB and adds metal map to alpha"),
-        ],
-        default='RGB_ALPHA'
-    )
-
-    export_path: StringProperty(name="Export Path", subtype='DIR_PATH', options=_relativePathOptions)
+            ('ALPHA', "Alpha Only", "Adds metal map to alpha channel for use with $color2 (Not Recommended)"),
+            ('RGB_ALPHA', "RGB", "Bakes metal contrast into RGB and adds metal map to alpha"),
+        ],default='RGB_ALPHA')
+    
+    adjust_for_albedoboost: BoolProperty(name='Adjust for AlbedoBoost', default=False)
+    albedoboost_factor: FloatProperty(name='AlbedoBoost Factor', default=1.4, min=0.0, soft_max=2, max=5, precision=4)
 
 class KitsuneTool_PanelProps():
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
@@ -158,34 +162,47 @@ class KitsuneTool_PanelProps():
             ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
             ('CENTRALIZE', 'Centralize', 'Centralize bone position between source and target', 'PIVOT_MEDIAN', 3),
             ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 4),
-        ],
-        default='DEFAULT'
-    )
+        ],default='DEFAULT')
     
     alignment_exclude_axes: EnumProperty(
-            name="Exclude Axes",
-            description="Exclude specific axes from modification",
-            options={'ENUM_FLAG'},
-            items=[
-                ('EXCLUDE_X', "X", "Exclude X axis modification"),
-                ('EXCLUDE_Y', "Y", "Exclude Y axis modification"),
-                ('EXCLUDE_Z', "Z", "Exclude Z axis modification"),
-                ('EXCLUDE_ROLL', "Roll", "Exclude roll modification"),
-                ('EXCLUDE_SCALE', "Scale", "Exclude scale modification"),
-            ],default={'EXCLUDE_SCALE', 'EXCLUDE_ROLL'}
-        )
+        name="Exclude Axes",
+        description="Exclude specific axes from modification",
+        options={'ENUM_FLAG'},
+        items=[
+            ('EXCLUDE_X', "X", "Exclude X axis modification"),
+            ('EXCLUDE_Y', "Y", "Exclude Y axis modification"),
+            ('EXCLUDE_Z', "Z", "Exclude Z axis modification"),
+            ('EXCLUDE_ROLL', "Roll", "Exclude roll modification"),
+            ('EXCLUDE_SCALE', "Scale", "Exclude scale modification"),
+        ],default={'EXCLUDE_SCALE', 'EXCLUDE_ROLL'})
     
-    defineArmatureCategory : EnumProperty(name='Define Armature Category', items=[
-        ('LOAD', 'Load', ''),
-        ('WRITE', 'Write', ''),
-    ])
+    defineArmatureCategory : EnumProperty(
+        name='Define Armature Category',
+        items=[
+            ('LOAD', 'Load', ''),
+            ('WRITE', 'Write', ''),
+        ])
     
     smd_prefabs : CollectionProperty(type=ValveSource_PrefabItem)
     smd_prefabs_index : IntProperty(default=-1)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
-    
     pbr_items : CollectionProperty(type=KitsuneTool_PBRMapsToPhongItem)
     pbr_active_index : IntProperty(default=0)
+    pbr_to_phong_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
+    
+    pbr_conversion_mode: EnumProperty(
+        name="Conversion Mode",
+        items=[
+            ('PHONG', "PBR to Phong", "Convert PBR to Source Engine Phong"),
+            ('PBR', "PBR to SourcePBR", "Convert to simple PBR format (_color, _mrao, _normal)")
+        ],default='PHONG')
+    
+    propagate_enabled: BoolProperty(name="Enable Property Propagation",
+        description="When enabled, property changes automatically sync to all selected objects and bones",
+        default=True
+    )
+
+    propagate_include_active: BoolProperty(name="Include Active Object",default=True)
     
     for entry in toggle_show_ops:
         if isinstance(entry, list):
@@ -193,28 +210,6 @@ class KitsuneTool_PanelProps():
                 exec(f"{_name} : BoolProperty(name='{_name.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
         else:
             exec(f"{entry} : BoolProperty(name='{entry.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
-            
-    propagate_enabled: BoolProperty(
-        name="Enable Property Propagation",
-        description="When enabled, property changes automatically sync to all selected objects and bones",
-        default=True
-    )
-
-    propagate_include_active: BoolProperty(
-        name="Include Active Object",
-        default=True
-    )
-    
-    pbr_to_phong_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
-    
-    pbr_conversion_mode: EnumProperty(
-        name="Conversion Mode",
-        items=[
-            ('PHONG', "PBR to Phong", "Convert PBR to Source Engine Phong"),
-            ('NEKOPBR', "PBR to NekoPBR", "Convert to simple PBR format (_color, _mrao, _normal)")
-        ],
-        default='PHONG'
-    )
         
 class ValveSource_SceneProps(KitsuneTool_PanelProps, PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options=_relativePathOptions)
@@ -277,16 +272,16 @@ class ValveSource_FloatMapRemap(PropertyGroup):
     max : FloatProperty(name="Max",description="Maps to 1.0",default=1.0)
 
 class RotationOffset():
-    ignore_rotation_offset : BoolProperty(name='Ignore Rotation Offsets', default=False, update=sceneutils.make_update('ignore_rotation_offset'))
-    export_rotation_offset_x : FloatProperty(name='Rotation X', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_x'))
-    export_rotation_offset_y : FloatProperty(name='Rotation Y', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_y'))
-    export_rotation_offset_z : FloatProperty(name='Rotation Z', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=sceneutils.make_update('export_rotation_offset_z'))
+    ignore_rotation_offset : BoolProperty(name='Ignore Rotation Offsets', default=False, update=proputils.make_update('ignore_rotation_offset'))
+    export_rotation_offset_x : FloatProperty(name='Rotation X', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=proputils.make_update('export_rotation_offset_x'))
+    export_rotation_offset_y : FloatProperty(name='Rotation Y', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=proputils.make_update('export_rotation_offset_y'))
+    export_rotation_offset_z : FloatProperty(name='Rotation Z', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360, update=proputils.make_update('export_rotation_offset_z'))
 
 class LocationOffset():
-    ignore_location_offset : BoolProperty(name='Ignore Location Offsets', default=True, update=sceneutils.make_update('ignore_location_offset'))
-    export_location_offset_x : FloatProperty(name='Location X', default=0, precision=4, update=sceneutils.make_update('export_location_offset_x'))
-    export_location_offset_y : FloatProperty(name='Location Y', default=0, precision=4, update=sceneutils.make_update('export_location_offset_y'))
-    export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4, update=sceneutils.make_update('export_location_offset_z'))
+    ignore_location_offset : BoolProperty(name='Ignore Location Offsets', default=True, update=proputils.make_update('ignore_location_offset'))
+    export_location_offset_x : FloatProperty(name='Location X', default=0, precision=4, update=proputils.make_update('export_location_offset_x'))
+    export_location_offset_y : FloatProperty(name='Location Y', default=0, precision=4, update=proputils.make_update('export_location_offset_y'))
+    export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4, update=proputils.make_update('export_location_offset_z'))
 
 class ArmatureMapperKeyValue(PropertyGroup):
     boneExportName : StringProperty(
@@ -339,16 +334,16 @@ class ArmatureMapperProps():
     armature_map_eye_r  : bpy.props.StringProperty(name="Right Eye")
 
 class ValveSource_ObjectProps(ExportableProps,ArmatureMapperProps, PropertyGroup,):
-    action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"))
+    action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"),default="*")
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
     
     dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=StrictShapekeyItem)
     dme_flexcontrollers_index : IntProperty(default=-1,get=lambda self: -1,set=lambda self, context: None)
     
-    dmx_attachment : BoolProperty(name='DMX Attachment',default=False, update=sceneutils.make_update('dmx_attachment'))
-    smd_hitbox : BoolProperty(name='SMD Hitbox',default=False, update=sceneutils.make_update('smd_hitbox'))    
-    smd_hitbox_group : EnumProperty(name='Hitbox Group',items=hitbox_group,default='0', update=sceneutils.make_update('smd_hitbox_group'))
+    dmx_attachment : BoolProperty(name='DMX Attachment',default=False, update=proputils.make_update('dmx_attachment'))
+    smd_hitbox : BoolProperty(name='SMD Hitbox',default=False, update=proputils.make_update('smd_hitbox'))    
+    smd_hitbox_group : EnumProperty(name='Hitbox Group',items=hitbox_group,default='0', update=proputils.make_update('smd_hitbox_group'))
     
     armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=ArmatureMapperKeyValue)
     armature_map_bonecollections_index : IntProperty()
@@ -402,103 +397,63 @@ class ValveSource_BoneCollectionProps(PropertyGroup):
     pass
 
 class JiggleBoneProps():
-    bone_is_jigglebone : BoolProperty(name='Bone is JiggleBone', default=False, update=sceneutils.make_update('bone_is_jigglebone'))
-    use_bone_length_for_jigglebone_length : BoolProperty(name="Use Bone's Length for JiggleBone Length", default=True, update=sceneutils.make_update('use_bone_length_for_jigglebone_length'))
+    bone_is_jigglebone : BoolProperty(name='Bone is JiggleBone', default=False, update=proputils.make_update('bone_is_jigglebone'))
+    use_bone_length_for_jigglebone_length : BoolProperty(name="Use Bone's Length for JiggleBone Length", default=True, update=proputils.make_update('use_bone_length_for_jigglebone_length'))
     
-    jiggle_flex_type : EnumProperty(name='Flexible Type', items=[('FLEXIBLE', 'Flexible', ''), ('RIGID', 'Rigid', ''), ('NONE', 'None', '')], default='FLEXIBLE', update=sceneutils.make_update('jiggle_flex_type'))
+    jiggle_flex_type : EnumProperty(name='Flexible Type', items=[('FLEXIBLE', 'Flexible', ''), ('RIGID', 'Rigid', ''), ('NONE', 'None', '')], default='FLEXIBLE', update=proputils.make_update('jiggle_flex_type'))
     
-    jiggle_length : FloatProperty(name='Length', description='Rest length of the jigglebone segment', default=0, min=0, precision=4, update=sceneutils.make_update('jiggle_length'))
-    jiggle_tip_mass : FloatProperty(name='Tip Mass', description='Mass at the end of the jigglebone affecting inertia and movement', precision=2, default=0, min=0, max=1000, update=sceneutils.make_update('jiggle_tip_mass'))
-    jiggle_yaw_stiffness : FloatProperty(name='Yaw Stiffness', description='Spring strength resisting yaw rotation', default=100, min=0, soft_max=1000, precision=4, update=sceneutils.make_update('jiggle_yaw_stiffness'))
-    jiggle_yaw_damping : FloatProperty(name='Yaw Damping', description='Resistance that slows down yaw motion over time', default=0, min=0, soft_max=20, precision=4, update=sceneutils.make_update('jiggle_yaw_damping'))
-    jiggle_pitch_stiffness : FloatProperty(name='Pitch Stiffness', description='Spring strength resisting pitch rotation', default=100, min=0, soft_max=1000, precision=4, update=sceneutils.make_update('jiggle_pitch_stiffness'))
-    jiggle_pitch_damping : FloatProperty(name='Pitch Damping', description='Resistance that slows down pitch motion over time', default=0, min=0, soft_max=20, precision=4, update=sceneutils.make_update('jiggle_pitch_damping'))
+    jiggle_length : FloatProperty(name='Length', description='Rest length of the jigglebone segment', default=0, min=0, precision=4, update=proputils.make_update('jiggle_length'))
+    jiggle_tip_mass : FloatProperty(name='Tip Mass', description='Mass at the end of the jigglebone affecting inertia and movement', precision=2, default=0, min=0, max=1000, update=proputils.make_update('jiggle_tip_mass'))
+    jiggle_yaw_stiffness : FloatProperty(name='Yaw Stiffness', description='Spring strength resisting yaw rotation', default=100, min=0, soft_max=1000, precision=4, update=proputils.make_update('jiggle_yaw_stiffness'))
+    jiggle_yaw_damping : FloatProperty(name='Yaw Damping', description='Resistance that slows down yaw motion over time', default=0, min=0, soft_max=20, precision=4, update=proputils.make_update('jiggle_yaw_damping'))
+    jiggle_pitch_stiffness : FloatProperty(name='Pitch Stiffness', description='Spring strength resisting pitch rotation', default=100, min=0, soft_max=1000, precision=4, update=proputils.make_update('jiggle_pitch_stiffness'))
+    jiggle_pitch_damping : FloatProperty(name='Pitch Damping', description='Resistance that slows down pitch motion over time', default=0, min=0, soft_max=20, precision=4, update=proputils.make_update('jiggle_pitch_damping'))
 
-    jiggle_allow_length_flex : BoolProperty(name='Allow Length Flex', description='Allow the jigglebone to stretch and compress along its length', default=False, update=sceneutils.make_update('jiggle_allow_length_flex'))
-    jiggle_along_stiffness : FloatProperty(name='Along Stiffness', description='Spring strength along the bone length when flexing is enabled', default=100, min=0, soft_max=1000, precision=4, update=sceneutils.make_update('jiggle_along_stiffness'))
-    jiggle_along_damping : FloatProperty(name='Along Damping', description='Damping along the bone length when flexing is enabled', default=0, min=0, soft_max=20, precision=4, update=sceneutils.make_update('jiggle_along_damping'))
+    jiggle_allow_length_flex : BoolProperty(name='Allow Length Flex', description='Allow the jigglebone to stretch and compress along its length', default=False, update=proputils.make_update('jiggle_allow_length_flex'))
+    jiggle_along_stiffness : FloatProperty(name='Along Stiffness', description='Spring strength along the bone length when flexing is enabled', default=100, min=0, soft_max=1000, precision=4, update=proputils.make_update('jiggle_along_stiffness'))
+    jiggle_along_damping : FloatProperty(name='Along Damping', description='Damping along the bone length when flexing is enabled', default=0, min=0, soft_max=20, precision=4, update=proputils.make_update('jiggle_along_damping'))
 
-    jiggle_base_type : EnumProperty(name='Base Type', items=[('BASESPRING', 'Has Base Spring', ''), ('BOING', 'Is Boing', ''), ('NONE', 'None', '')], default='NONE', update=sceneutils.make_update('jiggle_base_type'))
+    jiggle_base_type : EnumProperty(name='Base Type', items=[('BASESPRING', 'Has Base Spring', ''), ('BOING', 'Is Boing', ''), ('NONE', 'None', '')], default='NONE', update=proputils.make_update('jiggle_base_type'))
 
-    jiggle_base_stiffness : FloatProperty(name='Base Stiffness', description='Spring stiffness at the base of the jigglebone', default=100, min=0, soft_max=1000, precision=4, update=sceneutils.make_update('jiggle_base_stiffness'))
-    jiggle_base_damping : FloatProperty(name='Base Damping', description='Damping at the base spring of the jigglebone', default=0, min=0, soft_max=100, precision=4, update=sceneutils.make_update('jiggle_base_damping'))
-    jiggle_base_mass : IntProperty(name='Base Mass', description='Mass applied at the jigglebone base', default=0, min=0, update=sceneutils.make_update('jiggle_base_mass'))
+    jiggle_base_stiffness : FloatProperty(name='Base Stiffness', description='Spring stiffness at the base of the jigglebone', default=100, min=0, soft_max=1000, precision=4, update=proputils.make_update('jiggle_base_stiffness'))
+    jiggle_base_damping : FloatProperty(name='Base Damping', description='Damping at the base spring of the jigglebone', default=0, min=0, soft_max=100, precision=4, update=proputils.make_update('jiggle_base_damping'))
+    jiggle_base_mass : IntProperty(name='Base Mass', description='Mass applied at the jigglebone base', default=0, min=0, update=proputils.make_update('jiggle_base_mass'))
 
-    jiggle_has_left_constraint : BoolProperty(name='Side Constraint', description='Enable side constraints to limit sideways motion', default=False, update=sceneutils.make_update('jiggle_has_left_constraint'))
-    jiggle_left_constraint_min : FloatProperty(name='Min Side Constraint', description='Minimum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=sceneutils.make_update('jiggle_left_constraint_min'))
-    jiggle_left_constraint_max : FloatProperty(name='Max Side Constraint', description='Maximum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=sceneutils.make_update('jiggle_left_constraint_max'))
-    jiggle_left_friction : FloatProperty(name='Side Friction', description='Friction applied when sliding against side constraint', precision=3, default=0.0, min=0, soft_max=20.0, update=sceneutils.make_update('jiggle_left_friction'))
+    jiggle_has_left_constraint : BoolProperty(name='Side Constraint', description='Enable side constraints to limit sideways motion', default=False, update=proputils.make_update('jiggle_has_left_constraint'))
+    jiggle_left_constraint_min : FloatProperty(name='Min Side Constraint', description='Minimum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=proputils.make_update('jiggle_left_constraint_min'))
+    jiggle_left_constraint_max : FloatProperty(name='Max Side Constraint', description='Maximum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=proputils.make_update('jiggle_left_constraint_max'))
+    jiggle_left_friction : FloatProperty(name='Side Friction', description='Friction applied when sliding against side constraint', precision=3, default=0.0, min=0, soft_max=20.0, update=proputils.make_update('jiggle_left_friction'))
 
-    jiggle_has_up_constraint : BoolProperty(name='Up Constraint', description='Enable vertical up/down constraint', default=False, update=sceneutils.make_update('jiggle_has_up_constraint'))
-    jiggle_up_constraint_min : FloatProperty(name='Min Up Constraint', description='Minimum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=sceneutils.make_update('jiggle_up_constraint_min'))
-    jiggle_up_constraint_max : FloatProperty(name='Max Up Constraint', description='Maximum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=sceneutils.make_update('jiggle_up_constraint_max'))
-    jiggle_up_friction : FloatProperty(name='Up Friction', description='Friction applied when sliding against upward constraint', precision=3, default=0.0, min=0, soft_max=20.0, update=sceneutils.make_update('jiggle_up_friction'))
+    jiggle_has_up_constraint : BoolProperty(name='Up Constraint', description='Enable vertical up/down constraint', default=False, update=proputils.make_update('jiggle_has_up_constraint'))
+    jiggle_up_constraint_min : FloatProperty(name='Min Up Constraint', description='Minimum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=proputils.make_update('jiggle_up_constraint_min'))
+    jiggle_up_constraint_max : FloatProperty(name='Max Up Constraint', description='Maximum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=proputils.make_update('jiggle_up_constraint_max'))
+    jiggle_up_friction : FloatProperty(name='Up Friction', description='Friction applied when sliding against upward constraint', precision=3, default=0.0, min=0, soft_max=20.0, update=proputils.make_update('jiggle_up_friction'))
 
-    jiggle_has_forward_constraint : BoolProperty(name='Forward Constraint', description='Enable forward/backward constraint', default=False, update=sceneutils.make_update('jiggle_has_forward_constraint'))
-    jiggle_forward_constraint_min : FloatProperty(name='Min Forward Constraint', description='Minimum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=sceneutils.make_update('jiggle_forward_constraint_min'))
-    jiggle_forward_constraint_max : FloatProperty(name='Max Forward Constraint', description='Maximum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=sceneutils.make_update('jiggle_forward_constraint_max'))
-    jiggle_forward_friction : FloatProperty(name='Forward Friction', description='Friction applied when sliding against forward constraint', precision=3, default=0.0, min=0, soft_max=20.0, update=sceneutils.make_update('jiggle_forward_friction'))
+    jiggle_has_forward_constraint : BoolProperty(name='Forward Constraint', description='Enable forward/backward constraint', default=False, update=proputils.make_update('jiggle_has_forward_constraint'))
+    jiggle_forward_constraint_min : FloatProperty(name='Min Forward Constraint', description='Minimum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=proputils.make_update('jiggle_forward_constraint_min'))
+    jiggle_forward_constraint_max : FloatProperty(name='Max Forward Constraint', description='Maximum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2, update=proputils.make_update('jiggle_forward_constraint_max'))
+    jiggle_forward_friction : FloatProperty(name='Forward Friction', description='Friction applied when sliding against forward constraint', precision=3, default=0.0, min=0, soft_max=20.0, update=proputils.make_update('jiggle_forward_friction'))
 
-    jiggle_has_yaw_constraint : BoolProperty(name='Yaw Constraint', description='Enable yaw rotation constraint', default=False, update=sceneutils.make_update('jiggle_has_yaw_constraint'))
-    jiggle_yaw_constraint_min : FloatProperty(name='Min Yaw Constraint', description='Minimum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=sceneutils.make_update('jiggle_yaw_constraint_min'))
-    jiggle_yaw_constraint_max : FloatProperty(name='Max Yaw Constraint', description='Maximum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=sceneutils.make_update('jiggle_yaw_constraint_max'))
-    jiggle_yaw_friction : FloatProperty(name='Yaw Friction', description='Friction applied during yaw constraint motion', precision=3, default=0.0, min=0, soft_max=20.0, update=sceneutils.make_update('jiggle_yaw_friction'))
+    jiggle_has_yaw_constraint : BoolProperty(name='Yaw Constraint', description='Enable yaw rotation constraint', default=False, update=proputils.make_update('jiggle_has_yaw_constraint'))
+    jiggle_yaw_constraint_min : FloatProperty(name='Min Yaw Constraint', description='Minimum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=proputils.make_update('jiggle_yaw_constraint_min'))
+    jiggle_yaw_constraint_max : FloatProperty(name='Max Yaw Constraint', description='Maximum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=proputils.make_update('jiggle_yaw_constraint_max'))
+    jiggle_yaw_friction : FloatProperty(name='Yaw Friction', description='Friction applied during yaw constraint motion', precision=3, default=0.0, min=0, soft_max=20.0, update=proputils.make_update('jiggle_yaw_friction'))
 
-    jiggle_has_pitch_constraint : BoolProperty(name='Pitch Constraint', description='Enable pitch rotation constraint', default=False, update=sceneutils.make_update('jiggle_has_pitch_constraint'))
-    jiggle_pitch_constraint_min : FloatProperty(name='Min Pitch Constraint', description='Minimum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=sceneutils.make_update('jiggle_pitch_constraint_min'))
-    jiggle_pitch_constraint_max : FloatProperty(name='Max Pitch Constraint', description='Maximum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=sceneutils.make_update('jiggle_pitch_constraint_max'))
-    jiggle_pitch_friction : FloatProperty(name='Pitch Friction', description='Friction applied during pitch constraint motion', precision=3, default=0.0, min=0, soft_max=20.0, update=sceneutils.make_update('jiggle_pitch_friction'))
+    jiggle_has_pitch_constraint : BoolProperty(name='Pitch Constraint', description='Enable pitch rotation constraint', default=False, update=proputils.make_update('jiggle_has_pitch_constraint'))
+    jiggle_pitch_constraint_min : FloatProperty(name='Min Pitch Constraint', description='Minimum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=proputils.make_update('jiggle_pitch_constraint_min'))
+    jiggle_pitch_constraint_max : FloatProperty(name='Max Pitch Constraint', description='Maximum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2, update=proputils.make_update('jiggle_pitch_constraint_max'))
+    jiggle_pitch_friction : FloatProperty(name='Pitch Friction', description='Friction applied during pitch constraint motion', precision=3, default=0.0, min=0, soft_max=20.0, update=proputils.make_update('jiggle_pitch_friction'))
 
-    jiggle_has_angle_constraint : BoolProperty(name='Angle Constraint', description='Enable overall angular rotation limit', default=False, update=sceneutils.make_update('jiggle_has_angle_constraint'))
-    jiggle_angle_constraint : FloatProperty(name='Angular Constraint', description='Maximum total angular displacement allowed', precision=3, unit='ROTATION', default=0.0, min=0, soft_max=360, update=sceneutils.make_update('jiggle_angle_constraint'))
+    jiggle_has_angle_constraint : BoolProperty(name='Angle Constraint', description='Enable overall angular rotation limit', default=False, update=proputils.make_update('jiggle_has_angle_constraint'))
+    jiggle_angle_constraint : FloatProperty(name='Angular Constraint', description='Maximum total angular displacement allowed', precision=3, unit='ROTATION', default=0.0, min=0, soft_max=360, update=proputils.make_update('jiggle_angle_constraint'))
 
-    jiggle_impact_speed : IntProperty(name='Impact Speed', min=0, soft_max=1000, update=sceneutils.make_update('jiggle_impact_speed'))
-    jiggle_impact_angle : FloatProperty(name='Impact Angle', precision=3, unit='ROTATION', default=0.0, min=0, soft_max=360, update=sceneutils.make_update('jiggle_impact_angle'))
-    jiggle_damping_rate : FloatProperty(name='Damping Rate', precision=3, default=0.0, min=0, soft_max=10, update=sceneutils.make_update('jiggle_damping_rate'))
-    jiggle_frequency : FloatProperty(name='Frequency', precision=3, default=0.0, min=0, soft_max=1000, update=sceneutils.make_update('jiggle_frequency'))
-    jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000, update=sceneutils.make_update('jiggle_amplitude'))
-    
-class ClothNodeProps():
-    bone_is_clothnode : BoolProperty(name='Bone is Cloth Node', default=False, update=sceneutils.make_update('bone_is_clothnode'))
-    cloth_goal_strength : FloatProperty(name='Goal Strength', default=0.6,min=0,max=1.0, precision=4, update=sceneutils.make_update('cloth_goal_strength'))
-    cloth_goal_damping : FloatProperty(name='Goal Damping', default=0,min=0,max=1.0, precision=4, update=sceneutils.make_update('cloth_goal_damping'))
-    cloth_mass : FloatProperty(name='Mass', default=1,min=0.001,soft_max=1000.0, precision=4, update=sceneutils.make_update('cloth_mass'))
-    cloth_gravity : FloatProperty(name='Gravity', default=1.0,max=1.0,precision=4, update=sceneutils.make_update('cloth_gravity'))
-    cloth_lock_translation : BoolProperty(name='Lock Translation', default=True, update=sceneutils.make_update('cloth_lock_translation'))
-    cloth_static : BoolProperty(name='Static', default=False, update=sceneutils.make_update('cloth_static'))
-    cloth_allow_rotation : BoolProperty(name='Allow Rotation', default=False, update=sceneutils.make_update('cloth_allow_rotation'))
-    cloth_collision_radius : FloatProperty(name='Collision Radius', min=0,soft_max=20,precision=2, update=sceneutils.make_update('cloth_collision_radius'))
-    cloth_friction : FloatProperty(name='Friction', min=0,soft_max=20,precision=4, update=sceneutils.make_update('cloth_friction'))
-    
-    cloth_transform_alignment : EnumProperty(name='Axis Alignment', items=[
-        ('AUTO', 'Auto-detect', ''),
-        ('XAXIS', 'Align X Along Chain', ''),
-        ('TAIL', 'Tail End of Rope', ''),
-    ], default='XAXIS', update=sceneutils.make_update('cloth_transform_alignment'))
-    
-    cloth_stray_radius : FloatProperty(name='Stray Radius', min=0,soft_max=100,default=0, precision=4, update=sceneutils.make_update('cloth_stray_radius'))
-    cloth_has_world_collision : BoolProperty(name='Has World Collision', default=False, update=sceneutils.make_update('cloth_has_world_collision'))
-    
-    cloth_collision_layer: EnumProperty(
-        name="Collision Layer",
-        items=[
-            ('LAYER0', "Collision Layer 0", ""),
-            ('LAYER1', "Collision Layer 1", ""),
-            ('LAYER2', "Collision Layer 2", ""),
-            ('LAYER3', "Collision Layer 3", ""),
-        ],
-        default={'LAYER0', 'LAYER1', 'LAYER2', 'LAYER3'},
-        options={'ENUM_FLAG'}, update=sceneutils.make_update('cloth_collision_layer')
-    )
-    
-    cloth_make_spring : BoolProperty(name='Make Spring Between Parent and Child', default=True, update=sceneutils.make_update('cloth_make_spring'))
-    
-    cloth_generate_tip : BoolProperty(name='Generate Tip Node', default=False, update=sceneutils.make_update('cloth_generate_tip'))
-    cloth_tip_goal_strength : FloatProperty(name='Goal Stength (Tip)', default=0.6,max=1.0,min=0, precision=4, update=sceneutils.make_update('cloth_tip_goal_strength'))
-    cloth_tip_mass : FloatProperty(name='Mass (Tip)', default=1,min=0.001,soft_max=1000.0, precision=4, update=sceneutils.make_update('cloth_tip_mass'))
-    cloth_tip_gravity : FloatProperty(name='Gravity (Tip)', default=1.0,max=1.0,precision=4, update=sceneutils.make_update('cloth_tip_gravity'))
-    
-class ValveSource_BoneProps(LocationOffset,RotationOffset,JiggleBoneProps, ClothNodeProps,PropertyGroup):
+    jiggle_impact_speed : IntProperty(name='Impact Speed', min=0, soft_max=1000, update=proputils.make_update('jiggle_impact_speed'))
+    jiggle_impact_angle : FloatProperty(name='Impact Angle', precision=3, unit='ROTATION', default=0.0, min=0, soft_max=360, update=proputils.make_update('jiggle_impact_angle'))
+    jiggle_damping_rate : FloatProperty(name='Damping Rate', precision=3, default=0.0, min=0, soft_max=10, update=proputils.make_update('jiggle_damping_rate'))
+    jiggle_frequency : FloatProperty(name='Frequency', precision=3, default=0.0, min=0, soft_max=1000, update=proputils.make_update('jiggle_frequency'))
+    jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000, update=proputils.make_update('jiggle_amplitude'))
+
+class ValveSource_BoneProps(LocationOffset,RotationOffset,JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"))
     
 class ValveSource_MaterialProps(PropertyGroup):
@@ -568,6 +523,7 @@ _classes = (
     common.TOOLS_PT_PANEL,
     
     objectdata.OBJECT_PT_translate_panel,
+    objectdata.OBJECT_OT_TranslateNamesModal,
     objectdata.OBJECT_OT_translate_names,
     objectdata.OBJECT_OT_apply_transform,
 
@@ -611,6 +567,7 @@ _classes = (
     pseudopbr.PSEUDOPBR_UL_PBRToPhongList,
     pseudopbr.PSEUDOPBR_OT_AddPBRItem,
     pseudopbr.PSEUDOPBR_OT_RemovePBRItem,
+    pseudopbr.PSEUDOPBR_OT_ProcessingModal,
     pseudopbr.PSEUDOPBR_OT_ConvertPBRItem,
     pseudopbr.PSEUDOPBR_OT_ConvertAllPBRItems,
     pseudopbr.PSEUDOPBR_PT_PBRtoPhong,
@@ -628,8 +585,6 @@ _classes = (
     import_smd.SmdImporter)
 
 def register():
-    iconloader.load_other_icons()
-    
     for cls in _classes:
         bpy.utils.register_class(cls)
     
@@ -685,8 +640,6 @@ def unregister():
     del bpy.types.Bone.vs
     del bpy.types.Material.vs
     del bpy.types.BoneCollection.vs
-    
-    iconloader.unload_icons()
 
 if __name__ == "__main__":
     register()

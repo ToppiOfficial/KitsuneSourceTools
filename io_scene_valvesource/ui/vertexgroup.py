@@ -5,31 +5,32 @@ from typing import Set
 
 from .common import Tools_SubCategoryPanel
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col,
-    is_armature, is_mesh, getArmature, getArmatureMeshes,
-    getSelectedBones, PreserveContextMode
+    draw_title_box_layout, draw_wrapped_texts,
+    is_armature, is_mesh, get_armature, get_armature_meshes,
+    get_selected_bones, preserve_context_mode
 )
 from ..core.armatureutils import (
-    removeBone, PreserveArmatureState
+    remove_bone, preserve_armature_state
 )
 from ..core.meshutils import (
-    convert_weight_to_curve_ramp
+    reapply_vertexgroup_as_curve
 )
+
 from ..utils import get_id
 
 from .bone import TOOLS_OT_SplitBone
 
 class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
-    bl_label : str = "Vertex Group Tools"
+    bl_label : str = "Vertex Group"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
-        bx : UILayout = draw_title_box(l, TOOLS_PT_VertexGroup.bl_label, icon='GROUP_VERTEX')
+        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_VertexGroup.bl_label, icon='GROUP_VERTEX')
         
         ob : Object | None = context.object
         if (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE'): pass
         else:
-            draw_wrapped_text_col(bx,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(bx,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
             return
         
         col = bx.column()
@@ -76,15 +77,15 @@ class TOOLS_OT_WeightMath(Operator):
     @classmethod
     def poll(cls, context : Context) -> bool:
         ob = context.active_object
-        return bool((is_mesh(ob) or is_armature(ob)) and ob.mode in {'POSE', 'WEIGHT_PAINT'} and getArmature(ob).select_get())
+        return bool((is_mesh(ob) or is_armature(ob)) and ob.mode in {'POSE', 'WEIGHT_PAINT'} and get_armature(ob).select_get())
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context : Context) -> Set:
         
-        arm = getArmature(context.object)
-        meshes = getArmatureMeshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
+        arm = get_armature(context.object)
+        meshes = get_armature_meshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
         
         if not meshes:
             self.report({'WARNING'}, "No meshes bound to armature")
@@ -149,9 +150,9 @@ class TOOLS_OT_SwapVertexGroups(Operator):
     bl_options : Set = {'REGISTER', 'UNDO'}
     
     def execute(self,context : Context) -> Set:
-        arm = getArmature(context.object)
+        arm = get_armature(context.object)
         currBone = arm.data.bones.active
-        bones = getSelectedBones(arm, sort_type=None, exclude_active= True)
+        bones = get_selected_bones(arm, sort_type=None, exclude_active= True)
         
         if len(bones) != 1:
             self.report({'WARNING'}, "Only select 2 VertexGroups/Bones")
@@ -163,7 +164,7 @@ class TOOLS_OT_SwapVertexGroups(Operator):
             self.report({'WARNING'}, "Bones selected are not in the same armature")
             return {'CANCELLED'}
         
-        meshes = getArmatureMeshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
+        meshes = get_armature_meshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
         
         if not meshes:
             self.report({'WARNING'}, "Armature doesn't have any Meshes")
@@ -238,7 +239,7 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         col.separator()
         col.label(text="Target Vertex Group:")
         
-        armature = getArmature(context.object)
+        armature = get_armature(context.object)
         if armature:
             col.prop_search(
                 self,
@@ -271,13 +272,13 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
     
     def execute(self, context : Context) -> Set:
-        arm_obj = getArmature(context.object)
+        arm_obj = get_armature(context.object)
             
         if arm_obj is None:
             return {'CANCELLED'}
         
         if arm_obj.select_get():
-            selected_bones : list[PoseBone | None] = getSelectedBones(arm_obj, bone_type='POSEBONE', sort_type='TO_FIRST') # type: ignore
+            selected_bones : list[PoseBone | None] = get_selected_bones(arm_obj, bone_type='POSEBONE', sort_type='TO_FIRST') # type: ignore
         else:
             selected_bones : list[PoseBone | None] = [arm_obj.pose.bones.get(context.object.vertex_groups.active.name)]
             
@@ -289,12 +290,12 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         arm_obj.data.pose_position = 'REST'
         bpy.context.view_layer.update()
         
-        with PreserveContextMode(context.object,'WEIGHT_PAINT'), PreserveArmatureState(arm_obj):
+        with preserve_context_mode(context.object,'WEIGHT_PAINT'), preserve_armature_state(arm_obj):
             for bone in selected_bones:
                 target_vg = self.vertex_group_target if self.vertex_group_target else None
                 curve = context.tool_settings.weight_paint.brush.curve
 
-                convert_weight_to_curve_ramp(
+                reapply_vertexgroup_as_curve(
                     arm=arm_obj,
                     bones=[bone],   # type: ignore
                     curve=curve,
@@ -330,7 +331,7 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
         if ob is None: return False
         if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
         
-        return bool(getArmature(ob))
+        return bool(get_armature(ob))
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -358,9 +359,9 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
         return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
 
     def execute(self, context : Context) -> Set:
-        arm = getArmature(context.object)
+        arm = get_armature(context.object)
         
-        bones = getSelectedBones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
+        bones = get_selected_bones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
         active_bone = arm.data.bones.active
         
         if not bones or len(bones) != 2 or not active_bone:
@@ -383,7 +384,7 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
         p1 = arm_matrix @ ((bone1.head + bone1.tail) * 0.5)
         p2 = arm_matrix @ ((bone2.head + bone2.tail) * 0.5)
 
-        meshes = getArmatureMeshes(arm, visible_only=context.scene.vs.visible_mesh_only)
+        meshes = get_armature_meshes(arm, visible_only=context.scene.vs.visible_mesh_only)
 
         for mesh in meshes:
             vg_active = self.get_vgroup_index(mesh, active_name)
@@ -411,13 +412,14 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
 
                 t = self.project_point_onto_line(world_pos, p1, p2)
 
+                # THIS WAS BACKWARDS BEFORE
                 if self.smoothness == 0.0:
                     w1 = weight if t < 0.5 else 0.0
                     w2 = weight if t >= 0.5 else 0.0
                 else:
                     s = self.smoothness
-                    edge0 = 0.0 + s * 0.5
-                    edge1 = 1.0 - s * 0.5
+                    edge0 = 0.5 - s * 0.5
+                    edge1 = 0.5 + s * 0.5
                     smooth_t = self.remap(t, edge0, edge1)
                     smooth_t = self.clamp(smooth_t, 0.0, 1.0)
                     w1 = weight * (1.0 - smooth_t)
@@ -429,8 +431,8 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
             mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
             mesh.vertex_groups.active = vg1
         
-        with PreserveContextMode(arm, 'EDIT'):
-            removeBone(arm,active_bone.name)
+        with preserve_context_mode(arm, 'EDIT'):
+            remove_bone(arm,active_bone.name)
             arm.data.edit_bones.active = arm.data.edit_bones.get(bones[0].name)
         
         arm.data.pose_position = og_arm_pose_mode

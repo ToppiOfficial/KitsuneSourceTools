@@ -4,32 +4,32 @@ from bpy.types import UILayout, Context, Operator, Object
 from typing import Set
 
 from ..core.commonutils import (
-    is_armature, is_mesh, draw_title_box, draw_wrapped_text_col,
-    getArmature, getArmatureMeshes, PreserveContextMode, create_subitem_ui
+    is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
+    get_armature, get_armature_meshes, preserve_context_mode, draw_listing_layout
 )
 
 from ..core.meshutils import (
-    clean_vertex_groups
+    remove_unused_vertexgroups
 )
 
 from ..core.armatureutils import (
-    applyCurrPoseAsRest, removeBone, unweightedBoneFilters,
-    mergeArmatures, copyArmatureVisualPose
+    apply_current_pose_as_restpose, remove_bone, filter_exclude_vertexgroup_names,
+    merge_armatures, copy_target_armature_visualpose
 )
 
 from ..utils import get_id
 from .common import Tools_SubCategoryPanel
 
 class TOOLS_PT_Armature(Tools_SubCategoryPanel):
-    bl_label : str = "Armature Tools"
+    bl_label : str = "Armature"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
-        bx : UILayout = draw_title_box(l, TOOLS_PT_Armature.bl_label, icon='ARMATURE_DATA')
+        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_Armature.bl_label, icon='ARMATURE_DATA')
         
         if is_armature(context.object) or is_mesh(context.object): pass
         else:
-            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
         
         col = bx.column()
@@ -55,12 +55,12 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
     
     def execute(self, context : Context) -> Set:
-        with PreserveContextMode(None, 'OBJECT'):
-            armatures : Set[Object | None] = {getArmature(o) for o in context.selected_objects}
+        with preserve_context_mode(None, 'OBJECT'):
+            armatures : Set[Object | None] = {get_armature(o) for o in context.selected_objects}
             
             success_count = 0
             for armature in armatures:
-                success = applyCurrPoseAsRest(armature)
+                success = apply_current_pose_as_restpose(armature)
                 if success: success_count += 1
                 
         if success_count > 0:
@@ -127,7 +127,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         
         col.separator()
         col.prop(self, 'preserve_deform_bones')
-        rootcol, itemcol = create_subitem_ui(col,indent_factor=0.05)
+        rootcol, itemcol = draw_listing_layout(col,indent_factor=0.05)
         rootcol.prop(self, 'remove_empty_vertex_groups')
         itemcol.prop(self, 'weight_threshold', slider=True)
         
@@ -136,21 +136,21 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
             bx.label(text='WARNING: May break rigs with IK/constraints!', icon='ERROR')
 
     def execute(self, context: Context) -> Set:
-        armatures: Set[Object | None] = {getArmature(ob) for ob in context.selected_objects}
+        armatures: Set[Object | None] = {get_armature(ob) for ob in context.selected_objects}
         
         total_vgroups_removed = 0
         total_bones_removed = 0
         
         for armature in armatures:
             bones = armature.pose.bones
-            meshes = getArmatureMeshes(armature)
+            meshes = get_armature_meshes(armature)
 
             if not meshes or not bones:
                 self.report({'WARNING'}, "No meshes or bones associated with the armature.")
                 return {'CANCELLED'}
 
             if self.remove_empty_vertex_groups:
-                removed_vgroups = clean_vertex_groups(
+                removed_vgroups = remove_unused_vertexgroups(
                     armature, 
                     armature.data.bones,
                     weight_limit=self.weight_threshold
@@ -164,22 +164,23 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
 
             constraint_targets = self.get_constraint_targets(armature)
             constraint_owners = self.get_constraint_owners(armature)
+            bones_with_children = self.get_bones_with_parented_objects(armature)
 
             while True:
                 bones_to_remove = set()
                 for b in bones:
                     if self.should_preserve_bone(
                         armature, b, meshes, remaining_vgroups, 
-                        constraint_targets, constraint_owners
+                        constraint_targets, constraint_owners, bones_with_children
                     ):
                         continue
                     
-                    if b.name not in unweightedBoneFilters:
+                    if b.name not in filter_exclude_vertexgroup_names:
                         bones_to_remove.add(b.name)
 
                 if bones_to_remove:
-                    with PreserveContextMode(armature, 'EDIT'):
-                        removeBone(armature, bones_to_remove)
+                    with preserve_context_mode(armature, 'EDIT'):
+                        remove_bone(armature, bones_to_remove)
                         
                         total_bones_removed += len(bones_to_remove)
                         bones = armature.pose.bones
@@ -191,18 +192,22 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                         
                         constraint_targets = self.get_constraint_targets(armature)
                         constraint_owners = self.get_constraint_owners(armature)
+                        bones_with_children = self.get_bones_with_parented_objects(armature)
                 else:
                     break
 
         self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_vgroups_removed} empty vertex groups cleaned.')
         return {'FINISHED'}
 
-    def should_preserve_bone(self, armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners):
+    def should_preserve_bone(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:
         if self.preserve_deform_bones and bone.bone.use_deform:
             return True
         
         has_weight = any(bone.name in remaining_vgroups[mesh] for mesh in meshes)
         if has_weight:
+            return True
+        
+        if bone.name in bones_with_children:
             return True
         
         if self.cleaning_mode == 'FULL_CLEAN':
@@ -225,7 +230,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         
         return False
 
-    def has_weighted_descendants(self, bone, meshes, remaining_vgroups):
+    def has_weighted_descendants(self, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups) -> bool:
         for child in bone.children:
             if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
                 return True
@@ -233,7 +238,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 return True
         return False
 
-    def has_animated_or_constrained_descendants(self, armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners):
+    def has_animated_or_constrained_descendants(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners) -> bool:
         for child in bone.children:
             if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
                 return True
@@ -250,7 +255,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 return True
         return False
 
-    def bone_has_animation(self, armature, bone_name):
+    def bone_has_animation(self, armature : Object, bone_name : str) -> bool:
         bone = armature.pose.bones.get(bone_name)
         if not bone:
             return False
@@ -271,7 +276,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
 
         return False
 
-    def get_constraint_targets(self, armature):
+    def get_constraint_targets(self, armature : Object) -> Set:
         targets = set()
         for bone in armature.pose.bones:
             for constraint in bone.constraints:
@@ -288,12 +293,19 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                             targets.add(pole_subtarget)
         return targets
 
-    def get_constraint_owners(self, armature):
+    def get_constraint_owners(self, armature : Object) -> Set:
         owners = set()
         for bone in armature.pose.bones:
             if bone.constraints:
                 owners.add(bone.name)
         return owners
+
+    def get_bones_with_parented_objects(self, armature : Object) -> Set:
+        bones_with_children = set()
+        for obj in bpy.data.objects:
+            if obj.parent == armature and obj.parent_type == 'BONE' and obj.parent_bone:
+                bones_with_children.add(obj.parent_bone)
+        return bones_with_children
     
 class TOOLS_OT_MergeArmatures(Operator):
     bl_idname : str = "tools.merge_armatures"
@@ -320,7 +332,7 @@ class TOOLS_OT_MergeArmatures(Operator):
         
         success_count = 0
         for arm in armatures:
-            success = mergeArmatures(currOb, arm, match_posture=self.match_posture)
+            success = merge_armatures(currOb, arm, match_posture=self.match_posture)
             if success: success_count += 1
             
         self.report({'INFO'}, f'Merged {success} armatures to active armature')
@@ -355,7 +367,7 @@ class TOOLS_OT_CopyVisPosture(Operator):
             if not all([currArm.data.bones, otherArm.data.bones]):
                 continue
             
-            success = copyArmatureVisualPose(
+            success = copy_target_armature_visualpose(
                 base_armature=currArm,
                 target_armature=otherArm,
                 copy_type=self.copy_type,

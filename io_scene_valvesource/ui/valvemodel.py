@@ -9,26 +9,26 @@ from ..ui.common import KITSUNE_PT_CustomToolPanel
 from ..utils import hitbox_group
 
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col, is_armature, sanitizeString,
-    update_vmdl_container, is_empty, getSelectedBones, PreserveContextMode,
-    getArmature, getHitboxes, create_toggle_section, getJiggleBones, getDMXAttachments, getBoneClothNodes,
+    draw_title_box_layout, draw_wrapped_texts, is_armature, sanitize_string,
+    update_vmdl_container, is_empty, get_selected_bones, preserve_context_mode,
+    get_armature, get_hitboxes, draw_toggleable_layout, get_jigglebones, get_dmxattachments,
     get_object_path
 )
 
 from ..utils import (
-    getFilePath, get_smd_prefab_enum, get_id, State, Compiler
+    get_filepath, get_smd_prefab_enum, get_id, State, Compiler
 )
 
 from ..core.boneutils import(
-    getBoneExportName,
+    get_bone_exportname,
 )
 
 from ..core.armatureutils import(
-    copyArmatureVisualPose, sortBonesByHierachy, getBoneMatrix
+    copy_target_armature_visualpose, sort_bone_by_hierachy, get_bone_matrix
 )
 
 from ..core.objectutils import(
-    fix_bone_parented_empties
+    reevaluate_bone_parented_empty_matrix
 )
 
 class VALVEMODEL_PrefabExportOperator():
@@ -76,7 +76,7 @@ class VALVEMODEL_PrefabExportOperator():
             self.report({'ERROR'}, "Invalid prefab selection")
             return None
 
-        export_path, filename, ext = getFilePath(prefabs[idx].filepath)
+        export_path, filename, ext = get_filepath(prefabs[idx].filepath)
         if not filename or not ext:
             self.report({'ERROR'}, "Invalid export path: must include filename and extension (e.g. constraints.vmdl)")
             return None
@@ -113,24 +113,30 @@ class VALVEMODEL_PrefabExportOperator():
 
 class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label: str = 'ValveModels'
-    bl_options: Set = {'DEFAULT_CLOSED'}
 
     def draw(self, context: Context) -> None:
         l = self.layout 
         col = l.column(align=True)  
         self._draw_active_armature_info(context, col)
         
+        section = draw_toggleable_layout(col, context.scene.vs, 'show_valvemodel_operators', toggle_scale_y=0.9,
+                                         show_text='ValveModel Operators', icon='MODIFIER')
+        
+        if section is not None:
+            section.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
+            section.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        
         col.separator()
         
         sections = [
-            ('show_smdattachments', 'Attachment', 'EMPTY_AXIS', self.draw_attachment),
+            #('show_smdattachments', 'Attachment', 'EMPTY_AXIS', self.draw_attachment),
             ('show_smdjigglebone', 'JiggleBone', 'BONE_DATA', self.draw_jigglebone),
             ('show_smdhitbox', 'Hitbox', 'CUBE', self.draw_hitbox),
             ('show_smdanimation', 'Animation', 'ANIM_DATA', self.draw_animation)
         ]
         
         for prop, label, icon, draw_func in sections:
-            section = create_toggle_section(
+            section = draw_toggleable_layout(
                 col, context.scene.vs, prop, 
                 show_text=label, icon=icon, 
                 toggle_scale_y=0.9,
@@ -140,19 +146,19 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
                 draw_func(context, section)
     
     def _draw_active_armature_info(self, context: Context, layout: UILayout) -> None:
-        armature = getArmature(context.object)
+        armature = get_armature(context.object)
         if armature:
             path = get_object_path(armature, context.view_layer)
-            text = f'Active Armature: {armature.name}\n\n{path}'
+            text = f'Target Armature: {armature.name}\n\n{path}\n'
         else:
-            text = 'Active Armature: None'
-        draw_wrapped_text_col(layout, text=text, icon='ARMATURE_DATA')
+            text = 'Target Armature: None\n'
+        draw_wrapped_texts(layout, text=text, icon='ARMATURE_DATA')
         
         ob = armature if armature else context.object
         if not ob:
             return
         
-        info_section = create_toggle_section(
+        info_section = draw_toggleable_layout(
             layout, context.scene.vs, 'show_smdarmature',
             show_text='Show All Lists',
             icon='PRESET',
@@ -162,8 +168,8 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         if not info_section:
             return
         
-        attachments = getDMXAttachments(ob)
-        att_section = create_toggle_section(
+        attachments = get_dmxattachments(ob)
+        att_section = draw_toggleable_layout(
             info_section, context.scene.vs, 'show_attachments',
             f'Attachment List ({len(attachments)})',
             alert=not bool(attachments),
@@ -177,8 +183,8 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
                 row.label(text=attachment.parent_bone, icon='BONE_DATA')
         
         if is_armature(ob):
-            jigglebones = getJiggleBones(ob)
-            jb_section = create_toggle_section(
+            jigglebones = get_jigglebones(ob)
+            jb_section = draw_toggleable_layout(
                 info_section, context.scene.vs, 'show_jigglebones',
                 f'JiggleBone List ({len(jigglebones)})',
                 alert=not bool(jigglebones),
@@ -198,8 +204,8 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
                     else:
                         row.label(text="Not in Collection", icon='GROUP_BONE')
         
-        hitboxes = getHitboxes(ob)
-        hb_section = create_toggle_section(
+        hitboxes = get_hitboxes(ob)
+        hb_section = draw_toggleable_layout(
             info_section, context.scene.vs, 'show_hitboxes',
             f'Hitbox List ({len(hitboxes)})',
             alert=not bool(hitboxes),
@@ -233,19 +239,17 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             'armature_or_empty': 'panel_select_armature'
         }
         
-        draw_wrapped_text_col(layout, get_id(message_map[required_type]), max_chars=40, icon='HELP')
+        draw_wrapped_texts(layout, get_id(message_map[required_type]), max_chars=40, icon='HELP')
         return False
        
     def draw_attachment(self, context: Context, layout: UILayout) -> None:
-        ob = getArmature(context.object)
+        ob = get_armature(context.object)
         
         if not self._validate_object_type(layout, ob, 'armature_or_empty'):
             return
-        
-        layout.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
     
     def draw_jigglebone(self, context: Context, layout: UILayout) -> None:
-        ob = getArmature(context.object)
+        ob = get_armature(context.object)
         
         if not self._validate_object_type(layout, ob, 'armature'):
             return
@@ -445,30 +449,31 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text='Amplitude')
     
     def draw_hitbox(self, context: Context, layout: UILayout) -> None:
-        ob = getArmature(context.object)
+        ob = get_armature(context.object)
         
         if not self._validate_object_type(layout, ob, 'armature_or_empty'):
             return
-        
-        layout.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
-        layout.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
         
         self._draw_export_buttons(
             layout,
             VALVEMODEL_OT_ExportHitBox.bl_idname,
             scale_y=1.25
         )
+        
+        layout.separator(type='LINE')
+        
+        layout.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
     
     def draw_animation(self, context: Context, layout: UILayout) -> None:
-        ob = getArmature(context.object)
+        ob = get_armature(context.object)
         
         if not self._validate_object_type(layout, ob, 'armature'):
             return
         
         layout.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname, icon='ACTION_TWEAK')
         
-        bx = draw_title_box(layout, VALVEMODEL_OT_ExportConstraintProportion.bl_label)
-        draw_wrapped_text_col(
+        bx = draw_title_box_layout(layout, VALVEMODEL_OT_ExportConstraintProportion.bl_label)
+        draw_wrapped_texts(
             bx,
             'Constraint Proportion exports Orient and Point constraints of bones with a valid export name',
             max_chars=40
@@ -482,7 +487,6 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             file_icon='CONSTRAINT_BONE'
         )
       
-        
 class VALVEMODEL_OT_FixAttachment(Operator):
     bl_idname: str = "smd.fix_attachments"
     bl_label: str = "Fix Source Attachment Empties Matrix"
@@ -493,7 +497,7 @@ class VALVEMODEL_OT_FixAttachment(Operator):
         def is_attachment(obj):
             return obj.vs.dmx_attachment
         
-        fixed_count = fix_bone_parented_empties(
+        fixed_count = reevaluate_bone_parented_empty_matrix(
             filter_func=is_attachment,
             preserve_rotation=True
         )
@@ -520,11 +524,11 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
 
     @staticmethod
     def _has_jigglebones(context):
-        ob : Object | None = getArmature(context.object)
+        ob : Object | None = get_armature(context.object)
         return ob and is_armature(ob) and any(b.vs.bone_is_jigglebone for b in ob.data.bones)
 
     def execute(self, context : Context) -> Set:
-        arm = getArmature(context.object)
+        arm = get_armature(context.object)
         jigglebones = [b for b in arm.data.bones if b.vs.bone_is_jigglebone]
 
         if not jigglebones:
@@ -538,7 +542,7 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
         fmt = None
 
         if not self.to_clipboard:
-            export_path, filename, ext = getFilePath(export_path)
+            export_path, filename, ext = get_filepath(export_path)
             if not filename or not ext:
                 self.report({'ERROR'}, "Invalid export path: must include filename and extension")
                 return {'CANCELLED'}
@@ -588,7 +592,7 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
             entries.append("")
             for bone in group_bones:
                 _datas = []
-                _datas.append(f'$jigglebone "{getBoneExportName(bone)}"')
+                _datas.append(f'$jigglebone "{get_bone_exportname(bone)}"')
                 _datas.append('{')
                 jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
 
@@ -650,14 +654,14 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
 
         # Create a folder per collection
         for group_name, group_bones in collection_groups.items():
-            folder = KVNode(_class="Folder", name=sanitizeString(group_name))
+            folder = KVNode(_class="Folder", name=sanitize_string(group_name))
             for bone in group_bones:
                 flex_type = 2 if bone.vs.jiggle_flex_type not in ['FLEXIBLE', 'RIGID'] else (1 if bone.vs.jiggle_flex_type == 'FLEXIBLE' else 0)
                 jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
                 jigglebone = KVNode(
                     _class="JiggleBone",
-                    name=f"JiggleBone_{getBoneExportName(bone)}",
-                    jiggle_root_bone=getBoneExportName(bone),
+                    name=f"JiggleBone_{get_bone_exportname(bone)}",
+                    jiggle_root_bone=get_bone_exportname(bone),
                     jiggle_type=flex_type,
                     has_yaw_constraint=KVBool(bone.vs.jiggle_has_yaw_constraint),
                     has_pitch_constraint=KVBool(bone.vs.jiggle_has_pitch_constraint),
@@ -708,87 +712,6 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
             return None
 
         return kv_doc.to_text()
-
-class VALVEMODEL_PT_ClothNode():
-    bl_label : str = 'ClothNode (Source 2)'
-
-    def draw_header(self, context : Context) -> None:
-        self.layout.label(icon='CONSTRAINT_BONE')
-        
-    def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        ob : bpy.types.Object | None = getArmature(context.object)
-        
-        if is_armature(ob): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
-            return
-        
-        bone = context.object.data.bones.active
-        
-        if bone:
-            titlemessage : str = f'ClothNode ({bone.name})'
-        else:
-            titlemessage : str = 'ClothNode'
-        
-        titlebox = draw_title_box(l,titlemessage)
-        
-        clothnodebones = getBoneClothNodes(ob)
-        clothnodesection = create_toggle_section(titlebox, context.scene.vs, 'show_clothnodes', f'Show ClothNodes: {len(clothnodebones)}', '', alert=not bool(clothnodebones), align=True)
-        if clothnodesection is not None:
-            for clothnode in clothnodebones:
-                row = clothnodesection.row(align=True)
-                row.label(text=clothnode.name,icon='BONE_DATA')
-                if len(clothnode.collections) == 1:
-                    row.label(text=clothnode.collections[0].name,icon='GROUP_BONE')
-                elif len(clothnode.collections) > 1:
-                    row.label(text="In Multiple Collection",icon='GROUP_BONE')
-                else:
-                    row.label(text="Not in Collection",icon='GROUP_BONE')
-        
-        if bone and bone.select:
-            self.draw_clothnode_params(context, titlebox, bone)
-        else:
-            titlebox.box().label(text='Select a Valid Bone', icon='ERROR')
-            return
-        
-    def draw_clothnode_params(self, context : Context, layout : UILayout, bone : bpy.types.Bone): 
-        layout.prop(bone.vs, 'bone_is_clothnode', toggle=True, icon='DOWNARROW_HLT' if bone.vs.bone_is_clothnode else 'RIGHTARROW_THIN')
-        
-        if bone.vs.bone_is_clothnode:
-            col = layout.column(align=False)
-            
-            row = col.row(align=True)
-            row.prop(bone.vs, 'cloth_static', toggle=True)
-            if bone.vs.cloth_static: row.prop(bone.vs, 'cloth_allow_rotation', toggle=True) 
-            col.prop(bone.vs, 'cloth_transform_alignment')
-            col.prop(bone.vs, 'cloth_make_spring')
-            col.prop(bone.vs, 'cloth_lock_translation')
-            
-            paramcol = col.column()
-            paramcol.enabled = not bone.vs.cloth_static
-            col = paramcol.column(align=True)
-            col.prop(bone.vs, 'cloth_goal_strength', slider=True)
-            col.prop(bone.vs, 'cloth_goal_damping', slider=True)
-            col.prop(bone.vs, 'cloth_mass', slider=True)
-            col.prop(bone.vs, 'cloth_gravity', slider=True)
-            
-            col = paramcol.column(align=True)
-            col.prop(bone.vs,'cloth_collision_radius', slider=True)
-            col.prop(bone.vs,'cloth_friction', slider=True)
-            col.prop(bone.vs,'cloth_collision_layer', expand=True)
-            col.prop(bone.vs,'cloth_has_world_collision')
-            
-            col = paramcol.column(align=True)
-            col.prop(bone.vs,'cloth_stray_radius', slider=True)
-            
-            col = paramcol.column(align=True)
-            col.prop(bone.vs,'cloth_generate_tip', toggle=True)
-            
-            if bone.vs.cloth_generate_tip:
-                col.prop(bone.vs,'cloth_tip_goal_strength', slider=True)
-                col.prop(bone.vs,'cloth_tip_mass', slider=True)
-                col.prop(bone.vs,'cloth_tip_gravity', slider=True)
 
 class VALVEMODEL_OT_CreateProportionActions(Operator):
     bl_idname : str = 'smd.create_proportion_actions'
@@ -863,7 +786,7 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
             arm.animation_data.action = action
             arm.animation_data.action_slot = slot_ref
 
-            success = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
+            success = copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
             if success:
                 for pbone in arm.pose.bones:
                     pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
@@ -873,8 +796,8 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
             context.view_layer.update()
 
             arm.animation_data.action_slot = slot_prop
-            success1 = copyArmatureVisualPose(currArm, arm, copy_type='ANGLES')
-            success2 = copyArmatureVisualPose(currArm, arm, copy_type='ORIGIN')
+            success1 = copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
+            success2 = copy_target_armature_visualpose(currArm, arm, copy_type='ORIGIN')
 
             if success1 and success2:
                 for pbone in arm.pose.bones:
@@ -914,17 +837,17 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExport
 
     def execute(self, context : Context) -> Set:
         armature = context.object
-        bones = getSelectedBones(armature, 'BONE', select_all=True, sort_type='TO_LAST')
+        bones = get_selected_bones(armature, 'BONE', select_all=True, sort_type='TO_LAST')
         if not bones:
             self.report({'WARNING'}, "No bones found in armature")
             return {'CANCELLED'}
 
         filepath = self.get_export_path(context)
 
-        with PreserveContextMode(armature, 'OBJECT'):
+        with preserve_context_mode(armature, 'OBJECT'):
             compiled = self._export_constraints(armature, bones, filepath)
 
-        export_path, filename, ext = getFilePath(filepath)
+        export_path, filename, ext = get_filepath(filepath)
 
         if not filename or not ext:
             self.report({'ERROR'}, "Invalid export path: must include filename and extension")
@@ -946,7 +869,7 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExport
         for bone in bones:
             bone_name = bone.getBoneExportName(bone, for_write=True)
             posebone = armature.pose.bones.get(bone.name)
-            original_bone_name = sanitizeString(bone.name)
+            original_bone_name = sanitize_string(bone.name)
             has_parent = bool(bone.parent)
 
             if bone_name == original_bone_name:
@@ -1043,7 +966,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
             bone_matrix_inv_no_offset = bone_matrix_world_no_offset.inverted()
             local_location = bone_matrix_inv_no_offset @ world_location
 
-            bone_matrix_with_offset = getBoneMatrix(pose_bone, rest_space=True)
+            bone_matrix_with_offset = get_bone_matrix(pose_bone, rest_space=True)
             offset_only = bone_matrix_no_offset.inverted() @ bone_matrix_with_offset
 
             local_location = offset_only.inverted() @ local_location
@@ -1069,7 +992,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
         return min_point, max_point
 
     def execute(self, context : Context) -> Set:
-        active_armature = getArmature(context.object)
+        active_armature = get_armature(context.object)
 
         if active_armature is None:
             self.report({'WARNING'}, "Active object is not an armature")
@@ -1104,7 +1027,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                 currP = active_armature.data.bones.get(obj.parent_bone)
 
                 if currP:
-                    bone_name = getBoneExportName(currP)
+                    bone_name = get_bone_exportname(currP)
                     min_point, max_point = bounds
 
                     group_number = 0
@@ -1127,7 +1050,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
             return {'CANCELLED'}
 
         bones_list = [hb['bone'] for hb in hitbox_data]
-        sorted_bones = sortBonesByHierachy(bones_list)
+        sorted_bones = sort_bone_by_hierachy(bones_list)
 
         bone_to_hitbox = {hb['bone']: hb for hb in hitbox_data}
 
@@ -1161,7 +1084,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                 self.report({'ERROR'}, "No file path specified")
                 return {'CANCELLED'}
 
-            export_path, filename, ext = getFilePath(filepath)
+            export_path, filename, ext = get_filepath(filepath)
 
             if not filename or not ext:
                 self.report({'ERROR'}, "Invalid export path: must include filename and extension")
@@ -1188,7 +1111,7 @@ class VALVEMODEL_OT_FixHitBox(Operator):
             return (obj.empty_display_type == 'CUBE' and 
                     obj.vs.smd_hitbox_group)
         
-        fixed_count = fix_bone_parented_empties(
+        fixed_count = reevaluate_bone_parented_empty_matrix(
             filter_func=is_hitbox,
             preserve_rotation=False
         )
@@ -1219,7 +1142,7 @@ class VALVEMODEL_OT_AddHitbox(Operator):
     )
     
     def invoke(self, context : Context, event : Event) -> set:
-        armature = getArmature()
+        armature = get_armature()
         
         if not armature or len(armature.data.bones) == 0:
             self.report({'WARNING'}, 'Armature has no bones')
@@ -1229,7 +1152,7 @@ class VALVEMODEL_OT_AddHitbox(Operator):
     
     def draw(self, context : Context):
         layout = self.layout
-        armature = getArmature()
+        armature = get_armature()
         
         if armature.mode == 'POSE' and context.selected_pose_bones:
             layout.label(text=f"{len(context.selected_pose_bones)} bone(s) selected")
@@ -1239,7 +1162,7 @@ class VALVEMODEL_OT_AddHitbox(Operator):
         layout.prop(self, "hitbox_group")
     
     def execute(self, context : Context) -> set:
-        armature = getArmature()
+        armature = get_armature()
         
         previous_mode = armature.mode if armature else 'OBJECT'
         selected_pose_bones = []

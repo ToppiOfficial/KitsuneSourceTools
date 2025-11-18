@@ -1,25 +1,100 @@
 import bpy, typing, re, os, mathutils
 from contextlib import contextmanager
 from ..keyvalue3 import *
-from typing import Literal, List
+from typing import List
 from bpy.types import UILayout
 
-def UnselectAll():
+MODE_MAP: dict[str, str] = {
+    "OBJECT": "OBJECT",
+    "EDIT_ARMATURE": "EDIT",
+    "POSE": "POSE",
+    "EDIT_MESH": "EDIT",
+    "SCULPT": "SCULPT",
+    "VERTEX_PAINT": "VERTEX_PAINT",
+    "PAINT_VERTEX": "VERTEX_PAINT",
+    "PAINT_WEIGHT": "WEIGHT_PAINT",
+    "WEIGHT_PAINT": "WEIGHT_PAINT",
+    "PAINT_TEXTURE": "TEXTURE_PAINT",
+    "TEXTURE_PAINT": "TEXTURE_PAINT",
+}
+
+def unselect_all() -> None:
     for ob in bpy.data.objects:
         if ob.select_get():
             ob.select_set(False)
 
-def HideObject(ob, val=True):
+def hide_objects(ob : bpy.types.Object | None, val=True) -> None:
     if hasattr(ob, 'hide_set'):
         ob.hide_set(val)
     elif hasattr(ob, 'hide'):
         ob.hide = val
 
-def sanitizeString(data : str):
+@contextmanager
+def unhide_all_objects():
+    """
+    Temporarily unhide all objects and collections in the view layer.
+    Restores original visibility afterwards.
+
+    Notes:
+        - Only restores objects/collections that were hidden before.
+        - Deleted objects/collections are skipped safely.
+    """
+    view_layer = bpy.context.view_layer
+    root_layer_coll = view_layer.layer_collection
+
+    original_visibility = {}
+    original_obj_visibility = {}
+
+    def store_layer_collection_visibility(layer_coll, vis):
+        vis[layer_coll] = {
+            "exclude": layer_coll.exclude,
+            "hide_viewport": layer_coll.hide_viewport,
+        }
+        for child in layer_coll.children:
+            store_layer_collection_visibility(child, vis)
+
+    def restore_layer_collection_visibility(vis):
+        for layer_coll, state in vis.items():
+            if layer_coll:
+                layer_coll.exclude = state["exclude"]
+                layer_coll.hide_viewport = state["hide_viewport"]
+
+    def unhide_all_layer_collections(layer_coll):
+        layer_coll.exclude = False
+        layer_coll.hide_viewport = False
+        for child in layer_coll.children:
+            unhide_all_layer_collections(child)
+
+    # --- Save + unhide ---
+    store_layer_collection_visibility(root_layer_coll, original_visibility)
+
+    for obj in bpy.data.objects:
+        original_obj_visibility[obj.name] = {
+            "hide": obj.hide_get(),
+            "hide_viewport": obj.hide_viewport,
+        }
+        obj.hide_set(False)
+        obj.hide_viewport = False
+
+    unhide_all_layer_collections(root_layer_coll)
+
+    try:
+        yield
+    finally:
+        # --- Restore ---
+        restore_layer_collection_visibility(original_visibility)
+        for name, state in original_obj_visibility.items():
+            if name not in bpy.data.objects:
+                continue
+            obj = bpy.data.objects[name]
+            obj.hide_set(state["hide"])
+            obj.hide_viewport = state["hide_viewport"]
+
+def sanitize_string(data : str) -> str | list[str]:
     
     if isinstance(data, list):
         for item in data:
-            sanitizeString(item) 
+            sanitize_string(item) 
         return data
     
     _data = data.strip()
@@ -28,70 +103,7 @@ def sanitizeString(data : str):
     _data = _data.strip('_')
     return _data
 
-def getArmature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
-    if isinstance(ob, bpy.types.Object):
-        if ob.type == 'ARMATURE':
-            return ob
-        
-        arm = ob.find_armature()
-        if arm:
-            return arm
-        
-        parent = ob.parent
-        while parent:
-            if parent.type == 'ARMATURE':
-                return parent
-            parent = parent.parent
-        
-        return None
-
-    elif isinstance(ob, bpy.types.Bone):
-        for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob.name in o.data.bones:
-                return o
-
-    elif isinstance(ob, bpy.types.EditBone):
-        for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob.name in o.data.edit_bones:
-                return o
-
-    elif isinstance(ob, bpy.types.PoseBone):
-        for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob.name in o.pose.bones:
-                return o
-
-    else:
-        ctx_obj = bpy.context.object
-        if ctx_obj:
-            return getArmature(ctx_obj)
-        return None
-
-def getArmatureMeshes(arm: bpy.types.Object | None,
-                      visible_only: bool = False,
-                      viewlayer_only: bool = True,
-                      strict_visibility: bool = True ) -> set[bpy.types.Object]:
-    """
-    Get meshes using the given armature.
-    
-    Args:
-        arm: The armature object.
-        visible_only: If True, filter out hidden objects.
-        viewlayer_only: If True, only search in current view layer.
-        strict_visibility: 
-            - True: use ob.visible_get() (full scene visibility check).
-            - False: use ob.hide_get() (manual object hide only).
-    """
-    if arm is None: return set()
-    objects = bpy.context.view_layer.objects if viewlayer_only else bpy.data.objects
-
-    return {
-        ob for ob in objects
-        if ob.type == 'MESH'
-        and (not visible_only or not (ob.visible_get() if strict_visibility else ob.hide_get()))
-        and any(mod.type == 'ARMATURE' and mod.object == arm for mod in ob.modifiers)
-    }
-    
-def sortBonesByHierachy(bones: typing.Iterable[bpy.types.Bone]):
+def sort_bone_by_hierachy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
     sorted_bones = []
     visited = set()
     bone_set = set(bones)
@@ -109,7 +121,7 @@ def sortBonesByHierachy(bones: typing.Iterable[bpy.types.Bone]):
         
     return sorted_bones
 
-def getSelectedBones(armature : bpy.types.Object | None,
+def get_selected_bones(armature : bpy.types.Object | None,
                      bone_type : str = 'BONE',
                      sort_type : str | None = 'TO_LAST',
                      exclude_active : bool = False,
@@ -144,7 +156,7 @@ def getSelectedBones(armature : bpy.types.Object | None,
     if sort_type is None: sort_type = ''
     
     # we can evaluate the selected bones through object mode
-    with PreserveContextMode(armature, 'OBJECT'): 
+    with preserve_context_mode(armature, 'OBJECT'): 
         selectedBones = []
         
         armatureBones = armature.data.bones
@@ -157,7 +169,7 @@ def getSelectedBones(armature : bpy.types.Object | None,
             armatureBones = [b for b in armatureBones if b.name != active_name]
             
         if sort_type in ['TO_LAST', 'TO_FIRST']:
-            armatureBones = sortBonesByHierachy(armatureBones)
+            armatureBones = sort_bone_by_hierachy(armatureBones)
             
             if sort_type == 'TO_FIRST':
                 armatureBones.reverse()
@@ -184,150 +196,23 @@ def getSelectedBones(armature : bpy.types.Object | None,
     if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in selectedBones]
     else: return [armature.data.bones.get(b) for b in selectedBones]
 
-def is_mesh(ob) -> bool:
+def is_mesh(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'MESH'
 
-def is_armature(ob) -> bool:
+def is_armature(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'ARMATURE'
 
-def is_empty(ob) -> bool:
+def is_empty(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'EMPTY'
 
-def is_curve(ob) -> bool:
+def is_curve(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'CURVE'
 
-def has_materials(ob : bpy.types.Object) -> bool:
+def has_materials(ob : bpy.types.Object | None) -> bool:
     return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
 
-def draw_wrapped_text_col(
-    layout: UILayout,
-    text: str | list[str],
-    max_chars: int = 40,
-    icon: str | None = None,
-    alert: bool = False,
-    boxed: bool = True,
-    title: str | None = None,
-    scale_y: float = 0.7,
-    icon_factor: float = 0.08
-):
-    """
-    Draw text with automatic word wrapping in a column layout.
-    Preserves paragraph breaks and handles both string and list inputs.
-    
-    Args:
-        layout: Blender UILayout to draw into
-        text: Text content as string or list of strings
-        max_chars: Maximum characters per line before wrapping
-        icon: Optional icon to display
-        alert: Whether to highlight with alert styling
-        boxed: Whether to wrap content in a box
-        title: Optional title text to display above content
-        scale_y: Vertical scale factor for text rows
-        icon_factor: Width factor for icon column (when title is None)
-    """
-    if isinstance(text, list):
-        text = '\n'.join(text)
-    
-    lines = []
-    for paragraph in text.split('\n'):
-        if not paragraph:
-            lines.append('')
-            continue
-        
-        words = paragraph.split()
-        line = []
-        length = 0
-        
-        for word in words:
-            word_len = len(word)
-            space = 1 if line else 0
-            
-            if length + word_len + space > max_chars:
-                lines.append(' '.join(line))
-                line = [word]
-                length = word_len
-            else:
-                line.append(word)
-                length += word_len + space
-        
-        if line:
-            lines.append(' '.join(line))
-    
-    col = layout.column(align=True)
-    col.scale_y = scale_y
-    col.alert = alert
-    container = col.box() if boxed else col
-    
-    if title:
-        title_row = container.row(align=True)
-        title_row.label(text=title, icon=icon or 'NONE')
-        text_col = container.column(align=True)
-    elif icon:
-        split = container.split(factor=icon_factor)
-        split.label(icon=icon)
-        text_col = split.column(align=True)
-    else:
-        text_col = container.column(align=True)
-    
-    for line in lines:
-        text_col.label(text=line)
-
-def draw_title_box(
-    layout: UILayout,
-    text: str,
-    icon: str = 'NONE',
-    align: bool = False,
-    alert: bool = False,
-    scale_y: float = 1.0
-) -> UILayout:
-    """
-    Create a box with a title row and return the box for further content.
-    
-    Args:
-        layout: Blender UILayout to draw into
-        text: Title text to display
-        icon: Icon to display next to title
-        align: Whether to align column content
-        alert: Whether to highlight with alert styling
-        scale_y: Vertical scale factor for the box
-        
-    Returns:
-        UILayout box for adding additional content
-    """
-    box = layout.box()
-    
-    if align:
-        box = box.column(align=True)
-    
-    if alert:
-        box.alert = True
-    
-    box.scale_y = scale_y
-    row = box.row()
-    row.label(text=text, icon=icon)
-    
-    return box
-
-# Blender’s mode name mapping (context.mode -> operator arg)
-MODE_MAP: dict[str, str] = {
-    "OBJECT": "OBJECT",
-    "EDIT_ARMATURE": "EDIT",
-    "POSE": "POSE",
-    "EDIT_MESH": "EDIT",
-    "SCULPT": "SCULPT",
-    "VERTEX_PAINT": "VERTEX_PAINT",
-    "PAINT_VERTEX": "VERTEX_PAINT",
-    "PAINT_WEIGHT": "WEIGHT_PAINT",
-    "WEIGHT_PAINT": "WEIGHT_PAINT",
-    "PAINT_TEXTURE": "TEXTURE_PAINT",
-    "TEXTURE_PAINT": "TEXTURE_PAINT",
-}
-
-# This is just solves the requirement to be on a specific mode to use a certain function but still need to preserve the
-# current context the user is in.
-# NOTE : This code is horribly slow to be used in loop conditions !!
 @contextmanager
-def PreserveContextMode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
+def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
     ctx = bpy.context
     view_layer = ctx.view_layer
     
@@ -410,7 +295,7 @@ def PreserveContextMode(obj: bpy.types.Object | None = None, mode : str = "EDIT"
                     if bone:
                         data.bones.active = bone
                         
-def openVMDL(filepath: str) -> KVNode | None:
+def open_vmdl(filepath: str) -> KVNode | None:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             text = f.read()
@@ -451,7 +336,7 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
         root = KVNode(_class="RootNode")
     else:
         if export_path and os.path.exists(export_path):
-            root = openVMDL(export_path)
+            root = open_vmdl(export_path)
 
             if root is None:
                 return False
@@ -482,123 +367,78 @@ def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, ex
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
-class LayoutWrapper:
-    def __init__(self, layout):
-        self.layout = layout
+# GET UTILITIES
 
-def create_toggle_section(
-    layout: UILayout,
-    data,
-    prop_name: str,
-    show_text: str,
-    hide_text: str = "",
-    alert: bool = False,
-    align: bool = False,
-    icon: str | None = None,
-    icon_value: int = 0,
-    wrapper: bool = False,
-    boxed: bool = True,
-    emboss: bool = False,
-    depress : bool = False,
-    toggle_scale_y: float = 1.0,
-    enabled : bool = True,
-    icon_outside: bool = False
-) -> UILayout | None | LayoutWrapper:
+def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
+    if isinstance(ob, bpy.types.Object):
+        if ob.type == 'ARMATURE':
+            return ob
+        
+        arm = ob.find_armature()
+        if arm:
+            return arm
+        
+        parent = ob.parent
+        while parent:
+            if parent.type == 'ARMATURE':
+                return parent
+            parent = parent.parent
+        
+        return None
+
+    elif isinstance(ob, bpy.types.Bone):
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and ob.name in o.data.bones:
+                return o
+
+    elif isinstance(ob, bpy.types.EditBone):
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and ob.name in o.data.edit_bones:
+                return o
+
+    elif isinstance(ob, bpy.types.PoseBone):
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and ob.name in o.pose.bones:
+                return o
+
+    else:
+        ctx_obj = bpy.context.object
+        if ctx_obj:
+            return get_armature(ctx_obj)
+        return None
+
+def get_armature_meshes(arm: bpy.types.Object | None,
+                      visible_only: bool = False,
+                      viewlayer_only: bool = True,
+                      strict_visibility: bool = True ) -> set[bpy.types.Object]:
     """
-    Create a collapsible section with a toggle operator.
-    Returns the layout if expanded, None if collapsed.
+    Get meshes using the given armature.
     
     Args:
-        layout: Blender UILayout to draw into
-        data: Data object containing the property
-        prop_name: Name of the boolean property controlling visibility
-        show_text: Text to display when section is collapsed
-        hide_text: Text to display when expanded (defaults to show_text)
-        alert: Whether to highlight with alert styling
-        align: Whether to align column content
-        icon: String icon identifier
-        icon_value: Integer icon value (alternative to icon)
-        wrapper: Return a wrapper object instead of direct layout
-        boxed: Whether to wrap in a box
-        emboss: Whether to emboss the toggle button
-        toggle_scale_y: Vertical scale factor for toggle button only
-        enabled: Whether the section is enabled
-        icon_outside: Whether to place icon outside the box (left side)
-        
-    Returns:
-        UILayout if section is expanded, None if collapsed
-        If wrapper=True, returns object with .layout attribute
+        arm: The armature object.
+        visible_only: If True, filter out hidden objects.
+        viewlayer_only: If True, only search in current view layer.
+        strict_visibility: 
+            - True: use ob.visible_get() (full scene visibility check).
+            - False: use ob.hide_get() (manual object hide only).
     """
-    # If icon should be outside, only use it for the toggle row
-    if icon_outside and (icon is not None or icon_value != 0):
-        toggle_row = layout.row(align=True)
-        if icon_value != 0:
-            toggle_row.label(text='', icon_value=icon_value)
-        else:
-            toggle_row.label(text='', icon=icon)
-        container = toggle_row.box() if boxed else toggle_row.column()
-    else:
-        container = layout.box() if boxed else layout.column()
-    
-    container.enabled = enabled
-    
-    if alert:
-        container.alert = True
-    
-    if align:
-        container = container.column(align=True)
-    
-    is_active = getattr(data, prop_name)
-    display_text = (hide_text or show_text) if is_active else show_text
-    toggle_icon = 'TRIA_DOWN' if is_active else 'TRIA_RIGHT'
-    
-    # Only show icon inside if not placing it outside
-    if (icon is not None or icon_value != 0) and not icon_outside:
-        row = container.row(align=True)
-        row.scale_y = toggle_scale_y
-        if icon_value != 0:
-            row.label(text='', icon_value=icon_value)
-        else:
-            row.label(text='', icon=icon)
-        row.operator(
-            f"kitsunetoggle.{prop_name}",
-            icon=toggle_icon,
-            text=display_text,
-            emboss=emboss,
-            depress=depress
-        )
-    else:
-        row = container.row()
-        row.scale_y = toggle_scale_y
-        row.operator(
-            f"kitsunetoggle.{prop_name}",
-            icon=toggle_icon,
-            text=display_text,
-            emboss=emboss,
-            depress=depress
-        )
-    
-    if is_active:
-        # If icon is outside, create content in the main layout (not in toggle_row)
-        if icon_outside and (icon is not None or icon_value != 0):
-            content_container = layout.box() if boxed else layout.column()
-            content = content_container.column()
-        else:
-            content = container.column()
-            
-        if wrapper:
-            return LayoutWrapper(content)
-        return content
-    
-    return None
+    if arm is None: return set()
+    objects = bpy.context.view_layer.objects if viewlayer_only else bpy.data.objects
 
-def getHitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
+    return {
+        ob for ob in objects
+        if ob.type == 'MESH'
+        and (not visible_only or not (ob.visible_get() if strict_visibility else ob.hide_get()))
+        and any(mod.type == 'ARMATURE' and mod.object == arm for mod in ob.modifiers)
+    }
+    
+def get_hitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
     
     armature : bpy.types.Object | None = None
     if ob is None:
-        armature = getArmature()
+        armature = get_armature()
     else:
-        armature = getArmature(ob)
+        armature = get_armature(ob)
         
     if armature is None: return []
     
@@ -612,37 +452,26 @@ def getHitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
         
     return hitboxes
 
-def getJiggleBones(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
+def get_jigglebones(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
     armature = None
     if ob is None:
-        armature = getArmature()
+        armature = get_armature()
     else:
-        armature = getArmature(ob)
+        armature = get_armature(ob)
         
     if armature is None: return []
     
     return [b for b in armature.data.bones if b.vs.bone_is_jigglebone]
 
-def getBoneClothNodes(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
+def get_dmxattachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
     armature = None
     if ob is None:
-        armature = getArmature()
-    else:
-        armature = getArmature(ob)
-        
-    if armature is None: return []
-    
-    return [b for b in armature.data.bones if b.vs.bone_is_clothnode]
-
-def getDMXAttachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
-    armature = None
-    if ob is None:
-        armature = getArmature()
+        armature = get_armature()
     else:
         if ob.type == 'ARMATURE':
             armature = ob
         else:
-            armature = getArmature(ob)
+            armature = get_armature(ob)
         
     if armature is None: return []
     
@@ -656,16 +485,16 @@ def getDMXAttachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | N
         
     return attchs
 
-def getAllMats(ob : bpy.types.Object | None) -> set[bpy.types.Material | None]:
+def get_all_materials(ob : bpy.types.Object | None) -> set[bpy.types.Material | None]:
     armature = None
     if ob is None:
-        armature = getArmature()
+        armature = get_armature()
     else:
-        armature = getArmature(ob)
+        armature = get_armature(ob)
         
     if armature is None: return set()
     
-    meshes = getArmatureMeshes(armature)
+    meshes = get_armature_meshes(armature)
     
     if meshes is None: return set()
     
@@ -792,7 +621,127 @@ def get_object_path(obj, view_layer) -> str:
     else:
         return f"{view_layer.name} > {obj.name}"
     
-def create_subitem_ui(parent_column, indent_factor=0.1, indent_char='└'):
+def get_all_child_objects(parent_obj : bpy.types.Object) -> list[bpy.types.Object]:
+    children = []
+    for child in parent_obj.children:
+        children.append(child)
+        children.extend(get_all_child_objects(child))
+    return children
+
+# LAYOUT UTILITIES
+
+def draw_wrapped_texts(
+    layout: UILayout,
+    text: str | list[str],
+    max_chars: int = 40,
+    icon: str | None = None,
+    alert: bool = False,
+    boxed: bool = True,
+    title: str | None = None,
+    scale_y: float = 0.7,
+    icon_factor: float = 0.08
+) -> None:
+    """
+    Draw text with automatic word wrapping in a column layout.
+    Preserves paragraph breaks and handles both string and list inputs.
+    
+    Args:
+        layout: Blender UILayout to draw into
+        text: Text content as string or list of strings
+        max_chars: Maximum characters per line before wrapping
+        icon: Optional icon to display
+        alert: Whether to highlight with alert styling
+        boxed: Whether to wrap content in a box
+        title: Optional title text to display above content
+        scale_y: Vertical scale factor for text rows
+        icon_factor: Width factor for icon column (when title is None)
+    """
+    if isinstance(text, list):
+        text = '\n'.join(text)
+    
+    lines = []
+    for paragraph in text.split('\n'):
+        if not paragraph:
+            lines.append('')
+            continue
+        
+        words = paragraph.split()
+        line = []
+        length = 0
+        
+        for word in words:
+            word_len = len(word)
+            space = 1 if line else 0
+            
+            if length + word_len + space > max_chars:
+                lines.append(' '.join(line))
+                line = [word]
+                length = word_len
+            else:
+                line.append(word)
+                length += word_len + space
+        
+        if line:
+            lines.append(' '.join(line))
+    
+    col = layout.column(align=True)
+    col.scale_y = scale_y
+    col.alert = alert
+    container = col.box() if boxed else col
+    
+    if title:
+        title_row = container.row(align=True)
+        title_row.label(text=title, icon=icon or 'NONE')
+        text_col = container.column(align=True)
+    elif icon:
+        split = container.split(factor=icon_factor)
+        split.label(icon=icon)
+        text_col = split.column(align=True)
+    else:
+        text_col = container.column(align=True)
+    
+    for line in lines:
+        text_col.label(text=line)
+        
+    layout.separator(factor=0.2)
+
+def draw_title_box_layout(
+    layout: UILayout,
+    text: str,
+    icon: str = 'NONE',
+    align: bool = False,
+    alert: bool = False,
+    scale_y: float = 1.0
+) -> UILayout:
+    """
+    Create a box with a title row and return the box for further content.
+    
+    Args:
+        layout: Blender UILayout to draw into
+        text: Title text to display
+        icon: Icon to display next to title
+        align: Whether to align column content
+        alert: Whether to highlight with alert styling
+        scale_y: Vertical scale factor for the box
+        
+    Returns:
+        UILayout box for adding additional content
+    """
+    box = layout.box()
+    
+    if align:
+        box = box.column(align=True)
+    
+    if alert:
+        box.alert = True
+    
+    box.scale_y = scale_y
+    row = box.row()
+    row.label(text=text, icon=icon)
+    
+    return box
+
+def draw_listing_layout(parent_column, indent_factor=0.1, indent_char='└'):
     """
     Creates an indented sub-item UI pattern.
     
@@ -804,7 +753,7 @@ def create_subitem_ui(parent_column, indent_factor=0.1, indent_char='└'):
     Returns:
         tuple: (root_column, sub_wrapper) where:
             - root_column: Column for the main item
-            - sub_wrapper: Wrapper object with add_prop() method for sub-items
+            - sub_wrapper: Wrapper that provides column(), row(), label(), etc. for sub-items
     """
     root_col = parent_column.column(align=True)
     
@@ -813,6 +762,28 @@ def create_subitem_ui(parent_column, indent_factor=0.1, indent_char='└'):
             self.parent = parent
             self.factor = factor
             self.char = char
+        
+        def _create_layout(self, layout_method, **kwargs):
+            split = self.parent.split(align=True, factor=self.factor)
+            split.label(text=self.char)
+            return getattr(split, layout_method)(**kwargs)
+        
+        def column(self, **kwargs):
+            return self._create_layout('column', **kwargs)
+        
+        def row(self, **kwargs):
+            return self._create_layout('row', **kwargs)
+        
+        def split(self, **kwargs):
+            return self._create_layout('split', **kwargs)
+        
+        def box(self, **kwargs):
+            return self._create_layout('box', **kwargs)
+        
+        def label(self, **kwargs):
+            split = self.parent.split(align=True, factor=self.factor)
+            split.label(text=self.char)
+            split.label(**kwargs)
         
         def prop(self, data, property, **kwargs):
             split = self.parent.split(align=True, factor=self.factor)
@@ -823,9 +794,112 @@ def create_subitem_ui(parent_column, indent_factor=0.1, indent_char='└'):
     
     return root_col, sub_wrapper
 
-def get_all_children(parent_obj):
-    children = []
-    for child in parent_obj.children:
-        children.append(child)
-        children.extend(get_all_children(child))
-    return children
+class LayoutWrapper:
+    def __init__(self, layout):
+        self.layout = layout
+
+def draw_toggleable_layout(
+    layout: UILayout,
+    data,
+    prop_name: str,
+    show_text: str,
+    hide_text: str = "",
+    alert: bool = False,
+    align: bool = False,
+    icon: str | None = None,
+    icon_value: int = 0,
+    wrapper: bool = False,
+    boxed: bool = True,
+    emboss: bool = False,
+    depress : bool = False,
+    toggle_scale_y: float = 1.0,
+    enabled : bool = True,
+    icon_outside: bool = False
+) -> UILayout | LayoutWrapper | None:
+    """
+    Create a collapsible section with a toggle operator.
+    Returns the layout if expanded, None if collapsed.
+    
+    Args:
+        layout: Blender UILayout to draw into
+        data: Data object containing the property
+        prop_name: Name of the boolean property controlling visibility
+        show_text: Text to display when section is collapsed
+        hide_text: Text to display when expanded (defaults to show_text)
+        alert: Whether to highlight with alert styling
+        align: Whether to align column content
+        icon: String icon identifier
+        icon_value: Integer icon value (alternative to icon)
+        wrapper: Return a wrapper object instead of direct layout
+        boxed: Whether to wrap in a box
+        emboss: Whether to emboss the toggle button
+        toggle_scale_y: Vertical scale factor for toggle button only
+        enabled: Whether the section is enabled
+        icon_outside: Whether to place icon outside the box (left side)
+        
+    Returns:
+        UILayout if section is expanded, None if collapsed
+        If wrapper=True, returns object with .layout attribute
+    """
+    # If icon should be outside, only use it for the toggle row
+    if icon_outside and (icon is not None or icon_value != 0):
+        toggle_row = layout.row(align=True)
+        if icon_value != 0:
+            toggle_row.label(text='', icon_value=icon_value)
+        else:
+            toggle_row.label(text='', icon=icon)
+        container = toggle_row.box() if boxed else toggle_row.column()
+    else:
+        container = layout.box() if boxed else layout.column()
+    
+    container.enabled = enabled
+    
+    if alert:
+        container.alert = True
+    
+    if align:
+        container = container.column(align=True)
+    
+    is_active = getattr(data, prop_name)
+    display_text = (hide_text or show_text) if is_active else show_text
+    toggle_icon = 'TRIA_DOWN' if is_active else 'TRIA_RIGHT'
+    
+    # Only show icon inside if not placing it outside
+    if (icon is not None or icon_value != 0) and not icon_outside:
+        row = container.row(align=True)
+        row.scale_y = toggle_scale_y
+        if icon_value != 0:
+            row.label(text='', icon_value=icon_value)
+        else:
+            row.label(text='', icon=icon)
+        row.operator(
+            f"kitsunetoggle.{prop_name}",
+            icon=toggle_icon,
+            text=display_text,
+            emboss=emboss,
+            depress=depress
+        )
+    else:
+        row = container.row()
+        row.scale_y = toggle_scale_y
+        row.operator(
+            f"kitsunetoggle.{prop_name}",
+            icon=toggle_icon,
+            text=display_text,
+            emboss=emboss,
+            depress=depress
+        )
+    
+    if is_active:
+        # If icon is outside, create content in the main layout (not in toggle_row)
+        if icon_outside and (icon is not None or icon_value != 0):
+            content_container = layout.box() if boxed else layout.column()
+            content = content_container.column()
+        else:
+            content = container.column()
+            
+        if wrapper:
+            return LayoutWrapper(content)
+        return content
+    
+    return None

@@ -5,28 +5,28 @@ from typing import Set
 from mathutils import Vector
 
 from ..core.commonutils import(
-    is_armature, is_mesh, draw_title_box, draw_wrapped_text_col,
-    getArmature, PreserveContextMode, getSelectedBones,
+    is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
+    get_armature, get_selected_bones, preserve_context_mode
 )
 
 from ..core.armatureutils import(
-    split_bone, PreserveArmatureState, removeBone, mergeBones, CentralizeBonePairs
+    split_bone, remove_bone, merge_bones, centralize_bone_pairs
 )
 
 from ..utils import get_id
 from .common import Tools_SubCategoryPanel
 
 class TOOLS_PT_Bone(Tools_SubCategoryPanel):
-    bl_label: str = "Bone Tools"
+    bl_label: str = "Bone"
 
     def draw(self, context: Context) -> None:
         layout = self.layout
-        bx = draw_title_box(layout, TOOLS_PT_Bone.bl_label, icon='BONE_DATA')
+        bx = draw_title_box_layout(layout, TOOLS_PT_Bone.bl_label, icon='BONE_DATA')
         
-        armature = getArmature(context.object)
+        armature = get_armature(context.object)
         
         if not (is_armature(armature) or is_mesh(armature)):
-            draw_wrapped_text_col(bx, get_id("panel_select_armature"), max_chars=40, icon='HELP')
+            draw_wrapped_texts(bx, get_id("panel_select_armature"), max_chars=40, icon='HELP')
             return
         
         scene_vs = context.scene.vs
@@ -34,7 +34,7 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         main_col = bx.column(align=False)
         
         # Bone Merging Section
-        merge_box = draw_title_box(main_col, text='Bone Merging', icon='AUTOMERGE_ON', align=True)
+        merge_box = draw_title_box_layout(main_col, text='Bone Merging', icon='AUTOMERGE_ON', align=True)
         
         merge_row = merge_box.row(align=True)
         merge_row.scale_y = 1.3
@@ -52,7 +52,7 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         main_col.separator()
         
         # Bone Alignment Section
-        align_box = draw_title_box(main_col, text='Bone Alignment', icon='ORIENTATION_VIEW', align=True)
+        align_box = draw_title_box_layout(main_col, text='Bone Alignment', icon='ORIENTATION_VIEW', align=True)
         
         align_box.operator(TOOLS_OT_ReAlignBones.bl_idname, icon='ALIGN_JUSTIFY', text='Re-Align Bones')
         
@@ -60,8 +60,8 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         
         copy_row = align_box.row(align=True)
         copy_row.scale_y = 1.3
-        copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='From Active').copy_source = 'ACTIVE'
-        copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='From Parent').copy_source = 'PARENT'
+        copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Active').copy_source = 'ACTIVE'
+        copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Parent').copy_source = 'PARENT'
         
         align_box.separator(factor=0.5)
         
@@ -73,7 +73,7 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         main_col.separator()
         
         # Bone Modifiers Section
-        mod_box = draw_title_box(main_col, text='Bone Modifiers', icon='MODIFIER', align=True)
+        mod_box = draw_title_box_layout(main_col, text='Bone Modifiers', icon='MODIFIER', align=True)
         mod_box.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text='Split Bone').weights_only = False
         mod_box.operator(TOOLS_OT_CreateCenterBone.bl_idname)
         
@@ -100,11 +100,11 @@ class TOOLS_OT_CopyTargetRotation(Operator):
         vs_sce = context.scene.vs
 
         error = 0
-        with PreserveContextMode(context.object, 'OBJECT'):
+        with preserve_context_mode(context.object, 'OBJECT'):
             bones = {}
             for ob in context.selected_objects:
                 if not ob.visible_get() or ob.type != 'ARMATURE': continue
-                for b in getSelectedBones(ob, sort_type='TO_FIRST', bone_type='BONE'):
+                for b in get_selected_bones(ob, sort_type='TO_FIRST', bone_type='BONE'):
                     bones[b.name] = ob
 
             for bone_name, armature in bones.items():
@@ -226,7 +226,7 @@ class TOOLS_OT_ReAlignBones(Operator):
                     bone.roll = original_bone_roll
 
     def execute(self, context : Context) -> Set:
-        armature = getArmature(context.object)
+        armature = get_armature(context.object)
 
         if not armature:
             self.report({'WARNING'}, "No armature selected")
@@ -234,8 +234,8 @@ class TOOLS_OT_ReAlignBones(Operator):
 
         vs_sce = context.scene.vs
         
-        with PreserveContextMode(armature, 'EDIT'):
-            selectedbones = getSelectedBones(armature,'BONE','TO_FIRST')
+        with preserve_context_mode(armature, 'EDIT'):
+            selectedbones = get_selected_bones(armature,'BONE','TO_FIRST')
             
             editbones = []
             for bone in selectedbones:
@@ -288,10 +288,10 @@ class TOOLS_OT_SplitBone(Operator):
     def invoke(self, context : Context, event : Event) -> Set:
         ob : Object | None = context.object
         if ob.mode in ['POSE', 'WEIGHT_PAINT']:
-            if any([b for b in getArmature(context.object).data.bones if b.select]):
+            if any([b for b in get_armature(context.object).data.bones if b.select]):
                 return context.window_manager.invoke_props_dialog(self)
         elif ob.mode == 'EDIT':
-            if any([b for b in getArmature(context.object).data.edit_bones if b.select]):
+            if any([b for b in get_armature(context.object).data.edit_bones if b.select]):
                 return context.window_manager.invoke_props_dialog(self)
         return {'CANCELLED'}
 
@@ -303,16 +303,16 @@ class TOOLS_OT_SplitBone(Operator):
         col.prop(self, 'falloff')
 
     def execute(self, context : Context) -> Set:
-        arm = getArmature(context.object)
+        arm = get_armature(context.object)
         
         if arm is None: return {'CANCELLED'}
         
         constraint_data = []
         
-        with PreserveContextMode(context.object, 'OBJECT'):
+        with preserve_context_mode(context.object, 'OBJECT'):
             context.view_layer.objects.active = arm
             
-            bones = getSelectedBones(arm, bone_type='POSEBONE')
+            bones = get_selected_bones(arm, bone_type='POSEBONE')
             boneNames = [b.name for b in bones]
             
             if bones is None or boneNames is None:
@@ -373,7 +373,7 @@ class TOOLS_OT_MergeBones(Operator):
     @classmethod
     def poll(cls, context: Context) -> bool:
         ob: Object | None = context.object
-        arm = ob if is_armature(ob) else getArmature(ob) if is_mesh(ob) else None
+        arm = ob if is_armature(ob) else get_armature(ob) if is_mesh(ob) else None
         
         if arm is None or arm.mode not in ['WEIGHT_PAINT', 'POSE', 'EDIT']:
             return False
@@ -383,15 +383,15 @@ class TOOLS_OT_MergeBones(Operator):
     
     def execute(self, context: Context) -> Set:
         if context.mode == 'PAINT_WEIGHT':
-            armatures = {getArmature(context.object)}
+            armatures = {get_armature(context.object)}
         else:
-            armatures = {getArmature(ob) for ob in context.selected_objects if getArmature(ob)}
+            armatures = {get_armature(ob) for ob in context.selected_objects if get_armature(ob)}
             
         vs_sce = context.scene.vs
         bones_to_remove_map = {}
         vgroups_processed_map = {}
 
-        with PreserveContextMode(mode='OBJECT'):
+        with preserve_context_mode(mode='OBJECT'):
             for arm in armatures:
                 bpy.context.view_layer.objects.active = arm
                 
@@ -411,7 +411,7 @@ class TOOLS_OT_MergeBones(Operator):
                              vs_sce.merge_bone_options == 'SNAP_PARENT')
                 source = context.active_bone.name if self.mode == 'TO_ACTIVE' else None
                 
-                removeBone(arm, bones_to_remove, 
+                remove_bone(arm, bones_to_remove, 
                           match_parent_to_head=snap_parent,
                           source=source)
 
@@ -420,7 +420,7 @@ class TOOLS_OT_MergeBones(Operator):
         return {'FINISHED'}
     
     def _merge_to_active(self, arm, context, vs_sce):
-        sel_bones = getSelectedBones(arm, 'BONE', sort_type='TO_FIRST', exclude_active=True)
+        sel_bones = get_selected_bones(arm, 'BONE', sort_type='TO_FIRST', exclude_active=True)
         if not sel_bones:
             return None
 
@@ -433,16 +433,16 @@ class TOOLS_OT_MergeBones(Operator):
         centralize = vs_sce.merge_bone_options == 'CENTRALIZE'
 
         if centralize:
-            bones_to_remove, merged_pairs, vgroups_processed = mergeBones(
+            bones_to_remove, merged_pairs, vgroups_processed = merge_bones(
                 arm, context.active_bone, sel_bones,
                 keep_bone=False,
                 visible_mesh_only=vs_sce.visible_mesh_only,
                 keep_original_weight=False,
                 centralize_bone=True
             )
-            CentralizeBonePairs(arm, merged_pairs)
+            centralize_bone_pairs(arm, merged_pairs)
         else:
-            bones_to_remove, vgroups_processed = mergeBones(
+            bones_to_remove, vgroups_processed = merge_bones(
                 arm, context.active_bone, sel_bones,
                 keep_bone=keep_bone,
                 visible_mesh_only=vs_sce.visible_mesh_only,
@@ -453,7 +453,7 @@ class TOOLS_OT_MergeBones(Operator):
         return bones_to_remove, vgroups_processed
     
     def _merge_to_parent(self, arm, vs_sce):
-        sel_bones = getSelectedBones(arm, sort_type='TO_FIRST', 
+        sel_bones = get_selected_bones(arm, sort_type='TO_FIRST', 
                                      bone_type='BONE', exclude_active=False)
         if not sel_bones:
             return None
@@ -461,7 +461,7 @@ class TOOLS_OT_MergeBones(Operator):
         keep_bone = vs_sce.merge_bone_options in ['KEEP_BONE', 'KEEP_BOTH']
         keep_weight = vs_sce.merge_bone_options == 'KEEP_BOTH'
         
-        bones_to_remove, vgroups_processed = mergeBones(
+        bones_to_remove, vgroups_processed = merge_bones(
             arm, None, sel_bones,
             keep_bone=keep_bone,
             visible_mesh_only=vs_sce.visible_mesh_only,
@@ -498,7 +498,7 @@ class TOOLS_OT_CreateCenterBone(Operator):
         return bool(context.mode in {'POSE', 'EDIT_ARMATURE'})
     
     def invoke(self, context: Context, event : Event) -> set:
-        armature = getArmature(context.object)
+        armature = get_armature(context.object)
         
         # Access bones directly based on current mode
         if context.mode == 'EDIT_ARMATURE':
@@ -544,10 +544,10 @@ class TOOLS_OT_CreateCenterBone(Operator):
             layout.prop(self, "parent_choice")
     
     def execute(self, context : Context) -> set:
-        armature = getArmature(context.object)
+        armature = get_armature(context.object)
         
-        with PreserveContextMode(armature, 'EDIT') as edit_bones:
-            selected_bones = getSelectedBones(armature, bone_type='EDITBONE')
+        with preserve_context_mode(armature, 'EDIT') as edit_bones:
+            selected_bones = get_selected_bones(armature, bone_type='EDITBONE')
             
             if len(selected_bones) != 2:
                 self.report({'ERROR'}, 'Only select 2 bones')

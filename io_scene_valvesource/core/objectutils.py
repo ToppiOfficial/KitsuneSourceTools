@@ -1,6 +1,6 @@
 import bpy, mathutils
 import numpy as np
-from typing import Optional, Any, cast, Any, Dict, Callable
+from typing import Optional, Any, Dict, Callable
 
 def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
                 execution_context: Optional[str] = None, undo: Optional[bool] = None, **operator_args) -> set[str]:
@@ -13,10 +13,10 @@ def op_override(operator, context_override: dict[str, Any], context: Optional[bp
 
     if context is None:
         context = bpy.context
-    with cast(Any, context.temp_override(**context_override)):
+    with context.temp_override(**context_override):
         return operator(*args, **operator_args)
 
-def applyModifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
+def apply_modifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
     """
     Apply a modifier safely.
     
@@ -26,7 +26,7 @@ def applyModifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
             - If True -> deny applying if the object has shapekeys.
             - If False -> advanced Cats-style handling (bake + restore).
     """
-    ob: bpy.types.Object | None = cast(bpy.types.Object, mod.id_data)
+    ob: bpy.types.Object | None = mod.id_data
     if ob is None or ob.type != 'MESH':
         return False
     
@@ -100,7 +100,7 @@ def apply_armature_to_mesh_without_shape_keys(armature_obj: bpy.types.Object, me
             bpy.ops.object.modifier_move_up(modifier=armature_mod.name)
 
     # Apply with context override
-    with cast(Any, bpy.context.temp_override(object=mesh_obj)):
+    with bpy.context.temp_override(object=mesh_obj):
         bpy.ops.object.modifier_apply(modifier=armature_mod.name)
 
 #  Original source: https://github.com/teamneoneko/Avatar-Toolkit
@@ -169,7 +169,7 @@ def apply_armature_to_mesh_with_shapekeys(armature_obj: bpy.types.Object, mesh_o
     mesh_obj.active_shape_key_index = old_active_index
     mesh_obj.show_only_shape_key = old_show_only
     
-def fix_bone_parented_empties(
+def reevaluate_bone_parented_empty_matrix(
     armature: Optional[bpy.types.Object] = None,
     filter_func: Optional[Callable[[bpy.types.Object], bool]] = None,
     preserve_rotation: bool = True,
@@ -313,7 +313,7 @@ def apply_object_transforms(
     
     fixed_count = 0
     if obj.type == 'ARMATURE' and fix_bone_empties and empty_snapshot:
-        fixed_count = fix_bone_parented_empties(
+        fixed_count = reevaluate_bone_parented_empty_matrix(
             armature=obj,
             preserve_rotation=True,
             pre_transform_snapshot=empty_snapshot

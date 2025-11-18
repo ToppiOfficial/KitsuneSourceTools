@@ -1,30 +1,25 @@
-import bpy, math
+import bpy
 from .boneutils import *
 
 from .objectutils import (
     op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys,
-    fix_bone_parented_empties
+    reevaluate_bone_parented_empty_matrix
     )
 
 from .commonutils import (
-    getArmatureMeshes, UnselectAll, HideObject, PreserveContextMode
-    
-    )
-from .sceneutils import (
-    ExposeAllObjects
+    get_armature_meshes, unselect_all, hide_objects, preserve_context_mode, unhide_all_objects
     )
 
 from contextlib import contextmanager
 from mathutils import Vector
-from typing import Set, Optional, Callable, Dict
 
-unweightedBoneFilters = [ "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
+filter_exclude_vertexgroup_names = [ "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
                          'Left shoulder', 'Left arm', 'Left elbow', 'Left wrist', 'Left leg', 'Left knee', 'Left ankle',
                          'Right shoulder', 'Right arm', 'Right elbow', 'Right wrist', 'Right leg', 'Right knee', 'Right ankle',
                          'Left eye', 'Right eye']
 
 @contextmanager
-def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
+def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True):
     """
     Temporarily reset one or multiple armatures, then restore them on exit.
 
@@ -148,13 +143,13 @@ def PreserveArmatureState(*armatures: bpy.types.Object, reset_pose=True):
                     else:
                         pbone.rotation_euler = values["rotation"]
 
-def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
+def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:
     if armature is None: return False
     
-    with PreserveArmatureState(armature, reset_pose=False):
+    with preserve_armature_state(armature, reset_pose=False):
         try:
-            with ExposeAllObjects():
-                mesh_objs = getArmatureMeshes(armature)
+            with unhide_all_objects():
+                mesh_objs = get_armature_meshes(armature)
                 selected_objects = bpy.context.selected_objects
                 active_object = bpy.context.view_layer.objects.active
                 
@@ -207,7 +202,7 @@ def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
                 op_override(bpy.ops.pose.armature_apply, {'active_object': armature})
                 bpy.ops.object.mode_set(mode='OBJECT')
 
-                fixed_count = fix_bone_parented_empties(
+                fixed_count = reevaluate_bone_parented_empty_matrix(
                     armature=armature,
                     preserve_rotation=True,
                     pre_transform_snapshot=empty_snapshot
@@ -234,13 +229,14 @@ def applyCurrPoseAsRest(armature: bpy.types.Object | None) -> bool:
             bpy.context.view_layer.depsgraph.update()
             return True
 
-def copyArmatureVisualPose(base_armature: bpy.types.Object,
+def copy_target_armature_visualpose(base_armature: bpy.types.Object,
                        target_armature: bpy.types.Object,
-                       copy_type='ANGLES'):
+                       copy_type='ANGLES') -> bool:
+    
     if not base_armature or not target_armature:
         return False
     
-    base_bones = {getBoneExportName(b, for_write=True): b for b in base_armature.data.bones}
+    base_bones = {get_bone_exportname(b, for_write=True): b for b in base_armature.data.bones}
     base_bones.update({b.name: b for b in base_armature.data.bones})
     target_bones = list(target_armature.data.bones)
 
@@ -275,7 +271,7 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
         copy_op = bpy.ops.pose.copy_pose_vis_loc if copy_type == 'ORIGIN' else bpy.ops.pose.copy_pose_vis_rot
 
         for b in target_bones:
-            export_name = getBoneExportName(b, for_write=True)
+            export_name = get_bone_exportname(b, for_write=True)
             target_bone = base_bones.get(export_name) or base_bones.get(b.name)
             if not target_bone:
                 continue
@@ -295,24 +291,24 @@ def copyArmatureVisualPose(base_armature: bpy.types.Object,
 
     return True
 
-def mergeArmatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True) -> bool:
+def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True) -> bool:
     if not source_arm or not target_arm:
         return False
     if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE':
         return False
 
-    with PreserveArmatureState(source_arm, target_arm, reset_pose=True):
+    with preserve_armature_state(source_arm, target_arm, reset_pose=True):
         try:
-            target_meshes = getArmatureMeshes(target_arm)
+            target_meshes = get_armature_meshes(target_arm)
 
             if match_posture:
-                copied_rot = copyArmatureVisualPose(source_arm, target_arm, 'ANGLES')
-                copied_pos = copyArmatureVisualPose(source_arm, target_arm, 'ORIGIN')
+                copied_rot = copy_target_armature_visualpose(source_arm, target_arm, 'ANGLES')
+                copied_pos = copy_target_armature_visualpose(source_arm, target_arm, 'ORIGIN')
                 if not copied_rot and not copied_pos:
                     print('ERROR MATCHING POSTURE!')
                     return False
                 
-            applied_restpose = applyCurrPoseAsRest(target_arm)
+            applied_restpose = apply_current_pose_as_restpose(target_arm)
 
             source_arm_bones = [b.name for b in source_arm.data.bones]
 
@@ -324,11 +320,11 @@ def mergeArmatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, m
                     bone_name_map[target_bone.name] = old_name
                     continue
 
-                target_export = getBoneExportName(target_bone)
+                target_export = get_bone_exportname(target_bone)
                 matched_source_name = None
                 for src_name in source_arm_bones:
                     src_bone = source_arm.data.bones[src_name]
-                    src_export = getBoneExportName(src_bone)
+                    src_export = get_bone_exportname(src_bone)
                     if src_export == target_export:
                         matched_source_name = src_bone.name
                         break
@@ -358,19 +354,19 @@ def mergeArmatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, m
                             'subtarget': getattr(con, 'subtarget', None)
                         })
 
-            UnselectAll()
+            unselect_all()
             for ob in target_meshes:
                 if not ob.select_get():
                     ob.select_set(True)
                 if not ob.visible_get():
-                    HideObject(ob, False)
+                    hide_objects(ob, False)
                 ob.select_set(True)
 
             bpy.ops.object.transform_apply(rotation=True, location=True, scale=True)
-            UnselectAll()
+            unselect_all()
 
-            HideObject(source_arm, False)
-            HideObject(target_arm, False)
+            hide_objects(source_arm, False)
+            hide_objects(target_arm, False)
             source_arm.select_set(True)
             target_arm.select_set(True)
             bpy.context.view_layer.objects.active = source_arm
@@ -438,8 +434,7 @@ def mergeArmatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, m
             bpy.context.view_layer.update()
             bpy.context.view_layer.depsgraph.update()
 
-def mergeBones(
-    armature: bpy.types.Object,
+def merge_bones(armature: bpy.types.Object,
     source,
     target,
     keep_bone=False,
@@ -461,7 +456,7 @@ def mergeBones(
             if not entry_source:
                 continue
 
-            result = mergeBones(
+            result = merge_bones(
                 armature, entry_source, entry, keep_bone,
                 visible_mesh_only, keep_original_weight, centralize_bone
             )
@@ -499,7 +494,7 @@ def _find_valid_parent(bone, bones_to_remove):
     return parent
 
 def _merge_vertex_groups(armature, source, target, visible_mesh_only, keep_original_weight, processed_groups):
-    for mesh in getArmatureMeshes(armature):
+    for mesh in get_armature_meshes(armature):
         if visible_mesh_only and not mesh.visible_get():
             continue
 
@@ -534,7 +529,7 @@ def _update_constraints(armature, old_target, new_target):
             if hasattr(constraint, "subtarget") and constraint.subtarget == old_target:
                 constraint.subtarget = new_target
 
-def removeBone(
+def remove_bone(
     arm: bpy.types.Object | None,
     bone: typing.Union[str, typing.Iterable[str]],
     source: str | None = None,
@@ -610,7 +605,7 @@ def _find_final_tail(edit_bone, bones_to_remove, tolerance):
     
     return current.tail
 
-def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 1e-4):
+def centralize_bone_pairs(arm: bpy.types.Object, pairs: list, min_length: float = 1e-4):
     """
     For each (source, target) in pairs:
     - Centers source bone's head and tail between itself and the target's head/tail.
@@ -619,7 +614,7 @@ def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 
     if not arm or arm.type != 'ARMATURE':
         return
 
-    with PreserveContextMode(arm, "EDIT") as edit_bones:
+    with preserve_context_mode(arm, "EDIT") as edit_bones:
         for src_name, tgt_name in pairs:
             if src_name not in edit_bones or tgt_name not in edit_bones:
                 continue
@@ -641,7 +636,7 @@ def CentralizeBonePairs(arm: bpy.types.Object, pairs: list, min_length: float = 
             src_bone.head = mid_head
             src_bone.tail = mid_tail
 
-def assignBoneAngles(arm, bone_data: list[tuple]):
+def assign_bone_headtip_positions(arm, bone_data: list[tuple]):
     """
     Rotate multiple bones based on given transform tuples.
 
@@ -654,7 +649,7 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
 
     If x, y, z are None → skip rotation but still apply roll if provided.
     """
-    arm = getArmature(arm)
+    arm = get_armature(arm)
     if arm is None:
         return []
 
@@ -693,10 +688,8 @@ def assignBoneAngles(arm, bone_data: list[tuple]):
 
     return rotated_bones
 
-#smoothness is broken af, keep it at 0.5!
 def split_bone(bone: typing.Union[bpy.types.EditBone, list],
                subdivisions: int = 2,
-               smoothness: float = 0.5,
                falloff : int = 10,
                min_weight_cap : float = 0.001,
                weights_only: bool = False,
@@ -706,15 +699,14 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
         return
 
     subdivisions = max(2, subdivisions)
-    smoothness = min(max(smoothness, 0.0), 1)
     min_weight = min_weight_cap
     falloff_power = falloff
 
     if isinstance(bone, bpy.types.EditBone):
-        arm = getArmature(bone)
+        arm = get_armature(bone)
         if not arm:
             return
-        meshes = getArmatureMeshes(arm, bpy.context.scene.vs.visible_mesh_only)
+        meshes = get_armature_meshes(arm, bpy.context.scene.vs.visible_mesh_only)
         if not meshes:
             return
 
@@ -872,7 +864,7 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
 
     elif isinstance(bone, list):
         if len(bone) == 1:
-            split_bone(bone[0], subdivisions, smoothness, falloff, min_weight_cap, weights_only, force_locked)
+            split_bone(bone[0], subdivisions, falloff, min_weight_cap, weights_only, force_locked)
         else:
             for b in bone:
-                split_bone(b, subdivisions, smoothness, falloff, min_weight_cap, weights_only, force_locked)
+                split_bone(b, subdivisions, falloff, min_weight_cap, weights_only, force_locked)

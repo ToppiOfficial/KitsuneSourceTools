@@ -6,22 +6,22 @@ from bpy_extras import anim_utils
 
 from .common import Tools_SubCategoryPanel
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col, is_armature,
-    sanitizeString
+    draw_title_box_layout, draw_wrapped_texts, is_armature,
+    sanitize_string
 )
 from ..utils import get_id
 
 class TOOLS_PT_Animation(Tools_SubCategoryPanel):
-    bl_label : str = "Animation Tools"
+    bl_label : str = "Animation"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
-        bx : UILayout = draw_title_box(l, TOOLS_PT_Animation.bl_label, icon='ACTION')
+        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_Animation.bl_label, icon='ACTION')
         
         ob : Object | None = context.object
         if is_armature(ob): pass
         else:
-            draw_wrapped_text_col(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
         
         col = bx.column()
@@ -160,7 +160,7 @@ class TOOLS_OT_merged_animations(Operator):
                 self.report({'ERROR'}, "Existing action not found")
                 return {'CANCELLED'}
         else:
-            new_action = bpy.data.actions.new(name=sanitizeString(self.new_action_name))
+            new_action = bpy.data.actions.new(name=sanitize_string(self.new_action_name))
             if self.use_fake_user:
                 new_action.use_fake_user = True
 

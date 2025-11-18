@@ -28,10 +28,10 @@ from bpy.props import CollectionProperty, StringProperty, BoolProperty
 
 from .utils import *
 from . import datamodel, ordered_set, flex
-from .core.boneutils import getBoneExportName, getBoneMatrix
-from .core.objectutils import applyModifier
-from .core.meshutils import normalize_weights, get_flexcontrollers
-from .core.commonutils import getArmature
+from .core.boneutils import get_bone_exportname, get_bone_matrix
+from .core.objectutils import apply_modifier
+from .core.meshutils import normalize_object_vertexgroups, get_flexcontrollers
+from .core.commonutils import get_armature
 
 class SMD_OT_Compile(bpy.types.Operator, Logger):
     bl_idname = "smd.compile_qc"
@@ -608,7 +608,7 @@ class SmdExporter(bpy.types.Operator, Logger):
             self.exportable_bones = list([self.armature.pose.bones[edit_bone.name] for edit_bone in self.armature.data.bones if (exporting_armature or edit_bone.use_deform)])
 
             temp_bone_export_names = {
-                edit_bone.name: getBoneExportName(edit_bone)
+                edit_bone.name: get_bone_exportname(edit_bone)
                 for edit_bone in self.armature.data.bones
                 if (exporting_armature or edit_bone.use_deform)
             }
@@ -887,7 +887,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                     key.slider_max = 1.0
                     key.slider_min = -1.0 if key.slider_min < 0.0 else 0.0
             
-            normalize_weights(ob=id, vgroup_limit=bpy.context.scene.vs.vertex_influence_limit,
+            normalize_object_vertexgroups(ob=id, vgroup_limit=bpy.context.scene.vs.vertex_influence_limit,
                               clean_tolerance=bpy.context.scene.vs.weightlink_threshold)
             
             ops.object.mode_set(mode='EDIT')
@@ -1113,7 +1113,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                     mod.loop_mapping = 'TOPOLOGY'
 
                     # use my custom apply modifier! blender's op apply modifier can cause the exporter to freeze in rare cases!
-                    applyModifier(mod=mod, silent=True)
+                    apply_modifier(mod=mod, silent=True)
 
                     id.active_shape_key_index = prev_index  # restore active shape key
 
@@ -1257,11 +1257,11 @@ class SmdExporter(bpy.types.Operator, Logger):
                             parent = parent.parent
                 
                         # Get the bone's Matrix from the current pose
-                        PoseMatrix = getBoneMatrix(posebone, rest_space=True if not is_anim else False)
+                        PoseMatrix = get_bone_matrix(posebone, rest_space=True if not is_anim else False)
                         if self.armature.data.vs.legacy_rotation:
                             PoseMatrix @= mat_BlenderToSMD 
                         if parent:
-                            parentMat = getBoneMatrix(parent, rest_space=True if not is_anim else False)
+                            parentMat = get_bone_matrix(parent, rest_space=True if not is_anim else False)
                             if self.armature.data.vs.legacy_rotation: parentMat @= mat_BlenderToSMD 
                             PoseMatrix = parentMat.inverted() @ PoseMatrix
                         else:
@@ -1576,12 +1576,12 @@ skeleton
                 cur_p = bone.parent
                 while cur_p and not cur_p in self.exportable_bones: cur_p = cur_p.parent
                 if cur_p:
-                    pMat = getBoneMatrix(cur_p, rest_space=True)
+                    pMat = get_bone_matrix(cur_p, rest_space=True)
                     relMat = pMat.inverted() @ bone.matrix
                 else:
                     relMat = self.armature.matrix_world @ bone.matrix
                     
-            relMat = getBoneMatrix(relMat, bone, rest_space=True)
+            relMat = get_bone_matrix(relMat, bone, rest_space=True)
             
             trfm = makeTransform(bone_exportname,relMat,"bone"+bone_name)
             trfm_base = makeTransform(bone_exportname,relMat,"bone_base"+bone_name)
@@ -1638,7 +1638,7 @@ skeleton
             
             curr_p = next((pb for pb in self.exportable_bones if pb.name == bone_name), None)
             if curr_p:
-                pmat = getBoneMatrix(curr_p)
+                pmat = get_bone_matrix(curr_p)
                 relMat = pmat.inverted() @ empty.matrix_world
             else:
                 relMat = empty.matrix_basis
@@ -2324,12 +2324,12 @@ skeleton
                     cur_p = bone.parent
                     while cur_p and not cur_p in evaluated_bones: cur_p = cur_p.parent
                     if cur_p:
-                        pMat = getBoneMatrix(cur_p)
+                        pMat = get_bone_matrix(cur_p)
                         relMat = pMat.inverted() @ bone.matrix
                     else:
                         relMat = self.armature.matrix_world @ bone.matrix
                         
-                    relMat = getBoneMatrix(relMat, bone)
+                    relMat = get_bone_matrix(relMat, bone)
                     
                     pos = relMat.to_translation()
                     if bone.parent:

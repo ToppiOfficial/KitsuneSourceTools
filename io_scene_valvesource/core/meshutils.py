@@ -1,17 +1,15 @@
 import bpy
 
 from .commonutils import (
-    getArmature, getArmatureMeshes
+    get_armature, get_armature_meshes
 )
-
-from typing import cast
 
 direction_map = {
             '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
             '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
         }
 
-def get_used_vertex_groups(mesh: bpy.types.Object, vertex_groups: set[int] | None = None, tolerance: float = 0.001) -> set[int]:
+def get_used_vertexgroups(mesh: bpy.types.Object, vertex_groups: set[int] | None = None, tolerance: float = 0.001) -> set[int]:
     """
     Return the set of vertex group indices that are actually used (weight > tolerance).
     Optionally filter by a provided set of vertex group indices.
@@ -31,7 +29,7 @@ def get_used_vertex_groups(mesh: bpy.types.Object, vertex_groups: set[int] | Non
 
     return vgroup_used
 
-def clean_vertex_groups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone] | bpy.types.ArmatureBones | None = None, 
+def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone] | bpy.types.ArmatureBones | None = None, 
                         weight_limit: float = 0.001) -> dict[bpy.types.Object, list[str]] | None:
     """
     Clean vertex groups by:
@@ -48,11 +46,11 @@ def clean_vertex_groups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone]
     if ob.type == 'MESH':
         meshes = [ob]
     elif ob.type == 'ARMATURE':
-        meshes = getArmatureMeshes(ob)
+        meshes = get_armature_meshes(ob)
     else:
         return removed_groups_per_mesh
     
-    armature = getArmature(ob)
+    armature = get_armature(ob)
     
     if bones is None:
         bones = list(armature.data.bones) if armature else []
@@ -71,7 +69,7 @@ def clean_vertex_groups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone]
         removed_groups_per_mesh[mesh] = []
 
         has_mirror = any(mod.type == 'MIRROR' for mod in mesh.modifiers)
-        used_groups = get_used_vertex_groups(mesh) if mesh.type == 'MESH' else set()
+        used_groups = get_used_vertexgroups(mesh) if mesh.type == 'MESH' else set()
 
         for v in mesh.data.vertices:
             remove_indices = [
@@ -93,7 +91,7 @@ def clean_vertex_groups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone]
 
     return removed_groups_per_mesh
 
-def limit_vertex_groups(ob: bpy.types.Object, bones: list[bpy.types.Bone], limit: int = 4):
+def limit_vertexgroup_influence(ob: bpy.types.Object, bones: list[bpy.types.Bone], limit: int = 4):
     """Keep only the top N weights per vertex."""
     to_remove = []
 
@@ -111,7 +109,7 @@ def limit_vertex_groups(ob: bpy.types.Object, bones: list[bpy.types.Bone], limit
             vg = ob.vertex_groups[group_idx]
             vg.remove([vertex_idx])
 
-def normalize_vertex_weights(ob: bpy.types.Object, bones: list[bpy.types.Bone]):
+def normalize_vertexgroup_weights(ob: bpy.types.Object, bones: list[bpy.types.Bone]):
     """Normalize remaining weights so they sum to 1.0 per vertex."""
     for v in ob.data.vertices:
         groups = [
@@ -125,18 +123,18 @@ def normalize_vertex_weights(ob: bpy.types.Object, bones: list[bpy.types.Bone]):
             for vg, weight in groups:
                 vg.add([v.index], weight / total, 'REPLACE')
 
-def normalize_weights(ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
+def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
     """Full pipeline: clean, limit, normalize."""
     
-    arm = getArmature(ob)
+    arm = get_armature(ob)
     if arm is None:
         return
     
-    bones = cast(list, arm.data.bones)
+    bones = arm.data.bones
     
-    clean_vertex_groups(ob, weight_limit=clean_tolerance)
-    limit_vertex_groups(ob, bones, limit=vgroup_limit)
-    normalize_vertex_weights(ob, bones)
+    remove_unused_vertexgroups(ob, weight_limit=clean_tolerance)
+    limit_vertexgroup_influence(ob, bones, limit=vgroup_limit)
+    normalize_vertexgroup_weights(ob, bones)
     
 def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool]]:
     """Return list of (shapekey, eyelid, stereo, min, max) from object,
@@ -154,7 +152,7 @@ def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool]]:
         if fc.shapekey in valid_keys
     ]
     
-def get_unused_shape_keys(ob: bpy.types.Object) -> list[str]:
+def get_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
     """
     Remove unused shape keys (keys that don't move any vertices)
     from the given object.
@@ -184,7 +182,7 @@ def get_unused_shape_keys(ob: bpy.types.Object) -> list[str]:
 
     return removed
 
-def convert_weight_to_curve_ramp(
+def reapply_vertexgroup_as_curve(
     arm: bpy.types.Object,
     bones: bpy.types.PoseBone | list[bpy.types.PoseBone],
     curve: bpy.types.CurveMapping,
@@ -234,7 +232,7 @@ def convert_weight_to_curve_ramp(
         bones = [bones]
 
     visible_only = getattr(bpy.context.scene.vs, "visible_mesh_only", False)
-    for mesh_obj in getArmatureMeshes(arm, visible_only=visible_only):
+    for mesh_obj in get_armature_meshes(arm, visible_only=visible_only):
         mesh = mesh_obj.data
         mw = mesh_obj.matrix_world
 

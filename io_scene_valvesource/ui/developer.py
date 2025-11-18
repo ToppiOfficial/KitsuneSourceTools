@@ -1,10 +1,9 @@
 import bpy, math
-from .. import iconloader
 from .common import KITSUNE_PT_CustomToolPanel
 from bpy.types import Context, Panel, UILayout, Operator
 
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col, create_toggle_section, create_subitem_ui
+    draw_title_box_layout, draw_wrapped_texts, draw_listing_layout
 )
 
 class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
@@ -12,25 +11,22 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_order : int = 1000
     bl_options : set = {'DEFAULT_CLOSED'}
 
-    @classmethod
-    def poll(cls, context : Context) -> bool:
-        return context.mode in ['OBJECT', 'POSE']
 
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
-        bx = draw_title_box(l,text='Developer Only Options', icon='OPTIONS')
+        bx = draw_title_box_layout(l,text='Developer Only Options', icon='OPTIONS')
         
         maincol = bx.column()
-        draw_wrapped_text_col(maincol,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
+        draw_wrapped_texts(maincol,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
         
-        boolsection = draw_title_box(maincol,text='Bool Parameters')
+        boolsection = draw_title_box_layout(maincol,text='Bool Parameters')
         boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
         
-        rootcol, itemcol = create_subitem_ui(boolsection)
+        rootcol, itemcol = draw_listing_layout(boolsection)
         rootcol.prop(context.scene.vs,"propagate_enabled")
         itemcol.prop(context.scene.vs,"propagate_include_active")
         
-        operatorsection = draw_title_box(maincol,text='Operators')
+        operatorsection = draw_title_box_layout(maincol,text='Operators')
         operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
         
         bx.template_icon(icon_value=iconloader.get_icon("KITSUNE"), scale=8) # type: ignore

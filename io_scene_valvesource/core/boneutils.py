@@ -1,18 +1,18 @@
 import bpy, re, math, typing, math, collections, mathutils
-from .commonutils import sanitizeString, getArmature, sortBonesByHierachy
+from .commonutils import sanitize_string, get_armature, sort_bone_by_hierachy
 
 _shortcut_pattern = re.compile(r"!(\w+)")
 
-shortcut_keywords = {
+exportname_shortcut_keywords = {
     "vbip": "ValveBiped.Bip01",
 }
 
-direction_map = {
+bonename_direction_map = {
             '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
             '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
         }
 
-def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_write = False) -> str:
+def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_write = False) -> str:
     """Generate the export name for a bone or posebone, respecting custom naming rules."""
     
     if bone is None: 
@@ -21,7 +21,7 @@ def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_writ
         return bone.name if hasattr(bone, "name") else str(bone)
 
     data_bone = bone.bone if isinstance(bone, bpy.types.PoseBone) else bone
-    armature = getArmature(data_bone)
+    armature = get_armature(data_bone)
     
     if armature is None: 
         return bone.name
@@ -36,7 +36,7 @@ def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_writ
         return (arm_prop.bone_direction_naming_right if bone_x < 0 
                 else arm_prop.bone_direction_naming_left)
 
-    ordered_bones = sortBonesByHierachy(armature.data.bones)
+    ordered_bones = sort_bone_by_hierachy(armature.data.bones)
     name_count = collections.defaultdict(lambda: arm_prop.bone_name_startcount)
     export_names = {}
 
@@ -47,7 +47,7 @@ def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_writ
         raw_name = raw_name.replace("*", b_side)
 
         raw_name = _shortcut_pattern.sub(
-            lambda match: shortcut_keywords.get(match.group(1), match.group(0)),
+            lambda match: exportname_shortcut_keywords.get(match.group(1), match.group(0)),
             raw_name
         )
 
@@ -58,9 +58,9 @@ def getBoneExportName(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_writ
         else:
             export_names[b.name] = raw_name
 
-    return sanitizeString(export_names[data_bone.name])
+    return sanitize_string(export_names[data_bone.name])
 
-def getCanonicalBoneName(export_name: str) -> str:
+def get_canonical_bonename(export_name: str) -> str:
     """Convert an exported bone name back to its canonical form:
        - Replaces directional markers with ' * '
        - Converts expanded shortcut names back to '!shortcut!' form
@@ -68,11 +68,11 @@ def getCanonicalBoneName(export_name: str) -> str:
        - Collapses multiple spaces into a single space
     """
     # Reverse shortcut expansion
-    reversed_shortcuts = {v: k for k, v in shortcut_keywords.items()}
+    reversed_shortcuts = {v: k for k, v in exportname_shortcut_keywords.items()}
     for full, shortcut in reversed_shortcuts.items():
         export_name = export_name.replace(full, f"!{shortcut}!")
 
-    for k, v in direction_map.items():
+    for k, v in bonename_direction_map.items():
         export_name = export_name.replace(k, " * ")
 
 
@@ -81,7 +81,7 @@ def getCanonicalBoneName(export_name: str) -> str:
 
     return export_name
 
-def getBoneMatrix(
+def get_bone_matrix(
     data: bpy.types.PoseBone | mathutils.Matrix,
     bone: bpy.types.PoseBone | None = None,
     rest_space : bool = False
@@ -133,7 +133,7 @@ def getBoneMatrix(
     # Apply offsets in bone space
     return matrix @ offset_matrix
 
-def getRelativeTargetMatrix(
+def get_relative_target_matrix(
     slave: bpy.types.PoseBone,
     master: bpy.types.PoseBone | None = None,
     axis: str = 'XYZ',
@@ -156,8 +156,8 @@ def getRelativeTargetMatrix(
     """
     try:
         # Get the matrices (pose space)
-        slave_matrix = getBoneMatrix(slave, rest_space=rest_space)
-        master_matrix = getBoneMatrix(master, rest_space=rest_space) if master else mathutils.Matrix.Identity(4)
+        slave_matrix = get_bone_matrix(slave, rest_space=rest_space)
+        master_matrix = get_bone_matrix(master, rest_space=rest_space) if master else mathutils.Matrix.Identity(4)
 
         # Compute relative matrix: master → slave
         local_offset = master_matrix.inverted_safe() @ slave_matrix
@@ -185,22 +185,3 @@ def getRelativeTargetMatrix(
     except Exception:
         return "0.0 0.0 0.0" if is_string else [0.0, 0.0, 0.0]
     
-def get_conflicting_clothjiggle(armature : bpy.types.Object | None) -> list[str]:
-    """
-    Returns list of bone names where both jigglebone and clothnode are enabled.
-    
-    Args:
-        armature: Blender armature object
-        
-    Returns:
-        list: Bone names with conflicting properties
-    """
-    if armature is None: return []
-    
-    conflicts : list = []
-    
-    for bone in armature.data.bones:
-        if bone.vs.bone_is_jigglebone and bone.vs.bone_is_clothnode:
-            conflicts.append(bone.name)
-    
-    return conflicts

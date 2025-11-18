@@ -99,7 +99,8 @@ toggle_show_ops = [
     ['show_flex','show_vertexmap','show_floatmaps'],
     'show_smdarmature',
     ['show_smdattachments', 'show_smdjigglebone', 'show_smdanimation', 'show_smdhitbox'],
-    'show_applytransform_help'
+    'show_applytransform_help',
+    'show_valvemodel_operators'
 ]
 
 class ExportFormat:
@@ -954,7 +955,7 @@ def enum_bones(self,context):
         return[]
     return [(bone.name, bone.name, "") for bone in ob.data.bones]
 
-def getFilePath(path: str | None):
+def get_filepath(path: str | None):
     if not path or not isinstance(path, str):
         raise ValueError(f"Invalid path: {path!r}")
 

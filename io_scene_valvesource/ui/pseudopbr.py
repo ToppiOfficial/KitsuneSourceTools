@@ -1,4 +1,4 @@
-import bpy, os
+import bpy, os, blf
 import numpy as np
 from ..core.imageprocesser import ImageProcessor
 import numpy as np
@@ -11,14 +11,14 @@ from bpy.props import (
     IntProperty
 )
 
-from .common import Tools_SubCategoryPanel
+from .common import Tools_SubCategoryPanel, ModalUIProcess
 
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col, create_toggle_section
+    draw_title_box_layout, draw_wrapped_texts, draw_toggleable_layout
 )
 
 class PSEUDOPBR_UL_PBRToPhongList(UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname) -> None: 
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             row = layout.row(align=True)
             row.prop(item, "name", text="", emboss=False, icon='MATERIAL')
@@ -62,15 +62,16 @@ class PSEUDOPBR_OT_RemovePBRItem(Operator):
         return {'FINISHED'}
 
 class PBRConversionMixin:
-    """Mixin class containing shared conversion logic for PBR operators"""
-    
     @property
     def img_proc(self):
         if not hasattr(self, '_img_proc'):
             self._img_proc = ImageProcessor()
         return self._img_proc
     
+    # ==================== Image Loading ====================
+    
     def get_image_data(self, img_name: str):
+        """Load full image data with all channels"""
         if not img_name or img_name not in bpy.data.images:
             return None
         
@@ -79,7 +80,7 @@ class PBRConversionMixin:
         img.colorspace_settings.name = 'Non-Color'
         
         width, height = img.size
-        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels))
+        pixels = np.array(img.pixels[:]).reshape((height, width, img.channels)) # type: ignore
         
         img.colorspace_settings.name = original_colorspace
         
@@ -88,6 +89,7 @@ class PBRConversionMixin:
         return pixels
     
     def get_channel_data(self, img_name: str, channel: str, height: int, width: int):
+        """Extract specific channel from image and optionally resize"""
         if not img_name or img_name not in bpy.data.images:
             return None
         
@@ -96,7 +98,7 @@ class PBRConversionMixin:
         img.colorspace_settings.name = 'Non-Color'
         
         w, h = img.size
-        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels))
+        pixels = np.array(img.pixels[:]).reshape((h, w, img.channels)) # type: ignore
         
         img.colorspace_settings.name = original_colorspace
         
@@ -118,7 +120,10 @@ class PBRConversionMixin:
         
         return result
     
+    # ==================== Image Processing ====================
+    
     def resize_array(self, data, new_height, new_width):
+        """Bilinear interpolation resize"""
         old_height, old_width = data.shape
         
         y_ratio = old_height / new_height
@@ -150,18 +155,33 @@ class PBRConversionMixin:
         
         return result
     
-    def create_nekopbr_color_map(self, diffuse):
+    def _apply_inversion(self, data, should_invert):
+        """Apply inversion if needed"""
+        return 1.0 - data if should_invert else data
+    
+    def _ensure_size(self, data, target_height, target_width):
+        """Resize data if it doesn't match target size"""
+        if data.shape != (target_height, target_width):
+            return self.resize_array(data, target_height, target_width)
+        return data
+    
+    # ==================== PBR Map Creation ====================
+    
+    def create_pbr_color_map(self, diffuse):
+        """Create PBR color map (simple copy of diffuse)"""
         return diffuse.copy()
     
-    def create_nekopbr_mrao_map(self, metal, roughness, ao, height, width):
+    def create_pbr_mrao_map(self, metal, roughness, ao, height, width, item):
+        """Create PBR MRAO (Metal/Roughness/AO) packed texture"""
         mrao = np.ones((height, width, 4), dtype=np.float32)
         
-        if metal.shape != (height, width):
-            metal = self.resize_array(metal, height, width)
-        if roughness.shape != (height, width):
-            roughness = self.resize_array(roughness, height, width)
-        if ao.shape != (height, width):
-            ao = self.resize_array(ao, height, width)
+        metal = self._ensure_size(metal, height, width)
+        roughness = self._ensure_size(roughness, height, width)
+        ao = self._ensure_size(ao, height, width)
+        
+        metal = self._apply_inversion(metal, item.invert_metal_map)
+        roughness = self._apply_inversion(roughness, item.invert_roughness_map)
+        ao = self._apply_inversion(ao, item.invert_ambientocclu_map)
         
         mrao[:, :, 0] = metal
         mrao[:, :, 1] = roughness
@@ -170,7 +190,8 @@ class PBRConversionMixin:
         
         return mrao
     
-    def create_nekopbr_normal_map(self, normal, normal_type):
+    def create_pbr_normal_map(self, normal, normal_type, item):
+        """Create PBR normal map with type conversion"""
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
@@ -181,7 +202,9 @@ class PBRConversionMixin:
             result[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
             result[:, :, 1] = normal[:, :, 1]
         elif normal_type == 'YELLOW':
-            result = self.img_proc.invert(normal)
+            result[:, :, 0] = normal[:, :, 0]
+            result[:, :, 1] = 1.0 - normal[:, :, 1]
+            result[:, :, 2] = normal[:, :, 2]
         elif normal_type == 'OPENGL':
             result[:, :, 0] = normal[:, :, 0]
             result[:, :, 1] = 1.0 - normal[:, :, 1]
@@ -190,13 +213,20 @@ class PBRConversionMixin:
         result[:, :, 3] = 1.0
         return result
     
-    def create_exponent_map(self, roughness, metal, color_alpha_mode):
+    # ==================== Phong Map Creation ====================
+    
+    def create_exponent_map(self, roughness, metal, color_alpha_mode, item):
+        """Create Phong exponent map"""
         height, width = roughness.shape
         exponent = np.ones((height, width, 4))
         
-        rough_inverted = 1.0 - roughness
+        metal = self._apply_inversion(metal, item.invert_metal_map)
+        rough_inverted = self._apply_inversion(roughness, not item.invert_roughness_map)
         
-        exponent_red = self.img_proc.brightness_contrast(np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),brightness=-100)[:, :, 0]
+        exponent_red = self.img_proc.brightness_contrast(
+            np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
+            brightness=-100
+        )[:, :, 0]
         
         exponent[:, :, 0] = exponent_red
         exponent[:, :, 1] = metal if color_alpha_mode != 'RGB_ALPHA' else metal * 0.5
@@ -205,28 +235,18 @@ class PBRConversionMixin:
         
         return exponent
     
-    def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, skin_gamma, skin_contrast,
-                      color_alpha_mode):
+    def create_diffuse_map(self, diffuse, metal, exponent, ao, skin, ao_strength, 
+                          skin_gamma, skin_contrast, color_alpha_mode, item):
+        """Create Phong diffuse map with AO, skin, and metal adjustments"""
         height, width = diffuse.shape[:2]
         result = diffuse.copy()
         
         ao_blend = np.stack([ao]*3 + [np.ones_like(ao)], axis=2)
+        ao_blend = self._apply_inversion(ao_blend, item.invert_ambientocclu_map)
         result = self.img_proc.multiply(result, ao_blend, opacity=ao_strength / 100.0)
         
-        if skin is not None:
-            skin_mask = skin[:, :, np.newaxis]
-            result[:, :, :3] = result[:, :, :3] * (1.0 - skin_mask) + diffuse[:, :, :3] * skin_mask
-            
-            if skin_gamma != 0:
-                gamma_corrected = self.img_proc.exposure(result, exposure=0.0, gamma_correction=skin_gamma)
-                result = self.img_proc.apply_with_mask(result, gamma_corrected, skin_mask)
-            
-            if skin_contrast != 0:
-                contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=skin_contrast, legacy=False)
-                result = self.img_proc.apply_with_mask(result, contrasted, skin_mask)
-
         if color_alpha_mode == 'RGB_ALPHA':
-            darkened = self.img_proc.curves(result, [(0, 0), (255, 100)])
+            darkened = self.img_proc.brightness_contrast(result, brightness=-60, contrast=8, legacy=False)
             metal_mask = metal[:, :, np.newaxis]
             result = self.img_proc.apply_with_mask(result, darkened, metal_mask)
             saturated = self.img_proc.hue_saturation(result, saturation=20)
@@ -237,18 +257,36 @@ class PBRConversionMixin:
             contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=10.0, legacy=True)
             metal_mask = metal[:, :, np.newaxis]
             result = self.img_proc.apply_with_mask(result, contrasted, metal_mask)
+            saturated = self.img_proc.hue_saturation(result, saturation=25)
+            result = self.img_proc.apply_with_mask(result, saturated, metal_mask)
+
+        if skin is not None:
+            skin_mask = self._apply_inversion(skin, item.invert_skin_map)
+            skin_mask = skin_mask[:, :, np.newaxis]
+            result[:, :, :3] = result[:, :, :3] * (1.0 - skin_mask) + diffuse[:, :, :3] * skin_mask
+            
+            if skin_gamma != 0:
+                gamma_corrected = self.img_proc.exposure(result, exposure=0.0, gamma_correction=skin_gamma)
+                result = self.img_proc.apply_with_mask(result, gamma_corrected, skin_mask)
+            
+            if skin_contrast != 0:
+                contrasted = self.img_proc.brightness_contrast(result, brightness=0.0, contrast=skin_contrast, legacy=False)
+                result = self.img_proc.apply_with_mask(result, contrasted, skin_mask)
 
         return result
     
     def create_normal_map(self, normal, metal, roughness, normal_type, item):
+        """Create Phong normal map with alpha channel for specular"""
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
-        if metal.shape != (height, width):
-            metal = self.resize_array(metal, height, width)
+        metal = self._ensure_size(metal, height, width)
+        roughness = self._ensure_size(roughness, height, width)
         
-        if roughness.shape != (height, width):
-            roughness = self.resize_array(roughness, height, width)
+        metal_for_masking = self._apply_inversion(metal.copy(), item.invert_metal_map)
+        
+        metal = self._apply_inversion(metal, item.invert_metal_map)
+        roughness = self._apply_inversion(roughness, item.invert_roughness_map)
 
         if normal_type == 'DEF':
             result[:, :, :3] = normal[:, :, :3]
@@ -263,44 +301,63 @@ class PBRConversionMixin:
             result[:, :, 1] = 1.0 - normal[:, :, 1]
             result[:, :, 2] = normal[:, :, 2]
 
-        rough_inverted = 1.0 - roughness
-        
         if item.roughness_map is None:
             result[:, :, 3] = 0.0
-        else:
+        else: 
             rough_inverted = 1.0 - roughness
             
+            rough_rgba = np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2)
+            
             exp_red_img = self.img_proc.brightness_contrast(
-                np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2),
+                rough_rgba,
                 brightness=-100, contrast=0, legacy=True
             )
             
             metal_blend = np.stack([metal]*3 + [np.ones_like(metal)], axis=2)
             
             exp_red_img = self.img_proc.brightness_contrast(
-                exp_red_img,
-                brightness=5, contrast=0, legacy=True
+                exp_red_img, brightness=1.5, legacy=True
             )
             
             exp_red_img = self.img_proc.multiply(exp_red_img, metal_blend, opacity=0.8)
             
             exp_red_img = self.img_proc.brightness_contrast(
-                exp_red_img,
-                brightness=150, legacy=False
+                exp_red_img, brightness=150, legacy=False
             )
             
-            result[:, :, 3] = exp_red_img[:, :, 0]
+            alpha_channel = exp_red_img[:, :, 0]
+            
+            if item.adjust_for_albedoboost and item.albedoboost_factor > 0:
+                original_color = self.get_image_data(item.diffuse_map)
+                if original_color is not None:
+                    grayscale = np.mean(original_color[:, :, :3], axis=2)
+                    
+                    if grayscale.shape != (height, width):
+                        grayscale = self.resize_array(grayscale, height, width)
+                    
+                    masked_grayscale = grayscale * metal_for_masking
+                    
+                    luminance_reducer = 1.0 - (masked_grayscale * item.albedoboost_factor)
+                    luminance_reducer = np.clip(luminance_reducer, 0.0, 1.0)
+                    
+                    alpha_channel = alpha_channel * luminance_reducer
+
+            result[:, :, 3] = alpha_channel
         
         return result
     
     def create_emissive_map(self, diffuse, emissive):
+        """Create emissive map by multiplying diffuse with emissive mask"""
         height, width = diffuse.shape[:2]
         emissive_4ch = np.stack([emissive]*3 + [np.ones_like(emissive)], axis=2)
         result = self.img_proc.multiply(diffuse, emissive_4ch, opacity=1.0)
         result[:, :, 3] = 1.0
         return result
-        
+    
+    # ==================== File I/O ====================
+    
     def save_tga(self, data, filepath):
+        """Save numpy array as TGA file"""
         height, width = data.shape[:2]
         has_alpha = data.shape[2] >= 4
 
@@ -324,9 +381,138 @@ class PBRConversionMixin:
         img.save()
         bpy.data.images.remove(img)
     
+    # ==================== Conversion Processing ====================
+    
+    def _load_and_prepare_maps(self, item, target_height, target_width):
+        """Load and prepare texture maps with consistent sizing"""
+        maps = {}
+        
+        maps['roughness'] = (
+            self.get_channel_data(item.roughness_map, item.roughness_map_ch, target_height, target_width)
+            if item.roughness_map else np.ones((target_height, target_width))
+        )
+        
+        maps['metal'] = (
+            self.get_channel_data(item.metal_map, item.metal_map_ch, target_height, target_width)
+            if item.metal_map else np.zeros((target_height, target_width))
+        )
+        
+        maps['ao'] = (
+            self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, target_height, target_width)
+            if item.ambientocclu_map else np.ones((target_height, target_width))
+        )
+        
+        for key in ['roughness', 'metal', 'ao']:
+            maps[key] = self._ensure_size(maps[key], target_height, target_width)
+        
+        return maps
+    
+    def _process_pbr_conversion(self, item, diffuse_img, normal_img, export_dir, base_name):
+        """Process PBR to PBR conversion"""
+        diffuse_height, diffuse_width = diffuse_img.shape[:2]
+        maps = self._load_and_prepare_maps(item, diffuse_height, diffuse_width)
+        
+        color_map = self.create_pbr_color_map(diffuse_img)
+        self.save_tga(color_map, os.path.join(export_dir, f"{base_name}_color.tga"))
+        
+        mrao_map = self.create_pbr_mrao_map(
+            maps['metal'], maps['roughness'], maps['ao'], 
+            diffuse_height, diffuse_width, item
+        )
+        self.save_tga(mrao_map, os.path.join(export_dir, f"{base_name}_mrao.tga"))
+        
+        normal_map = self.create_pbr_normal_map(normal_img, item.normal_map_type, item)
+        self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_normal.tga"))
+    
+    def _load_optional_maps(self, item, diffuse_height, diffuse_width):
+        """Load optional maps (skin, emissive) with proper sizing"""
+        optional = {}
+        
+        if item.skin_map and item.skin_map != "":
+            skin_raw = self.get_channel_data(item.skin_map, item.skin_map_ch, 0, 0)
+            if skin_raw is not None:
+                optional['skin'] = self._ensure_size(skin_raw, diffuse_height, diffuse_width)
+        
+        if item.emissive_map and item.emissive_map != "":
+            emissive_raw = self.get_channel_data(item.emissive_map, item.emissive_map_ch, 0, 0)
+            if emissive_raw is not None:
+                optional['emissive'] = self._ensure_size(emissive_raw, diffuse_height, diffuse_width)
+        
+        return optional
+    
+    def _determine_exponent_size(self, item):
+        """Determine size for exponent map based on available inputs"""
+        has_roughness = item.roughness_map is not None and item.roughness_map != ""
+        has_metal = item.metal_map is not None and item.metal_map != ""
+        
+        if not has_roughness and not has_metal:
+            return np.ones((32, 32)), np.zeros((32, 32))
+        
+        roughness_raw = self.get_channel_data(item.roughness_map, item.roughness_map_ch, 0, 0) if has_roughness else None
+        metal_raw = self.get_channel_data(item.metal_map, item.metal_map_ch, 0, 0) if has_metal else None
+        
+        if roughness_raw is not None and metal_raw is not None:
+            roughness_img, metal_img = roughness_raw, metal_raw
+            
+            if roughness_img.shape != metal_img.shape:
+                max_height = max(roughness_img.shape[0], metal_img.shape[0])
+                max_width = max(roughness_img.shape[1], metal_img.shape[1])
+                roughness_img = self._ensure_size(roughness_img, max_height, max_width)
+                metal_img = self._ensure_size(metal_img, max_height, max_width)
+                
+        elif roughness_raw is None:
+            metal_img = metal_raw
+            roughness_img = np.ones(metal_img.shape)
+        elif metal_raw is None:
+            roughness_img = roughness_raw
+            metal_img = np.zeros(roughness_img.shape)
+        else:
+            roughness_img = np.ones((32, 32))
+            metal_img = np.zeros((32, 32))
+        
+        return roughness_img, metal_img
+    
+    def _process_phong_conversion(self, item, diffuse_img, normal_img, export_dir, base_name):
+        """Process PBR to Phong conversion"""
+        diffuse_height, diffuse_width = diffuse_img.shape[:2]
+        normal_height, normal_width = normal_img.shape[:2]
+        
+        roughness_img, metal_img = self._determine_exponent_size(item)
+        
+        exponent_map = self.create_exponent_map(roughness_img, metal_img, item.color_alpha_mode, item)
+        self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
+        
+        has_ao = item.ambientocclu_map is not None and item.ambientocclu_map != ""
+        ao_raw = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, 0, 0) if has_ao else None
+        ao_img = self._ensure_size(ao_raw, diffuse_height, diffuse_width) if ao_raw is not None else np.ones((diffuse_height, diffuse_width))
+        
+        metal_for_diffuse = self._ensure_size(metal_img.copy(), diffuse_height, diffuse_width)
+        
+        optional_maps = self._load_optional_maps(item, diffuse_height, diffuse_width)
+        
+        diffuse_map = self.create_diffuse_map(
+            diffuse_img, metal_for_diffuse, exponent_map, ao_img, 
+            optional_maps.get('skin'), item.ambientocclu_strength, 
+            item.skin_map_gamma, item.skin_map_contrast, 
+            item.color_alpha_mode, item
+        )
+        self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
+        
+        metal_for_normal = self._ensure_size(metal_img.copy(), normal_height, normal_width)
+        roughness_for_normal = self._ensure_size(roughness_img.copy(), normal_height, normal_width)
+        
+        normal_map = self.create_normal_map(
+            normal_img, metal_for_normal, roughness_for_normal, 
+            item.normal_map_type, item
+        )
+        self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
+        
+        if 'emissive' in optional_maps:
+            emissive_map = self.create_emissive_map(diffuse_img, optional_maps['emissive'])
+            self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
+    
     def process_item_conversion(self, item, report_func):
         """Core conversion logic shared by both operators"""
-        
         export_path = bpy.path.abspath(item.export_path)
         
         if not export_path.strip():
@@ -336,145 +522,173 @@ class PBRConversionMixin:
         base_name = item.name
         
         if not export_dir or not base_name:
-            report_func({'ERROR'}, f"Invalid export path or name for '{item.name}'")
-            return False
+            error_msg = f"Invalid export path or name for '{item.name}'"
+            report_func({'ERROR'}, error_msg)
+            return False, error_msg
         
         diffuse_img = self.get_image_data(item.diffuse_map)
         normal_img = self.get_image_data(item.normal_map)
         
         if diffuse_img is None or normal_img is None:
-            report_func({'ERROR'}, f"Failed to load diffuse or normal texture for '{item.name}'")
-            return False
-        
-        diffuse_height, diffuse_width = diffuse_img.shape[:2]
-        normal_height, normal_width = normal_img.shape[:2]
+            error_msg = f"Failed to load diffuse or normal texture for '{item.name}'"
+            report_func({'ERROR'}, error_msg)
+            return False, error_msg
         
         conversion_mode = bpy.context.scene.vs.pbr_conversion_mode
         
-        if conversion_mode == 'NEKOPBR':
-            roughness_img = self.get_channel_data(item.roughness_map, item.roughness_map_ch, diffuse_height, diffuse_width) if item.roughness_map else np.ones((diffuse_height, diffuse_width))
-            metal_img = self.get_channel_data(item.metal_map, item.metal_map_ch, diffuse_height, diffuse_width) if item.metal_map else np.zeros((diffuse_height, diffuse_width))
-            ao_img = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, diffuse_height, diffuse_width) if item.ambientocclu_map else np.ones((diffuse_height, diffuse_width))
-            
-            if roughness_img.shape != (diffuse_height, diffuse_width):
-                roughness_img = self.resize_array(roughness_img, diffuse_height, diffuse_width)
-            if metal_img.shape != (diffuse_height, diffuse_width):
-                metal_img = self.resize_array(metal_img, diffuse_height, diffuse_width)
-            if ao_img.shape != (diffuse_height, diffuse_width):
-                ao_img = self.resize_array(ao_img, diffuse_height, diffuse_width)
-            
-            color_map = self.create_nekopbr_color_map(diffuse_img)
-            self.save_tga(color_map, os.path.join(export_dir, f"{base_name}_color.tga"))
-            
-            mrao_map = self.create_nekopbr_mrao_map(metal_img, roughness_img, ao_img, diffuse_height, diffuse_width)
-            self.save_tga(mrao_map, os.path.join(export_dir, f"{base_name}_mrao.tga"))
-            
-            normal_map = self.create_nekopbr_normal_map(normal_img, item.normal_map_type)
-            self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_normal.tga"))
-            
-        else:
-            has_roughness = item.roughness_map is not None and item.roughness_map != ""
-            has_metal = item.metal_map is not None and item.metal_map != ""
-            has_ao = item.ambientocclu_map is not None and item.ambientocclu_map != ""
-            
-            use_small_exponent = not has_roughness and not has_metal
-            
-            if use_small_exponent:
-                roughness_img = np.ones((32, 32))
-                metal_img = np.zeros((32, 32))
+        try:
+            if conversion_mode == 'PBR':
+                self._process_pbr_conversion(item, diffuse_img, normal_img, export_dir, base_name)
             else:
-                roughness_raw = self.get_channel_data(item.roughness_map, item.roughness_map_ch, 0, 0) if has_roughness else None
-                metal_raw = self.get_channel_data(item.metal_map, item.metal_map_ch, 0, 0) if has_metal else None
-                
-                if roughness_raw is not None and metal_raw is not None:
-                    roughness_img = roughness_raw
-                    metal_img = metal_raw
-                    
-                    if roughness_img.shape != metal_img.shape:
-                        max_height = max(roughness_img.shape[0], metal_img.shape[0])
-                        max_width = max(roughness_img.shape[1], metal_img.shape[1])
-                        
-                        if roughness_img.shape != (max_height, max_width):
-                            roughness_img = self.resize_array(roughness_img, max_height, max_width)
-                        if metal_img.shape != (max_height, max_width):
-                            metal_img = self.resize_array(metal_img, max_height, max_width)
-                            
-                elif roughness_raw is None and metal_raw is not None:
-                    metal_img = metal_raw
-                    roughness_img = np.ones(metal_img.shape)
-                    
-                elif metal_raw is None and roughness_raw is not None:
-                    roughness_img = roughness_raw
-                    metal_img = np.zeros(roughness_img.shape)
-                    
-                else:
-                    roughness_img = np.ones((32, 32))
-                    metal_img = np.zeros((32, 32))
+                self._process_phong_conversion(item, diffuse_img, normal_img, export_dir, base_name)
             
-            exponent_height, exponent_width = roughness_img.shape
-            
-            exponent_map = self.create_exponent_map(roughness_img, metal_img, item.color_alpha_mode)
-            self.save_tga(exponent_map, os.path.join(export_dir, f"{base_name}_e.tga"))
-            
-            ao_raw = self.get_channel_data(item.ambientocclu_map, item.ambientocclu_map_ch, 0, 0) if has_ao else None
-            if ao_raw is None:
-                ao_img = np.ones((diffuse_height, diffuse_width))
-            else:
-                ao_img = ao_raw
-                if ao_img.shape != (diffuse_height, diffuse_width):
-                    ao_img = self.resize_array(ao_img, diffuse_height, diffuse_width)
-            
-            metal_for_diffuse = metal_img.copy()
-            if metal_for_diffuse.shape != (diffuse_height, diffuse_width):
-                metal_for_diffuse = self.resize_array(metal_for_diffuse, diffuse_height, diffuse_width)
-            
-            skin_img = None
-            if item.skin_map and item.skin_map != "":
-                skin_raw = self.get_channel_data(item.skin_map, item.skin_map_ch, 0, 0)
-                if skin_raw is not None:
-                    skin_img = skin_raw
-                    if skin_img.shape != (diffuse_height, diffuse_width):
-                        skin_img = self.resize_array(skin_img, diffuse_height, diffuse_width)
-            
-            diffuse_map = self.create_diffuse_map(diffuse_img, metal_for_diffuse, exponent_map, ao_img, skin_img,
-                                                  item.ambientocclu_strength, item.skin_map_gamma, item.skin_map_contrast,
-                                                  item.color_alpha_mode)
-            self.save_tga(diffuse_map, os.path.join(export_dir, f"{base_name}_d.tga"))
-            
-            metal_for_normal = metal_img.copy()
-            roughness_for_normal = roughness_img.copy()
-            
-            if metal_for_normal.shape != roughness_for_normal.shape:
-                max_height = max(metal_for_normal.shape[0], roughness_for_normal.shape[0])
-                max_width = max(metal_for_normal.shape[1], roughness_for_normal.shape[1])
-                
-                if metal_for_normal.shape != (max_height, max_width):
-                    metal_for_normal = self.resize_array(metal_for_normal, max_height, max_width)
-                if roughness_for_normal.shape != (max_height, max_width):
-                    roughness_for_normal = self.resize_array(roughness_for_normal, max_height, max_width)
-            
-            if metal_for_normal.shape != (normal_height, normal_width):
-                metal_for_normal = self.resize_array(metal_for_normal, normal_height, normal_width)
-            if roughness_for_normal.shape != (normal_height, normal_width):
-                roughness_for_normal = self.resize_array(roughness_for_normal, normal_height, normal_width)
-            
-            normal_map = self.create_normal_map(normal_img, metal_for_normal, roughness_for_normal, 
-                                                item.normal_map_type, item)
-            self.save_tga(normal_map, os.path.join(export_dir, f"{base_name}_n.tga"))
-            
-            if item.emissive_map and item.emissive_map != "":
-                emissive_raw = self.get_channel_data(item.emissive_map, item.emissive_map_ch, 0, 0)
-                if emissive_raw is not None:
-                    emissive_img = emissive_raw
-                    if emissive_img.shape != (diffuse_height, diffuse_width):
-                        emissive_img = self.resize_array(emissive_img, diffuse_height, diffuse_width)
-                    
-                    emissive_map = self.create_emissive_map(diffuse_img, emissive_img)
-                    self.save_tga(emissive_map, os.path.join(export_dir, f"{base_name}_em.tga"))
-        
-        return True
+            return True, None
+        except Exception as e:
+            error_msg = str(e)
+            report_func({'ERROR'}, f"Conversion error for '{item.name}': {error_msg}")
+            return False, error_msg
 
-class PSEUDOPBR_OT_ConvertPBRItem(Operator, PBRConversionMixin):
+class PSEUDOPBR_OT_ProcessingModal(Operator, PBRConversionMixin):
+    bl_idname = 'valvemodel.processing_modal'
+    bl_label = 'Processing'
+    bl_options = {'INTERNAL'}
+    
+    item_index: bpy.props.IntProperty(default=-1)
+    process_all: bpy.props.BoolProperty(default=False)
+    
+    _timer = None
+    _handle = None
+    _processing_done = False
+    _current_index = 0
+    _success_count = 0
+    _failed_items = []
+    _total_items = 0
+    _result = None
+    
+    def draw_callback(self, context):
+        region = context.region
+        
+        if self.process_all:
+            main_text = f"Processing Textures {self._current_index}/{self._total_items}"
+        else:
+            main_text = "Processing Texture"
+        
+        sub_text = "Please wait, Blender may appear frozen"
+        
+        progress = 0.0
+        if self.process_all and self._total_items > 0:
+            progress = self._current_index / self._total_items
+        
+        ModalUIProcess.draw_modal_overlay(region, main_text, sub_text, progress, show_progress=self.process_all)
+    
+    def modal(self, context, event):
+        if event.type == 'TIMER':
+            if not self._processing_done:
+                vs = context.scene.vs
+                
+                try:
+                    if self.process_all:
+                        if self._current_index < len(vs.pbr_items):
+                            item = vs.pbr_items[self._current_index]
+                            
+                            if not item.diffuse_map or not item.normal_map:
+                                self._failed_items.append(f"{item.name} (missing maps)")
+                            else:
+                                success, error_msg = self.process_item_conversion(item, self.report)
+                                
+                                if success:
+                                    self._success_count += 1
+                                else:
+                                    fail_reason = error_msg if error_msg else "unknown error"
+                                    self._failed_items.append(f"{item.name} ({fail_reason})")
+                            
+                            self._current_index += 1
+                            context.area.tag_redraw()
+                            return {'RUNNING_MODAL'}
+                        else:
+                            self._processing_done = True
+                    else:
+                        if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
+                            item = vs.pbr_items[self.item_index]
+                        else:
+                            if vs.pbr_active_index < len(vs.pbr_items):
+                                item = vs.pbr_items[vs.pbr_active_index]
+                            else:
+                                self._result = ({'ERROR'}, "No valid item selected")
+                                self._processing_done = True
+                                return {'RUNNING_MODAL'}
+                        
+                        if not item.diffuse_map or not item.normal_map:
+                            self._result = ({'ERROR'}, f"Item '{item.name}' missing required maps (diffuse and normal)")
+                            self._processing_done = True
+                            return {'RUNNING_MODAL'}
+                        
+                        success, error_msg = self.process_item_conversion(item, self.report)
+                        
+                        if success:
+                            self._result = ({'INFO'}, f"Converted '{item.name}' successfully")
+                        else:
+                            fail_reason = error_msg if error_msg else "unknown error"
+                            self._result = ({'ERROR'}, f"Conversion failed for '{item.name}': {fail_reason}")
+                        
+                        self._processing_done = True
+                
+                except Exception as e:
+                    self._result = ({'ERROR'}, f"Error during processing: {str(e)}")
+                    self._processing_done = True
+                    
+            else:
+                self.cleanup(context)
+                
+                if self.process_all:
+                    if self._success_count > 0:
+                        self.report({'INFO'}, f"Converted {self._success_count}/{self._total_items} items")
+                    
+                    if self._failed_items:
+                        self.report({'WARNING'}, f"Failed: {', '.join(self._failed_items)}")
+                else:
+                    if self._result:
+                        self.report(self._result[0], self._result[1])
+                
+                return {'FINISHED'}
+        
+        context.area.tag_redraw()
+        return {'RUNNING_MODAL'}
+    
+    def execute(self, context : Context) -> set:
+        vs = context.scene.vs
+        
+        if self.process_all:
+            self._total_items = len(vs.pbr_items)
+            if self._total_items == 0:
+                self.report({'ERROR'}, "No items to convert")
+                return {'CANCELLED'}
+        
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        
+        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+            self.draw_callback, (context,), 'WINDOW', 'POST_PIXEL'
+        )
+        
+        return {'RUNNING_MODAL'}
+    
+    def cleanup(self, context):
+        if self._timer:
+            wm = context.window_manager
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        
+        if self._handle:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            self._handle = None
+            context.area.tag_redraw()
+    
+    def cancel(self, context):
+        self.cleanup(context)
+
+class PSEUDOPBR_OT_ConvertPBRItem(Operator):
     bl_idname = 'valvemodel.convert_pbr_item'
     bl_label = 'Convert Selected Item'
     bl_options = {'INTERNAL'}
@@ -486,30 +700,10 @@ class PSEUDOPBR_OT_ConvertPBRItem(Operator, PBRConversionMixin):
         return len(context.scene.vs.pbr_items) > 0
     
     def execute(self, context) -> set:
-        vs = context.scene.vs
-        
-        if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
-            item = vs.pbr_items[self.item_index]
-        else:
-            if vs.pbr_active_index < len(vs.pbr_items):
-                item = vs.pbr_items[vs.pbr_active_index]
-            else:
-                self.report({'ERROR'}, "No valid item selected")
-                return {'CANCELLED'}
-        
-        if not item.diffuse_map or not item.normal_map:
-            self.report({'ERROR'}, f"Item '{item.name}' missing required maps (diffuse and normal)")
-            return {'CANCELLED'}
-        
-        result = self.process_item_conversion(item, self.report)
-        
-        if result:
-            self.report({'INFO'}, f"Converted '{item.name}' successfully")
-            return {'FINISHED'}
-        else:
-            return {'CANCELLED'}
+        bpy.ops.valvemodel.processing_modal('INVOKE_DEFAULT', item_index=self.item_index, process_all=False)
+        return {'FINISHED'}
 
-class PSEUDOPBR_OT_ConvertAllPBRItems(Operator, PBRConversionMixin):
+class PSEUDOPBR_OT_ConvertAllPBRItems(Operator):
     bl_idname = 'valvemodel.convert_all_pbr_items'
     bl_label = 'Convert All Items'
     bl_options = {'INTERNAL'}
@@ -519,31 +713,11 @@ class PSEUDOPBR_OT_ConvertAllPBRItems(Operator, PBRConversionMixin):
         return len(context.scene.vs.pbr_items) > 0
     
     def execute(self, context) -> set:
-        vs = context.scene.vs
-        success_count = 0
-        failed_items = []
-        
-        for i, item in enumerate(vs.pbr_items):
-            if not item.diffuse_map or not item.normal_map:
-                failed_items.append(f"{item.name} (missing maps)")
-                continue
-            
-            result = self.process_item_conversion(item, self.report)
-            if result:
-                success_count += 1
-            else:
-                failed_items.append(item.name)
-        
-        if success_count > 0:
-            self.report({'INFO'}, f"Converted {success_count}/{len(vs.pbr_items)} items")
-        
-        if failed_items:
-            self.report({'WARNING'}, f"Failed: {', '.join(failed_items)}")
-        
+        bpy.ops.valvemodel.processing_modal('INVOKE_DEFAULT', process_all=True)
         return {'FINISHED'}
 
 class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
-    bl_label = 'PBR Conversion'
+    bl_label = 'PseudoPBR'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'Valve Model'
@@ -552,7 +726,7 @@ class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
         layout = self.layout
         vs = context.scene.vs
         
-        box = draw_title_box(layout, text="PBR Conversion",icon='MATERIAL')
+        box = draw_title_box_layout(layout, text="PBR Conversion",icon='MATERIAL')
         
         box.prop(vs, "pbr_conversion_mode", text="Mode")
         box.prop(vs, "pbr_to_phong_export_path")
@@ -583,63 +757,77 @@ class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
             
         self.draw_help_section(context, box)
     
-    def draw_material_maps(self, context : Context, layout : UILayout, item):
+    def draw_material_maps(self, context: Context, layout: UILayout, item):
         vs = context.scene.vs
-        col = layout.column(align=True)
         
+        box = layout.box()
+        col = box.column(align=True)
         col.label(text="Diffuse/Color Map")
         col.prop_search(item, 'diffuse_map', bpy.data, 'images', text='')
         
         if vs.pbr_conversion_mode == 'PHONG':
-            col.separator(factor=3)
-            
+            box = layout.box()
+            col = box.column(align=True)
             col.label(text="Skin Map")
-            row = col.split(align=True,factor=0.8)
+            row = col.split(align=True, factor=0.8)
             row.prop_search(item, 'skin_map', bpy.data, 'images', text='')
             row.prop(item, 'skin_map_ch', text='')
-            col.prop(item, 'skin_map_gamma', slider=True)
-            col.prop(item, 'skin_map_contrast', slider=True)
+            
+            row = col.row(align=True)
+            row.prop(item, 'skin_map_gamma', slider=True)
+            row.prop(item, 'skin_map_contrast', slider=True)
+            col.prop(item, 'invert_skin_map')
         
-        col.separator(factor=3)
-        
+        box = layout.box()
+        col = box.column(align=True)
         col.label(text="Normal Map")
-        row = col.split(align=True,factor=0.8)
+        row = col.split(align=True, factor=0.8)
         row.prop_search(item, 'normal_map', bpy.data, 'images', text='')
         row.prop(item, 'normal_map_type', text='')
         
-        col.separator(factor=3)
-        
+        box = layout.box()
+        col = box.column(align=True)
         col.label(text="Roughness Map")
-        row = col.split(align=True,factor=0.8)
+        row = col.split(align=True, factor=0.8)
         row.prop_search(item, 'roughness_map', bpy.data, 'images', text='')
         row.prop(item, 'roughness_map_ch', text='')
+        col.prop(item, 'invert_roughness_map')
         
-        col.separator(factor=3)
-        
+        box = layout.box()
+        col = box.column(align=True)
         col.label(text="Metal Map")
-        row = col.split(align=True,factor=0.8)
+        row = col.split(align=True, factor=0.8)
         row.prop_search(item, 'metal_map', bpy.data, 'images', text='')
         row.prop(item, 'metal_map_ch', text='')
+        col.prop(item, 'invert_metal_map')
         
-        col.separator(factor=3)
-        
+        box = layout.box()
+        col = box.column(align=True)
         col.label(text="AO Map (Optional)")
-        row = col.split(align=True,factor=0.8)
+        row = col.split(align=True, factor=0.8)
         row.prop_search(item, 'ambientocclu_map', bpy.data, 'images', text='')
         row.prop(item, 'ambientocclu_map_ch', text='')
+        col.prop(item, 'invert_ambientocclu_map')
         
         if vs.pbr_conversion_mode == 'PHONG':
             col.prop(item, 'ambientocclu_strength', slider=True)
             
-            col.separator(factor=3)
-            
+            box = layout.box()
+            col = box.column(align=True)
             col.label(text="Emissive Map (Optional)")
-            row = col.split(align=True,factor=0.8)
+            row = col.split(align=True, factor=0.8)
             row.prop_search(item, 'emissive_map', bpy.data, 'images', text='')
             row.prop(item, 'emissive_map_ch', text='')
             
-            col = layout.column(align=True)
-            col.prop(item, 'color_alpha_mode')
+        if vs.pbr_conversion_mode == 'PHONG':
+            box = layout.box()
+            col = box.column(align=True)
+            col.label(text="Albedo Boost Settings")
+            col.prop(item, 'adjust_for_albedoboost')
+            col.prop(item, 'albedoboost_factor', slider=True)
+        
+        box = layout.box()
+        box.prop(item, 'color_alpha_mode')
     
     def draw_help_section(self, context, layout):
         vs = context.scene.vs
@@ -650,27 +838,27 @@ class PSEUDOPBR_PT_PBRtoPhong(Tools_SubCategoryPanel):
                 '   - $phongboost 5',
                 '   - $phongalbedotint 1',
                 '   - $phongfresnelranges "[0.5 1 2]"',
-                '   - $phongalbedoboost 12 (if applicable)\n',
+                '   - $phongalbedoboost 55 (if applicable and not using the $color2 method)\n',
                 'When applying a metal map to the color alpha channel, include:',
                 '   - $color2 "[.18 .18 .18]"',
                 '   - $blendtintbybasealpha 1\n',
-                'However, avoid using $color2 or $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.\n',
+                'However, avoid using $color2 and $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.\n',
                 'If using envmap:',
-                '$envmaptint "[.3 .3 .3]"'
+                '$envmaptint "[.12 .12 .12]"'
             ]
         else:
             messages = [
-                'NekoPBR outputs simple texture maps:',
+                'PBR outputs simple texture maps:',
                 '   - _color: Diffuse with alpha channel preserved',
                 '   - _mrao: Metal (R), Roughness (G), AO (B)',
                 '   - _normal: Normal map with format conversion\n',
                 'These maps can be used with PBR shaders that expect this texture layout.'
             ]
         
-        helpsection = create_toggle_section(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
+        helpsection = draw_toggleable_layout(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
         if helpsection is not None:
             if vs.pbr_conversion_mode == 'PHONG':
-                draw_wrapped_text_col(helpsection,title='A good initial VMT phong setting', text=messages,max_chars=40, boxed=False)
-                draw_wrapped_text_col(helpsection,text="The conversion may or may not be accurate!", max_chars=40, alert=True, boxed=False)
+                draw_wrapped_texts(helpsection,title='A good initial VMT phong setting', text=messages, boxed=False)
+                draw_wrapped_texts(helpsection,text="The conversion may or may not be accurate!", alert=True, boxed=False)
             else:
-                draw_wrapped_text_col(helpsection,title='NekoPBR Format', text=messages,max_chars=40, boxed=False)
+                draw_wrapped_texts(helpsection,title='PBR Format', text=messages, boxed=False)

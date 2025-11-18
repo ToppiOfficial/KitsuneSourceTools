@@ -1,24 +1,44 @@
 import bpy
-from .common import KITSUNE_PT_CustomToolPanel
-from ..utils import *
-from ..flex import *
-from ..core.commonutils import *
-from ..core.boneutils import *
-from ..core.armatureutils import *
-from ..core.meshutils import *
+from bpy.props import IntProperty
+from typing import Any
 
 from bpy.types import (
     Panel, UIList, Operator, UILayout, Object, Context,
     VertexGroup, LoopColors, MeshLoopColorLayer
 )
 
-from typing import (
-    Set, Any
+from .. import format_version
+from .common import KITSUNE_PT_CustomToolPanel
+
+from ..core.boneutils import (
+    get_bone_exportname
 )
 
-from .. import format_version
+from ..core.armatureutils import (
+    get_armature, get_armature_meshes
+)
 
-from bpy.props import IntProperty
+from ..core.commonutils import (
+    is_armature, is_mesh, is_empty, is_curve, get_unparented_attachments,
+    get_unparented_hitboxes, get_bugged_hitboxes, get_bugged_attachments,
+    get_all_materials, has_materials, draw_wrapped_texts, draw_toggleable_layout,
+    draw_title_box_layout, draw_listing_layout
+)
+
+from ..core.meshutils import (
+    get_flexcontrollers
+)
+
+from ..utils import (
+    get_id, vertex_maps, vertex_float_maps, hasShapes, countShapes,
+    State, ExportFormat, Compiler, MakeObjectIcon, hasFlexControllerSource,
+    hasCurves
+)
+
+from ..flex import (
+    AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers,
+    DmxWriteFlexControllers
+)
 
 from .valvemodel import (
     VALVEMODEL_OT_FixAttachment, VALVEMODEL_OT_FixHitBox
@@ -34,7 +54,7 @@ for map_name in vertex_maps:
         bl_idname : str = SMD_OT_SelectVertexMap_idname + map_name
         bl_label : str = get_id("vertmap_select")
         bl_description : str = get_id("vertmap_select")
-        bl_options : Set = {'INTERNAL'}
+        bl_options : set = {'INTERNAL'}
         vertex_map : str = map_name
     
         @classmethod
@@ -44,7 +64,7 @@ for map_name in vertex_maps:
             vc_loop : MeshLoopColorLayer | None = context.active_object.data.vertex_colors.get(cls.vertex_map)
             return bool(vc_loop and not vc_loop.active)
 
-        def execute(self, context : Context) -> Set:
+        def execute(self, context : Context) -> set:
             context.active_object.data.vertex_colors[self.vertex_map].active = True
             return {'FINISHED'}
 
@@ -52,14 +72,14 @@ for map_name in vertex_maps:
         bl_idname : str = SMD_OT_CreateVertexMap_idname + map_name
         bl_label : str = get_id("vertmap_create")
         bl_description : str = get_id("vertmap_create")
-        bl_options : Set = {'INTERNAL'}
+        bl_options : set = {'INTERNAL'}
         vertex_map : str = map_name
     
         @classmethod
         def poll(cls, context : Context) -> bool:
             return bool(is_mesh(context.active_object) and cls.vertex_map not in context.active_object.data.vertex_colors)
 
-        def execute(self, context : Context) -> Set:
+        def execute(self, context : Context) -> set:
             vc : MeshLoopColorLayer = context.active_object.data.vertex_colors.new(name=self.vertex_map)
             vc.data.foreach_set("color", [1.0] * len(vc.data) * 4)
             bpy.context.view_layer.update()
@@ -70,14 +90,14 @@ for map_name in vertex_maps:
         bl_idname : str = SMD_OT_RemoveVertexMap_idname + map_name
         bl_label : str = get_id("vertmap_remove")
         bl_description : str = get_id("vertmap_remove")
-        bl_options : Set = {'INTERNAL'}
+        bl_options : set = {'INTERNAL'}
         vertex_map : str = map_name
     
         @classmethod
         def poll(cls, context : Context) -> bool:
             return bool(is_mesh(context.active_object) and cls.vertex_map in context.active_object.data.vertex_colors)
 
-        def execute(self, context : Context) -> Set:
+        def execute(self, context : Context) -> set:
             vcs : LoopColors  = context.active_object.data.vertex_colors
             vcs.remove(vcs[self.vertex_map])
             return {'FINISHED'}
@@ -96,7 +116,7 @@ for map_name in vertex_float_maps:
         bl_idname : str = SMD_OT_SelectVertexFloatMap_idname + map_name
         bl_label : str = get_id("vertmap_select")
         bl_description : str = get_id("vertmap_select")
-        bl_options : Set = {'INTERNAL'}
+        bl_options : set = {'INTERNAL'}
         vertex_map : str = map_name
 
         @classmethod
@@ -104,7 +124,7 @@ for map_name in vertex_float_maps:
             vg_loop = context.object.vertex_groups.get(cls.vertex_map)
             return bool(vg_loop and not context.active_object.vertex_groups.active == vg_loop)
 
-        def execute(self, context : Context) -> Set:
+        def execute(self, context : Context) -> set:
             context.active_object.vertex_groups.active_index = context.active_object.vertex_groups[self.vertex_map].index
             return {'FINISHED'}
 
@@ -112,14 +132,14 @@ for map_name in vertex_float_maps:
         bl_idname : str = SMD_OT_CreateVertexFloatMap_idname + map_name
         bl_label : str = get_id("vertmap_create")
         bl_description : str = get_id("vertmap_create")
-        bl_options : Set = {'INTERNAL'}
+        bl_options : set = {'INTERNAL'}
         vertex_map : str = map_name
 
         @classmethod
         def poll(cls, context : Context) -> bool:
             return bool(context.object and context.object.type == 'MESH' and cls.vertex_map not in context.object.vertex_groups)
 
-        def execute(self, context : Context) -> Set:
+        def execute(self, context : Context) -> set:
             vc : VertexGroup = context.active_object.vertex_groups.new(name=self.vertex_map)
 
             found : bool = False
@@ -141,14 +161,14 @@ for map_name in vertex_float_maps:
         bl_idname : str = SMD_OT_RemoveVertexFloatMap_idname + map_name
         bl_label : str = get_id("vertmap_remove")
         bl_description : str = get_id("vertmap_remove")
-        bl_options : Set = {'INTERNAL'}
+        bl_options : set = {'INTERNAL'}
         vertex_map : str = map_name
 
         @classmethod
         def poll(cls, context) -> bool:
             return bool(context.object and context.object.type == 'MESH' and cls.vertex_map in context.active_object.vertex_groups)
 
-        def execute(self, context : Context) -> Set:
+        def execute(self, context : Context) -> set:
             vgs = context.active_object.vertex_groups
             vgs.remove(vgs[self.vertex_map])
             return {'FINISHED'}
@@ -177,7 +197,7 @@ class ValidationChecker:
         
         armature = None
         if not is_armature(armature_obj):
-            armature = getArmature(armature_obj)
+            armature = get_armature(armature_obj)
         else:
             armature = armature_obj
             
@@ -191,30 +211,34 @@ class ValidationChecker:
         if not ValidationChecker.is_valid_name(armature.name):
             invalid_names['armature'].append(armature.name)
             
-        meshes = getArmatureMeshes(armature)
+        meshes = get_armature_meshes(armature)
         for mesh in meshes:
+            if mesh.vs.export is False: continue
+            
             if not ValidationChecker.is_valid_name(mesh.name):
                 invalid_names['meshes'].append(mesh.name)
             
             for mat in mesh.data.materials:
+                if mat.vs.do_not_export_faces: continue
+                
                 if mat and not ValidationChecker.is_valid_name(mat.name):
-                    invalid_names['materials'].append(mat.name)
+                    if (mat.name, mesh.name) not in invalid_names['materials']:
+                        invalid_names['materials'].append((mat.name, mesh.name))
             
             if mesh.data.shape_keys:
                 for key in mesh.data.shape_keys.key_blocks:
+                    if mesh.vs.flex_controller_mode == 'STRICT':
+                        if key.name not in (fc[0] for fc in get_flexcontrollers(mesh)):
+                            continue
+                    
                     if not ValidationChecker.is_valid_name(key.name):
-                        invalid_names['shapekeys'].append(key.name)
+                        invalid_names['shapekeys'].append((key.name, mesh.name))
         
         return invalid_names
 
     @staticmethod
     def count_warnings(context: Context) -> int:
         count = 0
-        
-        if is_armature(context.object):
-            conflictProceduralBones = get_conflicting_clothjiggle(context.object)
-            if conflictProceduralBones and len(conflictProceduralBones) > 0:
-                count += 1
         
         invalid_names = ValidationChecker.get_invalid_names(context.object)
         count += sum(1 for category in invalid_names.values() if category)
@@ -237,42 +261,31 @@ class WarningRenderer:
     INVALID_CHAR_MESSAGE = '\n\ncontain invalid characters! Only alphanumeric, spaces, and underscores are allowed for Source Engine.'
     
     @staticmethod
-    def draw_conflicting_procedural_bones(layout: UILayout, armature_obj) -> int:
-        if not is_armature(armature_obj):
-            return 0
-            
-        conflictProceduralBones = get_conflicting_clothjiggle(armature_obj)
-        if conflictProceduralBones:
-            draw_wrapped_text_col(layout, f'Bone(s): {", ".join(conflictProceduralBones)} is/are marked as Jigglebone and Cloth!', alert=True)
-            return 1
-        return 0
-    
-    @staticmethod
     def draw_invalid_names(layout: UILayout, invalid_names: dict) -> int:
         count = 0
         
         if invalid_names['armature']:
-            draw_wrapped_text_col(layout, f'Armature Name: {", ".join(invalid_names["armature"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            draw_wrapped_texts(layout, f'Armature Name: {", ".join(invalid_names["armature"])}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
         
         if invalid_names['bones']:
             bone_list = "\n".join(invalid_names["bones"])
-            draw_wrapped_text_col(layout, f'Bone(s):\n\n{bone_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            draw_wrapped_texts(layout, f'Bone(s):\n\n{bone_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
 
         if invalid_names['meshes']:
             mesh_list = "\n".join(invalid_names["meshes"])
-            draw_wrapped_text_col(layout, f'Mesh Object(s):\n\n{mesh_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            draw_wrapped_texts(layout, f'Mesh Object(s):\n\n{mesh_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
 
         if invalid_names['materials']:
-            material_list = "\n".join(invalid_names["materials"])
-            draw_wrapped_text_col(layout, f'Material(s):\n\n{material_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            material_list = "\n".join(f"{mat} in '{mesh}'" for mat, mesh in invalid_names["materials"])
+            draw_wrapped_texts(layout, f'Material(s):\n\n{material_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
 
         if invalid_names['shapekeys']:
-            shapekey_list = "\n".join(invalid_names["shapekeys"])
-            draw_wrapped_text_col(layout, f'Shapekey(s):\n\n{shapekey_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
+            shapekey_list = "\n".join(f"{key} in '{mesh}'" for key, mesh in invalid_names["shapekeys"])
+            draw_wrapped_texts(layout, f'Shapekey(s):\n\n{shapekey_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
         
         return count
@@ -283,12 +296,12 @@ class WarningRenderer:
         
         unparented_hitboxes = get_unparented_hitboxes()
         if unparented_hitboxes:
-            draw_wrapped_text_col(layout, f'Hitbox(es): {", ".join(unparented_hitboxes)} must be parented to a bone!', alert=True)
+            draw_wrapped_texts(layout, f'Hitbox(es): {", ".join(unparented_hitboxes)} must be parented to a bone!', alert=True)
             count += 1
         
         unparented_attachments = get_unparented_attachments()
         if unparented_attachments:
-            draw_wrapped_text_col(layout, f'Attachment(s): {", ".join(unparented_attachments)} must be parented to a bone!', alert=True)
+            draw_wrapped_texts(layout, f'Attachment(s): {", ".join(unparented_attachments)} must be parented to a bone!', alert=True)
             count += 1
         
         return count
@@ -301,14 +314,14 @@ class WarningRenderer:
         if bugged_hitboxes:
             col = layout.column(align=True)
             col.operator(VALVEMODEL_OT_FixHitBox.bl_idname)
-            draw_wrapped_text_col(col, f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True)
+            draw_wrapped_texts(col, f'Hitbox(es): {", ".join(bugged_hitboxes)} have incorrect matrix (world-space instead of bone-relative). Use Fix Hitboxes operator!', alert=True)
             count += 1
         
         bugged_attachments = get_bugged_attachments()
         if bugged_attachments:
             col = layout.column(align=True)
             col.operator(VALVEMODEL_OT_FixAttachment.bl_idname)
-            draw_wrapped_text_col(col, f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
+            draw_wrapped_texts(col, f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
             count += 1
         
         return count
@@ -323,23 +336,24 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         col = l.column(align=True)
         
         addonver, addondevstate = format_version()
-        addoninfo_section : UILayout = create_toggle_section(col, context.scene.vs, 'show_addoninfo', show_text=f'KitsuneSourceTool {addonver}_{addondevstate}', hide_text='', toggle_scale_y=1.2)
+        addoninfo_section : UILayout = draw_toggleable_layout(col, context.scene.vs, 'show_addoninfo', show_text=f'KitsuneSourceTool {addonver}_{addondevstate}', hide_text='', toggle_scale_y=0.8)
         if addoninfo_section is not None:
-            draw_wrapped_text_col(addoninfo_section, get_id('introduction_message'))
+            draw_wrapped_texts(addoninfo_section, get_id('introduction_message'), boxed=False)
         
-        prophelpsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_properties_help', f'Show Tips', '', toggle_scale_y=0.7)
+        prophelpsection : UILayout = draw_toggleable_layout(col, context.scene.vs, 'show_properties_help', f'Show Tips', '', toggle_scale_y=0.7)
         if prophelpsection is not None:
             help_text = [
-                '- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type.\n\n',
+                '- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type.',
                 '- Exporting bones with non alphanumeric character will be sanitize and can lead to issues with bone mixup.',
             ]
-            draw_wrapped_text_col(prophelpsection, text="".join(help_text), max_chars=40)
+            draw_wrapped_texts(prophelpsection, text=help_text[0], max_chars=40, boxed=False)
+            draw_wrapped_texts(prophelpsection, text=help_text[1], max_chars=40, alert=True, boxed=False)
 
         warning_count = ValidationChecker.count_warnings(context)
         has_warnings = warning_count > 0
         
         section_title = 'Object(s) Validation' if warning_count == 0 else f'Object(s) Validation ({warning_count})'
-        warningsection : UILayout = create_toggle_section(col, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings, icon='SCENE')
+        warningsection : UILayout = draw_toggleable_layout(col, context.scene.vs, 'show_objectwarnings', section_title, '', alert=has_warnings)
         
         if warningsection is not None:
             self.draw_warning_checks(context, warningsection)
@@ -361,7 +375,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
             if object_type is None and context.object: is_sametype = True
             elif context.object and (context.object.type == object_type or context.object.type in object_type): is_sametype = True
             
-            section = create_toggle_section(
+            section = draw_toggleable_layout(
                 col, context.scene.vs, prop, 
                 show_text=label, icon=icon, 
                 enabled=is_sametype,
@@ -374,8 +388,6 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     def draw_warning_checks(self, context: Context, layout: UILayout) -> int:
         num_warnings = 0
         
-        num_warnings += WarningRenderer.draw_conflicting_procedural_bones(layout, context.object)
-        
         invalid_names = ValidationChecker.get_invalid_names(context.object)
         num_warnings += WarningRenderer.draw_invalid_names(layout, invalid_names)
         
@@ -383,7 +395,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         num_warnings += WarningRenderer.draw_bugged_items(layout)
                 
         if num_warnings == 0:
-            draw_wrapped_text_col(layout, f'No Errors found on active object', boxed=False)
+            draw_wrapped_texts(layout, f'No Errors found on active object', boxed=False)
             
         return num_warnings
     
@@ -392,11 +404,28 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         ob : Object | None = context.object
         
         if not ob:
-            draw_wrapped_text_col(l,get_id("panel_select_object"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(l, get_id("panel_select_object"), max_chars=40, icon='HELP')
             return
         
-        l.box().label(text=f'Active Object: ({ob.name})')
-        l.prop(ob.vs, 'export')
+        object_box = draw_title_box_layout(l, text=f'Active Object: {ob.name}', icon='OBJECT_DATA')
+        
+        col = object_box.column(align=True)
+        col.scale_y = 1.2
+        col.prop(ob.vs, 'export', text='Scene Export')
+        
+        if is_armature(ob):   
+            armaturebox = draw_title_box_layout(l, text='Armature Settings', icon='ARMATURE_DATA')
+            
+            col = armaturebox.column(align=True)
+            col.prop(ob.data.vs, "ignore_bone_exportnames")
+            
+            rootitem, subitems = draw_listing_layout(col)
+            rootitem.label(text='Direction Naming:')
+            row = subitems.row()
+            row.prop(ob.data.vs, 'bone_direction_naming_left', text='Left')
+            row.prop(ob.data.vs, 'bone_direction_naming_right', text='Right')
+            
+            armaturebox.prop(ob.data.vs, 'bone_name_startcount', slider=True)
         
     def draw_meshproperties(self, context : Context, layout : UILayout) -> None:
         l : UILayout = layout
@@ -404,7 +433,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         if is_mesh(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
         
         sections = [
@@ -416,7 +445,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         col = l.column()
         
         for prop, label, icon, draw_func in sections:
-            section = create_toggle_section(
+            section = draw_toggleable_layout(
                 col, context.scene.vs, prop, 
                 show_text=label, icon=icon,
                 boxed=False
@@ -429,7 +458,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         ob = context.object
         
         if not hasShapes(ob):
-            draw_wrapped_text_col(bx,'Mesh has no Shapekeys!',alert=True,icon='ERROR')
+            draw_wrapped_texts(bx,'Mesh has no Shapekeys!',alert=True,icon='ERROR')
         
         num_shapes, num_correctives = countShapes(ob)
         
@@ -488,7 +517,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
             
             if num_shapes == 0:
                 col.separator()
-                draw_wrapped_text_col(col,'Empty List will export the object without shapekeys',icon='HELP', boxed=False)
+                draw_wrapped_texts(col,'Empty List will export the object without shapekeys',icon='HELP', boxed=False)
             
         else:
             insertCorrectiveUi(col)
@@ -507,7 +536,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         col = bx.column(align=True)
         
         if State.exportFormat != ExportFormat.DMX:
-            draw_wrapped_text_col(bx,'Only Applicable in DMX!',alert=True,icon='ERROR')
+            draw_wrapped_texts(bx,'Only Applicable in DMX!',alert=True,icon='ERROR')
         
         for map_name in vertex_maps:
             r = col.row()
@@ -528,7 +557,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         col.scale_y = 1.1
         if State.compiler != Compiler.MODELDOC or State.exportFormat != ExportFormat.DMX:
             messages = 'Only Applicable in Source 2 and DMX'
-            draw_wrapped_text_col(col, messages, 32, alert=True, icon='ERROR')
+            draw_wrapped_texts(col, messages, 32, alert=True, icon='ERROR')
             col.active = False
 
         col = col.column(align=False)
@@ -556,81 +585,69 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         l : UILayout = layout
         ob : Object | None = context.object
         
-        if is_armature(ob): pass
-        else:
-            draw_wrapped_text_col(l,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+        if not is_armature(ob):
+            draw_wrapped_texts(l, get_id("panel_select_armature"), max_chars=40, icon='HELP')
             return
-            
+        
         try:
             bone : bpy.types.Bone | None = ob.data.bones.active if context.mode != 'EDIT_ARMATURE' else ob.data.bones.get(ob.data.edit_bones.active.name)
         except:
             bone = None
         
-        if bone is not None:
-            l.prop(ob.data.vs, "ignore_bone_exportnames", toggle=True)
-            draw_wrapped_text_col(l,'Ignore bone export name affects all bones',max_chars=40 , icon='ERROR')
-            subbx = l.box()  
-            subbx.label(text=f'Active Bone: {bone.name}')
-            subbx.separator(type='LINE')
-            subbx.label(text=f'Export Name : {getBoneExportName(bone)}')
+        if bone is None:
+            draw_wrapped_texts(l, 'Select a bone to edit properties', max_chars=40, icon='INFO')
+            return
+        
+        if context.mode == 'EDIT_ARMATURE':
+            draw_wrapped_texts(l, 'Bone properties are not editable in Edit Mode', max_chars=36, alert=True, icon='ERROR')
+            return
+        
+        title = draw_title_box_layout(l, text=f'Active Bone: {bone.name}', icon='BONE_DATA')
 
-            if context.mode != 'EDIT_ARMATURE':
-                col = l.column(align=False)
-                col.prop(bone.vs, 'export_name')
-                row = col.split(align=True, factor=0.4)
-                row.label(text='Direction Naming:')
-                row.prop(ob.data.vs, 'bone_direction_naming_left',text='')
-                row.prop(ob.data.vs, 'bone_direction_naming_right',text='')
-                col.prop(ob.data.vs, 'bone_name_startcount', slider=True)
-                
-                row = l.row(align=True)
-                col = row.column(align=True)
-                col.prop(bone.vs, 'ignore_location_offset', toggle=True)
-                
-                col = col.column(align=True)
-                if bone.vs.ignore_location_offset: col.active = False
-                col.prop(bone.vs, 'export_location_offset_x')
-                col.prop(bone.vs, 'export_location_offset_y')
-                col.prop(bone.vs, 'export_location_offset_z')
-                
-                col = row.column(align=True)
-                col.prop(bone.vs, 'ignore_rotation_offset', toggle=True)
-                
-                col = col.column(align=True)
-                if bone.vs.ignore_rotation_offset: col.active = False
-                col.prop(bone.vs, 'export_rotation_offset_x')
-                col.prop(bone.vs, 'export_rotation_offset_y')
-                col.prop(bone.vs, 'export_rotation_offset_z')
-                
-                col = l.column()
-                draw_wrapped_text_col(
-                    col,
-                    'Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
-                    max_chars=36)
-                
-                col = l.column()
-                col.prop(bone, 'use_deform', toggle=True)
-
-            else:
-                col = l.column(align=True)
-                messages = 'Bone Properties is not editable in Edit Mode'
-                draw_wrapped_text_col(col, messages, max_chars=32, alert=True,icon='ERROR')
-        else:
-            l.label(text='Select a Valid Bone')
+        col = title.column(align=True)
+        rootitem, subitems = draw_listing_layout(col)
+        
+        rootitem.prop(bone.vs, 'export_name', placeholder=get_bone_exportname(bone))
+        subitems.label(text=f'Export Name: {get_bone_exportname(bone)}')
+        
+        title.separator(type='LINE')
+        
+        split = title.split(factor=0.5)
+        
+        col_left = split.column(align=True)
+        col_left.label(text='Location Offset:', icon='ORIENTATION_LOCAL')
+        col_left.prop(bone.vs, 'ignore_location_offset', text='Ignore', toggle=True)
+        
+        sub = col_left.column(align=True)
+        sub.active = not bone.vs.ignore_location_offset
+        sub.prop(bone.vs, 'export_location_offset_x')
+        sub.prop(bone.vs, 'export_location_offset_y')
+        sub.prop(bone.vs, 'export_location_offset_z')
+        
+        col_right = split.column(align=True)
+        col_right.label(text='Rotation Offset:', icon='ORIENTATION_GIMBAL')
+        col_right.prop(bone.vs, 'ignore_rotation_offset', text='Ignore', toggle=True)
+        
+        sub = col_right.column(align=True)
+        sub.active = not bone.vs.ignore_rotation_offset
+        sub.prop(bone.vs, 'export_rotation_offset_x')
+        sub.prop(bone.vs, 'export_rotation_offset_y')
+        sub.prop(bone.vs, 'export_rotation_offset_z')
+        
+        draw_wrapped_texts(
+            title,
+            'Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
+            max_chars=36,
+            icon='INFO')
     
     def draw_materialproperties(self, context : Context, layout : UILayout) -> None:
         l : UILayout = layout
         ob : Object | None = context.object
         if ob is None: return
         
-        allmats = getAllMats(ob)
-        allmaterials_section = create_toggle_section(l,context.scene.vs,'show_materials',f'Show All Mesh Materials: {len(allmats)}','',alert=not bool(allmats), toggle_scale_y=0.7)
+        allmats = get_all_materials(ob)
+        allmaterials_section = draw_toggleable_layout(l,context.scene.vs,'show_materials',f'Show All Mesh Materials: {len(allmats)}','',alert=not bool(allmats), toggle_scale_y=0.7)
         if allmaterials_section is not None:
-            
-            if context.scene.vs.material_path.strip():
-                titlebox = draw_title_box(allmaterials_section,'Default Material Path')
-                titlebox.prop(context.scene.vs, 'material_path',text='', emboss=False)
-            
             for mat in allmats:
                 subbx = allmaterials_section.box()
                 col = subbx.column(align=False)
@@ -647,13 +664,16 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
                 if not mat.vs.do_not_export_faces:
                     col = subbx.column(align=True)
                     col.scale_y = 1.05
-                    col.prop(mat.vs,'override_dmx_export_path',icon='FOLDER_REDIRECT', placeholder=context.scene.vs.material_path)
+                    
+                    if State.exportFormat == ExportFormat.DMX:
+                        col.prop(mat.vs,'override_dmx_export_path',icon='FOLDER_REDIRECT', placeholder=context.scene.vs.material_path, text='')
+                        
                     if mat.vs.do_not_export_faces_vgroup:
                         col.prop(mat.vs,'non_exportable_vgroup',icon='GROUP_VERTEX')
         
         if is_mesh(ob) and has_materials(ob): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(l,get_id("panel_select_mesh_mat"),max_chars=40 , icon='HELP')
             return
         
         currMat = ob.active_material
@@ -665,7 +685,10 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         if not currMat.vs.do_not_export_faces:
             col = l.column()
-            col.prop(currMat.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
+            
+            if State.exportFormat == ExportFormat.DMX:
+                col.prop(currMat.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
+                
             col.prop(currMat.vs, 'non_exportable_vgroup')   
 
     def draw_emptyproperties(self, context : Context, layout : UILayout) -> None:
@@ -674,7 +697,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         if is_empty(ob): pass
         else:
-            draw_wrapped_text_col(L,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(L,get_id("panel_select_empty"),max_chars=40 , icon='HELP')
             return
         
         col : UILayout = L.column()
@@ -694,7 +717,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         if is_curve(context.object) and hasCurves(context.object): pass
         else:
-            draw_wrapped_text_col(l,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(l,get_id("panel_select_curve"),max_chars=40 , icon='HELP')
             return
         
         done = set()
@@ -703,8 +726,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False) # type: ignore
         row.prop(context.object.data.vs,"faces",text="")
         done.add(context.object.data)
-
-        
+       
 class DME_UL_FlexControllers(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
         ob : Object | None = context.object
@@ -722,9 +744,9 @@ class DME_UL_FlexControllers(UIList):
 class DME_OT_AddFlexController(Operator):
     bl_idname : str = "dme.add_flexcontroller"
     bl_label : str = "Add Flex Controller"
-    bl_options : Set = {'INTERNAL', 'UNDO'}  
+    bl_options : set = {'INTERNAL', 'UNDO'}  
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         ob : Object | None = context.object
 
         new_item = ob.vs.dme_flexcontrollers.add()
@@ -735,11 +757,11 @@ class DME_OT_AddFlexController(Operator):
 class DME_OT_RemoveFlexController(Operator):
     bl_idname : str = "dme.remove_flexcontroller"
     bl_label : str = "Remove Flex Controller"
-    bl_options : Set = {'INTERNAL', 'UNDO'}
+    bl_options : set = {'INTERNAL', 'UNDO'}
     
     index : IntProperty()
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         ob : Object | None = context.object
 
         ob.vs.dme_flexcontrollers.remove(self.index)
@@ -752,7 +774,7 @@ class SMD_OT_AddVertexMapRemap(Operator):
 
     map_name: bpy.props.StringProperty()
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         active_object = context.object
         if active_object and active_object.type == 'MESH':
             group = active_object.vs.vertex_map_remaps.add()

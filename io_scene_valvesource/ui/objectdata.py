@@ -1,34 +1,35 @@
+import bpy, blf
 from bpy.types import Operator, Context, Event, UILayout
 from bpy.props import BoolProperty, StringProperty, EnumProperty
 
 from ..core.networkutils import (
-    translate_to_english
+    translate_string
 )
 
 from ..core.commonutils import (
-    draw_wrapped_text_col, draw_title_box, get_all_children, getArmatureMeshes, create_toggle_section
+    draw_wrapped_texts, draw_title_box_layout, get_all_child_objects, get_armature_meshes, draw_toggleable_layout
 )
 
 from ..core.objectutils import (
     apply_object_transforms
 )
 
-from .common import Tools_SubCategoryPanel
+from .common import Tools_SubCategoryPanel, ModalUIProcess
 
 class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
-    bl_label : str = "Object Tools"
+    bl_label : str = "Object"
     
     def draw(self, context : Context) -> None:
         layout : UILayout = self.layout
         
-        bx = draw_title_box(layout,text='Object Tools',icon='OBJECT_DATA')
+        bx = draw_title_box_layout(layout,text='Object Tools',icon='OBJECT_DATA')
         
         if context.active_object: pass
         else:
-            draw_wrapped_text_col(bx, text="Select an Object",max_chars=40 , icon='HELP')
+            draw_wrapped_texts(bx, text="Select an Object",max_chars=40 , icon='HELP')
             return
         
-        transformbox = draw_title_box(bx,text=f'Transform (Active: {context.active_object.name})',icon='TRANSFORM_ORIGINS',align=True)
+        transformbox = draw_title_box_layout(bx,text=f'Transform (Active: {context.active_object.name})',icon='TRANSFORM_ORIGINS',align=True)
         
         transformbox.separator()
         
@@ -49,17 +50,17 @@ class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
             "Ideally should only be used for complex object hierarchies! Will work poorly for simple apply, just use blender's instead"
         ]
         
-        transform_helpsection = create_toggle_section(transformbox,context.scene.vs,'show_applytransform_help',show_text='Show Help',icon='HELP')
+        transform_helpsection = draw_toggleable_layout(transformbox,context.scene.vs,'show_applytransform_help',show_text='Show Help',icon='HELP')
         
         if transform_helpsection is not None:
-            draw_wrapped_text_col(transform_helpsection, " ".join(text), alert=False, boxed=False)
-            draw_wrapped_text_col(transform_helpsection, " ".join(text2), alert=True, boxed=False)
+            draw_wrapped_texts(transform_helpsection, " ".join(text), alert=False, boxed=False)
+            draw_wrapped_texts(transform_helpsection, " ".join(text2), alert=True, boxed=False)
         
         transformbox.separator()
         
         transformbox.operator(OBJECT_OT_apply_transform.bl_idname)
             
-        translatebox = draw_title_box(bx,text=f'Translate (Active: {context.active_object.name})',icon='NETWORK_DRIVE',align=True)
+        translatebox = draw_title_box_layout(bx,text=f'Translate (Active: {context.active_object.name})',icon='NETWORK_DRIVE',align=True)
         
         text = [
             "This requires Internet Connection!\n",
@@ -68,19 +69,216 @@ class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
             "If entries didn't get translate, try again later as you may have hit Google's limit"
         ]
         
-        draw_wrapped_text_col(translatebox," ".join(text),alert=True, boxed=False)
+        draw_wrapped_texts(translatebox," ".join(text),alert=True, boxed=False)
         
         translatebox.separator()
         
         op = translatebox.operator(OBJECT_OT_translate_names.bl_idname)
         
-class OBJECT_OT_translate_names(Operator):
-    bl_idname : str = "object.translate_names"
-    bl_label : str = "Translate Names to English"
-    bl_description : str = "Translate selected name types to English using Google Translate"
-    bl_options : set = {'REGISTER', 'UNDO'}
+class OBJECT_OT_TranslateNamesModal(Operator):
+    bl_idname = 'objectdata.translate_names_modal'
+    bl_label = 'Translating Names'
+    bl_options = {'INTERNAL'}
     
-    translate_types:EnumProperty(
+    translate_types: bpy.props.EnumProperty(
+        name="Translate",
+        items=[
+            ('BONES', "Bone Names", ""),
+            ('SHAPEKEYS', "Shape Key Names", ""),
+            ('OBJECTS', "Object Names", ""),
+            ('MATERIALS', "Material Names", ""),
+        ],
+        options={'ENUM_FLAG'}
+    )
+    
+    no_spaces: bpy.props.BoolProperty(default=True)
+    include_children: bpy.props.BoolProperty(default=True)
+    source_lang: bpy.props.StringProperty(default="auto")
+    
+    _timer = None
+    _handle = None
+    _processing_done = False
+    _current_stage = ""
+    _translated_count = 0
+    _result = None
+    _objects_to_process = []
+    _current_obj_index = 0
+    
+    def draw_callback(self, context):
+        region = context.region
+        main_text = f"Translating... ({self._translated_count} updated)"
+        sub_text = self._current_stage if self._current_stage else "Please wait, Blender may appear frozen"
+        
+        progress = 0.0
+        if len(self._objects_to_process) > 0:
+            progress = self._current_obj_index / len(self._objects_to_process)
+        
+        ModalUIProcess.draw_modal_overlay(region, main_text, sub_text, progress, show_progress=True)
+    
+    def process_name(self, name: str) -> str:
+        if self.no_spaces:
+            return name.replace(' ', '_')
+        return name
+    
+    def process_current_object(self, context):
+        if self._current_obj_index >= len(self._objects_to_process):
+            return True
+        
+        current_obj = self._objects_to_process[self._current_obj_index]
+        
+        if 'BONES' in self.translate_types and current_obj.type == 'ARMATURE':
+            bone_names = [bone.name for bone in current_obj.data.bones]
+            if bone_names:
+                self._current_stage = f"Translating {len(bone_names)} bone names..."
+                translated_names = translate_string(bone_names, source_lang=self.source_lang)
+                
+                bone_map = {old: self.process_name(new) for old, new in zip(bone_names, translated_names)}
+                
+                for old_name, new_name in bone_map.items():
+                    if old_name != new_name:
+                        bone = current_obj.data.bones.get(old_name)
+                        if bone:
+                            bone.name = new_name
+                            self._translated_count += 1
+            
+            if hasattr(current_obj.data, 'collections'):
+                collection_names = [col.name for col in current_obj.data.collections]
+                if collection_names:
+                    self._current_stage = f"Translating {len(collection_names)} bone collection names..."
+                    translated_names = translate_string(collection_names, source_lang=self.source_lang)
+                    
+                    for col, new_name in zip(current_obj.data.collections, translated_names):
+                        new_name = self.process_name(new_name)
+                        if col.name != new_name:
+                            col.name = new_name
+                            self._translated_count += 1
+        
+        if 'SHAPEKEYS' in self.translate_types:
+            if current_obj.data and hasattr(current_obj.data, 'shape_keys') and current_obj.data.shape_keys:
+                key_blocks = current_obj.data.shape_keys.key_blocks
+                shapekey_names = [kb.name for kb in key_blocks]
+                
+                if shapekey_names:
+                    self._current_stage = f"Translating {len(shapekey_names)} shape key names..."
+                    translated_names = translate_string(shapekey_names, source_lang=self.source_lang)
+                    
+                    for kb, new_name in zip(key_blocks, translated_names):
+                        new_name = self.process_name(new_name)
+                        if kb.name != new_name:
+                            kb.name = new_name
+                            self._translated_count += 1
+        
+        if 'OBJECTS' in self.translate_types:
+            names_to_translate = [current_obj.name]
+            if current_obj.data and hasattr(current_obj.data, 'name'):
+                names_to_translate.append(current_obj.data.name)
+            
+            self._current_stage = "Translating object names..."
+            translated_names = translate_string(names_to_translate, source_lang=self.source_lang)
+            
+            new_obj_name = self.process_name(translated_names[0])
+            if current_obj.name != new_obj_name:
+                current_obj.name = new_obj_name
+                self._translated_count += 1
+            
+            if len(translated_names) > 1 and current_obj.data and hasattr(current_obj.data, 'name'):
+                new_data_name = self.process_name(translated_names[1])
+                if current_obj.data.name != new_data_name:
+                    current_obj.data.name = new_data_name
+                    self._translated_count += 1
+        
+        if 'MATERIALS' in self.translate_types:
+            if current_obj.data and hasattr(current_obj.data, 'materials'):
+                materials = [mat for mat in current_obj.data.materials if mat]
+                material_names = [mat.name for mat in materials]
+                
+                if material_names:
+                    self._current_stage = f"Translating {len(material_names)} material names..."
+                    translated_names = translate_string(material_names, source_lang=self.source_lang)
+                    
+                    for mat, new_name in zip(materials, translated_names):
+                        new_name = self.process_name(new_name)
+                        if mat.name != new_name:
+                            mat.name = new_name
+                            self._translated_count += 1
+        
+        self._current_obj_index += 1
+        return self._current_obj_index >= len(self._objects_to_process)
+    
+    def modal(self, context : Context, event : Event) -> set:
+        if event.type == 'TIMER':
+            if not self._processing_done:
+                try:
+                    if not self._objects_to_process:
+                        obj = context.active_object
+                        
+                        if not obj:
+                            self._result = ({'ERROR'}, "No active object selected")
+                            self._processing_done = True
+                            return {'RUNNING_MODAL'}
+                        
+                        self._objects_to_process = [obj]
+                        
+                        if self.include_children:
+                            if obj.type == 'ARMATURE':
+                                armature_meshes = get_armature_meshes(obj)
+                                self._objects_to_process.extend(armature_meshes)
+                            
+                            children = get_all_child_objects(obj)
+                            self._objects_to_process.extend(children)
+                    
+                    is_done = self.process_current_object(context)
+                    
+                    if is_done:
+                        self._result = ({'INFO'}, f"Translation complete! {self._translated_count} names updated")
+                        self._processing_done = True
+                    
+                except Exception as e:
+                    self._result = ({'ERROR'}, f"Translation error: {str(e)}")
+                    self._processing_done = True
+            else:
+                self.cleanup(context)
+                
+                if self._result:
+                    self.report(self._result[0], self._result[1])
+                
+                return {'FINISHED'}
+        
+        context.area.tag_redraw()
+        return {'RUNNING_MODAL'}
+    
+    def execute(self, context : Context) -> set:
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        
+        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+            self.draw_callback, (context,), 'WINDOW', 'POST_PIXEL'
+        )
+        
+        return {'RUNNING_MODAL'}
+    
+    def cleanup(self, context):
+        if self._timer:
+            wm = context.window_manager
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        
+        if self._handle:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            self._handle = None
+            context.area.tag_redraw()
+    
+    def cancel(self, context):
+        self.cleanup(context)
+
+class OBJECT_OT_translate_names(Operator):
+    bl_idname = "objectdata.translate_names"
+    bl_label = "Translate Names to English"
+    bl_description = "Translate selected name types to English using Google Translate"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    translate_types: EnumProperty(
         name="Translate",
         description="Select what to translate",
         items=[
@@ -93,28 +291,28 @@ class OBJECT_OT_translate_names(Operator):
         default={'BONES', 'SHAPEKEYS', 'OBJECTS', 'MATERIALS'}
     )
     
-    no_spaces:BoolProperty(
+    no_spaces: BoolProperty(
         name="Replace Spaces with Underscore",
         description="Replace spaces with underscores in translated names",
         default=True
     )
     
-    include_children:BoolProperty(
+    include_children: BoolProperty(
         name="Include Child Objects",
         description="Also translate names for all child objects recursively",
         default=True
     )
     
-    source_lang:StringProperty(
+    source_lang: StringProperty(
         name="Source Language",
         description="Source language code (auto for auto-detect)",
         default="auto"
     )
     
-    def invoke(self, context : Context, event : Event) -> set:
+    def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
     
-    def draw(self, context : Context) -> None:
+    def draw(self, context):
         layout = self.layout
         
         layout.label(text="Translation Options:", icon='WORLD')
@@ -134,111 +332,17 @@ class OBJECT_OT_translate_names(Operator):
         layout.prop(self, "source_lang")
     
     def execute(self, context : Context) -> set:
-        obj = context.active_object
-        
-        if not obj:
-            self.report({'ERROR'}, "No active object selected")
-            return {'CANCELLED'}
-        
-        def process_name(name: str) -> str:
-            if self.no_spaces:
-                return name.replace(' ', '_')
-            return name
-        
-        objects_to_process = [obj]
-        
-        if self.include_children:
-            if obj.type == 'ARMATURE':
-                armature_meshes = getArmatureMeshes(obj)
-                objects_to_process.extend(armature_meshes)
-            
-            children = get_all_children(obj)
-            objects_to_process.extend(children)
-        
-        translated_count = 0
-        
-        for current_obj in objects_to_process:
-            if 'BONES' in self.translate_types and current_obj.type == 'ARMATURE':
-                bone_names = [bone.name for bone in current_obj.data.bones]
-                if bone_names:
-                    print(f"Translating {len(bone_names)} bone names...")
-                    translated_names = translate_to_english(bone_names, source_lang=self.source_lang)
-                    
-                    bone_map = {old: process_name(new) for old, new in zip(bone_names, translated_names)}
-                    
-                    for old_name, new_name in bone_map.items():
-                        if old_name != new_name:
-                            bone = current_obj.data.bones.get(old_name)
-                            if bone:
-                                bone.name = new_name
-                                translated_count += 1
-                
-                if hasattr(current_obj.data, 'collections'):
-                    collection_names = [col.name for col in current_obj.data.collections]
-                    if collection_names:
-                        print(f"Translating {len(collection_names)} bone collection names...")
-                        translated_names = translate_to_english(collection_names, source_lang=self.source_lang)
-                        
-                        for col, new_name in zip(current_obj.data.collections, translated_names):
-                            new_name = process_name(new_name)
-                            if col.name != new_name:
-                                col.name = new_name
-                                translated_count += 1
-            
-            if 'SHAPEKEYS' in self.translate_types:
-                if current_obj.data and hasattr(current_obj.data, 'shape_keys') and current_obj.data.shape_keys:
-                    key_blocks = current_obj.data.shape_keys.key_blocks
-                    shapekey_names = [kb.name for kb in key_blocks]
-                    
-                    if shapekey_names:
-                        print(f"Translating {len(shapekey_names)} shape key names...")
-                        translated_names = translate_to_english(shapekey_names, source_lang=self.source_lang)
-                        
-                        for kb, new_name in zip(key_blocks, translated_names):
-                            new_name = process_name(new_name)
-                            if kb.name != new_name:
-                                kb.name = new_name
-                                translated_count += 1
-            
-            if 'OBJECTS' in self.translate_types:
-                names_to_translate = [current_obj.name]
-                if current_obj.data and hasattr(current_obj.data, 'name'):
-                    names_to_translate.append(current_obj.data.name)
-                
-                print(f"Translating object names...")
-                translated_names = translate_to_english(names_to_translate, source_lang=self.source_lang)
-                
-                new_obj_name = process_name(translated_names[0])
-                if current_obj.name != new_obj_name:
-                    current_obj.name = new_obj_name
-                    translated_count += 1
-                
-                if len(translated_names) > 1 and current_obj.data and hasattr(current_obj.data, 'name'):
-                    new_data_name = process_name(translated_names[1])
-                    if current_obj.data.name != new_data_name:
-                        current_obj.data.name = new_data_name
-                        translated_count += 1
-            
-            if 'MATERIALS' in self.translate_types:
-                if current_obj.data and hasattr(current_obj.data, 'materials'):
-                    materials = [mat for mat in current_obj.data.materials if mat]
-                    material_names = [mat.name for mat in materials]
-                    
-                    if material_names:
-                        print(f"Translating {len(material_names)} material names...")
-                        translated_names = translate_to_english(material_names, source_lang=self.source_lang)
-                        
-                        for mat, new_name in zip(materials, translated_names):
-                            new_name = process_name(new_name)
-                            if mat.name != new_name:
-                                mat.name = new_name
-                                translated_count += 1
-        
-        self.report({'INFO'}, f"Translation complete! {translated_count} names updated")
+        bpy.ops.objectdata.translate_names_modal(
+            'INVOKE_DEFAULT',
+            translate_types=self.translate_types,
+            no_spaces=self.no_spaces,
+            include_children=self.include_children,
+            source_lang=self.source_lang
+        )
         return {'FINISHED'}
     
 class OBJECT_OT_apply_transform(Operator):
-    bl_idname : str = "object.apply_transform"
+    bl_idname : str = "objectdata.apply_transform"
     bl_label : str = "Apply Transform"
     bl_description : str = "Apply transforms to object and optionally its children"
     bl_options : set = {'REGISTER', 'UNDO'}

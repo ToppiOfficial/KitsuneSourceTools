@@ -4,25 +4,25 @@ from typing import Set
 
 from .common import Tools_SubCategoryPanel
 from ..core.commonutils import (
-    draw_title_box, draw_wrapped_text_col,
+    draw_title_box_layout, draw_wrapped_texts,
     is_armature, is_mesh,
 )
 from ..core.meshutils import (
-    get_unused_shape_keys, clean_vertex_groups
+    get_unused_shapekeys, remove_unused_vertexgroups
 )
 from ..utils import hasShapes
 from ..utils import get_id
 
 class TOOLS_PT_Mesh(Tools_SubCategoryPanel):
-    bl_label : str = "Mesh Tools"
+    bl_label : str = "Mesh"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
-        bx : UILayout = draw_title_box(l, TOOLS_PT_Mesh.bl_label, icon='MESH_DATA')
+        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_Mesh.bl_label, icon='MESH_DATA')
         
         if is_mesh(context.object) or is_armature(context.object): pass
         else:
-            draw_wrapped_text_col(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
         
         col = bx.column()
@@ -56,7 +56,7 @@ class TOOLS_OT_CleanShapeKeys(Operator):
         for ob in objects:
             if ob.type != 'MESH': continue
             
-            deleted_sk = get_unused_shape_keys(ob)
+            deleted_sk = get_unused_shapekeys(ob)
             
             if deleted_sk:
                 cleaned_objects += 1
@@ -147,7 +147,7 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         total_removed = 0
 
         for ob in obs:
-            removed_vgroups = clean_vertex_groups(ob)
+            removed_vgroups = remove_unused_vertexgroups(ob)
             total_removed += sum(len(vgs) for vgs in removed_vgroups.values())
 
         self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
@@ -168,6 +168,12 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         name="Use Shape Key Weights",
         description="Assign vertex weights based on total movement from all shape keys",
         default=False
+    )
+    
+    overwrite_existing_weights: bpy.props.BoolProperty(
+        name="Overwrite Existing Weights",
+        description="Update vertex group weights even if the vertex group already exists",
+        default=True
     )
     
     shape_key_weight_mode: bpy.props.EnumProperty(
@@ -236,6 +242,26 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     def poll(cls, context : Context) -> bool:
         return bool({ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()})
 
+    def draw(self, context : Context):
+        layout = self.layout
+        
+        layout.prop(self, "edgeline_thickness")
+        layout.prop(self, "has_sharp_edgesplit") 
+        layout.prop(self, "use_shape_key_weights")
+        
+        if self.use_shape_key_weights:
+            box = layout.box()
+            box.prop(self, "overwrite_existing_weights")
+            box.prop(self, "shape_key_weight_mode")
+            
+            row = box.row(align=True)
+            row.prop(self, "weight_min")
+            row.prop(self, "weight_max")
+            
+            box.prop(self, "weight_threshold")
+            box.prop(self, "weight_expansion")
+            box.prop(self, "normalize_per_shapekey")
+
     def execute(self, context : Context) -> Set:
         obs : set[Object]  = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
 
@@ -269,13 +295,48 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             edgeline_mat.vs.non_exportable_vgroup = 'non_exportable_face'
             edgeline_mat.vs.do_not_export_faces_vgroup = True
 
-            original_mat_count = sum(1 for slot in ob.material_slots if slot.material and "edgeline" not in slot.material.name.lower())
-            expected_mat_count = original_mat_count * 2
-            while len(ob.data.materials) < expected_mat_count:
-                ob.data.materials.append(edgeline_mat)
+            old_to_new_index = {}
+            non_edgeline_indices = []
+            edgeline_indices = []
+            
+            for old_idx, slot in enumerate(ob.material_slots):
+                if slot.material and "edgeline" in slot.material.name.lower():
+                    edgeline_indices.append(old_idx)
+                else:
+                    non_edgeline_indices.append(old_idx)
+
+            original_mat_count = len(non_edgeline_indices)
+            
+            for new_idx, old_idx in enumerate(non_edgeline_indices):
+                old_to_new_index[old_idx] = new_idx
+            
+            for new_idx, old_idx in enumerate(edgeline_indices):
+                old_to_new_index[old_idx] = original_mat_count + new_idx
+            
+            for poly in ob.data.polygons:
+                if poly.material_index in old_to_new_index:
+                    poly.material_index = old_to_new_index[poly.material_index]
+            
+            new_order = non_edgeline_indices + edgeline_indices
+            temp_materials = [ob.material_slots[i].material for i in new_order]
+            
+            expected_edgeline_count = original_mat_count
+            while len(temp_materials) < original_mat_count + expected_edgeline_count:
+                temp_materials.append(edgeline_mat)
+            
+            for i, mat in enumerate(temp_materials):
+                if i < len(ob.material_slots):
+                    ob.material_slots[i].material = mat
+                else:
+                    ob.data.materials.append(mat)
 
             solid = ob.modifiers.get("Toon_Edgeline") or ob.modifiers.new(name="Toon_Edgeline", type="SOLIDIFY")
-            filter_vgroup = ob.vertex_groups.get('non_exportable_face') or ob.vertex_groups.new(name='non_exportable_face')
+            filter_vgroup = ob.vertex_groups.get('non_exportable_face')
+            vgroup_exists = filter_vgroup is not None
+            
+            if filter_vgroup is None:
+                filter_vgroup = ob.vertex_groups.new(name='non_exportable_face')
+            
             solid.use_rim = False
             solid.thickness = -(self.edgeline_thickness / 1000.0) / unit_scale
             solid.material_offset = original_mat_count
@@ -283,7 +344,9 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             solid.vertex_group = filter_vgroup.name
             solid.invert_vertex_group = True
 
-            if self.use_shape_key_weights and ob.data.shape_keys and len(ob.data.shape_keys.key_blocks) > 1:
+            should_update_weights = self.use_shape_key_weights and (self.overwrite_existing_weights or not vgroup_exists)
+            
+            if should_update_weights and ob.data.shape_keys and len(ob.data.shape_keys.key_blocks) > 1:
                 base = ob.data.shape_keys.key_blocks[0].data
                 vertex_weights = [0.0] * len(ob.data.vertices)
 

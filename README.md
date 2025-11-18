@@ -1,9 +1,3 @@
-
-<p align="center">
-  <img width="256" height="256" alt="kitsunelogo"
-       src="https://raw.githubusercontent.com/ToppiOfficial/KitsuneSourceTools/refs/heads/master/io_scene_valvesource/icons/kitsunelogo.png" />
-</p>
-
 # KitsuneSourceTool [Blender 4.5] [Alpha Release]
 
 KitsuneSourceTool is a fork and extended version of BlenderSourceTool, integrating toolsets from my older, previously unreleased Blender extensions.
@@ -19,9 +13,9 @@ Not all tools have been ported yet — I’m gradually reintroducing features fr
 
 ## TODO
 
-- [ ] **Source 2 Cloth Node for Bone Config** — Implement a dedicated setup for configuring bone that will be driven by cloth.
+- ~~[ ] **Source 2 Cloth Node for Bone Config** — Implement a dedicated setup for configuring bone that will be driven by cloth.~~
 - [ ] **Bake Combined Animation** — Allow baking the current animation from multiple selected armatures into a single unified action.
-- [ ] **Convert Attachment Empties to Bones** — Add support for converting attachment empties into bones for QC rigid setups.
+- ~~[ ] **Convert Attachment Empties to Bones** — Add support for converting attachment empties into bones for QC rigid setups.~~
 - [ ] **Procudral Bone/ Rbf Constraints** - Add a dedicated setup for procedural bones for source 1 or Rbf constraints for Source 2
 
 ## Export Features

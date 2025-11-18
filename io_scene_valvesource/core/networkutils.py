@@ -5,7 +5,7 @@ import json
 import time
 from typing import Union, List
 
-def translate_to_english(text: Union[str, List[str]], source_lang: str = 'auto', batch_size: int = 50, delay: float = 0.5) -> Union[str, List[str]]:
+def translate_string(text: Union[str, List[str]], source_lang: str = 'auto', batch_size: int = 50, delay: float = 0.5) -> Union[str, List[str]]:
     def _translate_single(text_str: str) -> str:
         if not text_str or not text_str.strip():
             return text_str
