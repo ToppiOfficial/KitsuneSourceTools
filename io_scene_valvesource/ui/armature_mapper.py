@@ -100,6 +100,47 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
             col.prop(item, "twistBoneTarget")
             col.prop(item, "twistBoneCount", slider=True)
 
+    def get_bone_assignments(self, context : Context) -> dict:
+        assignments = {}
+        vs = context.object.vs
+        
+        bone_props = [
+            ('armature_map_head', 'Head'),
+            ('armature_map_chest', 'Chest'),
+            ('armature_map_pelvis', 'Pelvis'),
+            ('armature_map_eye_l', 'Eye L'),
+            ('armature_map_eye_r', 'Eye R'),
+            ('armature_map_thigh_l', 'Thigh L'),
+            ('armature_map_thigh_r', 'Thigh R'),
+            ('armature_map_ankle_l', 'Ankle L'),
+            ('armature_map_ankle_r', 'Ankle R'),
+            ('armature_map_toe_l', 'Toe L'),
+            ('armature_map_toe_r', 'Toe R'),
+            ('armature_map_shoulder_l', 'Shoulder L'),
+            ('armature_map_shoulder_r', 'Shoulder R'),
+            ('armature_map_wrist_l', 'Wrist L'),
+            ('armature_map_wrist_r', 'Wrist R'),
+            ('armature_map_thumb_f_l', 'Thumb L'),
+            ('armature_map_thumb_f_r', 'Thumb R'),
+            ('armature_map_index_f_l', 'Index L'),
+            ('armature_map_index_f_r', 'Index R'),
+            ('armature_map_middle_f_l', 'Middle L'),
+            ('armature_map_middle_f_r', 'Middle R'),
+            ('armature_map_ring_f_l', 'Ring L'),
+            ('armature_map_ring_f_r', 'Ring R'),
+            ('armature_map_pinky_f_l', 'Pinky L'),
+            ('armature_map_pinky_f_r', 'Pinky R'),
+        ]
+        
+        for prop, label in bone_props:
+            bone_name = getattr(vs, prop, "").strip()
+            if bone_name:
+                if bone_name not in assignments:
+                    assignments[bone_name] = []
+                assignments[bone_name].append(label)
+        
+        return assignments
+
     def draw_read_mode(self, context : Context, layout : UILayout) -> None:
         col = layout.column(align=False)
         
@@ -117,11 +158,29 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         if armaturemappersection is not None:
             draw_wrapped_texts(armaturemappersection,message,max_chars=40, icon='HELP',boxed=False)
         
-        self.draw_humanoid_bone_mapping(context, layout)
+        bone_assignments = self.get_bone_assignments(context)
+        duplicates = {bone: labels for bone, labels in bone_assignments.items() if len(labels) > 1}
+        
+        if duplicates:
+            duplicate_messages = []
+            for bone, labels in duplicates.items():
+                duplicate_messages.append(f"'{bone}' assigned to: {', '.join(labels)}")
+            
+            draw_wrapped_texts(
+                layout,
+                duplicate_messages,
+                max_chars=40,
+                icon='ERROR',
+                alert=True,
+                boxed=True,
+                title='Duplicate Bone Assignments Detected!'
+            )
+        
+        self.draw_humanoid_bone_mapping(context, layout, duplicates)
 
         layout.operator(ARMATUREMAPPER_OT_LoadJson.bl_idname)
 
-    def draw_humanoid_bone_mapping(self, context : Context, layout : UILayout) -> None:
+    def draw_humanoid_bone_mapping(self, context : Context, layout : UILayout, duplicates : dict) -> None:
         col = layout.column(align=True)
         
         bx = col.box()
@@ -130,47 +189,63 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         draw_wrapped_texts(col,text='Head, Chest and Pelvis are required to have inputs', icon='HELP')
         
         col = bx.column(align=True)
-        col.prop_search(context.object.vs, 'armature_map_head',   context.object.data, "bones", text="Head")
-        col.prop_search(context.object.vs, 'armature_map_chest',  context.object.data, "bones", text="Chest")
-        col.prop_search(context.object.vs, 'armature_map_pelvis', context.object.data, "bones", text="Pelvis")
+        self.draw_bone_prop(col, context, 'armature_map_head', "Head", duplicates)
+        self.draw_bone_prop(col, context, 'armature_map_chest', "Chest", duplicates)
+        self.draw_bone_prop(col, context, 'armature_map_pelvis', "Pelvis", duplicates)
 
         col.separator()
         col.separator(type='LINE')
         col.separator()
 
-        self.draw_bone_pair(col, context, 'Eye', 'armature_map_eye_l', 'armature_map_eye_r')
+        self.draw_bone_pair(col, context, 'Eye', 'armature_map_eye_l', 'armature_map_eye_r', duplicates)
 
         col.separator()
         col.separator(type='LINE')
         col.separator()
 
-        self.draw_bone_pair(col, context, 'Thigh', 'armature_map_thigh_l', 'armature_map_thigh_r')
-        self.draw_bone_pair(col, context, 'Ankle', 'armature_map_ankle_l', 'armature_map_ankle_r')
-        self.draw_bone_pair(col, context, 'Toe', 'armature_map_toe_l', 'armature_map_toe_r')
+        self.draw_bone_pair(col, context, 'Thigh', 'armature_map_thigh_l', 'armature_map_thigh_r', duplicates)
+        self.draw_bone_pair(col, context, 'Ankle', 'armature_map_ankle_l', 'armature_map_ankle_r', duplicates)
+        self.draw_bone_pair(col, context, 'Toe', 'armature_map_toe_l', 'armature_map_toe_r', duplicates)
 
         col.separator()
         col.separator(type='LINE')
         col.separator()
 
-        self.draw_bone_pair(col, context, 'Shoulder', 'armature_map_shoulder_l', 'armature_map_shoulder_r')
-        self.draw_bone_pair(col, context, 'Wrist', 'armature_map_wrist_l', 'armature_map_wrist_r')
+        self.draw_bone_pair(col, context, 'Shoulder', 'armature_map_shoulder_l', 'armature_map_shoulder_r', duplicates)
+        self.draw_bone_pair(col, context, 'Wrist', 'armature_map_wrist_l', 'armature_map_wrist_r', duplicates)
 
         col.separator()
         col.separator(type='LINE')
         col.separator()
 
-        self.draw_bone_pair(col, context, 'Thumb', 'armature_map_thumb_f_l', 'armature_map_thumb_f_r')
-        self.draw_bone_pair(col, context, 'Index', 'armature_map_index_f_l', 'armature_map_index_f_r')
-        self.draw_bone_pair(col, context, 'Middle', 'armature_map_middle_f_l', 'armature_map_middle_f_r')
-        self.draw_bone_pair(col, context, 'Ring', 'armature_map_ring_f_l', 'armature_map_ring_f_r')
-        self.draw_bone_pair(col, context, 'Pinky', 'armature_map_pinky_f_l', 'armature_map_pinky_f_r')
+        self.draw_bone_pair(col, context, 'Thumb', 'armature_map_thumb_f_l', 'armature_map_thumb_f_r', duplicates)
+        self.draw_bone_pair(col, context, 'Index', 'armature_map_index_f_l', 'armature_map_index_f_r', duplicates)
+        self.draw_bone_pair(col, context, 'Middle', 'armature_map_middle_f_l', 'armature_map_middle_f_r', duplicates)
+        self.draw_bone_pair(col, context, 'Ring', 'armature_map_ring_f_l', 'armature_map_ring_f_r', duplicates)
+        self.draw_bone_pair(col, context, 'Pinky', 'armature_map_pinky_f_l', 'armature_map_pinky_f_r', duplicates)
 
-    def draw_bone_pair(self, layout : UILayout, context : Context, label : str, prop_l : str, prop_r : str) -> None:
+    def draw_bone_prop(self, layout : UILayout, context : Context, prop : str, text : str, duplicates : dict) -> None:
+        bone_name = getattr(context.object.vs, prop, "").strip()
+        layout.alert = bone_name in duplicates
+        layout.prop_search(context.object.vs, prop, context.object.data, "bones", text=text)
+        layout.alert = False
+
+    def draw_bone_pair(self, layout : UILayout, context : Context, label : str, prop_l : str, prop_r : str, duplicates : dict = None) -> None:
+        if duplicates is None:
+            duplicates = {}
+        
         row = layout.row(align=True)
         row.scale_x = 0.2
         row.label(text=f'{label} L & R')
+        
+        bone_l = getattr(context.object.vs, prop_l, "").strip()
+        bone_r = getattr(context.object.vs, prop_r, "").strip()
+        
+        row.alert = bone_l in duplicates
         row.prop_search(context.object.vs, prop_l, context.object.data, "bones", text="")
+        row.alert = bone_r in duplicates
         row.prop_search(context.object.vs, prop_r, context.object.data, "bones", text="")
+        row.alert = False
 
 class ARMATUREMAPPER_OT_LoadPreset(Operator):
     bl_idname : str = "armaturemapper.load_preset"

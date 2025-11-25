@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 268
+ADDONVER = 269
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -153,17 +153,30 @@ class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
 class KitsuneTool_PanelProps():
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     
-    merge_bone_options: EnumProperty(
-        name='Merge Options',
-        description='Options for merging bones',
+    merge_bone_options_parent: EnumProperty(
+        name='Merge to Parent Options',
+        description='Options for merging bones to parent',
+        items=[
+            ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
+            ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
+            ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
+            ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 3),
+        ],
+        default='DEFAULT'
+    )
+
+    merge_bone_options_active: EnumProperty(
+        name='Merge to Active Options',
+        description='Options for merging bones to active',
         items=[
             ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
             ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
             ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
             ('CENTRALIZE', 'Centralize', 'Centralize bone position between source and target', 'PIVOT_MEDIAN', 3),
-            ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 4),
-        ],default='DEFAULT')
-    
+        ],
+        default='DEFAULT'
+    )
+        
     alignment_exclude_axes: EnumProperty(
         name="Exclude Axes",
         description="Exclude specific axes from modification",
@@ -519,6 +532,7 @@ _classes = (
     valvemodel.VALVEMODEL_OT_ExportHitBox,
     valvemodel.VALVEMODEL_OT_FixHitBox,
     valvemodel.VALVEMODEL_OT_AddHitbox,
+    valvemodel.VALVEMODEL_OT_CopyJiggleBoneProperties,
     
     common.TOOLS_PT_PANEL,
     
@@ -538,6 +552,7 @@ _classes = (
     bone.TOOLS_OT_ReAlignBones,
     bone.TOOLS_OT_CopyTargetRotation,
     bone.TOOLS_OT_SplitBone,
+    bone.TOOLS_OT_AssignBoneRotExportOffset,
     bone.TOOLS_OT_CreateCenterBone,
 
     mesh.TOOLS_PT_Mesh,

@@ -639,7 +639,8 @@ def draw_wrapped_texts(
     boxed: bool = True,
     title: str | None = None,
     scale_y: float = 0.7,
-    icon_factor: float = 0.08
+    icon_factor: float = 0.08,
+    exclude_endspacer = False,
 ) -> None:
     """
     Draw text with automatic word wrapping in a column layout.
@@ -702,8 +703,9 @@ def draw_wrapped_texts(
     
     for line in lines:
         text_col.label(text=line)
-        
-    layout.separator(factor=0.2)
+    
+    if not exclude_endspacer: 
+        layout.separator(factor=0.125)
 
 def draw_title_box_layout(
     layout: UILayout,

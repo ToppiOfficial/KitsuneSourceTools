@@ -263,6 +263,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         )
         
         if bone and bone.select:
+            layout.operator(VALVEMODEL_OT_CopyJiggleBoneProperties.bl_idname, icon='COPYDOWN')
             self.draw_jigglebone_properties(layout, bone)
         else:
             box = layout.box()
@@ -1208,4 +1209,89 @@ class VALVEMODEL_OT_AddHitbox(Operator):
         else:
             bpy.ops.object.mode_set(mode='OBJECT')
         
+        return {'FINISHED'}
+
+class VALVEMODEL_OT_CopyJiggleBoneProperties(Operator):
+    bl_idname: str = "smd.copy_jiggleboneproperties"
+    bl_label: str = "Copy Jigglebone Properties"
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        if not is_armature(context.object) or context.mode != 'POSE':
+            return False
+        if context.object.data.bones.active is None:
+            return False
+        return True
+    
+    def execute(self, context : Context) -> set:
+        armature = get_armature(context.object)
+        active_bone = armature.data.bones.active
+        selected_bones = get_selected_bones(armature, bone_type='BONE', exclude_active=True)
+        
+        if not selected_bones:
+            self.report({'WARNING'}, "No other bones selected")
+            return {'CANCELLED'}
+        
+        source_vs = active_bone.vs
+        
+        if not source_vs.bone_is_jigglebone:
+            self.report({'WARNING'}, "Active bone is not a jigglebone")
+            return {'CANCELLED'}
+        
+        jigglebone_props = [
+            'bone_is_jigglebone',
+            'jiggle_flex_type',
+            'jiggle_base_type',
+            'use_bone_length_for_jigglebone_length',
+            'jiggle_length',
+            'jiggle_tip_mass',
+            'jiggle_yaw_stiffness',
+            'jiggle_yaw_damping',
+            'jiggle_pitch_stiffness',
+            'jiggle_pitch_damping',
+            'jiggle_allow_length_flex',
+            'jiggle_along_stiffness',
+            'jiggle_along_damping',
+            'jiggle_has_angle_constraint',
+            'jiggle_has_yaw_constraint',
+            'jiggle_has_pitch_constraint',
+            'jiggle_angle_constraint',
+            'jiggle_yaw_constraint_min',
+            'jiggle_yaw_constraint_max',
+            'jiggle_yaw_friction',
+            'jiggle_pitch_constraint_min',
+            'jiggle_pitch_constraint_max',
+            'jiggle_pitch_friction',
+            'jiggle_base_stiffness',
+            'jiggle_base_damping',
+            'jiggle_base_mass',
+            'jiggle_has_left_constraint',
+            'jiggle_has_up_constraint',
+            'jiggle_has_forward_constraint',
+            'jiggle_left_constraint_min',
+            'jiggle_left_constraint_max',
+            'jiggle_left_friction',
+            'jiggle_up_constraint_min',
+            'jiggle_up_constraint_max',
+            'jiggle_up_friction',
+            'jiggle_forward_constraint_min',
+            'jiggle_forward_constraint_max',
+            'jiggle_forward_friction',
+            'jiggle_impact_speed',
+            'jiggle_impact_angle',
+            'jiggle_damping_rate',
+            'jiggle_frequency',
+            'jiggle_amplitude'
+        ]
+        
+        for bone in selected_bones:
+            target_vs = bone.vs
+            for prop in jigglebone_props:
+                try:
+                    setattr(target_vs, prop, getattr(source_vs, prop))
+                except AttributeError:
+                    continue
+        
+        self.report({'INFO'}, f"Copied jigglebone properties to {len(selected_bones)} bone(s)")
         return {'FINISHED'}

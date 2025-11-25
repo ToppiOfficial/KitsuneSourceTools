@@ -44,6 +44,10 @@ from .valvemodel import (
     VALVEMODEL_OT_FixAttachment, VALVEMODEL_OT_FixHitBox
 )
 
+from .bone import (
+    TOOLS_OT_AssignBoneRotExportOffset
+)
+
 SMD_OT_CreateVertexMap_idname : str = "smd.vertex_map_create_"
 SMD_OT_SelectVertexMap_idname : str = "smd.vertex_map_select_"
 SMD_OT_RemoveVertexMap_idname : str = "smd.vertex_map_remove_"
@@ -219,6 +223,7 @@ class ValidationChecker:
                 invalid_names['meshes'].append(mesh.name)
             
             for mat in mesh.data.materials:
+                if mat is None: continue
                 if mat.vs.do_not_export_faces: continue
                 
                 if mat and not ValidationChecker.is_valid_name(mat.name):
@@ -634,12 +639,27 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         sub.prop(bone.vs, 'export_rotation_offset_y')
         sub.prop(bone.vs, 'export_rotation_offset_z')
         
+        sub = title.column(align=True)
+        sub.label(text='Target Bone Forward:')
+        row = sub.row(align=True)
+        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='+X').export_rot_target = 'X'
+        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='+Y').export_rot_target = 'Y'
+        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='+Z').export_rot_target = 'Z'
+        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='-X').export_rot_target = 'X_INVERT'
+        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='-Y').export_rot_target = 'Y_INVERT'
+        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='-Z').export_rot_target = 'Z_INVERT'
+        
+        message = [
+            "- (Target Bone Forward) assumes you have the bone(s) in Blender's Y-forward\n",
+            '- Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
+        ]
+        
         draw_wrapped_texts(
             title,
-            'Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
+            message,
             max_chars=36,
             icon='INFO')
-    
+        
     def draw_materialproperties(self, context : Context, layout : UILayout) -> None:
         l : UILayout = layout
         ob : Object | None = context.object

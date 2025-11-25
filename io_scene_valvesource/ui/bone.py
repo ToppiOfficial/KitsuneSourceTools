@@ -1,4 +1,4 @@
-import bpy
+import bpy, math
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
 from bpy.types import UILayout, Context, Operator, Object, Event
 from typing import Set
@@ -46,7 +46,9 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         options_col = merge_box.column(align=True)
         options_col.scale_y = 0.9
         options_col.label(text='Merge Mode')
-        options_col.prop(scene_vs, 'merge_bone_options',expand=True)
+        splitoption = options_col.split(align=True)
+        splitoption.prop(scene_vs, 'merge_bone_options_active', expand=True)
+        splitoption.prop(scene_vs, 'merge_bone_options_parent', expand=True)
         options_col.prop(scene_vs, 'visible_mesh_only')
         
         main_col.separator()
@@ -408,7 +410,7 @@ class TOOLS_OT_MergeBones(Operator):
             
             for arm, bones_to_remove in bones_to_remove_map.items():
                 snap_parent = (self.mode == 'TO_PARENT' and 
-                             vs_sce.merge_bone_options == 'SNAP_PARENT')
+                             vs_sce.merge_bone_options_parent == 'SNAP_PARENT')
                 source = context.active_bone.name if self.mode == 'TO_ACTIVE' else None
                 
                 remove_bone(arm, bones_to_remove, 
@@ -428,9 +430,9 @@ class TOOLS_OT_MergeBones(Operator):
             self.report({'WARNING'}, 'No active selected bone')
             return None
 
-        keep_bone = vs_sce.merge_bone_options in ['KEEP_BONE', 'KEEP_BOTH']
-        keep_weight = vs_sce.merge_bone_options == 'KEEP_BOTH'
-        centralize = vs_sce.merge_bone_options == 'CENTRALIZE'
+        keep_bone = vs_sce.merge_bone_options_active in ['KEEP_BONE', 'KEEP_BOTH']
+        keep_weight = vs_sce.merge_bone_options_active == 'KEEP_BOTH'
+        centralize = vs_sce.merge_bone_options_active == 'CENTRALIZE'
 
         if centralize:
             bones_to_remove, merged_pairs, vgroups_processed = merge_bones(
@@ -458,8 +460,8 @@ class TOOLS_OT_MergeBones(Operator):
         if not sel_bones:
             return None
         
-        keep_bone = vs_sce.merge_bone_options in ['KEEP_BONE', 'KEEP_BOTH']
-        keep_weight = vs_sce.merge_bone_options == 'KEEP_BOTH'
+        keep_bone = vs_sce.merge_bone_options_parent in ['KEEP_BONE', 'KEEP_BOTH']
+        keep_weight = vs_sce.merge_bone_options_parent == 'KEEP_BOTH'
         
         bones_to_remove, vgroups_processed = merge_bones(
             arm, None, sel_bones,
@@ -471,12 +473,77 @@ class TOOLS_OT_MergeBones(Operator):
         
         return bones_to_remove, vgroups_processed
     
+class TOOLS_OT_AssignBoneRotExportOffset(Operator):
+    bl_idname : str = 'tools.assign_bone_rot_export_offset'
+    bl_label : str = 'Assign Rotation Export Offset'
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    
+    export_rot_target : EnumProperty(
+        name='Rotation Target',
+        description="Target Bone Forward (Assuming the bone is currently on Blender's Y-forward format)",
+        items=[
+            ('X', '+X', ''),
+            ('Y', '+Y', ''),
+            ('Z', '+Z', ''),
+            ('X_INVERT', '-X', ''),
+            ('Y_INVERT', '-Y', ''),
+            ('Z_INVERT', '-Z', ''),
+        ], default='X'
+    )
+    
+    only_active_bone : BoolProperty(
+        name='Only Active Bone',
+        default=False
+    )
+    
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        if not is_armature(context.object): return False
+        return bool(context.mode not in ['EDIT', 'EDIT_ARMATURE'])
+    
+    def execute(self, context : Context) -> set:
+        selected_bones = None
+        
+        if self.only_active_bone:
+            selected_bones = [context.object.data.bones.active]
+        else:
+            selected_bones = get_selected_bones(context.object, bone_type='BONE')
+            
+        if not selected_bones: 
+            self.report({'ERROR'}, 'No active or selected bones')
+            return {'CANCELLED'}
+        
+        for bone in selected_bones:
+            vsprops = bone.vs
+            
+            if vsprops:
+                
+                setattr(bone.vs,'export_rotation_offset_x',0)
+                setattr(bone.vs,'export_rotation_offset_y',0)
+                setattr(bone.vs,'export_rotation_offset_z',0)
+                
+                match self.export_rot_target:
+                    case 'X':
+                        setattr(bone.vs,'export_rotation_offset_z',math.radians(90))
+                    case 'Z':
+                        setattr(bone.vs,'export_rotation_offset_x',math.radians(-90))
+                    case 'X_INVERT':
+                        setattr(bone.vs,'export_rotation_offset_z',math.radians(-90))
+                    case 'Y_INVERT':
+                        setattr(bone.vs,'export_rotation_offset_y',math.radians(180))
+                    case 'Z_INVERT':
+                        setattr(bone.vs,'export_rotation_offset_x',math.radians(-90))
+                    case _:
+                        pass
+                    
+        return {'FINISHED'}
+    
 class TOOLS_OT_CreateCenterBone(Operator):
     bl_idname: str = 'tools.create_centerbone'
     bl_label: str = 'Create Center Bone'
     bl_options: Set = {'REGISTER', 'UNDO'}
     
-    parent_choice: bpy.props.EnumProperty(
+    parent_choice: EnumProperty(
         name="Parent Bone",
         description="Choose which bone to use as parent",
         items=[
@@ -514,11 +581,9 @@ class TOOLS_OT_CreateCenterBone(Operator):
         self._bone1_name = bone1.name
         self._bone2_name = bone2.name
         
-        # Check if parents are the same
         parent1 = bone1.parent
         parent2 = bone2.parent
         
-        # Store parent names for UI display
         self._parent1_name = parent1.name if parent1 else "None"
         self._parent2_name = parent2.name if parent2 else "None"
         
@@ -564,7 +629,6 @@ class TOOLS_OT_CreateCenterBone(Operator):
             
             # Set parent based on choice
             if bone1.parent == bone2.parent:
-                # Same parent (including both None)
                 new_bone.parent = bone1.parent
             else:
                 # User chose which parent to use
