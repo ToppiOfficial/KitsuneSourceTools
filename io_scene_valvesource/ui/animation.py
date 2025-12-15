@@ -25,10 +25,11 @@ class TOOLS_PT_Animation(Tools_SubCategoryPanel):
             return
         
         col = bx.column()
-        col.operator(TOOLS_OT_merged_animations.bl_idname, icon='ACTION_SLOT')
+        col.operator(TOOLS_OT_merge_animation_slots.bl_idname, icon='ACTION_SLOT')
+        col.operator(TOOLS_OT_merge_two_actions.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_convert_rotation_keyframes.bl_idname, icon='ACTION_SLOT')
         
-class TOOLS_OT_merged_animations(Operator):
+class TOOLS_OT_merge_animation_slots(Operator):
     bl_idname : str = 'tools.merged_animations'
     bl_label : str = 'Merge Slotted Animations'
     bl_options : set = {'REGISTER', 'UNDO'}
@@ -364,3 +365,219 @@ class TOOLS_OT_convert_rotation_keyframes(Operator):
         target_type = "Quaternion" if is_to_quat else self.conversion_mode
         self.report({'INFO'}, f"Converted rotation keyframes to {target_type} in '{action.name}:{slot.name_display}'")
         return {'FINISHED'}
+
+class TOOLS_OT_merge_two_actions(Operator):
+    bl_idname : str = 'tools.merge_two_actions'
+    bl_label : str = 'Merge Two Actions'
+    bl_options : set = {'REGISTER', 'UNDO'}
+
+    action_1: StringProperty(
+        name="First Action",
+        description="First action to merge"
+    )
+    action_2: StringProperty(
+        name="Second Action",
+        description="Second action to merge"
+    )
+    new_action_name: StringProperty(
+        name="New Action Name",
+        description="Name for the merged action",
+        default="MergedAction"
+    )
+    use_existing_action: BoolProperty(
+        name="Use Existing Action",
+        description="Merge into an existing action instead of creating a new one",
+        default=False
+    )
+    existing_action: StringProperty(
+        name="Existing Action",
+        description="Existing action to merge into"
+    )
+    do_not_merge_matching_names: BoolProperty(
+        name="Do Not Merge Matching Names",
+        description="Keep slots with identical names separate (appends .001, .002)",
+        default=False
+    )
+    
+    rename_legacy_slots: BoolProperty(
+        name="Rename Legacy Slots",
+        description="Rename slots named 'Legacy Slot' to the action's name",
+        default=True
+    )
+    
+    use_fake_user: BoolProperty(
+        name="Fake User",
+        description="Assign fake user to the new action",
+        default=True
+    )
+
+    def invoke(self, context : Context, event : Event) -> set:
+        if bpy.data.actions:
+            self.action_1 = bpy.data.actions[0].name
+            self.action_2 = bpy.data.actions[0].name
+            self.existing_action = bpy.data.actions[0].name
+        
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def draw(self, context : Context) -> None:
+        layout : UILayout = self.layout
+        
+        box = layout.box()
+        box.label(text="Source Actions:", icon='ACTION')
+        box.prop_search(self, "action_1", bpy.data, "actions", text="Action 1")
+        box.prop_search(self, "action_2", bpy.data, "actions", text="Action 2")
+        
+        layout.separator()
+        
+        box = layout.box()
+        box.label(text="Output:", icon='FILE_NEW')
+        box.prop(self, "use_existing_action")
+        
+        if self.use_existing_action:
+            box.prop_search(self, "existing_action", bpy.data, "actions", text="Action")
+        else:
+            box.prop(self, "new_action_name")
+            box.prop(self, "use_fake_user")
+        
+        layout.separator()
+        
+        box = layout.box()
+        box.label(text="Options:", icon='PREFERENCES')
+        box.prop(self, "do_not_merge_matching_names")
+        box.prop(self, "rename_legacy_slots")
+
+    def execute(self, context : Context) -> set:
+        act1 = bpy.data.actions.get(self.action_1)
+        act2 = bpy.data.actions.get(self.action_2)
+        
+        if not act1 or not act2:
+            self.report({'ERROR'}, "One or both actions not found")
+            return {'CANCELLED'}
+        
+        if act1 == act2:
+            self.report({'ERROR'}, "Cannot merge an action with itself")
+            return {'CANCELLED'}
+        
+        if self.use_existing_action:
+            target_action = bpy.data.actions.get(self.existing_action)
+            if not target_action:
+                self.report({'ERROR'}, "Existing action not found")
+                return {'CANCELLED'}
+        else:
+            target_action = bpy.data.actions.new(name=sanitize_string(self.new_action_name))
+            if self.use_fake_user:
+                target_action.use_fake_user = True
+        
+        if not target_action.layers:
+            layer = target_action.layers.new(name="Layer")
+        else:
+            layer = target_action.layers[0]
+        
+        if not layer.strips:
+            strip = layer.strips.new(type='KEYFRAME')
+        else:
+            strip = layer.strips[0]
+        
+        slot_groups = self._group_slots_by_name([act1, act2])
+        
+        merged_count = 0
+        for slot_name, slot_list in slot_groups.items():
+            if self.do_not_merge_matching_names and len(slot_list) > 1:
+                for idx, (action, slot) in enumerate(slot_list):
+                    unique_name = f"{slot_name}.{idx+1:03d}" if idx > 0 else slot_name
+                    self._create_slot_copy(target_action, strip, action, slot, unique_name)
+                    merged_count += 1
+            else:
+                if len(slot_list) > 1:
+                    self._merge_slots(target_action, strip, slot_list, slot_name)
+                else:
+                    self._create_slot_copy(target_action, strip, slot_list[0][0], slot_list[0][1], slot_name)
+                merged_count += 1
+        
+        self.report({'INFO'}, f"Merged '{act1.name}' + '{act2.name}' into '{target_action.name}' ({merged_count} slots)")
+        return {'FINISHED'}
+
+    def _group_slots_by_name(self, actions: list[bpy.types.Action]) -> dict[str, list[tuple[bpy.types.Action, bpy.types.ActionSlot]]]:
+        """Groups slots by their display name across both actions"""
+        slot_groups = {}
+        
+        use_legacy_replacement = self.rename_legacy_slots
+        
+        for action in actions:
+            for slot in action.slots:
+                name = slot.name_display
+                
+                if use_legacy_replacement and name.lower() == "legacy slot":
+                    name = action.name
+
+                slot_groups.setdefault(name, []).append((action, slot))
+        
+        return slot_groups
+
+    def _create_slot_copy(self, target_action: bpy.types.Action, strip: bpy.types.ActionStrip, 
+                         source_action: bpy.types.Action, source_slot: bpy.types.ActionSlot, 
+                         new_slot_name: str) -> bpy.types.ActionSlot:
+        """Creates a new slot and copies fcurves from source"""
+        new_slot = target_action.slots.new(id_type='OBJECT', name=new_slot_name)
+        new_channelbag = strip.channelbags.new(slot=new_slot)
+        
+        source_channelbag = anim_utils.action_get_channelbag_for_slot(source_action, source_slot)
+        if source_channelbag:
+            for fcurve in source_channelbag.fcurves:
+                self._copy_fcurve(fcurve, new_channelbag)
+        
+        return new_slot
+
+    def _merge_slots(self, target_action: bpy.types.Action, strip: bpy.types.ActionStrip,
+                    slot_list: list[tuple[bpy.types.Action, bpy.types.ActionSlot]], 
+                    merged_slot_name: str) -> None:
+        """Merges multiple slots with the same name into one slot"""
+        new_slot = target_action.slots.new(id_type='OBJECT', name=merged_slot_name)
+        new_channelbag = strip.channelbags.new(slot=new_slot)
+        
+        for action, slot in slot_list:
+            source_channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+            if not source_channelbag:
+                continue
+            
+            for source_fcurve in source_channelbag.fcurves:
+                existing_fcurve = self._find_matching_fcurve(new_channelbag, source_fcurve)
+                
+                if existing_fcurve:
+                    self._merge_fcurve_keyframes(existing_fcurve, source_fcurve)
+                else:
+                    self._copy_fcurve(source_fcurve, new_channelbag)
+
+    def _find_matching_fcurve(self, channelbag: bpy.types.ActionChannelbag, 
+                             fcurve: bpy.types.FCurve) -> bpy.types.FCurve | None:
+        """Finds fcurve with matching data_path and array_index"""
+        for existing in channelbag.fcurves:
+            if existing.data_path == fcurve.data_path and existing.array_index == fcurve.array_index:
+                return existing
+        return None
+
+    def _copy_fcurve(self, source_fcurve: bpy.types.FCurve, 
+                    target_channelbag: bpy.types.ActionChannelbag) -> bpy.types.FCurve:
+        """Copies fcurve data to target channelbag"""
+        new_fcurve = target_channelbag.fcurves.new(
+            data_path=source_fcurve.data_path,
+            index=source_fcurve.array_index
+        )
+        for kp in source_fcurve.keyframe_points:
+            new_fcurve.keyframe_points.insert(frame=kp.co.x, value=kp.co.y, options={'FAST'})
+        return new_fcurve
+
+    def _merge_fcurve_keyframes(self, target_fcurve: bpy.types.FCurve, 
+                               source_fcurve: bpy.types.FCurve) -> None:
+        """Adds keyframes from source to target, summing values at existing frames"""
+        existing_frames = {kp.co.x: kp.co.y for kp in target_fcurve.keyframe_points}
+        
+        for kp in source_fcurve.keyframe_points:
+            frame = kp.co.x
+            value = kp.co.y
+            
+            if frame in existing_frames:
+                new_value = existing_frames[frame] + value
+                target_fcurve.keyframe_points.insert(frame=frame, value=new_value, options={'REPLACE'})
+            else:
+                target_fcurve.keyframe_points.insert(frame=frame, value=value, options={'FAST'})

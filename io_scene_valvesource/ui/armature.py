@@ -144,12 +144,17 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         for armature in armatures:
             bones = armature.pose.bones
             meshes = get_armature_meshes(armature)
+            bones_with_children = self.get_bones_with_parented_objects(armature)
 
-            if not meshes or not bones:
-                self.report({'WARNING'}, "No meshes or bones associated with the armature.")
-                return {'CANCELLED'}
+            if not meshes and not bones_with_children:
+                self.report({'WARNING'}, f"Armature '{armature.name}' has no meshes or parented objects.")
+                continue
 
-            if self.remove_empty_vertex_groups:
+            if not bones:
+                self.report({'WARNING'}, f"Armature '{armature.name}' has no bones.")
+                continue
+
+            if self.remove_empty_vertex_groups and meshes:
                 removed_vgroups = remove_unused_vertexgroups(
                     armature, 
                     armature.data.bones,
@@ -164,7 +169,6 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
 
             constraint_targets = self.get_constraint_targets(armature)
             constraint_owners = self.get_constraint_owners(armature)
-            bones_with_children = self.get_bones_with_parented_objects(armature)
 
             while True:
                 bones_to_remove = set()
@@ -196,7 +200,10 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 else:
                     break
 
-        self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_vgroups_removed} empty vertex groups cleaned.')
+        if total_bones_removed == 0 and total_vgroups_removed == 0:
+            self.report({'INFO'}, 'No bones or vertex groups to remove.')
+        else:
+            self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_vgroups_removed} empty vertex groups cleaned.')
         return {'FINISHED'}
 
     def should_preserve_bone(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:
@@ -214,7 +221,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
             return False
         
         if self.cleaning_mode == 'HIERARCHY_ONLY':
-            return self.has_weighted_descendants(bone, meshes, remaining_vgroups)
+            return self.has_weighted_descendants(bone, meshes, remaining_vgroups, bones_with_children)
         
         if self.cleaning_mode == 'RESPECT_ANIMATION':
             if self.bone_has_animation(armature, bone.name):
@@ -224,23 +231,28 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 return True
             
             if self.has_animated_or_constrained_descendants(
-                armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners
+                armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners, bones_with_children
             ):
                 return True
         
         return False
 
-    def has_weighted_descendants(self, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups) -> bool:
+    def has_weighted_descendants(self, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, bones_with_children) -> bool:
         for child in bone.children:
             if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
                 return True
-            if self.has_weighted_descendants(child, meshes, remaining_vgroups):
+            if child.name in bones_with_children:
+                return True
+            if self.has_weighted_descendants(child, meshes, remaining_vgroups, bones_with_children):
                 return True
         return False
 
-    def has_animated_or_constrained_descendants(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners) -> bool:
+    def has_animated_or_constrained_descendants(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:
         for child in bone.children:
             if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
+                return True
+            
+            if child.name in bones_with_children:
                 return True
             
             if self.bone_has_animation(armature, child.name):
@@ -250,7 +262,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 return True
             
             if self.has_animated_or_constrained_descendants(
-                armature, child, meshes, remaining_vgroups, constraint_targets, constraint_owners
+                armature, child, meshes, remaining_vgroups, constraint_targets, constraint_owners, bones_with_children
             ):
                 return True
         return False

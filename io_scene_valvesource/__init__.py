@@ -38,7 +38,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-ADDONVER = 269
+ADDONVER = 270
 ADDONDEVSTATE = 'ALPHA'
 
 def format_version(ver: int = ADDONVER) -> tuple[str, str]:
@@ -177,18 +177,6 @@ class KitsuneTool_PanelProps():
         default='DEFAULT'
     )
         
-    alignment_exclude_axes: EnumProperty(
-        name="Exclude Axes",
-        description="Exclude specific axes from modification",
-        options={'ENUM_FLAG'},
-        items=[
-            ('EXCLUDE_X', "X", "Exclude X axis modification"),
-            ('EXCLUDE_Y', "Y", "Exclude Y axis modification"),
-            ('EXCLUDE_Z', "Z", "Exclude Z axis modification"),
-            ('EXCLUDE_ROLL', "Roll", "Exclude roll modification"),
-            ('EXCLUDE_SCALE', "Scale", "Exclude scale modification"),
-        ],default={'EXCLUDE_SCALE', 'EXCLUDE_ROLL'})
-    
     defineArmatureCategory : EnumProperty(
         name='Define Armature Category',
         items=[
@@ -274,8 +262,7 @@ class ExportableProps():
 
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=ValveSource_VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
-    reset_pose_per_anim : BoolProperty(name='Reset Pose Per Action', description='Reset the pose of the armature for every animation to be exported',default=True)
-    
+
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
     
@@ -320,31 +307,31 @@ class ArmatureMapperKeyValue(PropertyGroup):
     parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
     
 class ArmatureMapperProps():
-    armature_map_pelvis : bpy.props.StringProperty(name="Pelvis")
-    armature_map_chest  : bpy.props.StringProperty(name="Chest")
-    armature_map_head   : bpy.props.StringProperty(name="Head")
-    armature_map_thigh_l : bpy.props.StringProperty(name="Left Thigh")
-    armature_map_ankle_l : bpy.props.StringProperty(name="Left Ankle")
-    armature_map_toe_l   : bpy.props.StringProperty(name="Left Toe")
-    armature_map_thigh_r : bpy.props.StringProperty(name="Right Thigh")
-    armature_map_ankle_r : bpy.props.StringProperty(name="Right Ankle")
-    armature_map_toe_r   : bpy.props.StringProperty(name="Right Toe")
-    armature_map_shoulder_l : bpy.props.StringProperty(name="Left Shoulder")
-    armature_map_wrist_l    : bpy.props.StringProperty(name="Left Wrist")
-    armature_map_index_f_l  : bpy.props.StringProperty(name="Left Index Finger")
-    armature_map_middle_f_l : bpy.props.StringProperty(name="Left Middle Finger")
-    armature_map_ring_f_l   : bpy.props.StringProperty(name="Left Ring Finger")
-    armature_map_pinky_f_l  : bpy.props.StringProperty(name="Left Pinky Finger")
-    armature_map_thumb_f_l  : bpy.props.StringProperty(name="Left Thumb Finger")
-    armature_map_shoulder_r : bpy.props.StringProperty(name="Right Shoulder")
-    armature_map_wrist_r    : bpy.props.StringProperty(name="Right Wrist")
-    armature_map_index_f_r  : bpy.props.StringProperty(name="Right Index Finger")
-    armature_map_middle_f_r : bpy.props.StringProperty(name="Right Middle Finger")
-    armature_map_ring_f_r   : bpy.props.StringProperty(name="Right Ring Finger")
-    armature_map_pinky_f_r  : bpy.props.StringProperty(name="Right Pinky Finger")
-    armature_map_thumb_f_r  : bpy.props.StringProperty(name="Right Thumb Finger")
-    armature_map_eye_l  : bpy.props.StringProperty(name="Left Eye")
-    armature_map_eye_r  : bpy.props.StringProperty(name="Right Eye")
+    armature_map_pelvis : StringProperty(name="Pelvis")
+    armature_map_chest  : StringProperty(name="Chest")
+    armature_map_head   : StringProperty(name="Head")
+    armature_map_thigh_l : StringProperty(name="Left Thigh")
+    armature_map_ankle_l : StringProperty(name="Left Ankle")
+    armature_map_toe_l   : StringProperty(name="Left Toe")
+    armature_map_thigh_r : StringProperty(name="Right Thigh")
+    armature_map_ankle_r : StringProperty(name="Right Ankle")
+    armature_map_toe_r   : StringProperty(name="Right Toe")
+    armature_map_shoulder_l : StringProperty(name="Left Shoulder")
+    armature_map_wrist_l    : StringProperty(name="Left Wrist")
+    armature_map_index_f_l  : StringProperty(name="Left Index Finger")
+    armature_map_middle_f_l : StringProperty(name="Left Middle Finger")
+    armature_map_ring_f_l   : StringProperty(name="Left Ring Finger")
+    armature_map_pinky_f_l  : StringProperty(name="Left Pinky Finger")
+    armature_map_thumb_f_l  : StringProperty(name="Left Thumb Finger")
+    armature_map_shoulder_r : StringProperty(name="Right Shoulder")
+    armature_map_wrist_r    : StringProperty(name="Right Wrist")
+    armature_map_index_f_r  : StringProperty(name="Right Index Finger")
+    armature_map_middle_f_r : StringProperty(name="Right Middle Finger")
+    armature_map_ring_f_r   : StringProperty(name="Right Ring Finger")
+    armature_map_pinky_f_r  : StringProperty(name="Right Pinky Finger")
+    armature_map_thumb_f_r  : StringProperty(name="Right Thumb Finger")
+    armature_map_eye_l  : StringProperty(name="Left Eye")
+    armature_map_eye_r  : StringProperty(name="Right Eye")
 
 class ValveSource_ObjectProps(ExportableProps,ArmatureMapperProps, PropertyGroup,):
     action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"),default="*")
@@ -551,8 +538,9 @@ _classes = (
     bone.TOOLS_OT_MergeBones,
     bone.TOOLS_OT_ReAlignBones,
     bone.TOOLS_OT_CopyTargetRotation,
-    bone.TOOLS_OT_SplitBone,
+    bone.TOOLS_OT_SubdivideBone,
     bone.TOOLS_OT_AssignBoneRotExportOffset,
+    bone.TOOLS_OT_FlipBone,
     bone.TOOLS_OT_CreateCenterBone,
 
     mesh.TOOLS_PT_Mesh,
@@ -568,7 +556,8 @@ _classes = (
     vertexgroup.TOOLS_OT_SplitActiveWeightLinear,
 
     animation.TOOLS_PT_Animation,
-    animation.TOOLS_OT_merged_animations,
+    animation.TOOLS_OT_merge_animation_slots,
+    animation.TOOLS_OT_merge_two_actions,
     animation.TOOLS_OT_convert_rotation_keyframes,
     
     armature_mapper.ARMATUREMAPPER_PT_ArmatureMapper,

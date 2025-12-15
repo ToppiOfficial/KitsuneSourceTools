@@ -90,7 +90,7 @@ def unhide_all_objects():
             obj.hide_set(state["hide"])
             obj.hide_viewport = state["hide_viewport"]
 
-def sanitize_string(data : str) -> str | list[str]:
+def sanitize_string(data : str):
     
     if isinstance(data, list):
         for item in data:
@@ -223,16 +223,19 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
     target_obj = obj or prev_active
     prev_vgroup_index = None
     prev_bone_name = None
+    prev_bone_mode = None
 
     if target_obj:
         if target_obj.type == "MESH":
             prev_vgroup_index = target_obj.vertex_groups.active_index
         elif target_obj.type == "ARMATURE":
             data = target_obj.data
-            if data.bones.active:
-                prev_bone_name = data.bones.active.name
-            elif prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
+            if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
                 prev_bone_name = data.edit_bones.active.name
+                prev_bone_mode = "EDIT"
+            elif prev_mode == "POSE" and data.bones.active:
+                prev_bone_name = data.bones.active.name
+                prev_bone_mode = "POSE"
 
     if target_obj and target_obj.name in bpy.data.objects:
         try:
@@ -283,14 +286,14 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
                 if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
                     prev_active.vertex_groups.active_index = prev_vgroup_index
 
-            elif prev_active.type == "ARMATURE" and prev_bone_name:
+            elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
                 data = prev_active.data
 
-                if mapped_mode == "EDIT":
+                if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
                     edit_bone = data.edit_bones.get(prev_bone_name)
                     if edit_bone:
                         data.edit_bones.active = edit_bone
-                else:
+                elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
                     bone = data.bones.get(prev_bone_name)
                     if bone:
                         data.bones.active = bone
@@ -627,6 +630,27 @@ def get_all_child_objects(parent_obj : bpy.types.Object) -> list[bpy.types.Objec
         children.append(child)
         children.extend(get_all_child_objects(child))
     return children
+
+def get_rotated_hitboxes():
+    rotated = []
+    rotation_threshold = 0.0001
+    
+    for obj in bpy.data.objects:
+        if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
+            continue
+        
+        if not hasattr(obj, 'vs') or not hasattr(obj.vs, 'smd_hitbox'):
+            continue
+        
+        if not obj.vs.smd_hitbox:
+            continue
+        
+        if (abs(obj.rotation_euler.x) > rotation_threshold or
+            abs(obj.rotation_euler.y) > rotation_threshold or
+            abs(obj.rotation_euler.z) > rotation_threshold):
+            rotated.append(obj.name)
+    
+    return rotated
 
 # LAYOUT UTILITIES
 

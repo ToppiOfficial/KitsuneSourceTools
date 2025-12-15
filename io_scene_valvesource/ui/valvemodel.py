@@ -87,7 +87,7 @@ class VALVEMODEL_PrefabExportOperator():
 
         return export_path
 
-    def write_output(self, compiled: str | None, export_path: str | None = None):
+    def write_output(self, compiled: str | None, export_path: str | None = None, warnings : list[str] = []):
         """
         Handles writing the compiled content to a file or clipboard.
         Returns True if successful, False otherwise.
@@ -107,8 +107,15 @@ class VALVEMODEL_PrefabExportOperator():
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
         with open(export_path, "w", encoding="utf-8") as f:
             f.write(compiled)
-
-        self.report({'INFO'}, f"Data exported to {export_path}")
+            
+        if len(warnings) > 0:
+            self.report({'WARNING'}, f"Data exported with {len(warnings)} warnings (see console) to {export_path}")
+            
+            for warning in warnings:
+                print(warning)
+            
+        else:
+            self.report({'INFO'}, f"Data exported to {export_path}")
         return True
 
 class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
@@ -721,6 +728,11 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
 
     ProportionName: props.StringProperty(name='Proportion Slot Name', default='proportion')
     ReferenceName: props.StringProperty(name='Reference Slot Name', default='reference')
+    KeepNonCopiedKeyframes: props.BoolProperty(
+        name='Keep Non-Copied Keyframes',
+        description='Preserve existing keyframes for bones that do not match between armatures',
+        default=True
+    )
 
     @classmethod
     def poll(cls, context : Context) -> bool:
@@ -759,20 +771,16 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
                 action = bpy.data.actions.new(action_name)
             action.use_fake_user = True
 
-            actionslots = {s for s in action.slots}
-            for slot in actionslots:
-                action.slots.remove(slot)
+            if not self.KeepNonCopiedKeyframes:
+                actionslots = list(action.slots)
+                for slot in actionslots:
+                    action.slots.remove(slot)
 
             for pb in arm.pose.bones:
                 pb.matrix_basis.identity()
 
-            slot_ref = action.slots.get(self.ReferenceName)
-            if slot_ref is None:
-                slot_ref = action.slots.new(id_type='OBJECT', name=self.ReferenceName)
-
-            slot_prop = action.slots.get(self.ProportionName)
-            if slot_prop is None:
-                slot_prop = action.slots.new(id_type='OBJECT', name=self.ProportionName)
+            slot_ref = self._get_or_create_slot(action, self.ReferenceName)
+            slot_prop = self._get_or_create_slot(action, self.ProportionName)
 
             if len(action.layers) == 0:
                 layer = action.layers.new("BaseLayer")
@@ -784,17 +792,26 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
             else:
                 strip = layer.strips[0]
 
+            matched_bones = self._get_matching_bones(currArm, arm)
+
+            if self.KeepNonCopiedKeyframes:
+                self._clear_keyframes_for_bones(action, layer, strip, slot_ref, matched_bones)
+
             arm.animation_data.action = action
             arm.animation_data.action_slot = slot_ref
 
             success = copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
             if success:
                 for pbone in arm.pose.bones:
-                    pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
-                    pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
-                    pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
+                    if not self.KeepNonCopiedKeyframes or pbone.name in matched_bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
 
             context.view_layer.update()
+
+            if self.KeepNonCopiedKeyframes:
+                self._clear_keyframes_for_bones(action, layer, strip, slot_prop, matched_bones)
 
             arm.animation_data.action_slot = slot_prop
             success1 = copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
@@ -802,15 +819,54 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
 
             if success1 and success2:
                 for pbone in arm.pose.bones:
-                    pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
-                    pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
-                    pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
+                    if not self.KeepNonCopiedKeyframes or pbone.name in matched_bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
 
             arm.animation_data.action_slot = slot_ref
             context.view_layer.update()
                 
         currArm.data.pose_position = last_pose_state
         return {'FINISHED'}
+
+    def _get_or_create_slot(self, action: bpy.types.Action, slot_name: str) -> bpy.types.ActionSlot:
+        """Gets existing slot or creates new one with given name"""
+        for slot in action.slots:
+            if slot.name_display == slot_name:
+                return slot
+        return action.slots.new(id_type='OBJECT', name=slot_name)
+
+    def _clear_keyframes_for_bones(self, action: bpy.types.Action, layer: bpy.types.ActionLayer, 
+                                   strip: bpy.types.ActionStrip, slot: bpy.types.ActionSlot, 
+                                   bone_names: set[str]) -> None:
+        """Removes keyframes only for specified bones in the given slot"""
+        channelbag = strip.channelbag(slot)
+        if not channelbag:
+            return
+        
+        fcurves_to_remove = []
+        for fcurve in channelbag.fcurves:
+            for bone_name in bone_names:
+                if f'pose.bones["{bone_name}"]' in fcurve.data_path:
+                    fcurves_to_remove.append(fcurve)
+                    break
+        
+        for fcurve in fcurves_to_remove:
+            channelbag.fcurves.remove(fcurve)
+
+    def _get_matching_bones(self, source_arm: bpy.types.Object, target_arm: bpy.types.Object) -> set[str]:
+        """Returns set of bone names that exist in both armatures or match via export names"""
+        matched_bones = set()
+        source_bones = {get_bone_exportname(b, for_write=True): b.name for b in source_arm.data.bones}
+        source_bones.update({b.name: b.name for b in source_arm.data.bones})
+        
+        for target_bone in target_arm.data.bones:
+            target_export = get_bone_exportname(target_bone, for_write=True)
+            if target_bone.name in source_bones or target_export in source_bones:
+                matched_bones.add(target_bone.name)
+        
+        return matched_bones
 
 class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExportOperator):
     bl_idname : str = "smd.encode_exportname_as_constraint_proportion"
@@ -1001,6 +1057,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
 
         hitbox_data = []
         skipped_count = 0
+        rotated_hitboxes = []
 
         for obj in bpy.data.objects:
             if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
@@ -1016,11 +1073,9 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                 continue
 
             rotation_threshold = 0.0001
-            if (abs(obj.rotation_euler.x) > rotation_threshold or
-                abs(obj.rotation_euler.y) > rotation_threshold or
-                abs(obj.rotation_euler.z) > rotation_threshold):
-                skipped_count += 1
-                continue
+            has_rotation = (abs(obj.rotation_euler.x) > rotation_threshold or
+                           abs(obj.rotation_euler.y) > rotation_threshold or
+                           abs(obj.rotation_euler.z) > rotation_threshold)
 
             bounds = self.get_hitbox_bounds(obj)
 
@@ -1043,9 +1098,12 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                         'max': max_point
                     })
 
+                    if has_rotation:
+                        rotated_hitboxes.append(f"{obj.name} ({bone_name})")
+
         if len(hitbox_data) == 0:
             if skipped_count > 0:
-                self.report({'WARNING'}, f"No valid hitboxes found. {skipped_count} hitbox(es) skipped (missing parent bone or has rotation)")
+                self.report({'WARNING'}, f"No valid hitboxes found. {skipped_count} hitbox(es) skipped (missing parent bone)")
             else:
                 self.report({'WARNING'}, "No hitboxes found with vs.smd_hitbox = True")
             return {'CANCELLED'}
@@ -1070,13 +1128,14 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
             print(compiled)
             print(f"=============================="
                   f"\nExported {hitbox_count} hitbox(es)")
-            if skipped_count > 0:
-                print(f"Skipped {skipped_count} hitbox(es) (missing parent bone or has rotation)\n")
-            else:
-                print()
+            if rotated_hitboxes:
+                print(f"WARNING: {len(rotated_hitboxes)} hitbox(es) have rotation (This is not used in Source 1 cube hitboxes):")
+                for name in rotated_hitboxes:
+                    print(f"  - {name}")
+            print()
 
-            if skipped_count > 0:
-                self.report({'INFO'}, f"Exported {hitbox_count} hitbox(es) to clipboard ({skipped_count} skipped)")
+            if rotated_hitboxes:
+                self.report({'WARNING'}, f"Exported {hitbox_count} hitbox(es) to clipboard ({len(rotated_hitboxes)} with rotation)")
             else:
                 self.report({'INFO'}, f"Exported {hitbox_count} hitbox(es) to clipboard")
         else:
@@ -1096,7 +1155,12 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                 self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'. Use .qc or .qci")
                 return {'CANCELLED'}
 
-            if not self.write_output(compiled, export_path):
+            warnings = []
+            if rotated_hitboxes:
+                for name in rotated_hitboxes:
+                    warnings.append(f"  - {name} have rotation (This is not used in Source 1 cube hitboxes)")
+
+            if not self.write_output(compiled, export_path, warnings=warnings):
                 return {'CANCELLED'}
 
         return {'FINISHED'}

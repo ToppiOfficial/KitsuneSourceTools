@@ -18,7 +18,7 @@ from ..core.meshutils import (
 
 from ..utils import get_id
 
-from .bone import TOOLS_OT_SplitBone
+from .bone import TOOLS_OT_SubdivideBone
 
 class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
     bl_label : str = "Vertex Group"
@@ -38,7 +38,7 @@ class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
         col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
         col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
         col.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname,icon='SPLIT_VERTICAL')
-        col.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SplitBone.bl_label + " (Weights Only)").weights_only = True
+        col.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label + " (Weights Only)").weights_only = True
         
         if context.object.mode == 'WEIGHT_PAINT':
             col = bx.column(align=True)

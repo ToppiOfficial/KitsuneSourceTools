@@ -209,7 +209,6 @@ class SMD_UL_ExportItems(bpy.types.UIList):
             is_slot_filter = obj.data.vs.action_selection == 'FILTERED' and State.useActionSlots
             filter_label = get_id("slot_filter") if is_slot_filter else get_id("action_filter")
             col.prop(obj.vs, "action_filter", text=filter_label)
-            col.prop(obj.vs, 'reset_pose_per_anim', toggle=True)
         
         if State.exportFormat == ExportFormat.SMD:
             col.prop(obj.data.vs, "implicit_zero_bone")

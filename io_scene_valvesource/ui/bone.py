@@ -1,6 +1,6 @@
 import bpy, math
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
-from bpy.types import UILayout, Context, Operator, Object, Event
+from bpy.types import Context, Operator, Object, Event
 from typing import Set
 from mathutils import Vector
 
@@ -10,7 +10,7 @@ from ..core.commonutils import(
 )
 
 from ..core.armatureutils import(
-    split_bone, remove_bone, merge_bones, centralize_bone_pairs
+    subdivide_bone, remove_bone, merge_bones, centralize_bone_pairs
 )
 
 from ..utils import get_id
@@ -65,19 +65,13 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Active').copy_source = 'ACTIVE'
         copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Parent').copy_source = 'PARENT'
         
-        align_box.separator(factor=0.5)
-        
-        axis_col = align_box.column(align=True)
-        axis_col.scale_y = 0.9
-        axis_col.label(text='Exclude Axis:')
-        axis_col.prop(scene_vs, 'alignment_exclude_axes', expand=True)
-        
         main_col.separator()
         
         # Bone Modifiers Section
         mod_box = draw_title_box_layout(main_col, text='Bone Modifiers', icon='MODIFIER', align=True)
-        mod_box.operator(TOOLS_OT_SplitBone.bl_idname, icon='MOD_SUBSURF', text='Split Bone').weights_only = False
-        mod_box.operator(TOOLS_OT_CreateCenterBone.bl_idname)
+        mod_box.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label).weights_only = False
+        mod_box.operator(TOOLS_OT_FlipBone.bl_idname, icon='ARROW_LEFTRIGHT')
+        mod_box.operator(TOOLS_OT_CreateCenterBone.bl_idname, icon='BONE_DATA')
         
 class TOOLS_OT_CopyTargetRotation(Operator):
     bl_idname : str = "tools.copy_target_bone_rotation"
@@ -94,13 +88,47 @@ class TOOLS_OT_CopyTargetRotation(Operator):
         default='PARENT'
     )
 
+    include_axes: EnumProperty(
+        name="Include Axes",
+        description="Which axes to include when copying rotation",
+        items=[
+            ('X', "X", "Include X axis"),
+            ('Y', "Y", "Include Y axis"),
+            ('Z', "Z", "Include Z axis"),
+        ],
+        options={'ENUM_FLAG'},
+        default={'X', 'Y', 'Z'}
+    )
+
+    include_roll: BoolProperty(
+        name="Include Roll",
+        description="Copy the bone roll",
+        default=True
+    )
+
+    include_scale: BoolProperty(
+        name="Include Scale",
+        description="Copy the bone length/scale",
+        default=False
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        
+        layout.prop(self, "copy_source", emboss=False)
+        
+        row = layout.row(align=True)
+        row.prop_enum(self, "include_axes", 'X')
+        row.prop_enum(self, "include_axes", 'Y')
+        row.prop_enum(self, "include_axes", 'Z')
+        row.prop(self, "include_roll", text="Roll", toggle=True)
+        row.prop(self, "include_scale", text="Scale", toggle=True)
+
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool((is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
 
     def execute(self, context : Context) -> Set:
-        vs_sce = context.scene.vs
-
         error = 0
         with preserve_context_mode(context.object, 'OBJECT'):
             bones = {}
@@ -136,21 +164,21 @@ class TOOLS_OT_CopyTargetRotation(Operator):
                     editbone.head = new_head_local
 
                     original_length = (editbone.tail - editbone.head).length
-                
+                    current_direction = (editbone.tail - editbone.head).normalized()
 
-                    if 'EXCLUDE_X' in vs_sce.alignment_exclude_axes:
-                        ref_direction.x = (editbone.tail - editbone.head).normalized().x 
-                    if 'EXCLUDE_Y' in vs_sce.alignment_exclude_axes:
-                        ref_direction.y = (editbone.tail - editbone.head).normalized().y 
-                    if 'EXCLUDE_Z' in vs_sce.alignment_exclude_axes:
-                        ref_direction.z = (editbone.tail - editbone.head).normalized().z 
+                    if 'X' not in self.include_axes:
+                        ref_direction.x = current_direction.x 
+                    if 'Y' not in self.include_axes:
+                        ref_direction.y = current_direction.y 
+                    if 'Z' not in self.include_axes:
+                        ref_direction.z = current_direction.z 
 
                     ref_direction.normalize()
                     editbone.tail = editbone.head + (ref_direction * original_length)
 
-                    if 'EXCLUDE_ROLL' not in vs_sce.alignment_exclude_axes:
+                    if self.include_roll:
                         editbone.roll = reference_bone.roll
-                    if 'EXCLUDE_SCALE' not in vs_sce.alignment_exclude_axes:
+                    if self.include_scale:
                         editbone.length = reference_bone.length
 
                 except Exception as e:
@@ -180,15 +208,38 @@ class TOOLS_OT_ReAlignBones(Operator):
         default='ONLY_SINGLE_CHILD'
     )
 
+    include_axes: EnumProperty(
+        name="Include Axes",
+        description="Which axes to include when aligning",
+        items=[
+            ('X', "X", "Include X axis"),
+            ('Y', "Y", "Include Y axis"),
+            ('Z', "Z", "Include Z axis"),
+        ],
+        options={'ENUM_FLAG'},
+        default={'X', 'Y', 'Z'}
+    )
+
+    include_roll: BoolProperty(
+        name="Include Roll",
+        description="Align the bone roll",
+        default=True
+    )
+
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool((is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
         
     def draw(self, context : Context) -> None:
         layout = self.layout
-        layout.prop(self, "alignment_mode")
+        layout.prop(self, "alignment_mode",emboss=False)
+        row = layout.row(align=True)
+        row.prop_enum(self, "include_axes", 'X')
+        row.prop_enum(self, "include_axes", 'Y')
+        row.prop_enum(self, "include_axes", 'Z')
+        row.prop(self, "include_roll", text="Roll", toggle=True)
 
-    def realign_bone_tail(self, bone, exclude_x=False, exclude_y=False, exclude_z=False, exclude_roll=False):
+    def realign_bone_tail(self, bone):
         child_positions = [child.head for child in bone.children]
         original_bone_roll = bone.roll
 
@@ -198,21 +249,21 @@ class TOOLS_OT_ReAlignBones(Operator):
             if self.alignment_mode == 'AVERAGE_ALL':
                 avg_position = sum(child_positions, Vector((0, 0, 0))) / len(child_positions)
                 new_tail = Vector((
-                    bone.tail.x if exclude_x else avg_position.x,
-                    bone.tail.y if exclude_y else avg_position.y,
-                    bone.tail.z if exclude_z else avg_position.z
+                    bone.tail.x if 'X' not in self.include_axes else avg_position.x,
+                    bone.tail.y if 'Y' not in self.include_axes else avg_position.y,
+                    bone.tail.z if 'Z' not in self.include_axes else avg_position.z
                 ))
 
             elif self.alignment_mode == 'ONLY_SINGLE_CHILD' and len(child_positions) == 1:
                 child_position = child_positions[0]
                 new_tail = Vector((
-                    bone.tail.x if exclude_x else child_position.x,
-                    bone.tail.y if exclude_y else child_position.y,
-                    bone.tail.z if exclude_z else child_position.z
+                    bone.tail.x if 'X' not in self.include_axes else child_position.x,
+                    bone.tail.y if 'Y' not in self.include_axes else child_position.y,
+                    bone.tail.z if 'Z' not in self.include_axes else child_position.z
                 ))
                 
             if new_tail:
-                if all([exclude_x, exclude_y, exclude_z]):
+                if not self.include_axes:
                     if self.alignment_mode == 'AVERAGE_ALL':
                         avg_vec = sum((pos - bone.head for pos in child_positions), Vector((0,0,0))) / len(child_positions)
                         bone.length = avg_vec.length
@@ -222,7 +273,7 @@ class TOOLS_OT_ReAlignBones(Operator):
                 else:
                     bone.tail = new_tail
 
-                if not exclude_roll:
+                if self.include_roll:
                     bone.align_roll(bone.tail - bone.head)
                 else:
                     bone.roll = original_bone_roll
@@ -233,8 +284,6 @@ class TOOLS_OT_ReAlignBones(Operator):
         if not armature:
             self.report({'WARNING'}, "No armature selected")
             return {'CANCELLED'}
-
-        vs_sce = context.scene.vs
         
         with preserve_context_mode(armature, 'EDIT'):
             selectedbones = get_selected_bones(armature,'BONE','TO_FIRST')
@@ -249,21 +298,17 @@ class TOOLS_OT_ReAlignBones(Operator):
                 return {'CANCELLED'}
                 
             for bone in editbones:
-                self.realign_bone_tail(bone,
-                                    exclude_x= ('EXCLUDE_X' in vs_sce.alignment_exclude_axes),
-                                    exclude_y= ('EXCLUDE_Y' in vs_sce.alignment_exclude_axes),
-                                    exclude_z= ('EXCLUDE_Z' in vs_sce.alignment_exclude_axes),
-                                    exclude_roll= ('EXCLUDE_ROLL' in vs_sce.alignment_exclude_axes)
-                                    )
+                self.realign_bone_tail(bone)
+                
         self.report({'INFO'}, "Bones realigned successfully")
         return {'FINISHED'}
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
     
-class TOOLS_OT_SplitBone(Operator):
-    bl_idname : str = 'tools.split_bone'
-    bl_label : str = 'Split Bone'
+class TOOLS_OT_SubdivideBone(Operator):
+    bl_idname : str = 'tools.subdivide_bone'
+    bl_label : str = 'Subdivide Bone'
     bl_options : Set = {'REGISTER', 'UNDO'}
     
     subdivisions: IntProperty(
@@ -273,15 +318,38 @@ class TOOLS_OT_SplitBone(Operator):
         default=2,
         description='Number of segments to split the bone into'
     )
-    
+
     minweight : FloatProperty(
-        name='Min Weight', min=0.001,max = 0.01, default=0.001, precision=3)
-    
+        name='Min Weight', 
+        min=0.0001,
+        max=0.01, 
+        default=0.001, 
+        precision=4,
+        description='Minimum weight threshold below which weights are discarded'
+    )
+
     falloff : IntProperty(
-        name='Falloff', min=5, max=20, default=10)
+        name='Falloff', 
+        min=5, 
+        max=20, 
+        default=10,
+        description='Weight falloff curve sharpness (higher = sharper transitions)'
+    )
     
+    smoothness : FloatProperty(
+        name='Smoothness', 
+        min=0, 
+        soft_max=1.0, 
+        default=0.0, 
+        precision=3,
+        description='Weight smoothing amount (0 = no smoothing, higher = smoother blending)'
+    )
+
     weights_only: BoolProperty(
-        name='Weights Only',default=False)
+        name='Weights Only',
+        default=False,
+        description='Only redistribute weights without creating new bones'
+    )
     
     @classmethod
     def poll(cls, context : Context) -> bool:
@@ -299,10 +367,22 @@ class TOOLS_OT_SplitBone(Operator):
 
     def draw(self, context : Context) -> None:
         layout = self.layout
+        
         col = layout.column(align=True)
         col.prop(self, 'subdivisions')
-        col.prop(self, 'minweight')
+        
+        layout.separator()
+        
+        col = layout.column(align=True)
+        col.label(text="Weight Distribution:")
         col.prop(self, 'falloff')
+        col.prop(self, 'smoothness')
+        
+        layout.separator()
+        
+        col = layout.column(align=True)
+        col.label(text="Constraints:")
+        col.prop(self, 'minweight')
 
     def execute(self, context : Context) -> Set:
         arm = get_armature(context.object)
@@ -341,7 +421,8 @@ class TOOLS_OT_SplitBone(Operator):
             
             bpy.ops.object.mode_set(mode='EDIT')
             bones = [arm.data.edit_bones.get(b) for b in boneNames]
-            split_bone(bones, self.subdivisions, weights_only=self.weights_only,min_weight_cap=self.minweight, falloff=self.falloff )
+            subdivide_bone(bones, self.subdivisions, weights_only=self.weights_only,min_weight_cap=self.minweight,
+                       falloff=self.falloff, smoothness=self.smoothness)
             
             if not self.weights_only:
                 bpy.ops.object.mode_set(mode='OBJECT')
@@ -537,6 +618,37 @@ class TOOLS_OT_AssignBoneRotExportOffset(Operator):
                         pass
                     
         return {'FINISHED'}
+  
+class TOOLS_OT_FlipBone(Operator):
+    bl_idname: str = 'tools.flip_bone'
+    bl_label: str = 'Flip Bone'
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    bl_description: str = 'Flip the selected bone(s) by swapping their head and tail positions'
+    
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        return bool(context.mode in {'POSE', 'EDIT_ARMATURE'})
+    
+    def execute(self, context : Context) -> set:
+        armature = context.object
+        flipped_count = 0
+        
+        with preserve_context_mode(armature, 'EDIT'):
+            bones = get_selected_bones(armature, bone_type='EDITBONE')
+        
+            if not len(bones) >= 1:
+                self.report({'ERROR'}, 'Select a single bone to flip')
+                return {'CANCELLED'}
+            
+            for bone in bones:
+                head = bone.head.copy()
+                tail = bone.tail.copy()
+                bone.head = tail
+                bone.tail = head
+                flipped_count += 1
+                
+        self.report({'INFO'}, f'Flipped {flipped_count} bones')
+        return {'FINISHED'}
     
 class TOOLS_OT_CreateCenterBone(Operator):
     bl_idname: str = 'tools.create_centerbone'
@@ -554,11 +666,24 @@ class TOOLS_OT_CreateCenterBone(Operator):
         default='BONE1'
     )
     
+    collection_choice: EnumProperty(
+        name="Bone Collection",
+        description="Choose which bone's collection to use",
+        items=[
+            ('BONE1', "First Bone's Collections", "Use collections from the first selected bone"),
+            ('BONE2', "Second Bone's Collections", "Use collections from the second selected bone"),
+            ('COMMON', "Common Collections", "Use only collections both bones share"),
+        ],
+        default='COMMON'
+    )
+    
     _needs_parent_choice: bool = False
+    _needs_collection_choice: bool = False
     _bone1_name: str = ""
     _bone2_name: str = ""
     _parent1_name: str = ""
     _parent2_name: str = ""
+    _common_collections_count: int = 0
     
     @classmethod
     def poll(cls, context : Context) -> bool:
@@ -567,10 +692,9 @@ class TOOLS_OT_CreateCenterBone(Operator):
     def invoke(self, context: Context, event : Event) -> set:
         armature = get_armature(context.object)
         
-        # Access bones directly based on current mode
         if context.mode == 'EDIT_ARMATURE':
             selected_bones = [b for b in armature.data.edit_bones if b.select]
-        else:  # POSE mode
+        else:
             selected_bones = [armature.data.bones[pb.name] for pb in armature.pose.bones if pb.bone.select]
         
         if len(selected_bones) != 2:
@@ -587,26 +711,52 @@ class TOOLS_OT_CreateCenterBone(Operator):
         self._parent1_name = parent1.name if parent1 else "None"
         self._parent2_name = parent2.name if parent2 else "None"
         
-        if parent1 == parent2:
-            # Same parent (or both None), proceed directly
-            self._needs_parent_choice = False
-            return self.execute(context)
-        else:
-            # Different parents, ask user
-            self._needs_parent_choice = True
-            self.parent_choice = 'BONE1'  # Reset to default
-            
+        bone1_collections = set(bone1.collections)
+        bone2_collections = set(bone2.collections)
+        common_collections = bone1_collections & bone2_collections
+        self._common_collections_count = len(common_collections)
+        
+        self._needs_parent_choice = (parent1 != parent2)
+        self._needs_collection_choice = (self._common_collections_count == 0 and len(bone1_collections) > 0 and len(bone2_collections) > 0)
+        
+        if self._needs_parent_choice or self._needs_collection_choice:
+            self.parent_choice = 'BONE1'
+            self.collection_choice = 'COMMON' if self._common_collections_count > 0 else 'BONE1'
             return context.window_manager.invoke_props_dialog(self)
+        else:
+            return self.execute(context)
     
     def draw(self, context : Context):
         layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
         
         if self._needs_parent_choice:
-            layout.label(text="Bones have different parents:")
-            layout.label(text=f"  {self._bone1_name}: {self._parent1_name}")
-            layout.label(text=f"  {self._bone2_name}: {self._parent2_name}")
-            layout.separator()
-            layout.prop(self, "parent_choice")
+            box = layout.box()
+            col = box.column(align=True)
+            col.label(text="Different Parents Detected", icon='INFO')
+            col.separator(factor=0.5)
+            
+            row = col.row(align=True)
+            row.label(text=self._bone1_name, icon='BONE_DATA')
+            row.label(text=f"→ {self._parent1_name}")
+            
+            row = col.row(align=True)
+            row.label(text=self._bone2_name, icon='BONE_DATA')
+            row.label(text=f"→ {self._parent2_name}")
+            
+            box.separator(factor=0.5)
+            box.prop(self, "parent_choice", text="Parent")
+        
+        if self._needs_collection_choice:
+            if self._needs_parent_choice:
+                layout.separator()
+            
+            box = layout.box()
+            col = box.column(align=True)
+            col.label(text="No Common Collections", icon='INFO')
+            box.separator(factor=0.5)
+            box.prop(self, "collection_choice", text="Collections")
     
     def execute(self, context : Context) -> set:
         armature = get_armature(context.object)
@@ -627,16 +777,33 @@ class TOOLS_OT_CreateCenterBone(Operator):
             new_bone.head = center_head
             new_bone.tail = center_tail
             
-            # Set parent based on choice
             if bone1.parent == bone2.parent:
                 new_bone.parent = bone1.parent
             else:
-                # User chose which parent to use
                 if self.parent_choice == 'BONE1':
                     new_bone.parent = bone1.parent
                 elif self.parent_choice == 'BONE2':
                     new_bone.parent = bone2.parent
-                # else 'NONE', leave parent as None
+            
+            bone1_collections = set(bone1.collections)
+            bone2_collections = set(bone2.collections)
+            common_collections = bone1_collections & bone2_collections
+            
+            if common_collections:
+                for collection in common_collections:
+                    collection.assign(new_bone)
+            else:
+                if self.collection_choice == 'BONE1':
+                    for collection in bone1.collections:
+                        collection.assign(new_bone)
+                elif self.collection_choice == 'BONE2':
+                    for collection in bone2.collections:
+                        collection.assign(new_bone)
+                else:
+                    if bone1.collections:
+                        bone1.collections[0].assign(new_bone)
+                    elif bone2.collections:
+                        bone2.collections[0].assign(new_bone)
             
             self.report({'INFO'}, f'Created center bone: {new_bone.name}')
         

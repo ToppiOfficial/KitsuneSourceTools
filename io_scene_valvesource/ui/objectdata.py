@@ -63,10 +63,12 @@ class OBJECT_PT_translate_panel(Tools_SubCategoryPanel):
         translatebox = draw_title_box_layout(bx,text=f'Translate (Active: {context.active_object.name})',icon='NETWORK_DRIVE',align=True)
         
         text = [
-            "This requires Internet Connection!\n",
+            "Requires Internet Connection\n",
             "Translator: Google Translate\n\n",
-            "This will temporary freeze blender depending how much it will translate.",
-            "If entries didn't get translate, try again later as you may have hit Google's limit"
+            "Blender will freeze for 30-90 seconds during translation.\n",
+            "This is a one-time process per model.\n\n",
+            "If some names don't translate, wait 1 hour and try again\n",
+            "(Google rate limit cooldown)."
         ]
         
         draw_wrapped_texts(translatebox," ".join(text),alert=True, boxed=False)
@@ -138,7 +140,7 @@ class OBJECT_OT_TranslateNamesModal(Operator):
                     if old_name != new_name:
                         bone = current_obj.data.bones.get(old_name)
                         if bone:
-                            bone.name = new_name
+                            bone.name = new_name.lower()
                             self._translated_count += 1
             
             if hasattr(current_obj.data, 'collections'):
@@ -271,7 +273,7 @@ class OBJECT_OT_TranslateNamesModal(Operator):
     
     def cancel(self, context):
         self.cleanup(context)
-
+        
 class OBJECT_OT_translate_names(Operator):
     bl_idname = "objectdata.translate_names"
     bl_label = "Translate Names to English"

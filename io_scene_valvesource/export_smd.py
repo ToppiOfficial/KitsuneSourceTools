@@ -244,9 +244,6 @@ class SmdExporter(bpy.types.Operator, Logger):
         for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'ARMATURE' and len(ob.vs.subdir) == 0]:
             ob.vs.subdir = "anims"
             
-        #for ob in [ob for ob in bpy.context.scene.objects if ob.type == 'MESH' and len(ob.vs.subdir) == 0]:
-        #    ob.vs.subdir = "meshes"
-        
         ops.ed.undo_push(message=self.bl_label)
                 
         try:
@@ -621,15 +618,23 @@ class SmdExporter(bpy.types.Operator, Logger):
             skipped_bones = len(self.armature.pose.bones) - len(self.exportable_bones)
             if skipped_bones:
                 print("- Skipping {} non-deforming bones".format(skipped_bones))
-            
-            # the issue for attachment requiring a parent bone is not solved so the exportable attachment empties is strictly armature src for now
+                
+            # Capture rest pose world matrices for empties
+            original_pose = self.armature_src.data.pose_position
+            self.armature_src.data.pose_position = 'REST'
+            bpy.context.view_layer.update()
+
             self.exportable_empties = [
-                e for e in bpy.data.objects
-                if e.type == 'EMPTY' and e.parent == self.armature_src and e.parent_type == 'BONE'and e.parent_bone in [pb.name for pb in self.armature.pose.bones]
+                (e, e.matrix_world.copy()) for e in bpy.data.objects
+                if e.type == 'EMPTY' and e.parent == self.armature_src and e.parent_type == 'BONE'
+                and e.parent_bone in [pb.name for pb in self.armature.pose.bones]
                 and isinstance(getattr(e.vs, 'dmx_attachment', None), bool)
                 and e.vs.dmx_attachment
             ]
 
+            self.armature_src.data.pose_position = original_pose
+            bpy.context.view_layer.update()
+            
         write_func = self.writeDMX if State.exportFormat == ExportFormat.DMX else self.writeSMD
         bench.report("Post Bake")
 
@@ -1534,8 +1539,26 @@ skeleton
 
         keywords = getDmxKeywords(dm.format_ver)
         
-        if self.armature:
+        # we set to the rest pose as during scene export the last animation pose exported is preserved resulting in incorrect bone transforms 
+        # if there is a mesh still needed to be exported
+        # NOTE: Do users use this behavior for animation batch export? If so, it is better to remove this line and warn instead?
+        # NOTE: This is also found in SMD but not here, is there a reason for this?
+        
+        is_anim = bool(len(bake_results) == 1 and bake_results[0].object.type == 'ARMATURE')
+        saved_action = None
+        
+        if not is_anim and self.armature:
             self.armature.data.pose_position = 'REST'
+            print("- Exporting DMX Meshes at rest pose for armature '{}'".format(self.armature_src.name if self.armature_src else "Unknown"))
+        elif is_anim: 
+            self.armature.data.pose_position = 'POSE'
+            print("- Exporting DMX animation for armature '{}'".format(self.armature_src.name if self.armature_src else "Unknown"))
+            
+        if self.armature: 
+            for pb in self.armature.pose.bones: pb.matrix_basis.identity() # we still want to reset the pose to prevent un-keyed poses from interfering with the other animation exports
+            bpy.context.view_layer.update()
+            
+        # -------------------------------------------------------------------------------------------------------------------------------------
                 
         # skeleton
         root["skeleton"] = DmeModel
@@ -1550,7 +1573,6 @@ skeleton
             if source2:
                 jointTransforms.append(DmeModel["transform"])
         bone_elements = {}
-        empty_elements = {}
         if self.armature: armature_scale = self.armature.matrix_world.to_scale()
         
         def writeBone(bone):
@@ -1615,7 +1637,7 @@ skeleton
 
             bench.report("Bones")
         
-        def writeattachment(empty: bpy.types.Object):
+        def writeattachment(empty: bpy.types.Object, empty_matrix: Matrix):
             empty_name = empty.name
             bone_name = empty.parent_bone
             
@@ -1638,8 +1660,8 @@ skeleton
             
             curr_p = next((pb for pb in self.exportable_bones if pb.name == bone_name), None)
             if curr_p:
-                pmat = get_bone_matrix(curr_p)
-                relMat = pmat.inverted() @ empty.matrix_world
+                pmat = get_bone_matrix(curr_p, rest_space=True)
+                relMat = pmat.inverted() @ empty_matrix
             else:
                 relMat = empty.matrix_basis
             
@@ -1660,9 +1682,9 @@ skeleton
             
             return empty_elem
         
-        if self.exportable_empties:
-            for empty in self.exportable_empties: 
-                writeattachment(empty)      
+        if not is_anim and self.exportable_empties and self.armature:
+            for empty, world_matrix in self.exportable_empties:
+                writeattachment(empty, world_matrix)
             bench.report("Empties")
 
         for vca in bake_results[0].vertex_animations:
@@ -2141,9 +2163,6 @@ skeleton
                 print("- {} flexes ({} with wrinklemaps) + {} correctives".format(num_shapes - num_correctives,num_wrinkles,num_correctives))
             
             vca_matrix = ob.matrix_world.inverted()
-            
-            if self.armature:
-                self.armature.data.pose_position = 'POSE'
                 
             for vca_name,vca in bake_results[0].vertex_animations.items():
                 frame_shapes = []
@@ -2229,9 +2248,6 @@ skeleton
                     # finally, write it out
                     self.exportId(bpy.context,vca_arm)
                     written += 1
-                    
-            if self.armature:
-                self.armature.data.pose_position = 'REST'
 
             if delta_states:
                 DmeMesh["deltaStates"] = datamodel.make_array(delta_states,datamodel.Element)
@@ -2251,12 +2267,7 @@ skeleton
                 if not added:
                     targets.append(DmeMesh)
 
-        if len(bake_results) == 1 and bake_results[0].object.type == 'ARMATURE': # animation
-            self.armature.data.pose_position = 'POSE'
-            
-            if self.armature.data.vs.action_selection != 'CURRENT' and self.armature.vs.reset_pose_per_anim:
-                for pb in self.armature.pose.bones:
-                    pb.matrix_basis.identity()
+        if is_anim: # animation
             
             ad = self.armature.animation_data
                         
@@ -2368,11 +2379,9 @@ skeleton
                     
                 if two_percent and frame % two_percent:
                     print(".",debug_only=True,newline=False)
-                
-            self.armature.data.pose_position = 'REST'
                     
             print(debug_only=True)
-        
+    
         bpy.context.window_manager.progress_update(0.99)
         print("- Writing DMX...")
         try:

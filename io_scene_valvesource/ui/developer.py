@@ -28,8 +28,6 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         
         operatorsection = draw_title_box_layout(maincol,text='Operators')
         operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
-        
-        bx.template_icon(icon_value=iconloader.get_icon("KITSUNE"), scale=8) # type: ignore
  
 class DEVELOPER_OT_ImportLegacyData(Operator):
     bl_idname : str = "smd.importlegacydata"
@@ -47,7 +45,6 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
         bx = l.box()
-
         bx.label(text='This will overwrite every Object!', icon='ERROR')
 
     def execute(self, context : Context) -> set:
@@ -86,13 +83,12 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
                 self.report({'WARNING'}, f"Skipped object {ob.name} (missing vs/fubukitek)")
                 continue
 
-            setattr(vs_ob, "export_rotation_offset_x", math.radians(fb_ob.rotation_offset_x))
-            setattr(vs_ob, "export_rotation_offset_y", math.radians(fb_ob.rotation_offset_y))
-            setattr(vs_ob, "export_rotation_offset_z", math.radians(fb_ob.rotation_offset_z))
-
-            setattr(vs_ob, "export_location_offset_x", fb_ob.translation_offset_x)
-            setattr(vs_ob, "export_location_offset_y", fb_ob.translation_offset_y)
-            setattr(vs_ob, "export_location_offset_z", fb_ob.translation_offset_z)
+            vs_ob.export_rotation_offset_x = math.radians(fb_ob.rotation_offset_x)
+            vs_ob.export_rotation_offset_y = math.radians(fb_ob.rotation_offset_y)
+            vs_ob.export_rotation_offset_z = math.radians(fb_ob.rotation_offset_z)
+            vs_ob.export_location_offset_x = fb_ob.translation_offset_x
+            vs_ob.export_location_offset_y = fb_ob.translation_offset_y
+            vs_ob.export_location_offset_z = fb_ob.translation_offset_z
 
             if ob.type == 'MESH':
                 fb_mesh = ob.data.fubukitek
@@ -106,7 +102,7 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
                     vs_mat = mat.vs
                     fb_mat = mat.fubukitek
                     if vs_mat and fb_mat:
-                        setattr(vs_mat, "override_dmx_export_path", fb_mat.material_path)
+                        vs_mat.override_dmx_export_path = fb_mat.material_path
 
             elif ob.type == 'ARMATURE':
                 bpy.ops.object.mode_set(mode='POSE')
@@ -118,11 +114,10 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
                 fb_arm = ob.data.fubukitek
                 vs_arm = ob.data.vs
                 if fb_arm and vs_arm:
-
-                    setattr(vs_arm, "bone_direction_naming_left", fb_arm.export_name_left)
-                    setattr(vs_arm, "bone_direction_naming_right", fb_arm.export_name_right)
-                    setattr(vs_arm, "bone_name_startcount", fb_arm.export_name_startcount)
-                    setattr(vs_arm, "ignore_bone_exportnames", fb_arm.export_ignoreExportName)
+                    vs_arm.bone_direction_naming_left = fb_arm.export_name_left
+                    vs_arm.bone_direction_naming_right = fb_arm.export_name_right
+                    vs_arm.bone_name_startcount = fb_arm.export_name_startcount
+                    vs_arm.ignore_bone_exportnames = fb_arm.export_ignoreExportName
 
                 for bone in ob.data.bones:
                     fb_bone = bone.fubukitek
@@ -130,58 +125,57 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
                     if not (fb_bone and vs_bone):
                         pass
 
-                    setattr(vs_bone, "export_name", fb_bone.export_name)
-                    setattr(vs_bone, "merge_to_parent", fb_bone.merge_to_parent)
-                    setattr(vs_bone, "ignore_rotation_offset", fb_bone.ignore_export_offset)
+                    vs_bone.export_name = fb_bone.export_name
+                    vs_bone.merge_to_parent = fb_bone.merge_to_parent
+                    vs_bone.ignore_rotation_offset = fb_bone.ignore_export_offset
 
                     rot_x_val = fb_bone.rotation_offset_x if fb_bone.rotation_offset_x != 0 else fb_bone.rotation_offset_y
-                    setattr(vs_bone, "export_rotation_offset_x", math.radians(rot_x_val))
-
-                    setattr(vs_bone, "export_rotation_offset_y", 0)
-                    setattr(vs_bone, "export_rotation_offset_z", math.radians(fb_bone.rotation_offset_z))
-                    setattr(vs_bone, "export_location_offset_x", fb_bone.translation_offset_x)
-                    setattr(vs_bone, "export_location_offset_y", fb_bone.translation_offset_y)
-                    setattr(vs_bone, "export_location_offset_z", fb_bone.translation_offset_z)
-                    setattr(vs_bone, "bone_is_jigglebone", bool(fb_bone.jigglebone.types))
-                    setattr(vs_bone, "jiggle_flex_type", 'RIGID' if 'is_rigid' in fb_bone.jigglebone.types else 'FLEXIBLE')
-                    setattr(vs_bone, "use_bone_length_for_jigglebone_length", fb_bone.jigglebone.use_blend_bonelength)
-                    setattr(vs_bone, "jiggle_length", fb_bone.jigglebone.length.val)
-                    setattr(vs_bone, "jiggle_tip_mass", int(fb_bone.jigglebone.tip_mass.val))
-                    setattr(vs_bone, "jiggle_has_angle_constraint", fb_bone.jigglebone.angle_constraint.enabled)
-                    setattr(vs_bone, "jiggle_angle_constraint", math.radians(fb_bone.jigglebone.angle_constraint.val))
-                    setattr(vs_bone, "jiggle_yaw_stiffness", fb_bone.jigglebone.yaw_stiffness.val)
-                    setattr(vs_bone, "jiggle_yaw_damping", fb_bone.jigglebone.yaw_damping.val)
-                    setattr(vs_bone, "jiggle_has_yaw_constraint", fb_bone.jigglebone.yaw_constraint.enabled)
-                    setattr(vs_bone, "jiggle_yaw_constraint_min", math.radians(abs(fb_bone.jigglebone.yaw_constraint.min)))
-                    setattr(vs_bone, "jiggle_yaw_constraint_max", math.radians(abs(fb_bone.jigglebone.yaw_constraint.max)))
-                    setattr(vs_bone, "jiggle_yaw_friction", fb_bone.jigglebone.yaw_friction.val)
-                    setattr(vs_bone, "jiggle_pitch_stiffness", fb_bone.jigglebone.pitch_stiffness.val)
-                    setattr(vs_bone, "jiggle_pitch_damping", fb_bone.jigglebone.pitch_damping.val)
-                    setattr(vs_bone, "jiggle_has_pitch_constraint", fb_bone.jigglebone.pitch_constraint.enabled)
-                    setattr(vs_bone, "jiggle_pitch_constraint_min", math.radians(abs(fb_bone.jigglebone.pitch_constraint.min)))
-                    setattr(vs_bone, "jiggle_pitch_constraint_max", math.radians(abs(fb_bone.jigglebone.pitch_constraint.max)))
-                    setattr(vs_bone, "jiggle_pitch_friction", fb_bone.jigglebone.pitch_friction.val)
-                    setattr(vs_bone, "jiggle_allow_length_flex", fb_bone.jigglebone.allow_length_flex)
-                    setattr(vs_bone, "jiggle_along_stiffness", fb_bone.jigglebone.along_stiffness.val)
-                    setattr(vs_bone, "jiggle_along_damping", fb_bone.jigglebone.along_damping.val)
+                    vs_bone.export_rotation_offset_x = math.radians(rot_x_val)
+                    vs_bone.export_rotation_offset_y = 0
+                    vs_bone.export_rotation_offset_z = math.radians(fb_bone.rotation_offset_z)
+                    vs_bone.export_location_offset_x = fb_bone.translation_offset_x
+                    vs_bone.export_location_offset_y = fb_bone.translation_offset_y
+                    vs_bone.export_location_offset_z = fb_bone.translation_offset_z
+                    vs_bone.bone_is_jigglebone = bool(fb_bone.jigglebone.types)
+                    vs_bone.jiggle_flex_type = 'RIGID' if 'is_rigid' in fb_bone.jigglebone.types else 'FLEXIBLE'
+                    vs_bone.use_bone_length_for_jigglebone_length = fb_bone.jigglebone.use_blend_bonelength
+                    vs_bone.jiggle_length = fb_bone.jigglebone.length.val
+                    vs_bone.jiggle_tip_mass = int(fb_bone.jigglebone.tip_mass.val)
+                    vs_bone.jiggle_has_angle_constraint = fb_bone.jigglebone.angle_constraint.enabled
+                    vs_bone.jiggle_angle_constraint = math.radians(fb_bone.jigglebone.angle_constraint.val)
+                    vs_bone.jiggle_yaw_stiffness = fb_bone.jigglebone.yaw_stiffness.val
+                    vs_bone.jiggle_yaw_damping = fb_bone.jigglebone.yaw_damping.val
+                    vs_bone.jiggle_has_yaw_constraint = fb_bone.jigglebone.yaw_constraint.enabled
+                    vs_bone.jiggle_yaw_constraint_min = math.radians(abs(fb_bone.jigglebone.yaw_constraint.min))
+                    vs_bone.jiggle_yaw_constraint_max = math.radians(abs(fb_bone.jigglebone.yaw_constraint.max))
+                    vs_bone.jiggle_yaw_friction = fb_bone.jigglebone.yaw_friction.val
+                    vs_bone.jiggle_pitch_stiffness = fb_bone.jigglebone.pitch_stiffness.val
+                    vs_bone.jiggle_pitch_damping = fb_bone.jigglebone.pitch_damping.val
+                    vs_bone.jiggle_has_pitch_constraint = fb_bone.jigglebone.pitch_constraint.enabled
+                    vs_bone.jiggle_pitch_constraint_min = math.radians(abs(fb_bone.jigglebone.pitch_constraint.min))
+                    vs_bone.jiggle_pitch_constraint_max = math.radians(abs(fb_bone.jigglebone.pitch_constraint.max))
+                    vs_bone.jiggle_pitch_friction = fb_bone.jigglebone.pitch_friction.val
+                    vs_bone.jiggle_allow_length_flex = fb_bone.jigglebone.allow_length_flex
+                    vs_bone.jiggle_along_stiffness = fb_bone.jigglebone.along_stiffness.val
+                    vs_bone.jiggle_along_damping = fb_bone.jigglebone.along_damping.val
 
                     if 'has_base_spring' in fb_bone.jigglebone.types:
                         vs_bone.jiggle_base_type = 'BASESPRING'
 
-                    setattr(vs_bone, "jiggle_base_stiffness", fb_bone.jigglebone.stiffness.val)
-                    setattr(vs_bone, "jiggle_base_damping", fb_bone.jigglebone.damping.val)
-                    setattr(vs_bone, "jiggle_base_mass", int(fb_bone.jigglebone.base_mass.val))
-                    setattr(vs_bone, "jiggle_has_left_constraint", fb_bone.jigglebone.left_constraint.enabled)
-                    setattr(vs_bone, "jiggle_left_constraint_min", abs(fb_bone.jigglebone.left_constraint.min))
-                    setattr(vs_bone, "jiggle_left_constraint_max", abs(fb_bone.jigglebone.left_constraint.max))
-                    setattr(vs_bone, "jiggle_left_friction", fb_bone.jigglebone.left_friction.val)
-                    setattr(vs_bone, "jiggle_has_up_constraint", fb_bone.jigglebone.up_constraint.enabled)
-                    setattr(vs_bone, "jiggle_up_constraint_min", abs(fb_bone.jigglebone.up_constraint.min))
-                    setattr(vs_bone, "jiggle_up_constraint_max", abs(fb_bone.jigglebone.up_constraint.max))
-                    setattr(vs_bone, "jiggle_up_friction", fb_bone.jigglebone.up_friction.val)
-                    setattr(vs_bone, "jiggle_has_forward_constraint", fb_bone.jigglebone.forward_constraint.enabled)
-                    setattr(vs_bone, "jiggle_forward_constraint_min", abs(fb_bone.jigglebone.forward_constraint.min))
-                    setattr(vs_bone, "jiggle_forward_constraint_max", abs(fb_bone.jigglebone.forward_constraint.max))
-                    setattr(vs_bone, "jiggle_forward_friction", fb_bone.jigglebone.forward_friction.val)
+                    vs_bone.jiggle_base_stiffness = fb_bone.jigglebone.stiffness.val
+                    vs_bone.jiggle_base_damping = fb_bone.jigglebone.damping.val
+                    vs_bone.jiggle_base_mass = int(fb_bone.jigglebone.base_mass.val)
+                    vs_bone.jiggle_has_left_constraint = fb_bone.jigglebone.left_constraint.enabled
+                    vs_bone.jiggle_left_constraint_min = abs(fb_bone.jigglebone.left_constraint.min)
+                    vs_bone.jiggle_left_constraint_max = abs(fb_bone.jigglebone.left_constraint.max)
+                    vs_bone.jiggle_left_friction = fb_bone.jigglebone.left_friction.val
+                    vs_bone.jiggle_has_up_constraint = fb_bone.jigglebone.up_constraint.enabled
+                    vs_bone.jiggle_up_constraint_min = abs(fb_bone.jigglebone.up_constraint.min)
+                    vs_bone.jiggle_up_constraint_max = abs(fb_bone.jigglebone.up_constraint.max)
+                    vs_bone.jiggle_up_friction = fb_bone.jigglebone.up_friction.val
+                    vs_bone.jiggle_has_forward_constraint = fb_bone.jigglebone.forward_constraint.enabled
+                    vs_bone.jiggle_forward_constraint_min = abs(fb_bone.jigglebone.forward_constraint.min)
+                    vs_bone.jiggle_forward_constraint_max = abs(fb_bone.jigglebone.forward_constraint.max)
+                    vs_bone.jiggle_forward_friction = fb_bone.jigglebone.forward_friction.val
 
         return {'FINISHED'}

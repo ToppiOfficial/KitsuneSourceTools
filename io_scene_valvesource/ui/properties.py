@@ -22,7 +22,7 @@ from ..core.commonutils import (
     is_armature, is_mesh, is_empty, is_curve, get_unparented_attachments,
     get_unparented_hitboxes, get_bugged_hitboxes, get_bugged_attachments,
     get_all_materials, has_materials, draw_wrapped_texts, draw_toggleable_layout,
-    draw_title_box_layout, draw_listing_layout
+    draw_title_box_layout, draw_listing_layout, get_rotated_hitboxes
 )
 
 from ..core.meshutils import (
@@ -259,6 +259,9 @@ class ValidationChecker:
         
         if get_bugged_attachments():
             count += 1
+            
+        if get_rotated_hitboxes():
+            count += 1
         
         return count
 
@@ -292,7 +295,7 @@ class WarningRenderer:
             shapekey_list = "\n".join(f"{key} in '{mesh}'" for key, mesh in invalid_names["shapekeys"])
             draw_wrapped_texts(layout, f'Shapekey(s):\n\n{shapekey_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
-        
+            
         return count
     
     @staticmethod
@@ -327,6 +330,17 @@ class WarningRenderer:
             col = layout.column(align=True)
             col.operator(VALVEMODEL_OT_FixAttachment.bl_idname)
             draw_wrapped_texts(col, f'Attachment(s): {", ".join(bugged_attachments)} have incorrect matrix (world-space instead of bone-relative). Use Fix Attachments operator!', alert=True)
+            count += 1
+        
+        return count
+    
+    @staticmethod
+    def draw_rotated_hitboxes(layout: UILayout) -> int:
+        count = 0
+        
+        rotated_hitboxes = get_rotated_hitboxes()
+        if rotated_hitboxes:
+            draw_wrapped_texts(layout, f'Hitbox(es): {", ".join(rotated_hitboxes)} have rotation applied. This is unuseable in Source 1 Engine!', alert=True)
             count += 1
         
         return count
@@ -398,6 +412,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         num_warnings += WarningRenderer.draw_unparented_items(layout)
         num_warnings += WarningRenderer.draw_bugged_items(layout)
+        num_warnings += WarningRenderer.draw_rotated_hitboxes(layout)
                 
         if num_warnings == 0:
             draw_wrapped_texts(layout, f'No Errors found on active object', boxed=False)
@@ -464,6 +479,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         if not hasShapes(ob):
             draw_wrapped_texts(bx,'Mesh has no Shapekeys!',alert=True,icon='ERROR')
+            return
         
         num_shapes, num_correctives = countShapes(ob)
         

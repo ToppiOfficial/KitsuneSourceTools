@@ -688,94 +688,84 @@ def assign_bone_headtip_positions(arm, bone_data: list[tuple]):
 
     return rotated_bones
 
-def split_bone(bone: typing.Union[bpy.types.EditBone, list],
+def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
                subdivisions: int = 2,
-               falloff : int = 10,
-               min_weight_cap : float = 0.001,
+               falloff: int = 10,
+               smoothness: float = 0.0,
+               min_weight_cap: float = 0.001,
                weights_only: bool = False,
                force_locked: bool = False):
+    """
+    Split a bone into multiple segments with automatic weight distribution.
     
-    if bpy.context.object.mode != 'EDIT':
-        return
-
-    subdivisions = max(2, subdivisions)
-    min_weight = min_weight_cap
-    falloff_power = falloff
-
-    if isinstance(bone, bpy.types.EditBone):
-        arm = get_armature(bone)
-        if not arm:
-            return
-        meshes = get_armature_meshes(arm, bpy.context.scene.vs.visible_mesh_only)
-        if not meshes:
-            return
-
-        head, tail = bone.head, bone.tail
-        collections = bone.collections
-        base_name = bone.name
-        old_bone_name = bone.name
+    Args:
+        bone: EditBone or list of EditBones to split
+        subdivisions: Number of segments to split the bone into (minimum 2)
+        falloff: Power factor for weight falloff curve (higher = sharper transitions)
+        smoothness: Weight smoothing amount (0 = no smoothing, higher = smoother transitions)
+        min_weight_cap: Minimum weight threshold below which weights are discarded
+        weights_only: If True, only redistribute weights without creating new bones
+        force_locked: If True, modify weights even if vertex groups are locked
+    """
+    
+    def create_bone_chain(bone, head, tail, base_name, subdivisions, collections, eb):
+        bone.tail = head.lerp(tail, 1.0 / subdivisions)
+        bone_chain = [bone]
         
-        eb = arm.data.edit_bones
+        for i in range(2, subdivisions + 1):
+            t_start = (i - 1) / subdivisions
+            t_end = i / subdivisions
+            
+            new_bone = eb.new(name=f"{base_name}{i}")
+            new_bone.head = head.lerp(tail, t_start)
+            new_bone.tail = head.lerp(tail, t_end)
+            new_bone.roll = bone.roll
+            new_bone.parent = bone_chain[i - 2]
+            
+            bone_chain.append(new_bone)
+            
+            if collections:
+                for col in collections:
+                    col.assign(new_bone)
+        
+        return bone_chain
+    
+    def find_existing_chain(bone, base_name, subdivisions, eb):
         bone_chain = []
         
-        if weights_only:
-            for i in range(1, subdivisions + 1):
-                target_index = str(i)
-                matched_bone = None
+        for i in range(1, subdivisions + 1):
+            target_index = str(i)
+            matched_bone = None
 
-                for bone in eb.values():
-                    if base_name in bone.name and target_index in bone.name:
-                        matched_bone = bone
-                        break
+            for b in eb.values():
+                if base_name in b.name and target_index in b.name:
+                    matched_bone = b
+                    break
 
-                if matched_bone:
-                    bone_chain.append(matched_bone)
-                else:
-                    print(f"Warning: Expected bone with '{base_name}' and index {i} not found for weights_only mode")
-                    return
-        else:
-            for i in range(1, subdivisions + 1):
-                t_start = (i - 1) / subdivisions
-                t_end = i / subdivisions
-                
-                new_bone = eb.new(name=f"{base_name}{i}")
-                new_bone.head = head.lerp(tail, t_start)
-                new_bone.tail = head.lerp(tail, t_end)
-                new_bone.roll = bone.roll
-                
-                if i == 1:
-                    new_bone.parent = bone.parent
-                else:
-                    new_bone.parent = bone_chain[i - 2]
-                
-                bone_chain.append(new_bone)
-                
-                if collections:
-                    for col in collections:
-                        col.assign(new_bone)
-            
-            for child in bone.children:
-                child_head = child.head
-                closest_bone = bone_chain[0]
-                min_dist = (child_head - closest_bone.tail).length
-                
-                for new_bone in bone_chain[1:]:
-                    dist = (child_head - new_bone.tail).length
-                    if dist < min_dist:
-                        min_dist = dist
-                        closest_bone = new_bone
-                
-                child.parent = closest_bone
-                child.use_connect = False
-            
-            eb.remove(eb[old_bone_name])
+            if matched_bone:
+                bone_chain.append(matched_bone)
+            else:
+                print(f"Warning: Expected bone with '{base_name}' and index {i} not found for weights_only mode")
+                return None
         
-        arm_matrix = arm.matrix_world
-        head_world = arm_matrix @ head
-        tail_world = arm_matrix @ tail
-        bone_vec = tail_world - head_world
-        bone_length_sq = bone_vec.length_squared
-        
+        return bone_chain
+    
+    def reparent_children(bone, bone_chain):
+        for child in bone.children:
+            child_head = child.head
+            closest_bone = bone_chain[0]
+            min_dist = (child_head - closest_bone.tail).length
+            
+            for new_bone in bone_chain[1:]:
+                dist = (child_head - new_bone.tail).length
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_bone = new_bone
+            
+            child.parent = closest_bone
+            child.use_connect = False
+    
+    def collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq):
         all_vertex_data = []
         
         for mesh in meshes:
@@ -810,7 +800,11 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
                             't': t
                         })
         
+        return all_vertex_data
+    
+    def create_vertex_group_map(meshes, old_bone_name, bone_chain, force_locked):
         mesh_vg_map = {}
+        
         for mesh in meshes:
             if old_bone_name not in mesh.vertex_groups:
                 continue
@@ -821,9 +815,59 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
             
             vg_new_list = []
             for new_bone in bone_chain:
-                vg_new_list.append(mesh.vertex_groups.new(name=new_bone.name))
+                if new_bone.name == old_bone_name:
+                    vg_new_list.append(vg_old)
+                elif new_bone.name in mesh.vertex_groups:
+                    vg_new_list.append(mesh.vertex_groups[new_bone.name])
+                else:
+                    vg_new_list.append(mesh.vertex_groups.new(name=new_bone.name))
             mesh_vg_map[mesh] = vg_new_list
         
+        return mesh_vg_map
+    
+    def apply_smoothing(influences, smooth_amount):
+        smoothed_influences = influences.copy()
+        
+        for _ in range(int(smooth_amount)):
+            temp = [0.0] * len(smoothed_influences)
+            for i in range(len(smoothed_influences)):
+                kernel_sum = smoothed_influences[i]
+                kernel_count = 1.0
+                
+                if i > 0:
+                    kernel_sum += smoothed_influences[i - 1]
+                    kernel_count += 1.0
+                if i < len(smoothed_influences) - 1:
+                    kernel_sum += smoothed_influences[i + 1]
+                    kernel_count += 1.0
+                
+                temp[i] = kernel_sum / kernel_count
+            smoothed_influences = temp
+        
+        fractional_smooth = smooth_amount - int(smooth_amount)
+        if fractional_smooth > 0.0:
+            temp = [0.0] * len(smoothed_influences)
+            for i in range(len(smoothed_influences)):
+                kernel_sum = smoothed_influences[i]
+                kernel_count = 1.0
+                
+                if i > 0:
+                    kernel_sum += smoothed_influences[i - 1]
+                    kernel_count += 1.0
+                if i < len(smoothed_influences) - 1:
+                    kernel_sum += smoothed_influences[i + 1]
+                    kernel_count += 1.0
+                
+                temp[i] = kernel_sum / kernel_count
+            
+            for i in range(len(smoothed_influences)):
+                smoothed_influences[i] = smoothed_influences[i] * (1.0 - fractional_smooth) + temp[i] * fractional_smooth
+        
+        return smoothed_influences
+    
+    def calculate_weight_distribution(all_vertex_data, mesh_vg_map, subdivisions, falloff_power, smooth_amount, min_weight):
+        vertex_weights_to_apply = {}
+        vertices_to_clear = set()
         
         for data in all_vertex_data:
             t = max(0.0, min(1.0, data['t']))
@@ -839,32 +883,91 @@ def split_bone(bone: typing.Union[bpy.types.EditBone, list],
                 dist = abs(t - center)
                 influences.append((1.0 - dist) ** falloff_power if dist < 1.0 else 0.0)
 
+            if smooth_amount > 0.0:
+                influences = apply_smoothing(influences, smooth_amount)
+
             total = sum(influences)
             if total == 0.0:
                 continue
 
             normalized_weights = [inf / total for inf in influences]
-
             filtered_weights = [w if w * weight >= min_weight else 0.0 for w in normalized_weights]
 
             total_filtered = sum(filtered_weights)
             if total_filtered > 0.0:
                 filtered_weights = [w / total_filtered for w in filtered_weights]
 
+            vertices_to_clear.add((mesh, vert_index, vg_list[0]))
+            
             for i, w_norm in enumerate(filtered_weights):
                 final_w = weight * w_norm
                 if final_w >= min_weight:
-                    vg_list[i].add([vert_index], final_w, 'REPLACE')
-
+                    if (mesh, vert_index) not in vertex_weights_to_apply:
+                        vertex_weights_to_apply[(mesh, vert_index)] = []
+                    vertex_weights_to_apply[(mesh, vert_index)].append((vg_list[i], final_w))
+        
+        return vertex_weights_to_apply, vertices_to_clear
+    
+    def apply_weights(vertex_weights_to_apply, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked):
+        for mesh, vert_index, vg in vertices_to_clear:
+            vg.remove([vert_index])
+        
+        for (mesh, vert_index), new_weights in vertex_weights_to_apply.items():
+            for vg, final_w in new_weights:
+                vg.add([vert_index], final_w, 'REPLACE')
+        
+        bone_names_in_chain = {b.name for b in bone_chain}
         for mesh in meshes:
-            if old_bone_name in mesh.vertex_groups:
+            if old_bone_name in mesh.vertex_groups and old_bone_name not in bone_names_in_chain:
                 vg_old = mesh.vertex_groups[old_bone_name]
                 if force_locked or not vg_old.lock_weight:
                     mesh.vertex_groups.remove(vg_old)
+    
+    if bpy.context.object.mode != 'EDIT':
+        return
+
+    subdivisions = max(2, subdivisions)
+    min_weight = min_weight_cap
+    falloff_power = falloff
+    smooth_amount = max(0.0, smoothness)
+
+    if isinstance(bone, bpy.types.EditBone):
+        arm = get_armature(bone)
+        if not arm:
+            return
+        meshes = get_armature_meshes(arm, bpy.context.scene.vs.visible_mesh_only)
+        if not meshes:
+            return
+
+        head, tail = bone.head.copy(), bone.tail.copy()
+        collections = bone.collections
+        base_name = bone.name
+        old_bone_name = bone.name
+        
+        eb = arm.data.edit_bones
+        
+        if weights_only:
+            bone_chain = find_existing_chain(bone, base_name, subdivisions, eb)
+            if not bone_chain:
+                return
+        else:
+            bone_chain = create_bone_chain(bone, head, tail, base_name, subdivisions, collections, eb)
+            reparent_children(bone, bone_chain)
+        
+        arm_matrix = arm.matrix_world
+        head_world = arm_matrix @ head
+        tail_world = arm_matrix @ tail
+        bone_vec = tail_world - head_world
+        bone_length_sq = bone_vec.length_squared
+        
+        all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq)
+        mesh_vg_map = create_vertex_group_map(meshes, old_bone_name, bone_chain, force_locked)
+        vertex_weights_to_apply, vertices_to_clear = calculate_weight_distribution(all_vertex_data, mesh_vg_map, subdivisions, falloff_power, smooth_amount, min_weight)
+        apply_weights(vertex_weights_to_apply, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked)
 
     elif isinstance(bone, list):
         if len(bone) == 1:
-            split_bone(bone[0], subdivisions, falloff, min_weight_cap, weights_only, force_locked)
+            subdivide_bone(bone[0], subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)
         else:
             for b in bone:
-                split_bone(b, subdivisions, falloff, min_weight_cap, weights_only, force_locked)
+                subdivide_bone(b, subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)

@@ -4,7 +4,7 @@ from typing import Set, Any
 
 import bpy
 from bpy.types import Context, Object, Operator, UILayout, UIList, Event, Constraint, BoneCollection
-from bpy.props import EnumProperty, IntProperty, StringProperty
+from bpy.props import EnumProperty, IntProperty, StringProperty, BoolProperty
 from mathutils import Vector
 
 from ..core.armatureutils import (
@@ -12,16 +12,14 @@ from ..core.armatureutils import (
     assign_bone_headtip_positions,
     get_armature,
     get_canonical_bonename,
+    apply_current_pose_as_restpose,
 )
 from ..core.boneutils import get_armature, get_canonical_bonename
 from ..core.commonutils import (
     draw_title_box_layout,
     draw_wrapped_texts,
-    is_armature, draw_toggleable_layout
-)
-
-from ..core.armatureutils import (
-    apply_current_pose_as_restpose
+    is_armature, draw_toggleable_layout,
+    get_selected_bones
 )
 
 from ..core.meshutils import get_armature
@@ -335,12 +333,15 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         name="Load Options",
         description="Select which parts of the JSON to load",
         items=[
-            ("EXPORT_NAME", "Export Name", ""),
-            ("BONE_EXROTATION", "Bone Export Rotation", ""),
-            ("BONE_ROTATION", "Bone Rotation", ""),
-            ("CONSTRAINTS", "Constraints", "")
+            ("EXPORT_NAME", "Export Name", "Load bone export names"),
+            ("BONE_EXROTATION", "Bone Export Rotation", "Load export rotation offsets"),
+            ("BONE_ROTATION", "Bone Rotation", "Load bone rotations and realign chain tails"),
+            ("CONSTRAINTS", "Constraints", "Create twist bone constraints"),
+            ("TWIST_BONES", "Twist Bones", "Create twist bones"),
+            ("HIERARCHY", "Hierarchy", "Update bone parent relationships"),
+            ("MISSING_BONES", "Missing Bones", "Create bones that don't exist in armature")
         ],
-        default={"EXPORT_NAME", "BONE_EXROTATION", "BONE_ROTATION", "CONSTRAINTS"},
+        default={"EXPORT_NAME", "BONE_EXROTATION", "BONE_ROTATION", "CONSTRAINTS", "TWIST_BONES", "HIERARCHY", "MISSING_BONES"},
         options={"ENUM_FLAG"}
     )
 
@@ -348,7 +349,25 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         layout = self.layout
         col = layout.column(align=True)
         col.label(text="Select parts to load:")
-        col.prop(self, "load_options")
+        
+        box = col.box()
+        box.label(text="Bone Properties:")
+        subcol = box.column(align=True)
+        subcol.prop_enum(self, "load_options", "EXPORT_NAME")
+        subcol.prop_enum(self, "load_options", "BONE_EXROTATION")
+        subcol.prop_enum(self, "load_options", "BONE_ROTATION")
+        
+        box = col.box()
+        box.label(text="Twist Bones:")
+        subcol = box.column(align=True)
+        subcol.prop_enum(self, "load_options", "TWIST_BONES")
+        subcol.prop_enum(self, "load_options", "CONSTRAINTS")
+        
+        box = col.box()
+        box.label(text="Structure:")
+        subcol = box.column(align=True)
+        subcol.prop_enum(self, "load_options", "HIERARCHY")
+        subcol.prop_enum(self, "load_options", "MISSING_BONES")
 
     def invoke(self, context: Context, event: Event) -> Set:
         context.window_manager.fileselect_add(self)
@@ -383,7 +402,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         return {"FINISHED"}
 
     def _remap_humanoid_bones(self, arm: Object) -> dict | bool:
-        """Rename bones to standardized humanoid naming convention based on armature mappings."""
         vs_arm = getattr(arm, "vs", None)
         if not vs_arm:
             return False
@@ -402,7 +420,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         return self._apply_renames(arm, vs_arm, rename_map, bones)
 
     def _validate_bone_mapping(self, arm: Object, vs_arm) -> bool:
-        """Check for duplicate bone assignments in armature mappings."""
         bone_props = [attr for attr in dir(vs_arm) if attr.startswith("armature_map_")]
         bone_values = [getattr(vs_arm, prop) for prop in bone_props]
         
@@ -425,21 +442,18 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         return True
 
     def _map_special_bones(self, vs_arm, rename_map: dict, bones) -> None:
-        """Add eye bones to the rename map."""
         if self._is_valid_bone(vs_arm.armature_map_eye_l, bones):
             rename_map[vs_arm.armature_map_eye_l] = "Left eye"
         if self._is_valid_bone(vs_arm.armature_map_eye_r, bones):
             rename_map[vs_arm.armature_map_eye_r] = "Right eye"
 
     def _map_body_chains(self, arm: Object, vs_arm, rename_map: dict, bones) -> None:
-        """Map torso and neck bone chains to standardized names."""
         self._build_torso_chain(arm, bones, vs_arm.armature_map_pelvis, vs_arm.armature_map_chest, rename_map)
         
         if self._is_valid_bone(vs_arm.armature_map_chest, bones) and self._is_valid_bone(vs_arm.armature_map_head, bones):
             self._build_neck_chain(arm, bones, vs_arm.armature_map_chest, vs_arm.armature_map_head, rename_map)
 
     def _map_limbs(self, arm: Object, vs_arm, rename_map: dict, bones) -> None:
-        """Map leg and arm bone chains to standardized names."""
         self._build_chain_mapping(arm, bones, vs_arm.armature_map_thigh_l, vs_arm.armature_map_ankle_l,
                                    ["leg", "knee", "ankle"], rename_map, side="L")
         if self._is_valid_bone(vs_arm.armature_map_toe_l, bones):
@@ -456,7 +470,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                                    ["shoulder", "arm", "elbow", "wrist"], rename_map, side="R")
 
     def _map_fingers(self, arm: Object, vs_arm, rename_map: dict, bones) -> None:
-        """Map all finger bone chains to standardized names."""
         finger_mappings = [
             (vs_arm.armature_map_index_f_l, "IndexFinger", "L", 1),
             (vs_arm.armature_map_middle_f_l, "MiddleFinger", "L", 1),
@@ -474,7 +487,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             self._build_finger_mapping(arm, bones, start_name, base, side, rename_map, start_idx)
 
     def _apply_renames(self, arm: Object, vs_arm, rename_map: dict, bones) -> dict:
-        """Apply collected bone renames and update armature mapping properties."""
         old_to_new = {}
         for old_name, new_name in rename_map.items():
             if old_name in bones:
@@ -491,11 +503,9 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         return old_to_new
 
     def _is_valid_bone(self, name: str, bones) -> bool:
-        """Check if a bone name exists in the armature."""
         return bool(name) and isinstance(name, str) and name in bones
 
     def _collect_chain(self, bones, start_name: str, end_name: str) -> list:
-        """Find bone chain path from start bone to end bone using depth-first search."""
         if not (self._is_valid_bone(start_name, bones) and self._is_valid_bone(end_name, bones)):
             return []
 
@@ -516,7 +526,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         return chain if not dfs(start_bone, end_bone, chain) else chain
 
     def _realign_chain_tails(self, arm: Object, chain: list) -> None:
-        """Align each bone's tail to the next bone's head in the chain."""
         if 'BONE_ROTATION' not in self.load_options or len(chain) < 2:
             return
 
@@ -535,7 +544,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         bpy.ops.object.mode_set(mode=prev_mode)
 
     def _build_torso_chain(self, arm: Object, bones, pelvis_name: str, chest_name: str, rename_map: dict) -> None:
-        """Build spine chain from pelvis to chest with appropriate naming."""
         chain = self._collect_chain(bones, pelvis_name, chest_name)
         if len(chain) < 2:
             return
@@ -561,7 +569,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         self._realign_chain_tails(arm, chain)
 
     def _build_neck_chain(self, arm: Object, bones, chest_name: str, head_name: str, rename_map: dict) -> None:
-        """Build neck chain from chest to head with appropriate naming."""  
         chain = self._collect_chain(bones, chest_name, head_name)
         if len(chain) < 2:
             return
@@ -574,7 +581,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
 
     def _build_chain_mapping(self, arm: Object, bones, start_name: str, end_name: str, 
                             base_names: list, rename_map: dict, side: str | None = None) -> None:
-        """Map a bone chain to standardized names with optional left/right side prefix."""
         chain = self._collect_chain(bones, start_name, end_name)
         if not chain:
             return
@@ -600,7 +606,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
 
     def _build_finger_mapping(self, arm: Object, bones, start_name: str, base: str, 
                              side: str, rename_map: dict, start_index: int = 1) -> None:
-        """Map finger bone chain following parent-child hierarchy."""
         if not self._is_valid_bone(start_name, bones):
             return
 
@@ -616,7 +621,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         self._realign_chain_tails(arm, chain)
 
     def _setup_armature(self, arm: Object, bone_elements: dict) -> None:
-        """Configure armature properties, bone collections, and process bone data from JSON."""
         with preserve_context_mode(arm, 'OBJECT'):
             if arm.animation_data is not None:
                 arm.animation_data.action = None
@@ -633,14 +637,12 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             self._process_bones_object_mode(arm, bone_elements)
 
     def _ensure_default_collection(self, arm: Object) -> BoneCollection:
-        """Get or create the 'Default' bone collection."""
         default_collection = arm.data.collections.get('Default')
         if default_collection is None:
             default_collection = arm.data.collections.new(name='Default')
         return default_collection
 
     def _prepare_pose_bones(self, arm: Object, default_collection: BoneCollection) -> None:
-        """Reset pose bone properties and assign uncollected bones to default collection."""
         for bone in arm.pose.bones:
             bone.rotation_mode = 'XYZ'
             bone.lock_location = [False] * 3
@@ -654,7 +656,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 default_collection.assign(bone.bone)
 
     def _process_bones_edit_mode(self, arm: Object, bone_elements: dict) -> None:
-        """Process bone hierarchy, rotations, and twist bones in edit mode."""
         bpy.ops.object.mode_set(mode='EDIT')
 
         for bone in arm.data.edit_bones:
@@ -663,23 +664,30 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         for bone_name, bone_data in bone_elements.items():
             bone = arm.data.edit_bones.get(bone_name)
             if bone is None:
-                print(f"[SKIP] {bone_name} not found in armature, attempting to create.")
-                bone = self._write_missing_bone(arm, bone_name, None, bone_elements)
-                if bone is None:
+                if 'MISSING_BONES' in self.load_options:
+                    print(f"[SKIP] {bone_name} not found in armature, attempting to create.")
+                    bone = self._write_missing_bone(arm, bone_name, None, bone_elements)
+                    if bone is None:
+                        continue
+                else:
+                    print(f"[SKIP] {bone_name} not found (MISSING_BONES disabled)")
                     continue
 
-            self._setup_bone_parent(arm, bone, bone_name, bone_data, bone_elements)
+            if 'HIERARCHY' in self.load_options:
+                self._setup_bone_parent(arm, bone, bone_name, bone_data, bone_elements)
+            
             self._setup_bone_rotation(arm, bone, bone_name, bone_data)
-            self._setup_twist_bones(arm, bone, bone_name, bone_data)
+            
+            if 'TWIST_BONES' in self.load_options:
+                self._setup_twist_bones(arm, bone, bone_name, bone_data)
 
         bpy.ops.object.mode_set(mode='OBJECT')
 
     def _setup_bone_parent(self, arm: Object, bone, bone_name: str, bone_data: dict, bone_elements: dict) -> None:
-        """Set bone parent relationship, creating missing parent bones if needed."""
         parent_name = bone_data.get("ParentBone")
         if parent_name:
             parent_bone = arm.data.edit_bones.get(parent_name)
-            if parent_bone is None:
+            if parent_bone is None and 'MISSING_BONES' in self.load_options:
                 parent_bone = self._write_missing_bone(arm, parent_name, bone_name, bone_elements)
             if parent_bone:
                 bone.parent = parent_bone
@@ -687,7 +695,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             bone.parent = None
 
     def _setup_bone_rotation(self, arm: Object, bone, bone_name: str, bone_data: dict) -> None:
-        """Apply bone rotation and roll from JSON data."""
         if 'BONE_ROTATION' not in self.load_options:
             return
 
@@ -700,7 +707,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             assign_bone_headtip_positions(arm, [(bone_name, None, None, None, roll)])
 
     def _setup_twist_bones(self, arm: Object, bone, bone_name: str, bone_data: dict) -> None:
-        """Create twist bones for bone deformation."""
         twist_count = bone_data.get("TwistBoneCount") or (1 if bone_data.get("TwistBones") else 0)
         if twist_count <= 0:
             return
@@ -716,7 +722,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             self._create_multiple_twist_bones(arm, bone, bone_name, base_head, total_vec, twist_count)
 
     def _create_single_twist_bone(self, arm: Object, bone, bone_name: str, base_head, total_vec) -> None:
-        """Create a single twist bone at the midpoint of the parent bone."""
         mid_point = base_head + total_vec * 0.5
         twist_name = f"{bone_name} twist 1"
         
@@ -730,7 +735,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         twistbone.parent = bone
 
     def _create_multiple_twist_bones(self, arm: Object, bone, bone_name: str, base_head, total_vec, twist_count: int) -> None:
-        """Create multiple evenly-spaced twist bones along the parent bone."""
         segment_length = 1.0 / twist_count
         prev_bone = bone
 
@@ -754,7 +758,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             prev_bone = bone
 
     def _process_bones_object_mode(self, arm: Object, bone_elements: dict) -> None:
-        """Apply export rotations, names, and twist constraints in object mode."""
         for bone_name, bone_data in bone_elements.items():
             pb = arm.pose.bones.get(bone_name)
             if not pb:
@@ -766,11 +769,10 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             if 'EXPORT_NAME' in self.load_options and bone_data.get("ExportName"):
                 pb.bone.vs.export_name = get_canonical_bonename(bone_data.get("ExportName"))
 
-            if 'CONSTRAINTS' in self.load_options:
+            if 'CONSTRAINTS' in self.load_options and 'TWIST_BONES' in self.load_options:
                 self._setup_twist_constraints(arm, pb, bone_name, bone_data)
 
     def _apply_export_rotation(self, pb, bone_data: dict) -> None:
-        """Set export rotation offset properties from JSON data."""
         export_rot = bone_data.get("ExportRotationOffset")
         if export_rot is not None:
             pb.bone.vs.ignore_rotation_offset = False
@@ -781,7 +783,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             pb.bone.vs.ignore_rotation_offset = True
 
     def _setup_twist_constraints(self, arm: Object, pb, bone_name: str, bone_data: dict) -> None:
-        """Create copy rotation constraints for twist bones."""
         twist_target = bone_data.get("TwistBones")
         twist_count = bone_data.get("TwistBoneCount") or (1 if twist_target else 0)
         
@@ -797,7 +798,8 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             if not pbtwist:
                 continue
 
-            self._apply_export_rotation(pbtwist, bone_data)
+            if 'BONE_EXROTATION' in self.load_options:
+                self._apply_export_rotation(pbtwist, bone_data)
 
             if twist_target == pbtwist.parent.name:
                 pbtwist.rotation_mode = 'XYZ'
@@ -808,7 +810,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
                 col.assign(pbtwist.bone)
 
     def _add_twist_constraint(self, arm: Object, pbtwist, bone_name: str, twist_target: str, idx: int, twist_count: int) -> None:
-        """Add weighted copy rotation constraint to a twist bone."""
         pbtwist.rotation_mode = 'XYZ'
         influence = (idx + 1) / twist_count
 
@@ -829,7 +830,6 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         twist_constraint.influence = influence
 
     def _write_missing_bone(self, arm: Object, bone_name: str, child_hint: str, bone_elements: dict) -> bpy.types.EditBone |  None:
-        """Recursively create missing bones from JSON data with proper parenting."""
         existing = arm.data.edit_bones.get(bone_name)
         if existing:
             return existing
