@@ -7,7 +7,6 @@ from bpy.types import (
     VertexGroup, LoopColors, MeshLoopColorLayer
 )
 
-from .. import format_version
 from .common import KITSUNE_PT_CustomToolPanel
 
 from ..core.boneutils import (
@@ -22,11 +21,7 @@ from ..core.commonutils import (
     is_armature, is_mesh, is_empty, is_curve, get_unparented_attachments,
     get_unparented_hitboxes, get_bugged_hitboxes, get_bugged_attachments,
     get_all_materials, has_materials, draw_wrapped_texts, draw_toggleable_layout,
-    draw_title_box_layout, draw_listing_layout, get_rotated_hitboxes
-)
-
-from ..core.meshutils import (
-    get_flexcontrollers
+    draw_title_box_layout, draw_listing_layout, get_rotated_hitboxes, is_valid_string
 )
 
 from ..utils import (
@@ -86,8 +81,7 @@ for map_name in vertex_maps:
         def execute(self, context : Context) -> set:
             vc : MeshLoopColorLayer = context.active_object.data.vertex_colors.new(name=self.vertex_map)
             vc.data.foreach_set("color", [1.0] * len(vc.data) * 4)
-            bpy.context.view_layer.update()
-            SelectVertexColorMap().execute(context)
+            SelectVertexColorMap.execute(self, context)
             return {'FINISHED'}
 
     class RemoveVertexColorMap(Operator):
@@ -158,7 +152,7 @@ for map_name in vertex_float_maps:
                 remap.min : float = 0.0
                 remap.max : float = 1.0
 
-            SelectVertexFloatMap().execute(context)
+            SelectVertexFloatMap.execute(self, context)
             return {'FINISHED'}
 
     class RemoveVertexFloatMap(Operator):
@@ -183,20 +177,12 @@ for map_name in vertex_float_maps:
 
 class ValidationChecker:
     @staticmethod
-    def is_valid_name(name: str) -> bool:
-        for char in name:
-            if not (char.isascii() and (char.isalnum() or char in (' ', '_', '.'))):
-                return False
-        return True
-
-    @staticmethod
     def get_invalid_names(armature_obj) -> dict:
         invalid_names = {
             'armature': [],
             'bones': [],
             'meshes': [],
             'materials': [],
-            'shapekeys': []
         }
         
         armature = None
@@ -209,35 +195,26 @@ class ValidationChecker:
             return invalid_names
         
         for bone in armature.data.bones:
-            if not ValidationChecker.is_valid_name(bone.name):
+            if not is_valid_string(bone.name):
                 invalid_names['bones'].append(bone.name)
                 
-        if not ValidationChecker.is_valid_name(armature.name):
+        if not is_valid_string(armature.name):
             invalid_names['armature'].append(armature.name)
             
         meshes = get_armature_meshes(armature)
         for mesh in meshes:
             if mesh.vs.export is False: continue
             
-            if not ValidationChecker.is_valid_name(mesh.name):
+            if not is_valid_string(mesh.name):
                 invalid_names['meshes'].append(mesh.name)
             
             for mat in mesh.data.materials:
                 if mat is None: continue
                 if mat.vs.do_not_export_faces: continue
                 
-                if mat and not ValidationChecker.is_valid_name(mat.name):
+                if mat and not is_valid_string(mat.name):
                     if (mat.name, mesh.name) not in invalid_names['materials']:
                         invalid_names['materials'].append((mat.name, mesh.name))
-            
-            if mesh.data.shape_keys:
-                for key in mesh.data.shape_keys.key_blocks:
-                    if mesh.vs.flex_controller_mode == 'STRICT':
-                        if key.name not in (fc[0] for fc in get_flexcontrollers(mesh)):
-                            continue
-                    
-                    if not ValidationChecker.is_valid_name(key.name):
-                        invalid_names['shapekeys'].append((key.name, mesh.name))
         
         return invalid_names
 
@@ -266,7 +243,7 @@ class ValidationChecker:
         return count
 
 class WarningRenderer:
-    INVALID_CHAR_MESSAGE = '\n\ncontain invalid characters! Only alphanumeric, spaces, and underscores are allowed for Source Engine.'
+    INVALID_CHAR_MESSAGE = '\n\ncontain invalid characters! Only alphanumeric characters (including Unicode), spaces, underscores, and dots are allowed. Special characters will be sanitized (replaced with underscores) on export.'
     
     @staticmethod
     def draw_invalid_names(layout: UILayout, invalid_names: dict) -> int:
@@ -289,11 +266,6 @@ class WarningRenderer:
         if invalid_names['materials']:
             material_list = "\n".join(f"{mat} in '{mesh}'" for mat, mesh in invalid_names["materials"])
             draw_wrapped_texts(layout, f'Material(s):\n\n{material_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
-            count += 1
-
-        if invalid_names['shapekeys']:
-            shapekey_list = "\n".join(f"{key} in '{mesh}'" for key, mesh in invalid_names["shapekeys"])
-            draw_wrapped_texts(layout, f'Shapekey(s):\n\n{shapekey_list}{WarningRenderer.INVALID_CHAR_MESSAGE}', alert=True)
             count += 1
             
         return count
@@ -354,20 +326,6 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
 
         col = l.column(align=True)
         
-        addonver, addondevstate = format_version()
-        addoninfo_section : UILayout = draw_toggleable_layout(col, context.scene.vs, 'show_addoninfo', show_text=f'KitsuneSourceTool {addonver}_{addondevstate}', hide_text='', toggle_scale_y=0.8)
-        if addoninfo_section is not None:
-            draw_wrapped_texts(addoninfo_section, get_id('introduction_message'), boxed=False)
-        
-        prophelpsection : UILayout = draw_toggleable_layout(col, context.scene.vs, 'show_properties_help', f'Show Tips', '', toggle_scale_y=0.7)
-        if prophelpsection is not None:
-            help_text = [
-                '- Selecting multiple objects or bones and changing a property of either will be copied over to other selected of the same type.',
-                '- Exporting bones with non alphanumeric character will be sanitize and can lead to issues with bone mixup.',
-            ]
-            draw_wrapped_texts(prophelpsection, text=help_text[0], max_chars=40, boxed=False)
-            draw_wrapped_texts(prophelpsection, text=help_text[1], max_chars=40, alert=True, boxed=False)
-
         warning_count = ValidationChecker.count_warnings(context)
         has_warnings = warning_count > 0
         
@@ -390,14 +348,9 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         
         for prop, label, icon, draw_func, object_type in sections:
             
-            is_sametype = False
-            if object_type is None and context.object: is_sametype = True
-            elif context.object and (context.object.type == object_type or context.object.type in object_type): is_sametype = True
-            
             section = draw_toggleable_layout(
                 col, context.scene.vs, prop, 
                 show_text=label, icon=icon, 
-                enabled=is_sametype,
                 toggle_scale_y=0.9,
                 icon_outside=True
             )
@@ -576,10 +529,6 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     
         col = layout.column(align=False)
         col.scale_y = 1.1
-        if State.compiler != Compiler.MODELDOC or State.exportFormat != ExportFormat.DMX:
-            messages = 'Only Applicable in Source 2 and DMX'
-            draw_wrapped_texts(col, messages, 32, alert=True, icon='ERROR')
-            col.active = False
 
         col = col.column(align=False)
         col.scale_y = 1.15

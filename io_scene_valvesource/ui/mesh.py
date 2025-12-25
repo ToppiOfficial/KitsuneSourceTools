@@ -154,9 +154,9 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_AddToonEdgeLine(Operator):
-    bl_idname : str = "tools.add_toon_edgeline"
-    bl_label : str = "Add Black Toon Edgeline"
-    bl_options : Set = {"REGISTER", "UNDO"}
+    bl_idname: str = "tools.add_toon_edgeline"
+    bl_label: str = "Add Black Toon Edgeline"
+    bl_options: Set = {"REGISTER", "UNDO"}
 
     has_sharp_edgesplit: bpy.props.BoolProperty(
         name="Has Sharp EdgeSplit",
@@ -164,10 +164,16 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         default=False,
     )
 
-    use_shape_key_weights: bpy.props.BoolProperty(
-        name="Use Shape Key Weights",
-        description="Assign vertex weights based on total movement from all shape keys",
-        default=False
+    weight_calculation_mode: bpy.props.EnumProperty(
+        name="Weight Calculation",
+        description="Method for calculating vertex weights",
+        items=[
+            ('NONE', "None", "Use uniform weights (all 1.0)"),
+            ('SHAPE_KEYS', "Shape Keys", "Use shape key deformation"),
+            ('COMPONENT_SIZE', "Component Size", "Use mesh island size"),
+            ('BOTH', "Both Combined", "Combine shape keys and component size"),
+        ],
+        default='NONE'
     )
     
     overwrite_existing_weights: bpy.props.BoolProperty(
@@ -190,7 +196,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     
     weight_min: bpy.props.FloatProperty(
         name="Min Weight",
-        description="Minimum weight value for shape key deformation",
+        description="Minimum weight value",
         default=0.0,
         min=0.0,
         max=1.0,
@@ -198,7 +204,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     
     weight_max: bpy.props.FloatProperty(
         name="Max Weight",
-        description="Maximum weight value for shape key deformation",
+        description="Maximum weight value",
         default=1.0,
         min=0.0,
         max=1.0,
@@ -228,28 +234,6 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         default=False
     )
     
-    use_component_size_weights: bpy.props.BoolProperty(
-        name="Use Component Size Weights",
-        description="Assign vertex weights based on relative size of mesh components (islands)",
-        default=False
-    )
-    
-    component_weight_min: bpy.props.FloatProperty(
-        name="Min Component Weight",
-        description="Minimum weight for smallest mesh component",
-        default=0.0,
-        min=0.0,
-        max=1.0,
-    )
-    
-    component_weight_max: bpy.props.FloatProperty(
-        name="Max Component Weight",
-        description="Maximum weight for largest mesh component",
-        default=0.8,
-        min=0.0,
-        max=1.0,
-    )
-    
     component_size_metric: bpy.props.EnumProperty(
         name="Size Metric",
         description="How to measure component size",
@@ -272,37 +256,40 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     )
 
     @classmethod
-    def poll(cls, context : Context) -> bool:
+    def poll(cls, context: Context) -> bool:
         return bool({ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()})
 
-    def draw(self, context : Context):
+    def draw(self, context: Context):
         layout = self.layout
         
         layout.prop(self, "edgeline_thickness")
-        layout.prop(self, "has_sharp_edgesplit") 
-        layout.prop(self, "use_shape_key_weights")
+        layout.prop(self, "has_sharp_edgesplit")
         
-        if self.use_shape_key_weights:
-            box = layout.box()
-            box.prop(self, "overwrite_existing_weights")
-            box.prop(self, "shape_key_weight_mode")
+        layout.separator()
+        layout.prop(self, "weight_calculation_mode")
+        
+        uses_shape_keys = self.weight_calculation_mode in {'SHAPE_KEYS', 'BOTH'}
+        uses_components = self.weight_calculation_mode in {'COMPONENT_SIZE', 'BOTH'}
+        
+        if uses_shape_keys or uses_components:
+            layout.prop(self, "overwrite_existing_weights")
             
-            row = box.row(align=True)
+            row = layout.row(align=True)
             row.prop(self, "weight_min")
             row.prop(self, "weight_max")
-            
+        
+        if uses_shape_keys:
+            box = layout.box()
+            box.label(text="Shape Key Settings:")
+            box.prop(self, "shape_key_weight_mode")
             box.prop(self, "weight_threshold")
             box.prop(self, "weight_expansion")
             box.prop(self, "normalize_per_shapekey")
         
-        layout.prop(self, "use_component_size_weights")
-        
-        if self.use_component_size_weights:
+        if uses_components:
             box = layout.box()
+            box.label(text="Component Size Settings:")
             box.prop(self, "component_size_metric")
-            row = box.row(align=True)
-            row.prop(self, "component_weight_min")
-            row.prop(self, "component_weight_max")
 
     def calculate_component_weights(self, ob):
         bm = bmesh.new()
@@ -313,14 +300,14 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         unvisited = set(bm.verts)
         
         while unvisited:
-            island = []
+            island = set()
             queue = [unvisited.pop()]
             
             while queue:
                 v = queue.pop(0)
                 if v in island:
                     continue
-                island.append(v)
+                island.add(v)
                 
                 for edge in v.link_edges:
                     other = edge.other_vert(v)
@@ -336,11 +323,13 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
                 size = len(island)
             elif self.component_size_metric == 'AREA':
                 area = 0.0
+                counted_faces = set()
                 for v in island:
                     for face in v.link_faces:
-                        if all(fv in island for fv in face.verts):
+                        if face not in counted_faces and all(fv in island for fv in face.verts):
                             area += face.calc_area()
-                size = area / len(island)
+                            counted_faces.add(face)
+                size = area
             else:
                 coords = [v.co for v in island]
                 min_co = mathutils.Vector((min(c.x for c in coords), min(c.y for c in coords), min(c.z for c in coords)))
@@ -350,8 +339,8 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             
             island_sizes.append(size)
         
-        min_size = min(island_sizes)
-        max_size = max(island_sizes)
+        min_size = min(island_sizes) if island_sizes else 0
+        max_size = max(island_sizes) if island_sizes else 0
         size_range = max_size - min_size
         
         vertex_weights = [0.0] * len(bm.verts)
@@ -359,9 +348,9 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         for island, size in zip(islands, island_sizes):
             if size_range > 0:
                 normalized = (max_size - size) / size_range
-                weight = self.component_weight_min + normalized * (self.component_weight_max - self.component_weight_min)
+                weight = self.weight_min + normalized * (self.weight_max - self.weight_min)
             else:
-                weight = self.component_weight_max
+                weight = self.weight_max
             
             weight = round(weight, 2)
             
@@ -371,8 +360,75 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         bm.free()
         return vertex_weights
 
-    def execute(self, context : Context) -> Set:
-        obs : set[Object]  = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
+    def calculate_shape_key_weights(self, ob):
+        if not ob.data.shape_keys or len(ob.data.shape_keys.key_blocks) <= 1:
+            return None
+            
+        base = ob.data.shape_keys.key_blocks[0].data
+        shape_weights = [0.0] * len(ob.data.vertices)
+
+        for sk in ob.data.shape_keys.key_blocks[1:]:
+            sk_weights = [0.0] * len(ob.data.vertices)
+            
+            for i, vert in enumerate(sk.data):
+                delta = (vert.co - base[i].co).length
+                if delta > self.weight_threshold:
+                    sk_weights[i] = delta
+            
+            if self.normalize_per_shapekey and max(sk_weights) > 0:
+                max_delta = max(sk_weights)
+                sk_weights = [w / max_delta for w in sk_weights]
+            
+            for i, weight in enumerate(sk_weights):
+                shape_weights[i] += weight
+
+        if max(shape_weights) == 0:
+            return None
+            
+        max_weight = max(shape_weights)
+        
+        for i, weight in enumerate(shape_weights):
+            if weight > 0:
+                normalized = weight / max_weight
+                
+                if self.shape_key_weight_mode == 'ABSOLUTE':
+                    final_weight = self.weight_max
+                elif self.shape_key_weight_mode == 'LINEAR':
+                    final_weight = self.weight_min + normalized * (self.weight_max - self.weight_min)
+                elif self.shape_key_weight_mode == 'SQUARED':
+                    final_weight = self.weight_min + (normalized ** 2) * (self.weight_max - self.weight_min)
+                elif self.shape_key_weight_mode == 'SQRT':
+                    final_weight = self.weight_min + (normalized ** 0.5) * (self.weight_max - self.weight_min)
+                
+                shape_weights[i] = final_weight
+
+        if self.weight_expansion > 0:
+            shape_weights = self.expand_weights(ob, shape_weights)
+            
+        return shape_weights
+
+    def expand_weights(self, ob, weights):
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        bm.verts.ensure_lookup_table()
+        
+        expanded_weights = weights.copy()
+        iterations = int(self.weight_expansion)
+        
+        for _ in range(iterations):
+            new_weights = expanded_weights.copy()
+            for v in bm.verts:
+                if expanded_weights[v.index] > 0:
+                    for edge in v.link_edges:
+                        other = edge.other_vert(v)
+                        new_weights[other.index] = max(new_weights[other.index], expanded_weights[v.index])
+            expanded_weights = new_weights
+        
+        bm.free()
+        return expanded_weights
+
+    def execute(self, context: Context) -> Set:
+        obs: set[Object] = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
 
         for ob in obs:
             bpy.context.view_layer.objects.active = ob
@@ -380,11 +436,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             scene = context.scene
             unit_scale = scene.unit_settings.scale_length or 1.0
 
-            edgeline_mat = None
-            for mat in bpy.data.materials:
-                if "edgeline" in mat.name.lower():
-                    edgeline_mat = mat
-                    break
+            edgeline_mat = next((mat for mat in bpy.data.materials if "edgeline" in mat.name.lower()), None)
 
             if edgeline_mat is None:
                 edgeline_mat = bpy.data.materials.new(name="edgeline")
@@ -401,7 +453,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             if hasattr(edgeline_mat, "use_backface_culling_shadow"):
                 edgeline_mat.use_backface_culling_shadow = True
 
-            edgeline_mat.vs.non_exportable_vgroup = 'non_exportable_face'
+            edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
             edgeline_mat.vs.do_not_export_faces_vgroup = True
 
             old_to_new_index = {}
@@ -440,11 +492,11 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
                     ob.data.materials.append(mat)
 
             solid = ob.modifiers.get("Toon_Edgeline") or ob.modifiers.new(name="Toon_Edgeline", type="SOLIDIFY")
-            filter_vgroup = ob.vertex_groups.get('non_exportable_face')
+            filter_vgroup = ob.vertex_groups.get('Edgeline_Thickness')
             vgroup_exists = filter_vgroup is not None
             
             if filter_vgroup is None:
-                filter_vgroup = ob.vertex_groups.new(name='non_exportable_face')
+                filter_vgroup = ob.vertex_groups.new(name='Edgeline_Thickness')
             
             solid.use_rim = False
             solid.thickness = -(self.edgeline_thickness / 1000.0) / unit_scale
@@ -455,77 +507,24 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
 
             vertex_weights = [0.0] * len(ob.data.vertices)
             
-            if self.use_component_size_weights:
-                component_weights = self.calculate_component_weights(ob)
-                for i in range(len(vertex_weights)):
-                    vertex_weights[i] = max(vertex_weights[i], component_weights[i])
-
-            should_update_weights = self.use_shape_key_weights and (self.overwrite_existing_weights or not vgroup_exists)
+            should_update_weights = self.weight_calculation_mode != 'NONE' and (self.overwrite_existing_weights or not vgroup_exists)
             
-            if should_update_weights and ob.data.shape_keys and len(ob.data.shape_keys.key_blocks) > 1:
-                base = ob.data.shape_keys.key_blocks[0].data
-                shape_weights = [0.0] * len(ob.data.vertices)
+            if should_update_weights:
+                if self.weight_calculation_mode in {'COMPONENT_SIZE', 'BOTH'}:
+                    component_weights = self.calculate_component_weights(ob)
+                    for i in range(len(vertex_weights)):
+                        vertex_weights[i] = max(vertex_weights[i], component_weights[i])
+                
+                if self.weight_calculation_mode in {'SHAPE_KEYS', 'BOTH'}:
+                    shape_weights = self.calculate_shape_key_weights(ob)
+                    if shape_weights:
+                        for i, weight in enumerate(shape_weights):
+                            vertex_weights[i] = max(vertex_weights[i], weight)
 
-                for sk in ob.data.shape_keys.key_blocks[1:]:
-                    sk_weights = [0.0] * len(ob.data.vertices)
-                    
-                    for i, vert in enumerate(sk.data):
-                        delta = (vert.co - base[i].co).length
-                        if delta > self.weight_threshold:
-                            sk_weights[i] = delta
-                    
-                    if self.normalize_per_shapekey and max(sk_weights) > 0:
-                        max_delta = max(sk_weights)
-                        sk_weights = [w / max_delta for w in sk_weights]
-                    
-                    for i, weight in enumerate(sk_weights):
-                        shape_weights[i] += weight
-
-                if max(shape_weights) > 0:
-                    max_weight = max(shape_weights)
-                    
-                    for i, weight in enumerate(shape_weights):
-                        if weight > 0:
-                            normalized = weight / max_weight
-                            
-                            if self.shape_key_weight_mode == 'ABSOLUTE':
-                                final_weight = self.weight_max
-                            elif self.shape_key_weight_mode == 'LINEAR':
-                                final_weight = self.weight_min + normalized * (self.weight_max - self.weight_min)
-                            elif self.shape_key_weight_mode == 'SQUARED':
-                                final_weight = self.weight_min + (normalized ** 2) * (self.weight_max - self.weight_min)
-                            elif self.shape_key_weight_mode == 'SQRT':
-                                final_weight = self.weight_min + (normalized ** 0.5) * (self.weight_max - self.weight_min)
-                            
-                            shape_weights[i] = final_weight
-
-                if self.weight_expansion > 0:
-                    bm = bmesh.new()
-                    bm.from_mesh(ob.data)
-                    bm.verts.ensure_lookup_table()
-                    
-                    expanded_weights = shape_weights.copy()
-                    iterations = int(self.weight_expansion)
-                    
-                    for _ in range(iterations):
-                        new_weights = expanded_weights.copy()
-                        for v in bm.verts:
-                            if expanded_weights[v.index] > 0:
-                                for edge in v.link_edges:
-                                    other = edge.other_vert(v)
-                                    new_weights[other.index] = max(new_weights[other.index], expanded_weights[v.index])
-                        expanded_weights = new_weights
-                    
-                    bm.free()
-                    shape_weights = expanded_weights
-
-                for i, weight in enumerate(shape_weights):
-                    vertex_weights[i] = max(vertex_weights[i], weight)
-
-            for i, weight in enumerate(vertex_weights):
-                if weight > 0:
-                    final_weight = round(weight, 2)
-                    filter_vgroup.add([i], final_weight, 'REPLACE')
+                for i, weight in enumerate(vertex_weights):
+                    if weight > 0:
+                        final_weight = round(weight, 2)
+                        filter_vgroup.add([i], final_weight, 'REPLACE')
                         
             if self.has_sharp_edgesplit:
                 edgesplit = ob.modifiers.get("Toon_EdgeSplit") or ob.modifiers.new(name="Toon_EdgeSplit", type="EDGE_SPLIT")

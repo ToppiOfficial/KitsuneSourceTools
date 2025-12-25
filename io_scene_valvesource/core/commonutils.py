@@ -90,18 +90,32 @@ def unhide_all_objects():
             obj.hide_set(state["hide"])
             obj.hide_viewport = state["hide_viewport"]
 
-def sanitize_string(data : str):
+def sanitize_string(data: str):
     
     if isinstance(data, list):
-        for item in data:
-            sanitize_string(item) 
-        return data
+        return [sanitize_string(item) for item in data]
     
     _data = data.strip()
-    _data = re.sub(r'[^a-zA-Z0-9_.]+', '_', _data)
+    _data = re.sub(r'[^\w.]+', '_', _data, flags=re.UNICODE)
     _data = re.sub(r'_+', '_', _data)
     _data = _data.strip('_')
+    
+    if not _data:
+        return 'unnamed'
+    
     return _data
+
+def is_valid_string(name: str) -> bool:
+    if not name or not name.strip():
+        return False
+    
+    name = name.strip()
+    
+    for char in name:
+        if not (char.isalnum() or char in (' ', '_', '.')):
+            return False
+    
+    return True
 
 def sort_bone_by_hierachy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
     sorted_bones = []

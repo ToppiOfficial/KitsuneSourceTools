@@ -83,12 +83,10 @@ hitbox_group = [
 ]
 
 toggle_show_ops = [
-    "show_addoninfo",
     "show_jigglebones",
     "show_hitboxes",
     "show_attachments",
     "show_materials",
-    "show_properties_help",
     "show_armaturemapper_help",
     "show_prefab_help",
     "show_exportable_help",
@@ -625,7 +623,6 @@ def countShapes(*objects):
     num_correctives = 0
     flattened_objects = []
 
-    # Flatten the input
     for ob in objects:
         if isinstance(ob, bpy.types.Collection):
             flattened_objects.extend(ob.objects)
@@ -634,14 +631,12 @@ def countShapes(*objects):
         else:
             flattened_objects.append(ob)
 
-    # use this get_flexcontrollers
     for ob in [o for o in flattened_objects if o.vs.export and hasShapes(o)]:
         if ob.vs.flex_controller_mode == 'STRICT':
-            # Count valid flex controllers only
-            num_shapes += len(get_flexcontrollers(ob))
-            # No corrective distinction in strict mode
+            flex_controllers = get_flexcontrollers(ob)
+            unique_names = set(fc[0] for fc in flex_controllers)
+            num_shapes += len(unique_names)
         else:
-            # Usual shapekey counting
             if ob.data.shape_keys:
                 for shape in ob.data.shape_keys.key_blocks[1:]:
                     if getCorrectiveShapeSeparator() in shape.name:

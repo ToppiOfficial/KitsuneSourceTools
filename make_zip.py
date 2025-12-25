@@ -3,46 +3,77 @@
 import zipfile, os, re
 
 script_dir = os.path.join("io_scene_valvesource")
+toml_path = os.path.join(script_dir, "blender_manifest.toml")
 
-with open(os.path.join(script_dir, "__init__.py")) as vs_init:
-    content = vs_init.read()
-    ver_match = re.search(r'ADDONVER\s*=\s*(\d+)', content)
-    state_match = re.search(r'ADDONDEVSTATE\s*=\s*[\'"](\w+)[\'"]', content)
+with open(toml_path) as toml_file:
+    content = toml_file.read()
+    version_match = re.search(r'^version\s*=\s*[\'"]?([0-9.]+)[\'"]?', content, re.MULTILINE)
     
-    if not ver_match:
-        print("Error: ADDONVER not found in __init__.py")
+    if not version_match:
+        print("Error: version not found in blender_manifest.toml")
         exit(1)
     
-    ver_num = int(ver_match.group(1))
-    dev_state = state_match.group(1) if state_match else ""
+    version_str = version_match.group(1)
+    
+    wheels_section = re.search(r'wheels\s*=\s*\[(.*?)\]', content, re.DOTALL)
+    if not wheels_section:
+        print("Error: wheels section not found in blender_manifest.toml")
+        exit(1)
+    
+    wheel_lines = re.findall(r'[\'"](.+?)[\'"]', wheels_section.group(1))
 
-if ver_num < 10:
-    version_str = f"0.{ver_num}"
-elif ver_num < 100:
-    major = ver_num // 10
-    minor = ver_num % 10
-    version_str = f"{major}.{minor}"
-else:
-    major = ver_num // 100
-    minor = (ver_num % 100) // 10
-    patch = ver_num % 10
-    version_str = f"{major}.{minor}.{patch}"
+platforms = {
+    'win_amd64': 'windows',
+    'macosx_11_0_arm64': 'macos_arm',
+    'macosx_10_10_x86_64': 'macos_intel',
+    'manylinux': 'linux'
+}
 
-if dev_state:
-    zip_name = f"kitsunesourcetool_{version_str}_{dev_state.lower()}.zip"
-else:
-    zip_name = f"kitsunesourcetool_{version_str}.zip"
+def get_platform_from_wheel(wheel_path):
+    for platform_tag, platform_name in platforms.items():
+        if platform_tag in wheel_path:
+            return platform_name
+    return None
 
-print(f"Creating release: {zip_name}")
+wheel_platform_map = {}
+for wheel in wheel_lines:
+    platform = get_platform_from_wheel(wheel)
+    if platform:
+        if platform not in wheel_platform_map:
+            wheel_platform_map[platform] = []
+        wheel_platform_map[platform].append(wheel)
 
-zip_file = zipfile.ZipFile(os.path.join("..", zip_name), 'w', zipfile.ZIP_BZIP2)
+print(f"Creating platform-specific releases for version {version_str}\n")
 
-for path, dirnames, filenames in os.walk(script_dir):
-    if path.endswith("__pycache__"): 
-        continue
-    for f in filenames:
-        f = os.path.join(path, f)
-        zip_file.write(os.path.realpath(f), f)
+for platform_name, platform_wheels in wheel_platform_map.items():
+    zip_name = f"kitsunesourcetool_{version_str}_{platform_name}.zip"
+    print(f"Creating {zip_name}...")
+    
+    zip_file = zipfile.ZipFile(os.path.join("..", zip_name), 'w', zipfile.ZIP_BZIP2)
+    
+    for path, dirnames, filenames in os.walk(script_dir):
+        if path.endswith("__pycache__"):
+            continue
+        
+        for f in filenames:
+            file_path = os.path.join(path, f)
+            relative_path = os.path.relpath(file_path, ".")
+            
+            if file_path.endswith(".whl"):
+                should_include = False
+                for platform_wheel in platform_wheels:
+                    wheel_filename = os.path.basename(platform_wheel)
+                    if file_path.endswith(wheel_filename):
+                        should_include = True
+                        break
+                
+                if not should_include:
+                    continue
+            
+            zip_file.write(file_path, relative_path)
+    
+    zip_file.close()
+    zip_size = os.path.getsize(os.path.join("..", zip_name)) / (1024 * 1024)
+    print(f"  ✓ {zip_name} ({zip_size:.2f} MB)")
 
-zip_file.close()
-print(f"✓ Release created: ../{zip_name}")
+print(f"\n✓ All platform releases created in ../")

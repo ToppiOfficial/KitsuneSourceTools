@@ -31,7 +31,7 @@ from . import datamodel, ordered_set, flex
 from .core.boneutils import get_bone_exportname, get_bone_matrix
 from .core.objectutils import apply_modifier
 from .core.meshutils import normalize_object_vertexgroups, get_flexcontrollers
-from .core.commonutils import get_armature
+from .core.commonutils import sanitize_string
 
 class SMD_OT_Compile(bpy.types.Operator, Logger):
     bl_idname = "smd.compile_qc"
@@ -54,11 +54,11 @@ class SMD_OT_Compile(bpy.types.Operator, Logger):
     def poll(cls,context):
         return State.gamePath is not None and State.compiler == Compiler.STUDIOMDL
 
-    def invoke(self,context, event):
+    def invoke(self,context, event) -> set:
         bpy.context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-    def execute(self,context):
+    def execute(self,context) -> set:
         multi_files = len([file for file in self.properties.files if file.name]) > 0
         if not multi_files and not (self.properties.filepath == "*" or os.path.isfile(self.properties.filepath)):
             self.report({'ERROR'},"No QC files selected for compile.")
@@ -151,7 +151,7 @@ class SmdExporter(bpy.types.Operator, Logger):
     def poll(cls,context):
         return len(context.scene.vs.export_list) != 0
         
-    def invoke(self, context, event):
+    def invoke(self, context, event) -> set:
         State.update_scene()
         ops.wm.call_menu(name="SMD_MT_ExportChoice")
         return {'PASS_THROUGH'}
@@ -748,7 +748,7 @@ class SmdExporter(bpy.types.Operator, Logger):
         if len(ob.material_slots) > material_index:
             mat_id = ob.material_slots[material_index].material
             if mat_id:
-                mat_name = mat_id.name
+                mat_name = sanitize_string(mat_id.name)
         if mat_name:
             self.materials_used.add((mat_name,mat_id))
             return mat_name, True
@@ -1176,7 +1176,7 @@ class SmdExporter(bpy.types.Operator, Logger):
         bench = BenchMarker(1,"SMD")
         goldsrc = bpy.context.scene.vs.smd_format == "GOLDSOURCE"
         
-        self.smd_file = self.openSMD(filepath,name + "." + filetype,filetype.upper())
+        self.smd_file = self.openSMD(filepath,sanitize_string(name) + "." + filetype,filetype.upper())
         if self.smd_file == None: return 0
 
         if State.compiler > Compiler.STUDIOMDL:
@@ -1503,7 +1503,7 @@ skeleton
 
     def writeDMX(self, datablock : bpy.types.ID, bake_results : list[BakeResult], name : str, dir_path : str):
         bench = BenchMarker(1,"DMX")
-        filepath = os.path.realpath(os.path.join(dir_path,name + ".dmx"))
+        filepath = os.path.realpath(os.path.join(dir_path,sanitize_string(name) + ".dmx"))
         print("-",filepath)
         armature_name = self.armature_src.name if self.armature_src else name
         materials = {}
@@ -1549,10 +1549,8 @@ skeleton
         
         if not is_anim and self.armature:
             self.armature.data.pose_position = 'REST'
-            print("- Exporting DMX Meshes at rest pose for armature '{}'".format(self.armature_src.name if self.armature_src else "Unknown"))
         elif is_anim: 
             self.armature.data.pose_position = 'POSE'
-            print("- Exporting DMX animation for armature '{}'".format(self.armature_src.name if self.armature_src else "Unknown"))
             
         if self.armature: 
             for pb in self.armature.pose.bones: pb.matrix_basis.identity() # we still want to reset the pose to prevent un-keyed poses from interfering with the other animation exports
@@ -1639,7 +1637,21 @@ skeleton
         
         def writeattachment(empty: bpy.types.Object, empty_matrix: Matrix):
             empty_name = empty.name
-            bone_name = empty.parent_bone
+            
+            current_bone = self.armature.data.bones.get(empty.parent_bone)
+            exportable_parent_pose_bone = None
+            
+            while current_bone:
+                if current_bone.name in self.exportable_boneNames:
+                    exportable_parent_pose_bone = self.armature.pose.bones.get(current_bone.name)
+                    break
+                current_bone = current_bone.parent
+
+            if not exportable_parent_pose_bone:
+                self.warning(f"Attachment '{empty.name}' is parented to a bone chain with no exportable bones. Skipping attachment.")
+                return None
+
+            bone_name = exportable_parent_pose_bone.name
             
             empty_elem = dm.add_element(empty_name, "DmeDag", id=empty_name)
             
@@ -1658,7 +1670,7 @@ skeleton
             if "children" not in boneelem:
                 boneelem["children"] = datamodel.make_array([], datamodel.Element)
             
-            curr_p = next((pb for pb in self.exportable_bones if pb.name == bone_name), None)
+            curr_p = exportable_parent_pose_bone
             if curr_p:
                 pmat = get_bone_matrix(curr_p, rest_space=True)
                 relMat = pmat.inverted() @ empty_matrix
@@ -1684,7 +1696,8 @@ skeleton
         
         if not is_anim and self.exportable_empties and self.armature:
             for empty, world_matrix in self.exportable_empties:
-                writeattachment(empty, world_matrix)
+                if writeattachment(empty, world_matrix) is None:
+                    continue
             bench.report("Empties")
 
         for vca in bake_results[0].vertex_animations:
@@ -1988,7 +2001,7 @@ skeleton
                     
                     matdata = ob.data.materials.get(mat_name)
                     if matdata and matdata.vs.override_dmx_export_path.strip():
-                        material_path = matdata.vs.override_dmx_export_path.strip()
+                        material_path = matdata.vs.override_dmx_export_path
                     else:
                         material_path = bpy.context.scene.vs.material_path
 

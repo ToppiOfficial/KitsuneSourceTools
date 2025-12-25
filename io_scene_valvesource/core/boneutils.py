@@ -39,6 +39,7 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
     ordered_bones = sort_bone_by_hierachy(armature.data.bones)
     name_count = collections.defaultdict(lambda: arm_prop.bone_name_startcount)
     export_names = {}
+    used_names = set()
 
     for b in ordered_bones:
         b_side = get_bone_side(b)
@@ -53,12 +54,23 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
 
         if "$" in raw_name:
             key = (raw_name, b_side)
-            export_names[b.name] = raw_name.replace("$", str(name_count[key])).strip()
+            final_name = raw_name.replace("$", str(name_count[key])).strip()
             name_count[key] += 1
         else:
-            export_names[b.name] = raw_name
+            final_name = raw_name
 
-    return sanitize_string(export_names[data_bone.name])
+        final_name = sanitize_string(final_name)
+        
+        if final_name in used_names:
+            counter = 1
+            while f"{final_name}.{counter:03d}" in used_names:
+                counter += 1
+            final_name = f"{final_name}.{counter:03d}"
+        
+        used_names.add(final_name)
+        export_names[b.name] = final_name
+
+    return export_names[data_bone.name]
 
 def get_canonical_bonename(export_name: str) -> str:
     """Convert an exported bone name back to its canonical form:

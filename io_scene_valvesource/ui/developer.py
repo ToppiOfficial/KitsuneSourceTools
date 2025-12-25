@@ -22,10 +22,6 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         boolsection = draw_title_box_layout(maincol,text='Bool Parameters')
         boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
         
-        rootcol, itemcol = draw_listing_layout(boolsection)
-        rootcol.prop(context.scene.vs,"propagate_enabled")
-        itemcol.prop(context.scene.vs,"propagate_include_active")
-        
         operatorsection = draw_title_box_layout(maincol,text='Operators')
         operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
  

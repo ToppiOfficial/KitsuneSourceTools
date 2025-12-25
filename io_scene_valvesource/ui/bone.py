@@ -677,6 +677,14 @@ class TOOLS_OT_CreateCenterBone(Operator):
         default='COMMON'
     )
     
+    distance_threshold: FloatProperty(
+        name="Distance Threshold",
+        description="Maximum distance to consider bones connected",
+        default=0.001,
+        min=0.0001,
+        max=0.1
+    )
+    
     _needs_parent_choice: bool = False
     _needs_collection_choice: bool = False
     _bone1_name: str = ""
@@ -694,8 +702,10 @@ class TOOLS_OT_CreateCenterBone(Operator):
         
         if context.mode == 'EDIT_ARMATURE':
             selected_bones = [b for b in armature.data.edit_bones if b.select]
+            all_bones = armature.data.edit_bones
         else:
             selected_bones = [armature.data.bones[pb.name] for pb in armature.pose.bones if pb.bone.select]
+            all_bones = armature.data.bones
         
         if len(selected_bones) != 2:
             self.report({'ERROR'}, 'Only select 2 bones')
@@ -704,6 +714,26 @@ class TOOLS_OT_CreateCenterBone(Operator):
         bone1, bone2 = selected_bones[0], selected_bones[1]
         self._bone1_name = bone1.name
         self._bone2_name = bone2.name
+        
+        center_head = None
+        if context.mode == 'EDIT_ARMATURE':
+            center_head = (bone1.head + bone2.head) / 2
+        else:
+            center_head = (bone1.head_local + bone2.head_local) / 2
+        
+        has_matching_tail = False
+        
+        if center_head is not None:
+            for bone in all_bones:
+                if bone not in selected_bones:
+                    if context.mode == 'EDIT_ARMATURE':
+                        distance = (bone.tail - center_head).length
+                    else:
+                        distance = (bone.tail_local - center_head).length
+                        
+                    if distance < self.distance_threshold:
+                        has_matching_tail = True
+                        break
         
         parent1 = bone1.parent
         parent2 = bone2.parent
@@ -716,7 +746,7 @@ class TOOLS_OT_CreateCenterBone(Operator):
         common_collections = bone1_collections & bone2_collections
         self._common_collections_count = len(common_collections)
         
-        self._needs_parent_choice = (parent1 != parent2)
+        self._needs_parent_choice = (parent1 != parent2) and not has_matching_tail
         self._needs_collection_choice = (self._common_collections_count == 0 and len(bone1_collections) > 0 and len(bone2_collections) > 0)
         
         if self._needs_parent_choice or self._needs_collection_choice:
@@ -758,6 +788,14 @@ class TOOLS_OT_CreateCenterBone(Operator):
             box.separator(factor=0.5)
             box.prop(self, "collection_choice", text="Collections")
     
+    def find_bone_with_tail_at(self, edit_bones, position, exclude_bones, threshold):
+        for bone in edit_bones:
+            if bone not in exclude_bones:
+                distance = (bone.tail - position).length
+                if distance < threshold:
+                    return bone
+        return None
+    
     def execute(self, context : Context) -> set:
         armature = get_armature(context.object)
         
@@ -777,7 +815,17 @@ class TOOLS_OT_CreateCenterBone(Operator):
             new_bone.head = center_head
             new_bone.tail = center_tail
             
-            if bone1.parent == bone2.parent:
+            matching_bone = self.find_bone_with_tail_at(
+                edit_bones, 
+                center_head, 
+                {bone1, bone2}, 
+                self.distance_threshold
+            )
+            
+            if matching_bone:
+                new_bone.parent = matching_bone
+                self.report({'INFO'}, f'Auto-parented to {matching_bone.name} (tail matches head)')
+            elif bone1.parent == bone2.parent:
                 new_bone.parent = bone1.parent
             else:
                 if self.parent_choice == 'BONE1':

@@ -1,4 +1,4 @@
-# KitsuneSourceTool [Blender 4.5] [Alpha Release]
+# KitsuneSourceTool [Blender 4.5+] [Alpha]
 
 KitsuneSourceTool is a fork and extended version of BlenderSourceTool, integrating toolsets from my older, previously unreleased Blender extensions.
 It’s primarily tailored to my personal workflow, but I’ve decided to release it publicly for others who may find it useful.
@@ -10,6 +10,11 @@ Not all tools have been ported yet — I’m gradually reintroducing features fr
 > - The original code for export and others are being modified as well, use at your own risk for your project at this current version
 > - Some panels and tools lack translation support, and most labels are in English.  
 > - Additionally, many tools do not have tooltips.
+
+## Dependencies
+
+This addon includes [Pillow](https://python-pillow.org/) for image processing.
+Pillow is licensed under the MIT-CMU License. See `wheels/pillow-license` for details.
 
 ## Export Features
 
@@ -36,7 +41,7 @@ Not all tools have been ported yet — I’m gradually reintroducing features fr
 |------|--------------|-------|
 | **Bone Merging** | Merge two or more bones into one. |  |
 | **ReAlign Bone** | Realigns a bone’s tip to face its child bone’s head. | Works only if the bone has a single child. |
-| **Split Bone** | Splits a bone, similar to Blender’s *Subdivide*, and also splits the corresponding vertex groups. |  |
+| **Subdivide Bone w/ Weights** | Subdivide a bone, similar to Blender’s *Subdivide*, but also subdivide the corresponding vertex groups. |  |
 | **Copy Location or Rotation** | Copies the head and tail positions of a target bone in Edit Mode. | Can exclude specific axes, scale, or roll. |
 | **Jigglebones** | Configures and exports jigglebone data for Source 1 or 2 models. | Does not simulate physics in Blender. |
 | **Hitbox** | Configures and exports hitboxes for Source 1 models using cube-shaped empties parented to bones. | Must be marked as a hitbox before export. |

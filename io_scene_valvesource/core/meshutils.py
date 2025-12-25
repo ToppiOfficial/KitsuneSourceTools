@@ -91,13 +91,13 @@ def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.type
 
     return removed_groups_per_mesh
 
-def limit_vertexgroup_influence(ob: bpy.types.Object, bones: list[bpy.types.Bone], limit: int = 4):
+def limit_vertexgroup_influence(ob: bpy.types.Object, bone_names: set[str], limit: int = 4):
     """Keep only the top N weights per vertex."""
     to_remove = []
 
     for v in ob.data.vertices:
         groups = sorted(
-            (g for g in v.groups if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bones),
+            (g for g in v.groups if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names),
             key=lambda g: g.weight, reverse=True
         )
 
@@ -109,13 +109,13 @@ def limit_vertexgroup_influence(ob: bpy.types.Object, bones: list[bpy.types.Bone
             vg = ob.vertex_groups[group_idx]
             vg.remove([vertex_idx])
 
-def normalize_vertexgroup_weights(ob: bpy.types.Object, bones: list[bpy.types.Bone]):
+def normalize_vertexgroup_weights(ob: bpy.types.Object, bone_names: set[str]):
     """Normalize remaining weights so they sum to 1.0 per vertex."""
     for v in ob.data.vertices:
         groups = [
             (ob.vertex_groups[g.group], g.weight)
             for g in v.groups
-            if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bones
+            if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names
         ]
 
         total = sum(weight for _, weight in groups)
@@ -130,11 +130,12 @@ def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, c
     if arm is None:
         return
     
-    bones = arm.data.bones
+    deform_bones = [b for b in arm.data.bones if b.use_deform]
+    deform_bone_names = {b.name for b in deform_bones}
     
-    remove_unused_vertexgroups(ob, weight_limit=clean_tolerance)
-    limit_vertexgroup_influence(ob, bones, limit=vgroup_limit)
-    normalize_vertexgroup_weights(ob, bones)
+    remove_unused_vertexgroups(ob, bones=deform_bones, weight_limit=clean_tolerance)
+    limit_vertexgroup_influence(ob, deform_bone_names, limit=vgroup_limit)
+    normalize_vertexgroup_weights(ob, deform_bone_names)
     
 def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool]]:
     """Return list of (shapekey, eyelid, stereo, min, max) from object,

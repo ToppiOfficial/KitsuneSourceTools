@@ -1,10 +1,31 @@
 import numpy as np
 from typing import Tuple, List
+from PIL import Image, ImageOps, ImageChops, ImageEnhance
 
 class ImageProcessor:
-    """Image processing library with Photoshop-like adjustments"""
-    
     _LUMA_COEFFS = np.array([0.299, 0.587, 0.114], dtype=np.float32)
+
+    @staticmethod
+    def _to_pil(img: np.ndarray) -> Image.Image:
+        """Convert numpy array to PIL Image"""
+        img_uint8 = (np.clip(img, 0, 1) * 255).astype(np.uint8)
+        img_uint8 = np.flipud(img_uint8)
+        if img.shape[2] == 4:
+            return Image.fromarray(img_uint8, 'RGBA')
+        else:
+            return Image.fromarray(img_uint8[:, :, :3], 'RGB')
+    
+    @staticmethod
+    def _from_pil(pil_img: Image.Image, original_shape: tuple) -> np.ndarray:
+        """Convert PIL Image back to numpy array"""
+        arr = np.array(pil_img).astype(np.float32) / 255.0
+        arr = np.flipud(arr)
+        if len(original_shape) == 3 and original_shape[2] == 4 and arr.ndim == 3 and arr.shape[2] == 3:
+            alpha = np.ones((arr.shape[0], arr.shape[1], 1), dtype=np.float32)
+            arr = np.concatenate([arr, alpha], axis=2)
+        elif arr.ndim == 2:
+            arr = np.stack([arr, arr, arr, np.ones_like(arr)], axis=2)
+        return arr
 
     @staticmethod
     def ensure_rgba(img: np.ndarray) -> np.ndarray:
@@ -18,6 +39,15 @@ class ImageProcessor:
     def brightness_contrast(img: np.ndarray, brightness: float = 0.0, contrast: float = 0.0, 
                             legacy: bool = True) -> np.ndarray:
         """Adjust brightness and contrast"""
+        if not legacy and brightness == 0 and contrast != 0:
+            original_shape = img.shape
+            pil_img = ImageProcessor._to_pil(img)
+            factor = 1.0 + contrast / 100.0
+            enhanced = ImageEnhance.Contrast(pil_img).enhance(max(0, factor))
+            result = ImageProcessor._from_pil(enhanced, original_shape)
+            result[:, :, 3] = img[:, :, 3]
+            return result
+        
         result = img.copy()
         rgb = result[:, :, :3]
         
@@ -92,7 +122,6 @@ class ImageProcessor:
         xp = pts[:, 0] / 255.0
         fp = pts[:, 1] / 255.0
         
-        # Interp requires flattening to be efficient in numpy, or looping channels
         for i in range(3):
             rgb[:, :, i] = np.interp(rgb[:, :, i], xp, fp)
         
@@ -124,10 +153,18 @@ class ImageProcessor:
     @staticmethod
     def vibrance(img: np.ndarray, vibrance: float = 0.0, saturation: float = 0.0) -> np.ndarray:
         """Adjust vibrance and saturation"""
+        if vibrance == 0 and saturation != 0:
+            original_shape = img.shape
+            pil_img = ImageProcessor._to_pil(img)
+            factor = 1.0 + saturation / 100.0
+            enhanced = ImageEnhance.Color(pil_img).enhance(max(0, factor))
+            result = ImageProcessor._from_pil(enhanced, original_shape)
+            result[:, :, 3] = img[:, :, 3]
+            return result
+        
         result = img.copy()
         rgb = result[:, :, :3]
         
-        # Use dot product for faster luma calculation
         gray = rgb.dot(ImageProcessor._LUMA_COEFFS)[..., np.newaxis]
         
         if saturation != 0:
@@ -148,6 +185,15 @@ class ImageProcessor:
     def hue_saturation(img: np.ndarray, hue: float = 0.0, saturation: float = 0.0, 
                        lightness: float = 0.0) -> np.ndarray:
         """Adjust hue, saturation, and lightness"""
+        if hue == 0 and lightness == 0 and saturation != 0:
+            original_shape = img.shape
+            pil_img = ImageProcessor._to_pil(img)
+            factor = 1.0 + saturation / 100.0
+            enhanced = ImageEnhance.Color(pil_img).enhance(max(0, factor))
+            result = ImageProcessor._from_pil(enhanced, original_shape)
+            result[:, :, 3] = img[:, :, 3]
+            return result
+        
         result = img.copy()
         rgb = result[:, :, :3]
         
@@ -178,7 +224,6 @@ class ImageProcessor:
         result = img.copy()
         rgb = result[:, :, :3]
         
-        # Use dot for luminance
         luma = rgb.dot(ImageProcessor._LUMA_COEFFS)[..., np.newaxis]
         
         s_mask = 1.0 - np.clip(luma * 2.0, 0.0, 1.0)
@@ -201,29 +246,38 @@ class ImageProcessor:
     
     @staticmethod
     def invert(img: np.ndarray) -> np.ndarray:
-        """Invert colors (preserves alpha)"""
-        result = img.copy()
-        result[:, :, :3] = 1.0 - result[:, :, :3]
-        return result
+        """Invert colors"""
+        original_shape = img.shape
+        pil_img = ImageProcessor._to_pil(img)
+        if pil_img.mode == 'RGBA':
+            r, g, b, a = pil_img.split()
+            r = ImageOps.invert(r)
+            g = ImageOps.invert(g)
+            b = ImageOps.invert(b)
+            inverted = Image.merge('RGBA', (r, g, b, a))
+        else:
+            inverted = ImageOps.invert(pil_img)
+        return ImageProcessor._from_pil(inverted, original_shape)
     
     @staticmethod
     def posterize(img: np.ndarray, levels: int = 4) -> np.ndarray:
         """Posterize image"""
-        result = img.copy()
-        rgb = result[:, :, :3]
-        
-        lvls = float(max(2, levels))
-        rgb *= lvls
-        np.floor(rgb, out=rgb)
-        rgb /= (lvls - 1.0)
-        
-        np.clip(rgb, 0.0, 1.0, out=rgb)
-        result[:, :, :3] = rgb
-        return result
+        original_shape = img.shape
+        pil_img = ImageProcessor._to_pil(img)
+        bits = max(1, int(np.log2(levels)))
+        if pil_img.mode == 'RGBA':
+            r, g, b, a = pil_img.split()
+            r = ImageOps.posterize(r, bits)
+            g = ImageOps.posterize(g, bits)
+            b = ImageOps.posterize(b, bits)
+            posterized = Image.merge('RGBA', (r, g, b, a))
+        else:
+            posterized = ImageOps.posterize(pil_img, bits)
+        return ImageProcessor._from_pil(posterized, original_shape)
     
     @staticmethod
     def threshold(img: np.ndarray, threshold: float = 128.0) -> np.ndarray:
-        """Apply threshold (0-255)"""
+        """Apply threshold"""
         result = img.copy()
         rgb = result[:, :, :3]
         
@@ -234,32 +288,45 @@ class ImageProcessor:
     @staticmethod
     def desaturate(img: np.ndarray) -> np.ndarray:
         """Convert to grayscale"""
-        result = img.copy()
-        # Dot product is significantly faster than manual channel summing
-        gray = result[:, :, :3].dot(ImageProcessor._LUMA_COEFFS)
-        result[:, :, :3] = gray[..., np.newaxis]
+        original_shape = img.shape
+        pil_img = ImageProcessor._to_pil(img)
+        gray = pil_img.convert('L')
+        gray_rgb = gray.convert('RGB' if original_shape[2] == 3 else 'RGBA')
+        result = ImageProcessor._from_pil(gray_rgb, original_shape)
+        if original_shape[2] == 4:
+            result[:, :, 3] = img[:, :, 3]
         return result
     
     @staticmethod
     def add(src: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
         """Add blend mode"""
+        if opacity == 1.0:
+            original_shape = src.shape
+            src_pil = ImageProcessor._to_pil(src)
+            blend_pil = ImageProcessor._to_pil(blend)
+            added = ImageChops.add(src_pil, blend_pil)
+            return ImageProcessor._from_pil(added, original_shape)
+        
         result = src.copy()
         rgb_s = result[:, :, :3]
         rgb_b = blend[:, :, :3]
         
-        # In-place where possible, linear interpolation for opacity
         blended = np.add(rgb_s, rgb_b)
         np.clip(blended, 0.0, 1.0, out=blended)
         
-        if opacity != 1.0:
-            result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
-        else:
-            result[:, :, :3] = blended
+        result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
         return result
     
     @staticmethod
     def subtract(src: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
         """Subtract blend mode"""
+        if opacity == 1.0:
+            original_shape = src.shape
+            src_pil = ImageProcessor._to_pil(src)
+            blend_pil = ImageProcessor._to_pil(blend)
+            subtracted = ImageChops.subtract(src_pil, blend_pil)
+            return ImageProcessor._from_pil(subtracted, original_shape)
+        
         result = src.copy()
         rgb_s = result[:, :, :3]
         rgb_b = blend[:, :, :3]
@@ -267,24 +334,25 @@ class ImageProcessor:
         blended = np.subtract(rgb_s, rgb_b)
         np.clip(blended, 0.0, 1.0, out=blended)
         
-        if opacity != 1.0:
-            result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
-        else:
-            result[:, :, :3] = blended
+        result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
         return result
     
     @staticmethod
     def multiply(src: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
         """Multiply blend mode"""
+        if opacity == 1.0:
+            original_shape = src.shape
+            src_pil = ImageProcessor._to_pil(src)
+            blend_pil = ImageProcessor._to_pil(blend)
+            multiplied = ImageChops.multiply(src_pil, blend_pil)
+            return ImageProcessor._from_pil(multiplied, original_shape)
+        
         result = src.copy()
         rgb_s = result[:, :, :3]
         
         blended = np.multiply(rgb_s, blend[:, :, :3])
         
-        if opacity != 1.0:
-            result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
-        else:
-            result[:, :, :3] = blended
+        result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
         return result
     
     @staticmethod
@@ -305,17 +373,20 @@ class ImageProcessor:
     @staticmethod
     def screen(src: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
         """Screen blend mode"""
+        if opacity == 1.0:
+            original_shape = src.shape
+            src_pil = ImageProcessor._to_pil(src)
+            blend_pil = ImageProcessor._to_pil(blend)
+            screened = ImageChops.screen(src_pil, blend_pil)
+            return ImageProcessor._from_pil(screened, original_shape)
+        
         result = src.copy()
         rgb_s = result[:, :, :3]
         rgb_b = blend[:, :, :3]
         
-        # 1 - (1-a)(1-b)
         blended = 1.0 - (1.0 - rgb_s) * (1.0 - rgb_b)
         
-        if opacity != 1.0:
-            result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
-        else:
-            result[:, :, :3] = blended
+        result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
         return result
     
     @staticmethod
@@ -328,7 +399,6 @@ class ImageProcessor:
         mask = rgb_s < 0.5
         blended = np.empty_like(rgb_s)
         
-        # Optimized masking without creating multiple intermediate arrays
         blended[mask] = 2.0 * rgb_s[mask] * rgb_b[mask]
         blended[~mask] = 1.0 - 2.0 * (1.0 - rgb_s[~mask]) * (1.0 - rgb_b[~mask])
         
@@ -340,7 +410,7 @@ class ImageProcessor:
     
     @staticmethod
     def _rgb_to_hsv(rgb: np.ndarray) -> np.ndarray:
-        """Convert RGB to HSV (Optimized)"""
+        """Convert RGB to HSV"""
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         
         maxc = np.maximum(np.maximum(r, g), b)
@@ -349,7 +419,6 @@ class ImageProcessor:
         
         delta = maxc - minc
         
-        # Avoid division by zero
         s = np.zeros_like(maxc)
         non_zero = maxc != 0
         s[non_zero] = delta[non_zero] / maxc[non_zero]
@@ -357,15 +426,12 @@ class ImageProcessor:
         h = np.zeros_like(maxc)
         delta_nz = delta != 0
         
-        # Red max
         mask = (maxc == r) & delta_nz
         h[mask] = (g[mask] - b[mask]) / delta[mask]
         
-        # Green max
         mask = (maxc == g) & delta_nz
         h[mask] = 2.0 + (b[mask] - r[mask]) / delta[mask]
         
-        # Blue max
         mask = (maxc == b) & delta_nz
         h[mask] = 4.0 + (r[mask] - g[mask]) / delta[mask]
         
@@ -374,7 +440,7 @@ class ImageProcessor:
     
     @staticmethod
     def _hsv_to_rgb(hsv: np.ndarray) -> np.ndarray:
-        """Convert HSV to RGB (Optimized)"""
+        """Convert HSV to RGB"""
         h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
         
         i = (h * 6.0).astype(int)
@@ -385,10 +451,8 @@ class ImageProcessor:
         
         i = i % 6
         
-        # Construct result directly
         rgb = np.zeros_like(hsv)
         
-        # vectorized selection
         conditions = [i == 0, i == 1, i == 2, i == 3, i == 4, i == 5]
         rgb[:, :, 0] = np.select(conditions, [v, q, p, p, t, v])
         rgb[:, :, 1] = np.select(conditions, [t, v, v, q, p, p])
@@ -408,14 +472,12 @@ class ImageProcessor:
         else:
             m = mask.dot(ImageProcessor._LUMA_COEFFS)[..., np.newaxis]
             
-        # Linear interpolation
         result[:, :, :3] = original[:, :, :3] * (1.0 - m) + adjusted[:, :, :3] * m
         return result
 
     @staticmethod
     def create_mask_from_luminosity(img: np.ndarray, invert: bool = False) -> np.ndarray:
         """Create mask from image luminosity"""
-        # Optimized dot product
         lum = img[:, :, :3].dot(ImageProcessor._LUMA_COEFFS)
         if invert:
             lum = 1.0 - lum
@@ -438,13 +500,10 @@ class ImageProcessor:
             low = min_val + feather
             high = max_val - feather
             
-            # Vectorized smoothstep-like logic
             mask = np.zeros_like(lum)
             
-            # Core range
             mask[(lum >= low) & (lum <= high)] = 1.0
             
-            # Feathers
             l_feather = (lum >= min_val) & (lum < low)
             u_feather = (lum > high) & (lum <= max_val)
             

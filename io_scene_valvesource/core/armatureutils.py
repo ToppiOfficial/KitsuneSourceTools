@@ -716,7 +716,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             t_start = (i - 1) / subdivisions
             t_end = i / subdivisions
             
-            new_bone = eb.new(name=f"{base_name}{i}")
+            new_bone = eb.new(name=base_name)
             new_bone.head = head.lerp(tail, t_start)
             new_bone.tail = head.lerp(tail, t_end)
             new_bone.roll = bone.roll

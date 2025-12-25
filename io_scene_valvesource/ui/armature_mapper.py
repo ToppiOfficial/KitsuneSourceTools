@@ -13,6 +13,7 @@ from ..core.armatureutils import (
     get_armature,
     get_canonical_bonename,
     apply_current_pose_as_restpose,
+    remove_bone, merge_bones
 )
 from ..core.boneutils import get_armature, get_canonical_bonename
 from ..core.commonutils import (
@@ -105,17 +106,24 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         bone_props = [
             ('armature_map_head', 'Head'),
             ('armature_map_chest', 'Chest'),
+            ('armature_map_spine', 'Spine'),
             ('armature_map_pelvis', 'Pelvis'),
             ('armature_map_eye_l', 'Eye L'),
             ('armature_map_eye_r', 'Eye R'),
             ('armature_map_thigh_l', 'Thigh L'),
             ('armature_map_thigh_r', 'Thigh R'),
+            ('armature_map_knee_l', 'Knee L'),
+            ('armature_map_knee_r', 'Knee R'),
             ('armature_map_ankle_l', 'Ankle L'),
             ('armature_map_ankle_r', 'Ankle R'),
             ('armature_map_toe_l', 'Toe L'),
             ('armature_map_toe_r', 'Toe R'),
             ('armature_map_shoulder_l', 'Shoulder L'),
             ('armature_map_shoulder_r', 'Shoulder R'),
+            ('armature_map_upperarm_l', 'UpperArm L'),
+            ('armature_map_upperarm_r', 'UpperArm R'),
+            ('armature_map_forearm_l', 'ForeArm L'),
+            ('armature_map_forearm_r', 'ForeArm R'),
             ('armature_map_wrist_l', 'Wrist L'),
             ('armature_map_wrist_r', 'Wrist R'),
             ('armature_map_thumb_f_l', 'Thumb L'),
@@ -143,14 +151,15 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         col = layout.column(align=False)
         
         message = [
-            'This will rename the bones.',
-            'The bone map includes the following:\n',
-            '- Arms:\nLeft and Right Shoulder, Arm, Elbow, and Wrist.\n',
-            '- Legs:\nLeft and Right Thigh, Knee, Ankle, and Toe.\n',
-            '- Spine chain:\nHips → Lower Spine → Spine → Lower Chest → Chest → Neck → Head.\n',
-            '- Fingers:\nBones follow the format Index/Middle/Ring/LittleFingers1–3_L/R.\n',
-            '- Thumbs:\nBones follow the format Thumb0–2_L/R.\n'
-            ]
+            'This will rename bones to a standardized format.',
+            'Bone map includes:\n',
+            '- Core: Hips, Chest, Head\n',
+            '- Arms: Shoulder, UpperArm, ForeArm, Wrist\n',
+            '- Legs: Thigh, Knee, Ankle, Toe\n',
+            '- Fingers: Index/Middle/Ring/LittleFinger1-3_L/R\n',
+            '- Thumbs: Thumb0-2_L/R\n',
+            '\nEnable "Remove Intermediate Bones" to merge bones between mapped limbs.'
+        ]
         
         armaturemappersection = draw_toggleable_layout(col, context.scene.vs, 'show_armaturemapper_help', f'Show Help', '')
         if armaturemappersection is not None:
@@ -184,11 +193,12 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         bx = col.box()
         col = bx.column()
 
-        draw_wrapped_texts(col,text='Head, Chest and Pelvis are required to have inputs', icon='HELP')
+        draw_wrapped_texts(col,text='Head, Chest and Pelvis are required', icon='HELP')
         
         col = bx.column(align=True)
         self.draw_bone_prop(col, context, 'armature_map_head', "Head", duplicates)
         self.draw_bone_prop(col, context, 'armature_map_chest', "Chest", duplicates)
+        self.draw_bone_prop(col, context, 'armature_map_spine', "Spine", duplicates)
         self.draw_bone_prop(col, context, 'armature_map_pelvis', "Pelvis", duplicates)
 
         col.separator()
@@ -201,7 +211,9 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         col.separator(type='LINE')
         col.separator()
 
+        col.label(text="Legs:")
         self.draw_bone_pair(col, context, 'Thigh', 'armature_map_thigh_l', 'armature_map_thigh_r', duplicates)
+        self.draw_bone_pair(col, context, 'Knee', 'armature_map_knee_l', 'armature_map_knee_r', duplicates)
         self.draw_bone_pair(col, context, 'Ankle', 'armature_map_ankle_l', 'armature_map_ankle_r', duplicates)
         self.draw_bone_pair(col, context, 'Toe', 'armature_map_toe_l', 'armature_map_toe_r', duplicates)
 
@@ -209,13 +221,17 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         col.separator(type='LINE')
         col.separator()
 
+        col.label(text="Arms:")
         self.draw_bone_pair(col, context, 'Shoulder', 'armature_map_shoulder_l', 'armature_map_shoulder_r', duplicates)
+        self.draw_bone_pair(col, context, 'UpperArm', 'armature_map_upperarm_l', 'armature_map_upperarm_r', duplicates)
+        self.draw_bone_pair(col, context, 'ForeArm', 'armature_map_forearm_l', 'armature_map_forearm_r', duplicates)
         self.draw_bone_pair(col, context, 'Wrist', 'armature_map_wrist_l', 'armature_map_wrist_r', duplicates)
 
         col.separator()
         col.separator(type='LINE')
         col.separator()
 
+        col.label(text="Fingers:")
         self.draw_bone_pair(col, context, 'Thumb', 'armature_map_thumb_f_l', 'armature_map_thumb_f_r', duplicates)
         self.draw_bone_pair(col, context, 'Index', 'armature_map_index_f_l', 'armature_map_index_f_r', duplicates)
         self.draw_bone_pair(col, context, 'Middle', 'armature_map_middle_f_l', 'armature_map_middle_f_r', duplicates)
@@ -320,8 +336,6 @@ class ARMATUREMAPPER_OT_LoadPreset(Operator):
         self.report({'INFO'}, f"Loaded preset from: {self.filepath} ({len(items)} items)")
         return {'FINISHED'}
 
-# The last version is slow but functional.
-# this version is just TOO COMPLICATED TO LOOK AT! but it's faster.
 class ARMATUREMAPPER_OT_LoadJson(Operator):
     bl_idname: str = "armaturemapper.load_json"
     bl_label: str = "Load JSON"
@@ -335,14 +349,21 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         items=[
             ("EXPORT_NAME", "Export Name", "Load bone export names"),
             ("BONE_EXROTATION", "Bone Export Rotation", "Load export rotation offsets"),
-            ("BONE_ROTATION", "Bone Rotation", "Load bone rotations and realign chain tails"),
+            ("BONE_ROTATION", "Bone Rotation", "Load bone rotations"),
             ("CONSTRAINTS", "Constraints", "Create twist bone constraints"),
             ("TWIST_BONES", "Twist Bones", "Create twist bones"),
             ("HIERARCHY", "Hierarchy", "Update bone parent relationships"),
-            ("MISSING_BONES", "Missing Bones", "Create bones that don't exist in armature")
+            ("MISSING_BONES", "Missing Bones", "Create bones that don't exist in armature"),
+            ("RESCALE_BONES", "Rescale Bones", "Align bone tails to child heads based on hierarchy")
         ],
-        default={"EXPORT_NAME", "BONE_EXROTATION", "BONE_ROTATION", "CONSTRAINTS", "TWIST_BONES", "HIERARCHY", "MISSING_BONES"},
+        default={"EXPORT_NAME", "BONE_EXROTATION", "BONE_ROTATION", "CONSTRAINTS", "TWIST_BONES", "HIERARCHY", "MISSING_BONES", "RESCALE_BONES"},
         options={"ENUM_FLAG"}
+    )
+
+    remove_intermediate_bones: BoolProperty(
+        name="Remove Intermediate Bones",
+        description="Remove bones between mapped limb bones (e.g., between UpperArm and ForeArm)",
+        default=True
     )
 
     def draw(self, context: Context) -> None:
@@ -368,6 +389,10 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         subcol = box.column(align=True)
         subcol.prop_enum(self, "load_options", "HIERARCHY")
         subcol.prop_enum(self, "load_options", "MISSING_BONES")
+        subcol.prop_enum(self, "load_options", "RESCALE_BONES")
+        
+        col.separator()
+        col.prop(self, "remove_intermediate_bones")
 
     def invoke(self, context: Context, event: Event) -> Set:
         context.window_manager.fileselect_add(self)
@@ -407,15 +432,14 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             return False
 
         bones = arm.data.bones
-        rename_map = {}
 
         if not self._validate_bone_mapping(arm, vs_arm):
             return False
 
-        self._map_special_bones(vs_arm, rename_map, bones)
-        self._map_body_chains(arm, vs_arm, rename_map, bones)
-        self._map_limbs(arm, vs_arm, rename_map, bones)
-        self._map_fingers(arm, vs_arm, rename_map, bones)
+        rename_map = self._build_rename_map(vs_arm, bones)
+        
+        if self.remove_intermediate_bones:
+            self._remove_intermediate_limb_bones(arm, vs_arm, rename_map)
 
         return self._apply_renames(arm, vs_arm, rename_map, bones)
 
@@ -441,69 +465,70 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         
         return True
 
-    def _map_special_bones(self, vs_arm, rename_map: dict, bones) -> None:
+    def _build_rename_map(self, vs_arm, bones) -> dict:
+        rename_map = {}
+        
         if self._is_valid_bone(vs_arm.armature_map_eye_l, bones):
             rename_map[vs_arm.armature_map_eye_l] = "Left eye"
         if self._is_valid_bone(vs_arm.armature_map_eye_r, bones):
             rename_map[vs_arm.armature_map_eye_r] = "Right eye"
 
-    def _map_body_chains(self, arm: Object, vs_arm, rename_map: dict, bones) -> None:
-        self._build_torso_chain(arm, bones, vs_arm.armature_map_pelvis, vs_arm.armature_map_chest, rename_map)
-        
-        if self._is_valid_bone(vs_arm.armature_map_chest, bones) and self._is_valid_bone(vs_arm.armature_map_head, bones):
-            self._build_neck_chain(arm, bones, vs_arm.armature_map_chest, vs_arm.armature_map_head, rename_map)
+        self._map_spine_chain(bones, vs_arm.armature_map_pelvis, vs_arm.armature_map_spine, vs_arm.armature_map_chest, rename_map)
+        self._map_neck_chain(bones, vs_arm.armature_map_chest, vs_arm.armature_map_head, rename_map)
 
-    def _map_limbs(self, arm: Object, vs_arm, rename_map: dict, bones) -> None:
-        self._build_chain_mapping(arm, bones, vs_arm.armature_map_thigh_l, vs_arm.armature_map_ankle_l,
-                                   ["leg", "knee", "ankle"], rename_map, side="L")
-        if self._is_valid_bone(vs_arm.armature_map_toe_l, bones):
-            rename_map[vs_arm.armature_map_toe_l] = "Left toe"
-
-        self._build_chain_mapping(arm, bones, vs_arm.armature_map_thigh_r, vs_arm.armature_map_ankle_r,
-                                   ["leg", "knee", "ankle"], rename_map, side="R")
-        if self._is_valid_bone(vs_arm.armature_map_toe_r, bones):
-            rename_map[vs_arm.armature_map_toe_r] = "Right toe"
-
-        self._build_chain_mapping(arm, bones, vs_arm.armature_map_shoulder_l, vs_arm.armature_map_wrist_l,
-                                   ["shoulder", "arm", "elbow", "wrist"], rename_map, side="L")
-        self._build_chain_mapping(arm, bones, vs_arm.armature_map_shoulder_r, vs_arm.armature_map_wrist_r,
-                                   ["shoulder", "arm", "elbow", "wrist"], rename_map, side="R")
-
-    def _map_fingers(self, arm: Object, vs_arm, rename_map: dict, bones) -> None:
-        finger_mappings = [
-            (vs_arm.armature_map_index_f_l, "IndexFinger", "L", 1),
-            (vs_arm.armature_map_middle_f_l, "MiddleFinger", "L", 1),
-            (vs_arm.armature_map_ring_f_l, "RingFinger", "L", 1),
-            (vs_arm.armature_map_pinky_f_l, "LittleFinger", "L", 1),
-            (vs_arm.armature_map_thumb_f_l, "Thumb", "L", 0),
-            (vs_arm.armature_map_index_f_r, "IndexFinger", "R", 1),
-            (vs_arm.armature_map_middle_f_r, "MiddleFinger", "R", 1),
-            (vs_arm.armature_map_ring_f_r, "RingFinger", "R", 1),
-            (vs_arm.armature_map_pinky_f_r, "LittleFinger", "R", 1),
-            (vs_arm.armature_map_thumb_f_r, "Thumb", "R", 0),
+        limb_mappings = [
+            (vs_arm.armature_map_thigh_l, "Left leg"),
+            (vs_arm.armature_map_knee_l, "Left knee"),
+            (vs_arm.armature_map_ankle_l, "Left ankle"),
+            (vs_arm.armature_map_toe_l, "Left toe"),
+            (vs_arm.armature_map_thigh_r, "Right leg"),
+            (vs_arm.armature_map_knee_r, "Right knee"),
+            (vs_arm.armature_map_ankle_r, "Right ankle"),
+            (vs_arm.armature_map_toe_r, "Right toe"),
+            (vs_arm.armature_map_shoulder_l, "Left shoulder"),
+            (vs_arm.armature_map_upperarm_l, "Left arm"),
+            (vs_arm.armature_map_forearm_l, "Left elbow"),
+            (vs_arm.armature_map_wrist_l, "Left wrist"),
+            (vs_arm.armature_map_shoulder_r, "Right shoulder"),
+            (vs_arm.armature_map_upperarm_r, "Right arm"),
+            (vs_arm.armature_map_forearm_r, "Right elbow"),
+            (vs_arm.armature_map_wrist_r, "Right wrist"),
         ]
         
-        for start_name, base, side, start_idx in finger_mappings:
-            self._build_finger_mapping(arm, bones, start_name, base, side, rename_map, start_idx)
+        for bone_name, target_name in limb_mappings:
+            if self._is_valid_bone(bone_name, bones):
+                rename_map[bone_name] = target_name
 
-    def _apply_renames(self, arm: Object, vs_arm, rename_map: dict, bones) -> dict:
-        old_to_new = {}
-        for old_name, new_name in rename_map.items():
-            if old_name in bones:
-                bones[old_name].name = new_name
-                old_to_new[old_name] = new_name
+        finger_mappings = [
+            (vs_arm.armature_map_index_f_l, "IndexFinger", "L"),
+            (vs_arm.armature_map_middle_f_l, "MiddleFinger", "L"),
+            (vs_arm.armature_map_ring_f_l, "RingFinger", "L"),
+            (vs_arm.armature_map_pinky_f_l, "LittleFinger", "L"),
+            (vs_arm.armature_map_thumb_f_l, "Thumb", "L"),
+            (vs_arm.armature_map_index_f_r, "IndexFinger", "R"),
+            (vs_arm.armature_map_middle_f_r, "MiddleFinger", "R"),
+            (vs_arm.armature_map_ring_f_r, "RingFinger", "R"),
+            (vs_arm.armature_map_pinky_f_r, "LittleFinger", "R"),
+            (vs_arm.armature_map_thumb_f_r, "Thumb", "R"),
+        ]
+        
+        for start_name, base, side in finger_mappings:
+            if self._is_valid_bone(start_name, bones):
+                self._map_finger_chain(bones, start_name, base, side, rename_map)
 
-        for attr in dir(vs_arm):
-            if not attr.startswith("armature_map_"):
-                continue
-            old_val = getattr(vs_arm, attr)
-            if old_val in old_to_new:
-                setattr(vs_arm, attr, old_to_new[old_val])
+        return rename_map
 
-        return old_to_new
+    def _map_finger_chain(self, bones, start_name: str, base: str, side: str, rename_map: dict) -> None:
+        bone = bones[start_name]
+        chain = []
+        start_idx = 0 if base == "Thumb" else 1
+        
+        while bone:
+            chain.append(bone)
+            bone = bone.children[0] if bone.children else None
 
-    def _is_valid_bone(self, name: str, bones) -> bool:
-        return bool(name) and isinstance(name, str) and name in bones
+        for i, bone in enumerate(chain):
+            rename_map[bone.name] = f"{base}{i+start_idx}_{side}"
 
     def _collect_chain(self, bones, start_name: str, end_name: str) -> list:
         if not (self._is_valid_bone(start_name, bones) and self._is_valid_bone(end_name, bones)):
@@ -525,50 +550,55 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         chain = []
         return chain if not dfs(start_bone, end_bone, chain) else chain
 
-    def _realign_chain_tails(self, arm: Object, chain: list) -> None:
-        if 'BONE_ROTATION' not in self.load_options or len(chain) < 2:
-            return
-
-        prev_mode = arm.mode
-        if bpy.context.object != arm:
-            bpy.context.view_layer.objects.active = arm
-        bpy.ops.object.mode_set(mode='EDIT')
-
-        edit_bones = arm.data.edit_bones
-        for i in range(len(chain) - 1):
-            a = edit_bones.get(chain[i].name)
-            b = edit_bones.get(chain[i + 1].name)
-            if a and b:
-                a.tail = b.head
-
-        bpy.ops.object.mode_set(mode=prev_mode)
-
-    def _build_torso_chain(self, arm: Object, bones, pelvis_name: str, chest_name: str, rename_map: dict) -> None:
+    def _map_spine_chain(self, bones, pelvis_name: str, spine_name: str, chest_name: str, rename_map: dict) -> None:
         chain = self._collect_chain(bones, pelvis_name, chest_name)
         if len(chain) < 2:
             return
 
+        spine_idx = None
+        if self._is_valid_bone(spine_name, bones):
+            for idx, bone in enumerate(chain):
+                if bone.name == spine_name:
+                    spine_idx = idx
+                    break
+
         middle_count = len(chain) - 2
         names = ["Hips"]
         
-        if middle_count == 1:
+        if spine_idx:
+            lower_count = spine_idx - 1
+            upper_count = middle_count - spine_idx
+            
+            if lower_count == 1:
+                names.append("Lower Spine")
+            elif lower_count > 1:
+                names.append("Lower Spine")
+                names.extend([f"Lower Spine {i+1}" for i in range(lower_count - 1)])
+            
             names.append("Spine")
-        elif middle_count == 2:
-            names.extend(["Lower Spine", "Spine"])
-        elif middle_count == 3:
-            names.extend(["Lower Spine", "Spine", "Lower Chest"])
+            
+            if upper_count == 1:
+                names.append("Lower Chest")
+            elif upper_count > 1:
+                names.append("Lower Chest")
+                names.extend([f"Lower Chest {i+1}" for i in range(upper_count - 1)])
         else:
-            names.extend(["Lower Spine", "Spine", "Lower Chest"])
-            names.extend([f"Spine_{i+1}" for i in range(middle_count - 3)])
+            if middle_count == 1:
+                names.append("Spine")
+            elif middle_count == 2:
+                names.extend(["Lower Spine", "Spine"])
+            elif middle_count == 3:
+                names.extend(["Lower Spine", "Spine", "Lower Chest"])
+            else:
+                names.extend(["Lower Spine", "Spine", "Lower Chest"])
+                names.extend([f"Spine_{i+1}" for i in range(middle_count - 3)])
         
         names.append("Chest")
 
         for bone, new_name in zip(chain, names):
             rename_map[bone.name] = new_name
 
-        self._realign_chain_tails(arm, chain)
-
-    def _build_neck_chain(self, arm: Object, bones, chest_name: str, head_name: str, rename_map: dict) -> None:
+    def _map_neck_chain(self, bones, chest_name: str, head_name: str, rename_map: dict) -> None:
         chain = self._collect_chain(bones, chest_name, head_name)
         if len(chain) < 2:
             return
@@ -577,48 +607,83 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             rename_map[bone.name] = "Neck" if i == 1 else f"Neck_{i-1}"
         rename_map[head_name] = "Head"
 
-        self._realign_chain_tails(arm, chain)
+    def _remove_intermediate_limb_bones(self, arm: Object, vs_arm, rename_map: dict) -> None:
+        prev_mode = arm.mode
+        if bpy.context.object != arm:
+            bpy.context.view_layer.objects.active = arm
+        bpy.ops.object.mode_set(mode='EDIT')
 
-    def _build_chain_mapping(self, arm: Object, bones, start_name: str, end_name: str, 
-                            base_names: list, rename_map: dict, side: str | None = None) -> None:
-        chain = self._collect_chain(bones, start_name, end_name)
-        if not chain:
-            return
+        limb_pairs = [
+            (vs_arm.armature_map_thigh_l, vs_arm.armature_map_knee_l),
+            (vs_arm.armature_map_knee_l, vs_arm.armature_map_ankle_l),
+            (vs_arm.armature_map_thigh_r, vs_arm.armature_map_knee_r),
+            (vs_arm.armature_map_knee_r, vs_arm.armature_map_ankle_r),
+            (vs_arm.armature_map_upperarm_l, vs_arm.armature_map_forearm_l),
+            (vs_arm.armature_map_forearm_l, vs_arm.armature_map_wrist_l),
+            (vs_arm.armature_map_upperarm_r, vs_arm.armature_map_forearm_r),
+            (vs_arm.armature_map_forearm_r, vs_arm.armature_map_wrist_r),
+        ]
 
-        target_count = len(base_names)
-        for i, bone in enumerate(chain):
-            idx = min(i, target_count - 1)
-            name = base_names[idx]
+        edit_bones = arm.data.edit_bones
+        
+        for start_name, end_name in limb_pairs:
+            if not (start_name and end_name):
+                continue
             
-            if side == "L":
-                new_name = f"Left {name}"
-            elif side == "R":
-                new_name = f"Right {name}"
-            else:
-                new_name = name
+            start_bone = edit_bones.get(start_name)
+            end_bone = edit_bones.get(end_name)
             
-            if len(chain) > target_count and i >= target_count:
-                new_name += f"_{i - target_count + 1}"
+            if not (start_bone and end_bone):
+                continue
+
+            intermediates = self._find_intermediate_bones(start_bone, end_bone)
             
-            rename_map[bone.name] = new_name
+            if intermediates:
+                print(f"[MERGE] Removing {len(intermediates)} bones between {start_name} and {end_name}")
+                
+                for intermediate in intermediates:
+                    merge_bones(arm, start_bone, intermediate, keep_bone=False)
+                
+                bones_to_remove = [bone.name for bone in intermediates]
+                remove_bone(arm, bones_to_remove)
 
-        self._realign_chain_tails(arm, chain)
+        bpy.ops.object.mode_set(mode=prev_mode)
 
-    def _build_finger_mapping(self, arm: Object, bones, start_name: str, base: str, 
-                             side: str, rename_map: dict, start_index: int = 1) -> None:
-        if not self._is_valid_bone(start_name, bones):
-            return
+    def _find_intermediate_bones(self, start_bone, end_bone) -> list:
+        intermediates = []
+        current = start_bone
+        
+        while current.children:
+            if len(current.children) != 1:
+                break
+            
+            child = current.children[0]
+            if child == end_bone:
+                break
+            
+            intermediates.append(child)
+            current = child
+        
+        return intermediates
 
-        bone = bones[start_name]
-        chain = []
-        while bone:
-            chain.append(bone)
-            bone = bone.children[0] if bone.children else None
+    def _apply_renames(self, arm: Object, vs_arm, rename_map: dict, bones) -> dict:
+        old_to_new = {}
+        for old_name, new_name in rename_map.items():
+            if old_name in bones:
+                bones[old_name].name = new_name
+                old_to_new[old_name] = new_name
 
-        for i, bone in enumerate(chain):
-            rename_map[bone.name] = f"{base}{i+start_index}_{side}"
+        for attr in dir(vs_arm):
+            if not attr.startswith("armature_map_"):
+                continue
+            old_val = getattr(vs_arm, attr)
+            if old_val in old_to_new:
+                setattr(vs_arm, attr, old_to_new[old_val])
 
-        self._realign_chain_tails(arm, chain)
+        return old_to_new
+
+    def _is_valid_bone(self, name: str, bones) -> bool:
+        return bool(name) and isinstance(name, str) and name in bones
 
     def _setup_armature(self, arm: Object, bone_elements: dict) -> None:
         with preserve_context_mode(arm, 'OBJECT'):
@@ -664,6 +729,10 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         for bone_name, bone_data in bone_elements.items():
             bone = arm.data.edit_bones.get(bone_name)
             if bone is None:
+                if not self._has_children_in_json(bone_name, bone_elements):
+                    print(f"[SKIP] {bone_name} is a terminal bone with no children, ignoring")
+                    continue
+                
                 if 'MISSING_BONES' in self.load_options:
                     print(f"[SKIP] {bone_name} not found in armature, attempting to create.")
                     bone = self._write_missing_bone(arm, bone_name, None, bone_elements)
@@ -676,12 +745,35 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
             if 'HIERARCHY' in self.load_options:
                 self._setup_bone_parent(arm, bone, bone_name, bone_data, bone_elements)
             
+            if 'RESCALE_BONES' in self.load_options:
+                self._rescale_bone_to_children(arm, bone, bone_name, bone_elements)
+            
             self._setup_bone_rotation(arm, bone, bone_name, bone_data)
             
             if 'TWIST_BONES' in self.load_options:
                 self._setup_twist_bones(arm, bone, bone_name, bone_data)
 
         bpy.ops.object.mode_set(mode='OBJECT')
+
+    def _rescale_bone_to_children(self, arm: Object, bone, bone_name: str, bone_elements: dict) -> None:
+        children_in_json = [
+            arm.data.edit_bones.get(check_name)
+            for check_name, check_data in bone_elements.items()
+            if check_data.get("ParentBone") == bone_name and arm.data.edit_bones.get(check_name)
+        ]
+
+        if not children_in_json:
+            return
+
+        if len(children_in_json) == 1:
+            new_tail = children_in_json[0].head.copy()
+        else:
+            new_tail = sum((child.head for child in children_in_json), Vector((0, 0, 0))) / len(children_in_json)
+
+        if (new_tail - bone.head).length < 0.001:
+            return
+
+        bone.tail = new_tail
 
     def _setup_bone_parent(self, arm: Object, bone, bone_name: str, bone_data: dict, bone_elements: dict) -> None:
         parent_name = bone_data.get("ParentBone")
@@ -828,8 +920,14 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         twist_constraint.owner_space = 'LOCAL'
         twist_constraint.target_space = 'LOCAL_OWNER_ORIENT'
         twist_constraint.influence = influence
+        
+    def _has_children_in_json(self, bone_name: str, bone_elements: dict) -> bool:
+        for check_name, check_data in bone_elements.items():
+            if check_data.get("ParentBone") == bone_name:
+                return True
+        return False
 
-    def _write_missing_bone(self, arm: Object, bone_name: str, child_hint: str, bone_elements: dict) -> bpy.types.EditBone |  None:
+    def _write_missing_bone(self, arm: Object, bone_name: str, child_hint: str, bone_elements: dict) -> bpy.types.EditBone | None:
         existing = arm.data.edit_bones.get(bone_name)
         if existing:
             return existing
@@ -837,6 +935,10 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         bone_data = bone_elements.get(bone_name)
         if not bone_data:
             print(f"[WARN] No JSON entry for '{bone_name}', skipping.")
+            return None
+
+        if not self._has_children_in_json(bone_name, bone_elements) and not child_hint:
+            print(f"[SKIP] {bone_name} is a terminal bone with no children, skipping creation")
             return None
 
         new_bone = arm.data.edit_bones.new(bone_name)
