@@ -4,30 +4,20 @@ import sys
 import signal
 
 COMMIT_MESSAGES = [
-    "Sanitize function now allows non-latin characters.",
-    "Exporting materials now have their names sanitized.",
-    "Set max input character length for bone export name to 256 characters.",
-    "Removed name validation for shapekeys due to irrelevance and performance hit.",
-    "Duplicated export names are now marked as .001, .002, etc. which follows Blender's convention.",
-    "Revised Armature Mapper, now includes the following inputs: Upperarm, Forearm, and Knee.",
-    "Subdivide bone now relies on Blender's bone duplicate naming i.e. .001, .002 rather than 1, 2, 3.",
-    "PseudoPBR process now uses Pillow or PIL.",
-    "Fixed PseudoPBR conversion array error due to image dimensions not matching.",
-    "PBR to Phong now takes the max size of the alpha channel as the export image dimension rather than the image dimension.",
-    "Added separate input for alpha channel, will default to all opaque if none are provided.",
-    "Removed unused property groups.",
-    "Merged some property groups.",
-    "Removed help and version dropdown.",
-    "Object properties dropdown no longer gets disabled on mismatched object type.",
-    "Removed propagate function.",
-    "Fixed shapekey counting duplicates.",
-    "Swapped 'Add ToonEdgeLine' operator booleans to enum.",
-    "Add Edgeline operator now creates a vertex group named 'Edgeline_Thickness' rather than 'non_exportable_faces'.",
-    "Fixed constant error for Vertex and Float Maps"
-    "Normalizing weights now only considered deform bones"
+    "Renamed 'Armature Mapper' to 'Humanoid Armature Mapper.",
+    "Removed the property 'Is NPR' for 'SourcePBR' conversion.",
+    "Moved 'Split Active Weights Linearly' to bone section.",
+    "Revised translation code for faster processing.",
+    "Importing mesh with shapekeys will set their value to 0 for Blender 5.0",
+    "Fixed repeated print for mesh face deletion on the console",
+    "Added preserve basis normals on the console print",
+    "Added Emissive map on PseudoPBR 'SourcePBR' model",
+    "Deleted unused proputils.py",
+    "PseudoPBR 'Alpha only' and 'RGB' share the same exponent process for metal",
+    "Renamed tool operator ids to 'kitsunetools'",
 ]
 
-BUMP_VERSION = "271"
+BUMP_VERSION = "272"
 
 def signal_handler(sig, frame):
     sys.exit(1)

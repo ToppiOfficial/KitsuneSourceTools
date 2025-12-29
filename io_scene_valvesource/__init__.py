@@ -39,8 +39,8 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
             collection.remove(func)
 
 from . import datamodel, import_smd, export_smd, flex, GUI
-from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, proputils, networkutils
-from .ui import developer, armature_mapper, common, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone, pseudopbr
+from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, networkutils
+from .ui import developer, common, humanoid_armature_map, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone, pseudopbr
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -84,7 +84,7 @@ _relativePathOptions : Set = {'PATH_SUPPORTS_BLEND_RELATIVE'} if bpy.app.version
 class ValveSource_PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options=_relativePathOptions)
 
-class KitsuneTool_PBRMapsToPhongItem(PropertyGroup):
+class PseudoPBRItem(PropertyGroup):
     name: StringProperty(name="Item Name", default="PBR Item")
     export_path: StringProperty(name="Export Path", subtype='DIR_PATH', options=_relativePathOptions)
     
@@ -158,7 +158,7 @@ class ValveSource_SceneProps(PropertyGroup):
     export_list : CollectionProperty(type=ValveSource_Exportable,options={'SKIP_SAVE','HIDDEN'})
     use_kv2 : BoolProperty(name="Write KeyValues2 (DEBUG)",description="Write ASCII DMX files",default=False)
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
-
+    
     weightlink_threshold : FloatProperty(name=get_id("weightlinkcull"),description=get_id("weightlinkcull_tip"),max=0.001,min=0.0001, default=0.0001,precision=4)
     vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=4,max=32, soft_max=8,min=1)
 
@@ -191,7 +191,7 @@ class ValveSource_SceneProps(PropertyGroup):
     smd_prefabs_index : IntProperty(default=-1)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     
-    pbr_items : CollectionProperty(type=KitsuneTool_PBRMapsToPhongItem)
+    pbr_items : CollectionProperty(type=PseudoPBRItem)
     pbr_active_index : IntProperty(default=0)
     pbr_to_phong_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
     
@@ -244,7 +244,7 @@ class ValveSource_FloatMapRemap(PropertyGroup):
     min : FloatProperty(name="Min",description="Maps to 0.0",default=0.0)
     max : FloatProperty(name="Max",description="Maps to 1.0",default=1.0)
 
-class ArmatureMapperKeyValue(PropertyGroup):
+class HumanoidArmatureMap(PropertyGroup):
     boneExportName : StringProperty(
         name='Bone',
         description="The original bone name in the source armature. Used when writing JSON for retargeting."
@@ -279,8 +279,8 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     smd_hitbox : BoolProperty(name='SMD Hitbox',default=False)    
     smd_hitbox_group : EnumProperty(name='Hitbox Group',items=hitbox_group,default='0')
     
-    armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=ArmatureMapperKeyValue)
-    armature_map_bonecollections_index : IntProperty()
+    humanoid_armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=HumanoidArmatureMap)
+    humanoid_armature_map_bonecollections_index : IntProperty()
     
     armature_map_pelvis : StringProperty(name="Pelvis")
     armature_map_chest  : StringProperty(name="Chest")
@@ -441,9 +441,9 @@ class ValveSource_MaterialProps(PropertyGroup):
 _classes = (
     ValveSource_FloatMapRemap,
     StrictShapekeyItem,
-    ArmatureMapperKeyValue,
+    HumanoidArmatureMap,
     ValveSource_PrefabItem,
-    KitsuneTool_PBRMapsToPhongItem,
+    PseudoPBRItem,
 
     ValveSource_Exportable,
     ValveSource_SceneProps,
@@ -517,6 +517,7 @@ _classes = (
     bone.TOOLS_OT_AssignBoneRotExportOffset,
     bone.TOOLS_OT_FlipBone,
     bone.TOOLS_OT_CreateCenterBone,
+    bone.TOOLS_OT_SplitActiveWeightLinear,
 
     mesh.TOOLS_PT_Mesh,
     mesh.TOOLS_OT_CleanShapeKeys,
@@ -528,20 +529,19 @@ _classes = (
     vertexgroup.TOOLS_OT_WeightMath,
     vertexgroup.TOOLS_OT_SwapVertexGroups,
     vertexgroup.TOOLS_OT_curve_ramp_weights,
-    vertexgroup.TOOLS_OT_SplitActiveWeightLinear,
 
     animation.TOOLS_PT_Animation,
     animation.TOOLS_OT_merge_animation_slots,
     animation.TOOLS_OT_merge_two_actions,
     animation.TOOLS_OT_convert_rotation_keyframes,
     
-    armature_mapper.ARMATUREMAPPER_PT_ArmatureMapper,
-    armature_mapper.ARMATUREMAPPER_UL_BoneList,
-    armature_mapper.ARMATUREMAPPER_OT_AddItem,
-    armature_mapper.ARMATUREMAPPER_OT_RemoveItem,
-    armature_mapper.ARMATUREMAPPER_OT_WriteJson,
-    armature_mapper.ARMATUREMAPPER_OT_LoadJson,
-    armature_mapper.ARMATUREMAPPER_OT_LoadPreset,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_PT_Panel,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_UL_ConfigList,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_AddItem,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_RemoveItem,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_WriteConfig,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadConfig,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
     
     pseudopbr.PSEUDOPBR_UL_PBRToPhongList,
     pseudopbr.PSEUDOPBR_OT_AddPBRItem,

@@ -26,7 +26,7 @@ from ..core.commonutils import (
 
 from ..utils import (
     get_id, vertex_maps, vertex_float_maps, hasShapes, countShapes,
-    State, ExportFormat, Compiler, MakeObjectIcon, hasFlexControllerSource,
+    State, ExportFormat, MakeObjectIcon, hasFlexControllerSource,
     hasCurves
 )
 

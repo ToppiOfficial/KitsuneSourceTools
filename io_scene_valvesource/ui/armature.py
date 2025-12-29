@@ -46,7 +46,7 @@ class TOOLS_PT_Armature(Tools_SubCategoryPanel):
         col.operator(TOOLS_OT_CopyVisPosture.bl_idname,icon='POSE_HLT',text=f'{TOOLS_OT_CopyVisPosture.bl_label} (ROTATION)').copy_type = 'ANGLES'
            
 class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
-    bl_idname : str = "tools._apply_pose_as_restpose"
+    bl_idname : str = "kitsunetools.apply_pose_as_restpose"
     bl_label : str = "Apply Pose As Restpose"
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -74,7 +74,7 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
         return {'FINISHED'} if success else {'CANCELLED'}
     
 class TOOLS_OT_CleanUnWeightedBones(Operator):
-    bl_idname: str = 'tools.clean_unweighted_bones'
+    bl_idname: str = 'kitsunetools.clean_unweighted_bones'
     bl_label: str = 'Clean Unweighted Bones'
     bl_options: Set = {'REGISTER', 'UNDO'}
     
@@ -320,7 +320,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         return bones_with_children
     
 class TOOLS_OT_MergeArmatures(Operator):
-    bl_idname : str = "tools.merge_armatures"
+    bl_idname : str = "kitsunetools.merge_armatures"
     bl_label : str = "Merge Armatures"
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -347,12 +347,12 @@ class TOOLS_OT_MergeArmatures(Operator):
             success = merge_armatures(currOb, arm, match_posture=self.match_posture)
             if success: success_count += 1
             
-        self.report({'INFO'}, f'Merged {success} armatures to active armature')
+        self.report({'INFO'}, f'Merged {success_count} armatures to active armature')
             
         return {'FINISHED'}
 
 class TOOLS_OT_CopyVisPosture(Operator):
-    bl_idname : str = "tools.copy_vis_armature_posutre"
+    bl_idname : str = "kitsunetools.copy_vis_armature_posutre"
     bl_label : str = "Copy Visual Pose"
     bl_options : Set = {'REGISTER', 'UNDO'}
 

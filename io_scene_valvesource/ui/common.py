@@ -1,4 +1,4 @@
-import bpy
+import bpy, blf
 from typing import Literal, Set
 from bpy.types import Context, Panel, UILayout, UILayout
 from ..utils import toggle_show_ops
@@ -18,6 +18,7 @@ class TOOLS_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
 
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
+        return
 
 class Tools_SubCategoryPanel(KITSUNE_PT_CustomToolPanel, Panel):
     "Sub panel for the sub panel 'TOOLS_PT_PANEL'"
@@ -76,8 +77,6 @@ for entry in toggle_show_ops:
         cls = make_toggle_operator_scene(entry)
         bpy.utils.register_class(cls)
         
-import blf
-
 class ModalUIProcess:    
     @staticmethod
     def draw_modal_overlay(region, main_text: str, sub_text: str, progress: float = 0.0, show_progress: bool = False):

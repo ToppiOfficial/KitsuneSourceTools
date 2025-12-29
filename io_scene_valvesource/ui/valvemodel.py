@@ -136,7 +136,6 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         col.separator()
         
         sections = [
-            #('show_smdattachments', 'Attachment', 'EMPTY_AXIS', self.draw_attachment),
             ('show_smdjigglebone', 'JiggleBone', 'BONE_DATA', self.draw_jigglebone),
             ('show_smdhitbox', 'Hitbox', 'CUBE', self.draw_hitbox),
             ('show_smdanimation', 'Animation', 'ANIM_DATA', self.draw_animation)
@@ -156,7 +155,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         armature = get_armature(context.object)
         if armature:
             path = get_object_path(armature, context.view_layer)
-            text = f'Target Armature: {armature.name}\n\n{path}\n'
+            text = f'Target Armature: {path}\n'
         else:
             text = 'Target Armature: None\n'
         draw_wrapped_texts(layout, text=text, icon='ARMATURE_DATA')
@@ -249,12 +248,6 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         draw_wrapped_texts(layout, get_id(message_map[required_type]), max_chars=40, icon='HELP')
         return False
        
-    def draw_attachment(self, context: Context, layout: UILayout) -> None:
-        ob = get_armature(context.object)
-        
-        if not self._validate_object_type(layout, ob, 'armature_or_empty'):
-            return
-    
     def draw_jigglebone(self, context: Context, layout: UILayout) -> None:
         ob = get_armature(context.object)
         

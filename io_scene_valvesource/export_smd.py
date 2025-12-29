@@ -135,6 +135,14 @@ class SMD_OT_Compile(bpy.types.Operator, Logger):
                 i+=1
         return num_good_compiles
 
+# ------------------------------------------------------------------------------------
+# TODO: Binary 4 & 5 DMX export seems to cause "leaking N elements" and exception error
+#   Is it also occuring on the original addon?
+# 
+# NOTE: Using Binary 3 seems to work just fine, however Binary 3 Model 18 for example
+#   is not the right matching as I was told...
+# ------------------------------------------------------------------------------------
+
 class SmdExporter(bpy.types.Operator, Logger):
     bl_idname = "export_scene.smd"
     bl_label = get_id("exporter_title")
@@ -947,7 +955,7 @@ class SmdExporter(bpy.types.Operator, Logger):
         
         depsgraph = bpy.context.evaluated_depsgraph_get()
         
-        def removeFacesByMaterials(obj: bpy.types.Object, tolerance: float = 1.0):
+        def removeFacesByMaterials(obj: bpy.types.Object, tolerance: float = 1.0, quiet: bool = False):
             """Remove faces based on material flags or vertex group filtering."""
             
             me = obj.data
@@ -990,7 +998,8 @@ class SmdExporter(bpy.types.Operator, Logger):
             delete_geom = [f for f in bm.faces if f.index in faces_to_delete]
 
             if delete_geom:
-                print(f"- Excluding {len(delete_geom)} faces on '{obj.name}'")
+                if not quiet:
+                    print("- Deleting {} faces at {}".format(len(delete_geom), id.name))
                 bmesh.ops.delete(bm, geom=delete_geom, context='FACES')
             
             bm.to_mesh(me)
@@ -1027,7 +1036,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                         ops.mesh.flip_normals()
                     ops.object.mode_set(mode='OBJECT')
                 
-                removeFacesByMaterials(ob)
+                removeFacesByMaterials(ob, quiet=quiet)
                 
                 return ob
 
@@ -1091,6 +1100,8 @@ class SmdExporter(bpy.types.Operator, Logger):
             id.show_only_shape_key = True
             preserve_basis_normals = id.data.vs.bake_shapekey_as_basis_normals
             valid_controllers = {fc[0] for fc in get_flexcontrollers(id)}
+            
+            if preserve_basis_normals: print("- Preserving basis normals for shapekeys in {}".format(id.name))
 
             for i, shape in enumerate(id.data.shape_keys.key_blocks):
                 if i == 0: 

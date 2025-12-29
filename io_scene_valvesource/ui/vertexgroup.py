@@ -33,11 +33,10 @@ class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
             draw_wrapped_texts(bx,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
             return
         
-        col = bx.column()
+        col = bx.column(align=True)
         col.prop(context.scene.vs, 'visible_mesh_only')
         col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
         col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
-        col.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname,icon='SPLIT_VERTICAL')
         col.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label + " (Weights Only)").weights_only = True
         
         if context.object.mode == 'WEIGHT_PAINT':
@@ -58,7 +57,7 @@ class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
             row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
 
 class TOOLS_OT_WeightMath(Operator):
-    bl_idname : str = "tools.weight_math"
+    bl_idname : str = "kitsunetools.weight_math"
     bl_label : str = "Weight Math"
     bl_options : Set = {'REGISTER', 'UNDO'}
 
@@ -145,7 +144,7 @@ class TOOLS_OT_WeightMath(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_SwapVertexGroups(Operator):
-    bl_idname : str = 'tools.swap_vertex_group'
+    bl_idname : str = 'kitsunetools.swap_vertex_group'
     bl_label : str = 'Swap Vertex Group'
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -202,7 +201,7 @@ class TOOLS_OT_SwapVertexGroups(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_curve_ramp_weights(Operator):
-    bl_idname : str = 'tools.curve_ramp_weights'
+    bl_idname : str = 'kitsunetools.curve_ramp_weights'
     bl_label : str = 'Curve Ramp Bone Weights'
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -312,131 +311,3 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         
         self.report({'INFO'}, f'Processed {len(selected_bones)} Bones')
         return {'FINISHED'}
-
-class TOOLS_OT_SplitActiveWeightLinear(Operator):
-    bl_idname : str = 'tools.split_active_weights_linear'
-    bl_label : str = 'Split Active Weights Linearly'
-    bl_options : Set = {'REGISTER', 'UNDO'}
-
-    smoothness: FloatProperty(
-        name="Smoothness",
-        description="Smoothness of the weight split (0 = hard cut, 1 = full smooth blend)",
-        min=0.0, max=1.0,
-        default=0.6
-    )
-
-    @classmethod
-    def poll(cls, context : Context) -> bool:
-        ob : Object | None = context.object
-        if ob is None: return False
-        if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
-        
-        return bool(get_armature(ob))
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-    def get_vgroup_index(self, mesh, name):
-        for i, vg in enumerate(mesh.vertex_groups):
-            if vg.name == name:
-                return i
-        return None
-
-    def clamp(self, x, a, b):
-        return max(a, min(x, b))
-
-    def remap(self, value, minval, maxval):
-        if maxval - minval == 0:
-            return 0.5
-        return (value - minval) / (maxval - minval)
-
-    def project_point_onto_line(self, p, a, b):
-        ap = p - a
-        ab = b - a
-        ab_len_sq = ab.length_squared
-        if ab_len_sq == 0.0:
-            return 0.0
-        return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
-
-    def execute(self, context : Context) -> Set:
-        arm = get_armature(context.object)
-        
-        bones = get_selected_bones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
-        active_bone = arm.data.bones.active
-        
-        if not bones or len(bones) != 2 or not active_bone:
-            self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
-            return {'CANCELLED'}
-        
-        og_arm_pose_mode = arm.data.pose_position
-        arm.data.pose_position = 'REST'
-        bpy.context.view_layer.update()
-
-        bone1 = arm.pose.bones.get(bones[0].name)
-        bone2 = arm.pose.bones.get(bones[1].name)
-        active = active_bone
-
-        bone1_name = bone1.name
-        bone2_name = bone2.name
-        active_name = active.name
-
-        arm_matrix = arm.matrix_world
-        p1 = arm_matrix @ ((bone1.head + bone1.tail) * 0.5)
-        p2 = arm_matrix @ ((bone2.head + bone2.tail) * 0.5)
-
-        meshes = get_armature_meshes(arm, visible_only=context.scene.vs.visible_mesh_only)
-
-        for mesh in meshes:
-            vg_active = self.get_vgroup_index(mesh, active_name)
-            vg1 = mesh.vertex_groups.get(bone1_name)
-            if vg1 is None:
-                vg1 = mesh.vertex_groups.new(name=bone1_name)
-
-            vg2 = mesh.vertex_groups.get(bone2_name)
-            if vg2 is None:
-                vg2 = mesh.vertex_groups.new(name=bone2_name)
-
-            if vg_active is None or vg1 is None or vg2 is None:
-                continue
-
-            vtx_weights = {}
-            for v in mesh.data.vertices:
-                for g in v.groups:
-                    if g.group == vg_active:
-                        vtx_weights[v.index] = g.weight
-                        break
-
-            for vidx, weight in vtx_weights.items():
-                vertex = mesh.data.vertices[vidx]
-                world_pos = mesh.matrix_world @ vertex.co
-
-                t = self.project_point_onto_line(world_pos, p1, p2)
-
-                # THIS WAS BACKWARDS BEFORE
-                if self.smoothness == 0.0:
-                    w1 = weight if t < 0.5 else 0.0
-                    w2 = weight if t >= 0.5 else 0.0
-                else:
-                    s = self.smoothness
-                    edge0 = 0.5 - s * 0.5
-                    edge1 = 0.5 + s * 0.5
-                    smooth_t = self.remap(t, edge0, edge1)
-                    smooth_t = self.clamp(smooth_t, 0.0, 1.0)
-                    w1 = weight * (1.0 - smooth_t)
-                    w2 = weight * smooth_t
-
-                vg1.add([vidx], w1, 'ADD')
-                vg2.add([vidx], w2, 'ADD')
-
-            mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
-            mesh.vertex_groups.active = vg1
-        
-        with preserve_context_mode(arm, 'EDIT'):
-            remove_bone(arm,active_bone.name)
-            arm.data.edit_bones.active = arm.data.edit_bones.get(bones[0].name)
-        
-        arm.data.pose_position = og_arm_pose_mode
-
-        self.report({'INFO'}, f"Split {active_name} between {bone1_name} and {bone2_name}")
-        return {'FINISHED'} 
-

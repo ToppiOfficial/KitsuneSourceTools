@@ -29,12 +29,12 @@ from ..utils import print
 
 from .common import Tools_SubCategoryPanel
 
-class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
-    bl_label : str = 'Armature Mapper'
+class HUMANOIDARMATUREMAP_PT_Panel(Tools_SubCategoryPanel):
+    bl_label : str = 'Humanoid Armature Mapper'
 
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
-        bx : UILayout = draw_title_box_layout(l, ARMATUREMAPPER_PT_ArmatureMapper.bl_label, icon='ARMATURE_DATA')
+        bx : UILayout = draw_title_box_layout(l, HUMANOIDARMATUREMAP_PT_Panel.bl_label, icon='ARMATURE_DATA')
 
         ob : Object | None = context.object
         if is_armature(ob): pass
@@ -59,32 +59,32 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
             draw_wrapped_texts(armaturemappersection,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP',boxed=False)
             
         col = layout.column()
-        col.operator(ARMATUREMAPPER_OT_LoadPreset.bl_idname)
+        col.operator(HUMANOIDARMATUREMAP_OT_LoadPreset.bl_idname)
 
         col = layout.column(align=False)
         row = layout.row()
         row.template_list(
-            "ARMATUREMAPPER_UL_BoneList",
+            "HUMANOIDARMATUREMAP_UL_ConfigList",
             "",
             context.object.vs,
-            "armature_map_bonecollections",
+            "humanoid_armature_map_bonecollections",
             context.object.vs,
-            "armature_map_bonecollections_index",
+            "humanoid_armature_map_bonecollections_index",
             rows=3
         )
         row = layout.row()
         row.scale_y = 1.25
         split = row.split(factor=0.4,align=True)
-        split.operator(ARMATUREMAPPER_OT_AddItem.bl_idname, icon="ADD", text=ARMATUREMAPPER_OT_AddItem.bl_label).add_type = 'SINGLE'
-        split.operator(ARMATUREMAPPER_OT_AddItem.bl_idname, icon="ADD", text=ARMATUREMAPPER_OT_AddItem.bl_label + " (Selected Bones)").add_type = 'SELECTED'
+        split.operator(HUMANOIDARMATUREMAP_OT_AddItem.bl_idname, icon="ADD", text=HUMANOIDARMATUREMAP_OT_AddItem.bl_label).add_type = 'SINGLE'
+        split.operator(HUMANOIDARMATUREMAP_OT_AddItem.bl_idname, icon="ADD", text=HUMANOIDARMATUREMAP_OT_AddItem.bl_label + " (Selected Bones)").add_type = 'SELECTED'
 
-        if 0 <= context.object.vs.armature_map_bonecollections_index < len(context.object.vs.armature_map_bonecollections):
+        if 0 <= context.object.vs.humanoid_armature_map_bonecollections_index < len(context.object.vs.humanoid_armature_map_bonecollections):
             self.draw_bone_item_properties(context, layout)
 
-        layout.operator(ARMATUREMAPPER_OT_WriteJson.bl_idname, icon='FILE')
+        layout.operator(HUMANOIDARMATUREMAP_OT_WriteConfig.bl_idname, icon='FILE')
 
     def draw_bone_item_properties(self, context : Context, layout : UILayout) -> None:
-        item = context.object.vs.armature_map_bonecollections[context.object.vs.armature_map_bonecollections_index]
+        item = context.object.vs.humanoid_armature_map_bonecollections[context.object.vs.humanoid_armature_map_bonecollections_index]
 
         col = layout.column(align=True)
         col.prop(item, "boneExportName")
@@ -185,7 +185,7 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         
         self.draw_humanoid_bone_mapping(context, layout, duplicates)
 
-        layout.operator(ARMATUREMAPPER_OT_LoadJson.bl_idname)
+        layout.operator(HUMANOIDARMATUREMAP_OT_LoadConfig.bl_idname)
 
     def draw_humanoid_bone_mapping(self, context : Context, layout : UILayout, duplicates : dict) -> None:
         col = layout.column(align=True)
@@ -261,8 +261,8 @@ class ARMATUREMAPPER_PT_ArmatureMapper(Tools_SubCategoryPanel):
         row.prop_search(context.object.vs, prop_r, context.object.data, "bones", text="")
         row.alert = False
 
-class ARMATUREMAPPER_OT_LoadPreset(Operator):
-    bl_idname : str = "armaturemapper.load_preset"
+class HUMANOIDARMATUREMAP_OT_LoadPreset(Operator):
+    bl_idname : str = "humanoidarmaturemap.load_preset"
     bl_label : str = "Load Preset"
     bl_options : Set = {"INTERNAL", "REGISTER"}
 
@@ -294,7 +294,7 @@ class ARMATUREMAPPER_OT_LoadPreset(Operator):
         with open(self.filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        items = ob.vs.armature_map_bonecollections
+        items = ob.vs.humanoid_armature_map_bonecollections
         items.clear()
 
         bone_names = {b.name for b in ob.data.bones}
@@ -310,6 +310,7 @@ class ARMATUREMAPPER_OT_LoadPreset(Operator):
             twist_bonecount = boneData.get("TwistBoneCount", None)
 
             if export_name not in bone_names:
+                print(f'- Skipping {bone_name}')
                 continue
 
             new_item = items.add()
@@ -336,8 +337,8 @@ class ARMATUREMAPPER_OT_LoadPreset(Operator):
         self.report({'INFO'}, f"Loaded preset from: {self.filepath} ({len(items)} items)")
         return {'FINISHED'}
 
-class ARMATUREMAPPER_OT_LoadJson(Operator):
-    bl_idname: str = "armaturemapper.load_json"
+class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
+    bl_idname: str = "humanoidarmaturemap.load_json"
     bl_label: str = "Load JSON"
     bl_options: Set = {"REGISTER", "UNDO"}
 
@@ -765,7 +766,14 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         if not children_in_json:
             return
 
-        if len(children_in_json) == 1:
+        target_child = None
+        
+        if bone_name == "Hips":
+            target_child = next((c for c in children_in_json if "Spine" in c.name), None)
+
+        if target_child:
+            new_tail = target_child.head.copy()
+        elif len(children_in_json) == 1:
             new_tail = children_in_json[0].head.copy()
         else:
             new_tail = sum((child.head for child in children_in_json), Vector((0, 0, 0))) / len(children_in_json)
@@ -969,8 +977,8 @@ class ARMATUREMAPPER_OT_LoadJson(Operator):
         print(f"[CREATE] {bone_name} (Parent: {parent_name})")
         return new_bone
 
-class ARMATUREMAPPER_OT_WriteJson(Operator):
-    bl_idname : str = "armaturemapper.write_json"
+class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
+    bl_idname : str = "humanoidarmaturemap.write_json"
     bl_label : str = "Write Json"
     bl_options : Set = {"INTERNAL", "REGISTER"}
 
@@ -978,7 +986,7 @@ class ARMATUREMAPPER_OT_WriteJson(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return bool(is_armature(context.object) and len(context.object.vs.armature_map_bonecollections) > 0)
+        return bool(is_armature(context.object) and len(context.object.vs.humanoid_armature_map_bonecollections) > 0)
 
     def sortItemsByBoneHierarchy(self, ob, items):
         """Return a list of items sorted by bone parent hierarchy."""
@@ -1110,21 +1118,21 @@ class ARMATUREMAPPER_OT_WriteJson(Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-class ARMATUREMAPPER_OT_RemoveItem(Operator):
-    bl_idname : str = "armaturemapper.remove_item"
+class HUMANOIDARMATUREMAP_OT_RemoveItem(Operator):
+    bl_idname : str = "humanoidarmaturemap.remove_item"
     bl_label : str = "Remove Bone"
     bl_options : Set = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     index: IntProperty()
 
     def execute(self, context : Context) -> Set:
-        coll = context.object.vs.armature_map_bonecollections
+        coll = context.object.vs.humanoid_armature_map_bonecollections
         if 0 <= self.index < len(coll):
             coll.remove(self.index)
         return {'FINISHED'}
 
-class ARMATUREMAPPER_OT_AddItem(Operator):
-    bl_idname : str = "armaturemapper.add_item"
+class HUMANOIDARMATUREMAP_OT_AddItem(Operator):
+    bl_idname : str = "humanoidarmaturemap.add_item"
     bl_label : str = "Add Bone"
     bl_options : Set = {'REGISTER', 'UNDO', 'INTERNAL'}
 
@@ -1139,7 +1147,7 @@ class ARMATUREMAPPER_OT_AddItem(Operator):
             self.report({'ERROR'}, "Active object must be an armature")
             return {'CANCELLED'}
 
-        collection = ob.vs.armature_map_bonecollections
+        collection = ob.vs.humanoid_armature_map_bonecollections
 
         if self.add_type == 'SINGLE':
             collection.add()
@@ -1165,11 +1173,11 @@ class ARMATUREMAPPER_OT_AddItem(Operator):
 
         return {'FINISHED'}
 
-class ARMATUREMAPPER_UL_BoneList(UIList):
+class HUMANOIDARMATUREMAP_UL_ConfigList(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
         if item:
             row = layout.row()
             split = row.split(factor=0.9)
             split.prop_search(item, "boneExportName", context.object.data, "bones", text="")
             split.label(text="", )
-            row.operator(ARMATUREMAPPER_OT_RemoveItem.bl_idname, text="", icon="X").index = index
+            row.operator(HUMANOIDARMATUREMAP_OT_RemoveItem.bl_idname, text="", icon="X").index = index

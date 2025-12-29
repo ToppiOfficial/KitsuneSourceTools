@@ -6,7 +6,7 @@ from mathutils import Vector
 
 from ..core.commonutils import(
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
-    get_armature, get_selected_bones, preserve_context_mode
+    get_armature, get_selected_bones, preserve_context_mode, get_armature_meshes
 )
 
 from ..core.armatureutils import(
@@ -72,9 +72,10 @@ class TOOLS_PT_Bone(Tools_SubCategoryPanel):
         mod_box.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label).weights_only = False
         mod_box.operator(TOOLS_OT_FlipBone.bl_idname, icon='ARROW_LEFTRIGHT')
         mod_box.operator(TOOLS_OT_CreateCenterBone.bl_idname, icon='BONE_DATA')
+        mod_box.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname, icon='SPLIT_VERTICAL')
         
 class TOOLS_OT_CopyTargetRotation(Operator):
-    bl_idname : str = "tools.copy_target_bone_rotation"
+    bl_idname : str = "kitsunetools.copy_target_bone_rotation"
     bl_label : str = "Copy Parent/Active Rotation"
     bl_options : Set = {'REGISTER', 'UNDO'}
 
@@ -194,7 +195,7 @@ class TOOLS_OT_CopyTargetRotation(Operator):
         return {"FINISHED"}
 
 class TOOLS_OT_ReAlignBones(Operator):
-    bl_idname : str = 'tools.realign_bone'
+    bl_idname : str = 'kitsunetools.realign_bone'
     bl_label : str = 'ReAlign Bones'
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -307,7 +308,7 @@ class TOOLS_OT_ReAlignBones(Operator):
         return context.window_manager.invoke_props_dialog(self)
     
 class TOOLS_OT_SubdivideBone(Operator):
-    bl_idname : str = 'tools.subdivide_bone'
+    bl_idname : str = 'kitsunetools.subdivide_bone'
     bl_label : str = 'Subdivide Bone'
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -444,7 +445,7 @@ class TOOLS_OT_SubdivideBone(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_MergeBones(Operator):
-    bl_idname: str = 'tools.merge_bones'
+    bl_idname: str = 'kitsunetools.merge_bones'
     bl_label: str = 'Merge Bones'
     bl_options: Set = {'REGISTER', 'UNDO'}
     
@@ -555,7 +556,7 @@ class TOOLS_OT_MergeBones(Operator):
         return bones_to_remove, vgroups_processed
     
 class TOOLS_OT_AssignBoneRotExportOffset(Operator):
-    bl_idname : str = 'tools.assign_bone_rot_export_offset'
+    bl_idname : str = 'kitsunetools.assign_bone_rot_export_offset'
     bl_label : str = 'Assign Rotation Export Offset'
     bl_options: Set = {'REGISTER', 'UNDO'}
     
@@ -620,7 +621,7 @@ class TOOLS_OT_AssignBoneRotExportOffset(Operator):
         return {'FINISHED'}
   
 class TOOLS_OT_FlipBone(Operator):
-    bl_idname: str = 'tools.flip_bone'
+    bl_idname: str = 'kitsunetools.flip_bone'
     bl_label: str = 'Flip Bone'
     bl_options: Set = {'REGISTER', 'UNDO'}
     bl_description: str = 'Flip the selected bone(s) by swapping their head and tail positions'
@@ -651,7 +652,7 @@ class TOOLS_OT_FlipBone(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_CreateCenterBone(Operator):
-    bl_idname: str = 'tools.create_centerbone'
+    bl_idname: str = 'kitsunetools.create_centerbone'
     bl_label: str = 'Create Center Bone'
     bl_options: Set = {'REGISTER', 'UNDO'}
     
@@ -856,3 +857,130 @@ class TOOLS_OT_CreateCenterBone(Operator):
             self.report({'INFO'}, f'Created center bone: {new_bone.name}')
         
         return {'FINISHED'}
+    
+class TOOLS_OT_SplitActiveWeightLinear(Operator):
+    bl_idname : str = 'kitsunetools.split_active_weights_linear'
+    bl_label : str = 'Split Active Weights Linearly'
+    bl_options : Set = {'REGISTER', 'UNDO'}
+
+    smoothness: FloatProperty(
+        name="Smoothness",
+        description="Smoothness of the weight split (0 = hard cut, 1 = full smooth blend)",
+        min=0.0, max=1.0,
+        default=0.6
+    )
+
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        ob : Object | None = context.object
+        if ob is None: return False
+        if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
+        
+        return bool(get_armature(ob))
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def get_vgroup_index(self, mesh, name):
+        for i, vg in enumerate(mesh.vertex_groups):
+            if vg.name == name:
+                return i
+        return None
+
+    def clamp(self, x, a, b):
+        return max(a, min(x, b))
+
+    def remap(self, value, minval, maxval):
+        if maxval - minval == 0:
+            return 0.5
+        return (value - minval) / (maxval - minval)
+
+    def project_point_onto_line(self, p, a, b):
+        ap = p - a
+        ab = b - a
+        ab_len_sq = ab.length_squared
+        if ab_len_sq == 0.0:
+            return 0.0
+        return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
+
+    def execute(self, context : Context) -> Set:
+        arm = get_armature(context.object)
+        
+        bones = get_selected_bones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
+        active_bone = arm.data.bones.active
+        
+        if not bones or len(bones) != 2 or not active_bone:
+            self.report({'WARNING'}, "Select 3 bones: 2 others and 1 active (middle split point).")
+            return {'CANCELLED'}
+        
+        og_arm_pose_mode = arm.data.pose_position
+        arm.data.pose_position = 'REST'
+        bpy.context.view_layer.update()
+
+        bone1 = arm.pose.bones.get(bones[0].name)
+        bone2 = arm.pose.bones.get(bones[1].name)
+        active = active_bone
+
+        bone1_name = bone1.name
+        bone2_name = bone2.name
+        active_name = active.name
+
+        arm_matrix = arm.matrix_world
+        p1 = arm_matrix @ ((bone1.head + bone1.tail) * 0.5)
+        p2 = arm_matrix @ ((bone2.head + bone2.tail) * 0.5)
+
+        meshes = get_armature_meshes(arm, visible_only=context.scene.vs.visible_mesh_only)
+
+        for mesh in meshes:
+            vg_active = self.get_vgroup_index(mesh, active_name)
+            vg1 = mesh.vertex_groups.get(bone1_name)
+            if vg1 is None:
+                vg1 = mesh.vertex_groups.new(name=bone1_name)
+
+            vg2 = mesh.vertex_groups.get(bone2_name)
+            if vg2 is None:
+                vg2 = mesh.vertex_groups.new(name=bone2_name)
+
+            if vg_active is None or vg1 is None or vg2 is None:
+                continue
+
+            vtx_weights = {}
+            for v in mesh.data.vertices:
+                for g in v.groups:
+                    if g.group == vg_active:
+                        vtx_weights[v.index] = g.weight
+                        break
+
+            for vidx, weight in vtx_weights.items():
+                vertex = mesh.data.vertices[vidx]
+                world_pos = mesh.matrix_world @ vertex.co
+
+                t = self.project_point_onto_line(world_pos, p1, p2)
+
+                # THIS WAS BACKWARDS BEFORE
+                if self.smoothness == 0.0:
+                    w1 = weight if t < 0.5 else 0.0
+                    w2 = weight if t >= 0.5 else 0.0
+                else:
+                    s = self.smoothness
+                    edge0 = 0.5 - s * 0.5
+                    edge1 = 0.5 + s * 0.5
+                    smooth_t = self.remap(t, edge0, edge1)
+                    smooth_t = self.clamp(smooth_t, 0.0, 1.0)
+                    w1 = weight * (1.0 - smooth_t)
+                    w2 = weight * smooth_t
+
+                vg1.add([vidx], w1, 'ADD')
+                vg2.add([vidx], w2, 'ADD')
+
+            mesh.vertex_groups.remove(mesh.vertex_groups[vg_active])
+            mesh.vertex_groups.active = vg1
+        
+        with preserve_context_mode(arm, 'EDIT'):
+            remove_bone(arm,active_bone.name)
+            arm.data.edit_bones.active = arm.data.edit_bones.get(bones[0].name)
+        
+        arm.data.pose_position = og_arm_pose_mode
+
+        self.report({'INFO'}, f"Split {active_name} between {bone1_name} and {bone2_name}")
+        return {'FINISHED'} 

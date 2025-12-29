@@ -30,7 +30,7 @@ class TOOLS_PT_Animation(Tools_SubCategoryPanel):
         col.operator(TOOLS_OT_convert_rotation_keyframes.bl_idname, icon='ACTION_SLOT')
         
 class TOOLS_OT_merge_animation_slots(Operator):
-    bl_idname : str = 'tools.merged_animations'
+    bl_idname : str = 'kitsunetools.merged_animations'
     bl_label : str = 'Merge Slotted Animations'
     bl_options : set = {'REGISTER', 'UNDO'}
 
@@ -216,7 +216,7 @@ class TOOLS_OT_merge_animation_slots(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_convert_rotation_keyframes(Operator):
-    bl_idname : str = 'tools.convert_rotation_keyframes'
+    bl_idname : str = 'kitsunetools.convert_rotation_keyframes'
     bl_label : str = 'Convert Rotation Keyframes'
     bl_description : str = 'Convert rotation keyframes between Euler and Quaternion in an action slot'
     bl_options : set = {'REGISTER', 'UNDO'}
@@ -367,7 +367,7 @@ class TOOLS_OT_convert_rotation_keyframes(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_merge_two_actions(Operator):
-    bl_idname : str = 'tools.merge_two_actions'
+    bl_idname : str = 'kitsunetools.merge_two_actions'
     bl_label : str = 'Merge Two Actions'
     bl_options : set = {'REGISTER', 'UNDO'}
 

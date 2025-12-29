@@ -898,6 +898,8 @@ class SmdImporter(bpy.types.Operator, Logger):
                 
                 if not making_base_shape:
                     smd.m.shape_key_add(name=shape_name if shape_name else values[1])
+                    sk = smd.m.shape_key_add(name=shape_name if shape_name else values[1])
+                    sk.value = 0.0
                     num_shapes += 1
 
                 continue # to the first vertex of the new shape
@@ -1619,6 +1621,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                                 ob.show_only_shape_key = True
                                 ob.data.shape_keys.name = DmeMesh.name
                             shape_key = ob.shape_key_add(name=DmeVertexDeltaData.name)
+                            shape_key.value = 0.0
                             
                             if keywords['pos'] in DmeVertexDeltaData["vertexFormat"]:
                                 deltaPositions = DmeVertexDeltaData[keywords['pos']]

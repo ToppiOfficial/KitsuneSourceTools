@@ -35,7 +35,7 @@ class TOOLS_PT_Mesh(Tools_SubCategoryPanel):
         col.operator(TOOLS_OT_AddToonEdgeLine.bl_idname, icon='MOD_SOLIDIFY')
         
 class TOOLS_OT_CleanShapeKeys(Operator):
-    bl_idname : str = 'tools.clean_shape_keys'
+    bl_idname : str = 'kitsunetools.clean_shape_keys'
     bl_label : str = 'Clean Shape Keys'
     bl_options : set = {'REGISTER', 'UNDO'}
     
@@ -70,7 +70,7 @@ class TOOLS_OT_CleanShapeKeys(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_SelectShapekeyVets(Operator):
-    bl_idname : str = 'tools.select_shapekey_vertices'
+    bl_idname : str = 'kitsunetools.select_shapekey_vertices'
     bl_label : str = 'Select Shapekey Vertices'
     bl_options : Set = {'REGISTER', 'UNDO'}
 
@@ -134,7 +134,7 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
-    bl_idname : str = "tools.remove_unused_vertexgroups"
+    bl_idname : str = "kitsunetools.remove_unused_vertexgroups"
     bl_label : str = "Clean Unused Vertex Groups"
     bl_options : Set = {'REGISTER', 'UNDO'}
     
@@ -154,7 +154,7 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_AddToonEdgeLine(Operator):
-    bl_idname: str = "tools.add_toon_edgeline"
+    bl_idname: str = "kitsunetools.add_toon_edgeline"
     bl_label: str = "Add Black Toon Edgeline"
     bl_options: Set = {"REGISTER", "UNDO"}
 

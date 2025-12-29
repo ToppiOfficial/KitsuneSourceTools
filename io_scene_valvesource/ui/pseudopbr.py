@@ -295,6 +295,14 @@ class PBRConversionMixin:
         result[:, :, 3] = alpha
         return result
     
+    def create_pbr_emissive_map(self, emissive):
+        height, width = emissive.shape
+        emissive_map = np.ones((height, width, 4), dtype=np.float32)
+        emissive_map[:, :, 0] = emissive
+        emissive_map[:, :, 1] = emissive
+        emissive_map[:, :, 2] = emissive
+        return emissive_map
+    
     def create_pbr_mrao_map(self, metal, roughness, ao):
         height, width = metal.shape
         mrao = np.ones((height, width, 4), dtype=np.float32)
@@ -340,7 +348,7 @@ class PBRConversionMixin:
         )[:, :, 0]
         
         exponent[:, :, 0] = exponent_red
-        exponent[:, :, 1] = metal if color_alpha_mode != 'RGB_ALPHA' else metal * 0.5
+        exponent[:, :, 1] = metal * 0.5
         exponent[:, :, 2] = 0.0
         exponent[:, :, 3] = 1.0
         
@@ -482,6 +490,13 @@ class PBRConversionMixin:
         normal_path = os.path.join(export_dir, f"{base_name}_normal.tga")
         print(f"  Saving: {normal_path}")
         self.save_tga(normal_map, normal_path)
+        
+        if 'emissive' in maps:
+            print("  Creating emissive map...")
+            emissive_map = self.create_pbr_emissive_map(maps['emissive'])
+            emissive_path = os.path.join(export_dir, f"{base_name}_emissive.tga")
+            print(f"  Saving: {emissive_path}")
+            self.save_tga(emissive_map, emissive_path)
         
         print("  PBR conversion complete!")
     
@@ -851,15 +866,12 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
         row.prop(item, 'ambientocclu_map_ch', text='')
         col.prop(item, 'invert_ambientocclu_map')
         
-        if vs.pbr_conversion_mode == 'PHONG':
-            col.prop(item, 'ambientocclu_strength', slider=True)
-            
-            box = layout.box()
-            col = box.column(align=True)
-            col.label(text="Emissive Map (Optional)")
-            row = col.split(align=True, factor=0.8)
-            row.prop_search(item, 'emissive_map', bpy.data, 'images', text='')
-            row.prop(item, 'emissive_map_ch', text='')
+        box = layout.box()
+        col = box.column(align=True)
+        col.label(text="Emissive Map (Optional)")
+        row = col.split(align=True, factor=0.8)
+        row.prop_search(item, 'emissive_map', bpy.data, 'images', text='')
+        row.prop(item, 'emissive_map_ch', text='')
             
         if vs.pbr_conversion_mode == 'PHONG':
             box = layout.box()
@@ -869,7 +881,10 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
             col.prop(item, 'albedoboost_factor', slider=True)
         
         box = layout.box()
-        box.prop(item, 'is_npr')
+        
+        if vs.pbr_conversion_mode == 'PHONG':
+            box.prop(item, 'is_npr')
+            
         box.prop(item, 'color_alpha_mode')
     
     def draw_help_section(self, context, layout):

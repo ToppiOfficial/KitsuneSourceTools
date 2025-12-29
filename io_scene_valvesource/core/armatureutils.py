@@ -305,7 +305,7 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 copied_rot = copy_target_armature_visualpose(source_arm, target_arm, 'ANGLES')
                 copied_pos = copy_target_armature_visualpose(source_arm, target_arm, 'ORIGIN')
                 if not copied_rot and not copied_pos:
-                    print('ERROR MATCHING POSTURE!')
+                    print('- Error matching and applying posture for {} armature'.format(target_arm.name))
                     return False
                 
             applied_restpose = apply_current_pose_as_restpose(target_arm)
@@ -427,7 +427,7 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
             return True
 
         except Exception as e:
-            print("merge_armatures failed:", e)
+            print("- merge_armatures failed:", e)
             return False
 
         finally:
