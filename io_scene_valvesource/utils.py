@@ -632,7 +632,7 @@ def countShapes(*objects):
             flattened_objects.append(ob)
 
     for ob in [o for o in flattened_objects if o.vs.export and hasShapes(o)]:
-        if ob.vs.flex_controller_mode == 'STRICT':
+        if ob.vs.flex_controller_mode == 'SPECIFIC':
             flex_controllers = get_flexcontrollers(ob)
             unique_names = set(fc[0] for fc in flex_controllers)
             num_shapes += len(unique_names)

@@ -745,25 +745,16 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             if matched_bone:
                 bone_chain.append(matched_bone)
             else:
-                print(f"Warning: Expected bone with '{base_name}' and index {i} not found for weights_only mode")
+                print(f"- Expected bone with '{base_name}' and index {i} not found for weights_only mode")
                 return None
         
         return bone_chain
     
     def reparent_children(bone, bone_chain):
         for child in bone.children:
-            child_head = child.head
-            closest_bone = bone_chain[0]
-            min_dist = (child_head - closest_bone.tail).length
-            
-            for new_bone in bone_chain[1:]:
-                dist = (child_head - new_bone.tail).length
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_bone = new_bone
-            
-            child.parent = closest_bone
             child.use_connect = False
+            child.parent = bone_chain[-1]
+            child.use_connect = True
     
     def collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq):
         all_vertex_data = []
@@ -775,7 +766,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             vg_old = mesh.vertex_groups[old_bone_name]
             
             if not force_locked and vg_old.lock_weight:
-                print(f"Skipping mesh '{mesh.name}': vertex group '{old_bone_name}' is locked")
+                print(f"- Skipping mesh '{mesh.name}': vertex group '{old_bone_name}' is locked")
                 continue
                 
             mesh_matrix = mesh.matrix_world
@@ -938,32 +929,58 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         meshes = get_armature_meshes(arm, bpy.context.scene.vs.visible_mesh_only)
         if not meshes:
             return
-
-        head, tail = bone.head.copy(), bone.tail.copy()
-        collections = bone.collections
-        base_name = bone.name
-        old_bone_name = bone.name
         
-        eb = arm.data.edit_bones
+        armature_mirror_x_state = arm.data.use_mirror_x
+        armature_mirror_x_pose_state = arm.pose.use_mirror_x
         
-        if weights_only:
-            bone_chain = find_existing_chain(bone, base_name, subdivisions, eb)
-            if not bone_chain:
-                return
-        else:
-            bone_chain = create_bone_chain(bone, head, tail, base_name, subdivisions, collections, eb)
-            reparent_children(bone, bone_chain)
+        try:
+            arm.data.use_mirror_x = False
+            arm.pose.use_mirror_x = False
+            
+            head, tail = bone.head.copy(), bone.tail.copy()
+            collections = bone.collections
+            base_name = bone.name
+            old_bone_name = bone.name
+            
+            eb = arm.data.edit_bones
+            
+            if weights_only:
+                bone_chain = find_existing_chain(bone, base_name, subdivisions, eb)
+                if not bone_chain:
+                    return
+            else:
+                
+                bone_use_connect_state = bone.use_connect
+                try:
+                    bone.use_connect = False
+                    bone_chain = create_bone_chain(bone, head, tail, base_name, subdivisions, collections, eb)
+                    reparent_children(bone, bone_chain)
+                    
+                except Exception as e:
+                    print("- Failed to create subdivision or re-parenting : {}.".format(e))
+                    pass
+                finally:
+                    bone.use_connect = bone_use_connect_state
+            
+            arm_matrix = arm.matrix_world
+            head_world = arm_matrix @ head
+            tail_world = arm_matrix @ tail
+            bone_vec = tail_world - head_world
+            bone_length_sq = bone_vec.length_squared
+            
+            all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq)
+            mesh_vg_map = create_vertex_group_map(meshes, old_bone_name, bone_chain, force_locked)
+            vertex_weights_to_apply, vertices_to_clear = calculate_weight_distribution(all_vertex_data, mesh_vg_map, subdivisions, falloff_power, smooth_amount, min_weight)
+            apply_weights(vertex_weights_to_apply, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked)
         
-        arm_matrix = arm.matrix_world
-        head_world = arm_matrix @ head
-        tail_world = arm_matrix @ tail
-        bone_vec = tail_world - head_world
-        bone_length_sq = bone_vec.length_squared
+        except Exception as e:
+            print("- Failed to subdivide bone '{}' : {}".format(bone.name, e))
+            pass
         
-        all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq)
-        mesh_vg_map = create_vertex_group_map(meshes, old_bone_name, bone_chain, force_locked)
-        vertex_weights_to_apply, vertices_to_clear = calculate_weight_distribution(all_vertex_data, mesh_vg_map, subdivisions, falloff_power, smooth_amount, min_weight)
-        apply_weights(vertex_weights_to_apply, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked)
+        finally:
+            arm.data.use_mirror_x = armature_mirror_x_state
+            arm.pose.use_mirror_x = armature_mirror_x_pose_state
+            
 
     elif isinstance(bone, list):
         if len(bone) == 1:

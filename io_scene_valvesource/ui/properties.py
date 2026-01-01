@@ -453,18 +453,8 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
             col.operator(AddCorrectiveShapeDrivers.bl_idname, icon='DRIVER',text=get_id("gen_drivers",True))
             col.operator(RenameShapesToMatchCorrectiveDrivers.bl_idname, icon='SYNTAX_OFF',text=get_id("apply_drivers",True))
         
-        if ob.vs.flex_controller_mode == 'ADVANCED':
-            controller_source = col.row()
-            controller_source.alert = hasFlexControllerSource(ob.vs.flex_controller_source) == False
-            controller_source.prop(ob.vs,"flex_controller_source",text=get_id("exportables_flex_src"),icon = 'TEXT' if ob.vs.flex_controller_source in bpy.data.texts else 'NONE')
-            
-            row = col.row(align=True)
-            row.operator(DmxWriteFlexControllers.bl_idname,icon='TEXT',text=get_id("exportables_flex_generate", True))
-            row.operator("wm.url_open",text=get_id("exportables_flex_help", True),icon='HELP').url = "http://developer.valvesoftware.com/wiki/Blender_SMD_Tools_Help#Flex_properties"
-            
-            insertCorrectiveUi(col)
-            
-            col = bx.column()
+        def insertStereoSplitUi(parent):
+            col = parent.column()
             subbx = col.box()
             
             subbx.label(text=get_id("exportables_flex_split"))
@@ -481,28 +471,68 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
                 r2.prop(ob.data.vs,"flex_stereo_sharpness",text="Sharpness")
                 
             r2.prop(ob.data.vs,"flex_stereo_mode",text="")
+        
+        if ob.vs.flex_controller_mode == 'ADVANCED':
+            controller_source = col.row()
+            controller_source.alert = hasFlexControllerSource(ob.vs.flex_controller_source) == False
+            controller_source.prop(ob.vs,"flex_controller_source",text=get_id("exportables_flex_src"),icon = 'TEXT' if ob.vs.flex_controller_source in bpy.data.texts else 'NONE')
             
-        elif ob.vs.flex_controller_mode == 'STRICT':
-            col = bx.column()
-            col.template_list("DME_UL_FlexControllers","",ob.vs,"dme_flexcontrollers", ob.vs,"dme_flexcontrollers_index",rows=3,)
-
             row = col.row(align=True)
-            row.operator("dme.add_flexcontroller", icon='ADD')
+            row.operator(DmxWriteFlexControllers.bl_idname,icon='TEXT',text=get_id("exportables_flex_generate", True))
+            row.operator("wm.url_open",text=get_id("exportables_flex_help", True),icon='HELP').url = "http://developer.valvesoftware.com/wiki/Blender_SMD_Tools_Help#Flex_properties"
             
-            if num_shapes == 0:
-                col.separator()
-                draw_wrapped_texts(col,'Empty List will export the object without shapekeys',icon='HELP', boxed=False)
+            insertCorrectiveUi(col)
+            
+            insertStereoSplitUi(col)
+            
+        elif ob.vs.flex_controller_mode == 'SPECIFIC':
+            col = bx.column()
+            row = col.row()
+            first_col = row.column()
+            first_col.template_list("DME_UL_FlexControllers","",ob.vs,"dme_flexcontrollers", ob.vs,"dme_flexcontrollers_index")
+            
+            if len(ob.vs.dme_flexcontrollers) > 0 and ob.vs.dme_flexcontrollers_index != -1:
+                
+                box = col.box()
+                box_col = box.column(align=True)
+                
+                item = ob.vs.dme_flexcontrollers[ob.vs.dme_flexcontrollers_index]
+                
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Shapekey')
+                prop_col.prop_search(item,'shapekey',ob.data.shape_keys,'key_blocks',text='')
+                
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Delta Name')
+                prop_col.prop(item,'raw_delta_name',text='')
+                
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='')
+                prop_col.prop(item,'eyelid',text='Is Eyelid')
+                
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='')
+                prop_col.prop(item,'stereo',text='Is Stereo')
+            
+            second_col = row.column(align=True)
+            second_col.operator("dme.add_flexcontroller", icon='ADD',text='')
+            second_col.operator("dme.remove_flexcontroller", icon='REMOVE',text='')   
+            
+            insertStereoSplitUi(col)
             
         else:
             insertCorrectiveUi(col)
 
-        
         col.separator()
         row = col.row()
         row.alignment = 'CENTER'
         row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count", True).format(num_shapes))
         
-        if ob.vs.flex_controller_mode != 'STRICT':
+        if ob.vs.flex_controller_mode != 'SPECIFIC':
             row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count_corrective", True).format(num_correctives))
         
     def _draw_vertexmap_config(self, context : Context, layout : UILayout):
@@ -718,13 +748,26 @@ class DME_UL_FlexControllers(UIList):
         
         split = layout.split(factor=0.6)
         row : UILayout = split.row(align=True)
-        row.prop_search(item, "shapekey", ob.data.shape_keys, "key_blocks", text="")
-        row : UILayout = split.row(align=True)
-        row.prop(item, "eyelid", toggle=True)
-        row.prop(item, "stereo", toggle=True)
+        row.label(text=item.shapekey, icon='SHAPEKEY_DATA')
         
-        op = row.operator("dme.remove_flexcontroller", text="", icon='X')
-        op.index = index
+        if len(item.raw_delta_name.strip()) > 0 and item.shapekey in ob.data.shape_keys.key_blocks:
+            row.label(text="(" + item.raw_delta_name + ")")
+        
+        sk : bpy.types.ShapeKey | None = ob.data.shape_keys.key_blocks.get(item.shapekey)
+        if sk is not None:
+            row : UILayout = split.row(align=True)
+            row.alignment = 'RIGHT'
+                
+            row.label(text="{}".format(round(sk.slider_max, 3)))
+            
+            if item.stereo:
+                row.label(text="(S)")
+            
+        if item.shapekey is None or item.shapekey not in ob.data.shape_keys.key_blocks or sk is None:
+            row : UILayout = split.row(align=True)
+            row.alignment = 'RIGHT'
+            row.label(text='',icon='ERROR')
+            
             
 class DME_OT_AddFlexController(Operator):
     bl_idname : str = "dme.add_flexcontroller"
@@ -744,13 +787,14 @@ class DME_OT_RemoveFlexController(Operator):
     bl_label : str = "Remove Flex Controller"
     bl_options : set = {'INTERNAL', 'UNDO'}
     
-    index : IntProperty()
-
-    def execute(self, context : Context) -> set:
-        ob : Object | None = context.object
-
-        ob.vs.dme_flexcontrollers.remove(self.index)
-        ob.vs.dme_flexcontrollers_index = max(0, min(self.index, len(ob.vs.dme_flexcontrollers) - 1))
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(len(context.object.vs.dme_flexcontrollers) > 0)
+    
+    def execute(self, context) -> set:
+        context.object.vs.dme_flexcontrollers.remove(context.object.vs.dme_flexcontrollers_index)
+        context.object.vs.dme_flexcontrollers_index = min(max(0, context.object.vs.dme_flexcontrollers_index - 1), 
+                                                 len(context.object.vs.dme_flexcontrollers) - 1)
         return {'FINISHED'}
 
 class SMD_OT_AddVertexMapRemap(Operator):

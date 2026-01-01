@@ -135,14 +135,6 @@ class SMD_OT_Compile(bpy.types.Operator, Logger):
                 i+=1
         return num_good_compiles
 
-# ------------------------------------------------------------------------------------
-# TODO: Binary 4 & 5 DMX export seems to cause "leaking N elements" and exception error
-#   Is it also occuring on the original addon?
-# 
-# NOTE: Using Binary 3 seems to work just fine, however Binary 3 Model 18 for example
-#   is not the right matching as I was told...
-# ------------------------------------------------------------------------------------
-
 class SmdExporter(bpy.types.Operator, Logger):
     bl_idname = "export_scene.smd"
     bl_label = get_id("exporter_title")
@@ -1099,7 +1091,7 @@ class SmdExporter(bpy.types.Operator, Logger):
             # bake shapes
             id.show_only_shape_key = True
             preserve_basis_normals = id.data.vs.bake_shapekey_as_basis_normals
-            valid_controllers = {fc[0] for fc in get_flexcontrollers(id)}
+            valid_controllers = {fc[0]: fc[3] for fc in get_flexcontrollers(id)}
             
             if preserve_basis_normals: print("- Preserving basis normals for shapekeys in {}".format(id.name))
 
@@ -1107,8 +1099,12 @@ class SmdExporter(bpy.types.Operator, Logger):
                 if i == 0: 
                     continue
                 
-                if id.vs.flex_controller_mode == 'STRICT' and shape.name not in valid_controllers:
+                if id.vs.flex_controller_mode == 'SPECIFIC' and shape.name not in valid_controllers:
                     continue
+                
+                if id.vs.flex_controller_mode == 'SPECIFIC':
+                    new_name = valid_controllers[shape.name]
+                    if new_name != shape.name: shape.name = new_name
 
                 id.active_shape_key_index = i
                 depsgraph = bpy.context.evaluated_depsgraph_get()

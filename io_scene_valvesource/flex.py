@@ -55,16 +55,17 @@ class DmxWriteFlexControllers(bpy.types.Operator):
         controls = DmeCombinationOperator["controls"] = datamodel.make_array([],datamodel.Element)
 
         def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, use_slider_range=False, normalize_shapekeys=False):
+            
             DmeCombinationInputControl = dm.add_element(name, "DmeCombinationInputControl", id=namespace + name + "inputcontrol")
             controls.append(DmeCombinationInputControl)
             
-            DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(deltas, str)
-            
             if flexcontroller is not None:
-                _, eyelid, stereo = flexcontroller
+                _, eyelid, stereo, raw_delta_name = flexcontroller
+                DmeCombinationInputControl["rawControlNames"] = datamodel.make_array([raw_delta_name], str)
                 DmeCombinationInputControl["stereo"] = bool(stereo)
                 DmeCombinationInputControl["eyelid"] = bool(eyelid)
             else:
+                DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(deltas, str)
                 DmeCombinationInputControl["eyelid"] = False
                 DmeCombinationInputControl["stereo"] = False
             
@@ -82,21 +83,21 @@ class DmxWriteFlexControllers(bpy.types.Operator):
             if not ob.data.shape_keys:
                 continue
             
-            use_range = ob.vs.flex_controller_mode == 'STRICT'
+            in_specific_mode = ob.vs.flex_controller_mode == 'SPECIFIC'
             normalize = ob.data.vs.normalize_shapekeys
             corrective_separator = getCorrectiveShapeSeparator()
             
             for shape in ob.data.shape_keys.key_blocks[1:]:
-                if corrective_separator in shape.name or shape.name in shapes:
+                if not in_specific_mode and (corrective_separator in shape.name or shape.name in shapes):
                     continue
                 
                 fc = None
-                if use_range and flexcontrollers is not None:
+                if in_specific_mode and flexcontrollers is not None:
                     fc = next((f for f in flexcontrollers if f[0] == shape.name), None)
                     if fc is None:
                         continue
                 
-                createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc, use_slider_range=use_range, normalize_shapekeys=normalize)
+                createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc, use_slider_range=in_specific_mode, normalize_shapekeys=normalize)
                 shapes.add(shape.name)
 
         for vca in id.vs.vertex_animations:

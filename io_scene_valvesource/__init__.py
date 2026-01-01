@@ -149,7 +149,7 @@ class ValveSource_SceneProps(PropertyGroup):
     dmx_encoding : EnumProperty(name=get_id("dmx_encoding"),description=get_id("dmx_encoding_tip"),items=tuple(encodings),default='2')
     dmx_format : EnumProperty(name=get_id("dmx_format"),description=get_id("dmx_format_tip"),items=tuple(formats),default='1')
     
-    export_format : EnumProperty(name=get_id("export_format"),items=( ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ),default='DMX')
+    export_format : EnumProperty(name=get_id("export_format"),items=[ ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ],default='DMX')
     up_axis : EnumProperty(name=get_id("up_axis"),items=axes,default='Z',description=get_id("up_axis_tip"))
     up_axis_offset : FloatProperty(name=get_id("up_axis_offset"),description=get_id("up_axis_tip"), soft_max=30,soft_min=-30,default=0,precision=2)
     forward_axis : EnumProperty(name=get_id("forward_axis"),items=axes_forward,default='-Y',description=get_id("up_axis_tip"))
@@ -215,9 +215,11 @@ class ValveSource_VertexAnimation(PropertyGroup):
     end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
     export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
 
-class StrictShapekeyItem(PropertyGroup):
+class FlexControllerItem(PropertyGroup):
     expand_option : BoolProperty(name='Show Options', default=False)
-    shapekey : StringProperty(name='shapekey')
+    shapekey : StringProperty(name='ShapeKey')
+    raw_delta_name : StringProperty(name='Export Name')
+
     eyelid : BoolProperty(name='Eyelid')
     stereo : BoolProperty(name='Stereo')
 
@@ -225,12 +227,12 @@ class ExportableProps():
     flex_controller_modes = (
         ('SIMPLE',"Simple",get_id("controllers_simple_tip")),
         ('ADVANCED',"Advanced",get_id("controllers_advanced_tip")),
-        ('STRICT',"Strict",get_id("controllers_strict_tip"))
+        ('SPECIFIC',"Specific",get_id("controllers_strict_tip"))
     )
 
     export : BoolProperty(name=get_id("scene_export"),description=get_id("use_scene_export_tip"),default=True)
     subdir : StringProperty(name=get_id("subdir"),description=get_id("subdir_tip"))
-    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"),description=get_id("controllers_mode_tip"),items=flex_controller_modes,default='STRICT')
+    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"),description=get_id("controllers_mode_tip"),items=flex_controller_modes,default='SPECIFIC')
     flex_controller_source : StringProperty(name=get_id("controller_source"),description=get_id("controllers_source_tip"),subtype='FILE_PATH', options=_relativePathOptions)
 
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=ValveSource_VertexAnimation)
@@ -272,8 +274,8 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
     
-    dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=StrictShapekeyItem)
-    dme_flexcontrollers_index : IntProperty(default=-1,get=lambda self: -1,set=lambda self, context: None)
+    dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=FlexControllerItem)
+    dme_flexcontrollers_index : IntProperty(default=-1)
     
     dmx_attachment : BoolProperty(name='DMX Attachment',default=False)
     smd_hitbox : BoolProperty(name='SMD Hitbox',default=False)    
@@ -440,7 +442,7 @@ class ValveSource_MaterialProps(PropertyGroup):
 
 _classes = (
     ValveSource_FloatMapRemap,
-    StrictShapekeyItem,
+    FlexControllerItem,
     HumanoidArmatureMap,
     ValveSource_PrefabItem,
     PseudoPBRItem,
