@@ -238,6 +238,7 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
     prev_vgroup_index = None
     prev_bone_name = None
     prev_bone_mode = None
+    prev_bone_selected = None
 
     if target_obj:
         if target_obj.type == "MESH":
@@ -247,9 +248,11 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
             if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
                 prev_bone_name = data.edit_bones.active.name
                 prev_bone_mode = "EDIT"
+                prev_bone_selected = data.edit_bones.active.select
             elif prev_mode == "POSE" and data.bones.active:
                 prev_bone_name = data.bones.active.name
                 prev_bone_mode = "POSE"
+                prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
 
     if target_obj and target_obj.name in bpy.data.objects:
         try:
@@ -307,10 +310,12 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
                     edit_bone = data.edit_bones.get(prev_bone_name)
                     if edit_bone:
                         data.edit_bones.active = edit_bone
+                        edit_bone.select = prev_bone_selected
                 elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
                     bone = data.bones.get(prev_bone_name)
                     if bone:
                         data.bones.active = bone
+                        bone.select = prev_bone_selected
                         
 def open_vmdl(filepath: str) -> KVNode | None:
     try:

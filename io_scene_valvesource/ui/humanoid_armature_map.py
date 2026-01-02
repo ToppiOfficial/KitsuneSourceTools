@@ -426,6 +426,35 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         self._setup_armature(arm, bone_elements)
         self.report({"INFO"}, "Armature converted successfully.")
         return {"FINISHED"}
+    
+    def _apply_temp_renames_to_mapped_bones(self, arm: Object, vs_arm, bones, bone_elements: dict) -> dict:
+        temp_prefix = "__MAPPED__"
+        existing_prefix = "__EXISTING__"
+        mapped_bones = {}
+        
+        # Collect all target bone names from JSON
+        json_bone_names = set(bone_elements.keys())
+        
+        # First, rename any existing bones that conflict with JSON bone names
+        for bone in bones:
+            if bone.name in json_bone_names and bone.name not in [getattr(vs_arm, attr) for attr in dir(vs_arm) if attr.startswith("armature_map_")]:
+                temp_name = f"{existing_prefix}{bone.name}"
+                print(f"[PRE-EXISTING] Conflicting bone '{bone.name}' -> '{temp_name}'")
+                bones[bone.name].name = temp_name
+        
+        # Then, rename all mapped bones
+        for attr in dir(vs_arm):
+            if not attr.startswith("armature_map_"):
+                continue
+            bone_name = getattr(vs_arm, attr)
+            if bone_name and isinstance(bone_name, str) and bone_name in bones:
+                temp_name = f"{temp_prefix}{bone_name}"
+                bones[bone_name].name = temp_name
+                setattr(vs_arm, attr, temp_name)
+                mapped_bones[bone_name] = temp_name
+                print(f"[PRE-TEMP] Mapped bone '{bone_name}' -> '{temp_name}'")
+        
+        return mapped_bones
 
     def _remap_humanoid_bones(self, arm: Object) -> dict | bool:
         vs_arm = getattr(arm, "vs", None)
@@ -436,6 +465,16 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
         if not self._validate_bone_mapping(arm, vs_arm):
             return False
+
+        # Need to load bone_elements early for conflict detection
+        try:
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            bone_elements = {entry["BoneName"]: entry for entry in data}
+        except:
+            bone_elements = {}
+
+        self.mapped_bones_lookup = self._apply_temp_renames_to_mapped_bones(arm, vs_arm, bones, bone_elements)
 
         rename_map = self._build_rename_map(vs_arm, bones)
         
@@ -970,7 +1009,12 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
         parent_name = bone_data.get("ParentBone")
         if parent_name and parent_name != bone_name:
-            parent_bone = arm.data.edit_bones.get(parent_name) or self._write_missing_bone(arm, parent_name, bone_name, bone_elements)
+            lookup = getattr(self, 'mapped_bones_lookup', {})
+            parent_search_name = lookup.get(parent_name, parent_name)
+            
+            parent_bone = arm.data.edit_bones.get(parent_search_name)
+            if parent_bone is None and 'MISSING_BONES' in self.load_options:
+                parent_bone = self._write_missing_bone(arm, parent_name, bone_name, bone_elements)
             if parent_bone:
                 new_bone.parent = parent_bone
 
