@@ -658,7 +658,10 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
     def draw_materialproperties(self, context : Context, layout : UILayout) -> None:
         l : UILayout = layout
         ob : Object | None = context.object
-        if ob is None: return
+        
+        if ob is None:
+            draw_wrapped_texts(l, get_id("panel_select_mesh"), max_chars=40, icon='HELP')
+            return
         
         allmats = get_all_materials(ob)
         allmaterials_section = draw_toggleable_layout(l,context.scene.vs,'show_materials',f'Show All Mesh Materials: {len(allmats)}','',alert=not bool(allmats), toggle_scale_y=0.7)
@@ -705,6 +708,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
                 col.prop(currMat.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
                 
             col.prop(currMat.vs, 'non_exportable_vgroup')   
+            col.prop(currMat.vs, 'do_not_export_faces_vgroup_tolerance', slider=True)
 
     def draw_emptyproperties(self, context : Context, layout : UILayout) -> None:
         L : UILayout = layout
@@ -767,8 +771,7 @@ class DME_UL_FlexControllers(UIList):
             row : UILayout = split.row(align=True)
             row.alignment = 'RIGHT'
             row.label(text='',icon='ERROR')
-            
-            
+                
 class DME_OT_AddFlexController(Operator):
     bl_idname : str = "dme.add_flexcontroller"
     bl_label : str = "Add Flex Controller"

@@ -86,8 +86,6 @@ class ValveSource_PrefabItem(PropertyGroup):
 
 class PseudoPBRItem(PropertyGroup):
     name: StringProperty(name="Item Name", default="PBR Item")
-    export_path: StringProperty(name="Export Path", subtype='DIR_PATH', options=_relativePathOptions)
-    
     enforce_white_b_ch_normal : BoolProperty(name='Force White on Blue Channel')
     
     diffuse_map: StringProperty(name='Color Map')
@@ -439,6 +437,7 @@ class ValveSource_MaterialProps(PropertyGroup):
     do_not_export_faces : BoolProperty(name='Do Not Export Faces (By Material)', default=False)
     do_not_export_faces_vgroup : BoolProperty(name='Do Not Export Faces (By Vertex Groups)', default=False)
     non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='non_exportable_face')
+    do_not_export_faces_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
 
 _classes = (
     ValveSource_FloatMapRemap,
@@ -500,10 +499,10 @@ _classes = (
     
     common.TOOLS_PT_PANEL,
     
-    objectdata.OBJECT_PT_translate_panel,
-    objectdata.OBJECT_OT_TranslateNamesModal,
-    objectdata.OBJECT_OT_translate_names,
-    objectdata.OBJECT_OT_apply_transform,
+    objectdata.OBJECT_PT_Translate_Panel,
+    objectdata.OBJECT_OT_Translate_Object_Process,
+    objectdata.OBJECT_OT_Translate_Object,
+    objectdata.OBJECT_OT_Apply_Transform,
 
     armature.TOOLS_PT_Armature,
     armature.TOOLS_OT_ApplyCurrentPoseAsRestPose,
@@ -548,7 +547,7 @@ _classes = (
     pseudopbr.PSEUDOPBR_UL_PBRToPhongList,
     pseudopbr.PSEUDOPBR_OT_AddPBRItem,
     pseudopbr.PSEUDOPBR_OT_RemovePBRItem,
-    pseudopbr.PSEUDOPBR_OT_ProcessingModal,
+    pseudopbr.PSEUDOPBR_OT_ProcessItem,
     pseudopbr.PSEUDOPBR_OT_ConvertPBRItem,
     pseudopbr.PSEUDOPBR_OT_ConvertAllPBRItems,
     pseudopbr.PSEUDOPBR_PT_Panel,

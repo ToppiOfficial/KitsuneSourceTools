@@ -947,7 +947,7 @@ class SmdExporter(bpy.types.Operator, Logger):
         
         depsgraph = bpy.context.evaluated_depsgraph_get()
         
-        def removeFacesByMaterials(obj: bpy.types.Object, tolerance: float = 1.0, quiet: bool = False):
+        def delete_face_by_materials(obj: bpy.types.Object, quiet: bool = False):
             """Remove faces based on material flags or vertex group filtering."""
             
             me = obj.data
@@ -975,7 +975,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                             if poly.material_index != slot_index:
                                 continue
                             if all(
-                                any(g.group == vg.index and g.weight >= tolerance for g in me.vertices[v].groups)
+                                any(g.group == vg.index and g.weight >= mat.vs.do_not_export_faces_vgroup_tolerance for g in me.vertices[v].groups)
                                 for v in poly.vertices
                             ):
                                 faces_to_delete.add(poly.index)
@@ -1028,7 +1028,7 @@ class SmdExporter(bpy.types.Operator, Logger):
                         ops.mesh.flip_normals()
                     ops.object.mode_set(mode='OBJECT')
                 
-                removeFacesByMaterials(ob, quiet=quiet)
+                delete_face_by_materials(ob, quiet=quiet)
                 
                 return ob
 

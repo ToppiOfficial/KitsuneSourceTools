@@ -11,7 +11,7 @@ from bpy.props import (
     IntProperty
 )
 
-from .common import Tools_SubCategoryPanel, ModalUIProcess
+from .common import Tools_SubCategoryPanel
 
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, draw_toggleable_layout
@@ -35,7 +35,7 @@ class PSEUDOPBR_UL_PBRToPhongList(UIList):
             layout.label(text="", icon='MATERIAL')
             
 class PSEUDOPBR_OT_AddPBRItem(Operator):
-    bl_idname = "valvemodel.add_pbr_item"
+    bl_idname = "pseudopbr.add_pbr_item"
     bl_label = "Add PBR Item"
     bl_options = {'INTERNAL', 'UNDO'}
     
@@ -46,7 +46,7 @@ class PSEUDOPBR_OT_AddPBRItem(Operator):
         return {'FINISHED'}
 
 class PSEUDOPBR_OT_RemovePBRItem(Operator):
-    bl_idname = "valvemodel.remove_pbr_item"
+    bl_idname = "pseudopbr.remove_pbr_item"
     bl_label = "Remove PBR Item"
     bl_options = {'INTERNAL', 'UNDO'}
     
@@ -546,9 +546,7 @@ class PBRConversionMixin:
         
         self._ensure_item_maps(item)
         
-        export_path = bpy.path.abspath(item.export_path)
-        if not export_path.strip():
-            export_path = bpy.context.scene.vs.pbr_to_phong_export_path
+        export_path = bpy.context.scene.vs.pbr_to_phong_export_path
         
         export_dir = os.path.dirname(export_path)
         base_name = item.name
@@ -599,148 +597,76 @@ class PBRConversionMixin:
             report_func({'ERROR'}, f"Conversion error for '{item.name}': {error_msg}")
             return False, error_msg
 
-class PSEUDOPBR_OT_ProcessingModal(Operator, PBRConversionMixin):
-    bl_idname = 'valvemodel.processing_modal'
+class PSEUDOPBR_OT_ProcessItem(Operator, PBRConversionMixin):
+    bl_idname = 'pseudopbr.process_item'
     bl_label = 'Processing'
     bl_options = {'INTERNAL'}
     
     item_index: bpy.props.IntProperty(default=-1)
     process_all: bpy.props.BoolProperty(default=False)
     
-    _timer = None
-    _handle = None
-    _processing_done = False
-    _current_index = 0
-    _success_count = 0
-    _failed_items = []
-    _total_items = 0
-    _result = None
-    
-    def draw_callback(self, context):
-        region = context.region
+    def execute(self, context):
+        vs = context.scene.vs
         
-        if self.process_all:
-            main_text = f"Processing Textures {self._current_index}/{self._total_items}"
-        else:
-            main_text = "Processing Texture"
-        
-        sub_text = "Please wait, Blender may appear frozen"
-        
-        progress = 0.0
-        if self.process_all and self._total_items > 0:
-            progress = self._current_index / self._total_items
-        
-        ModalUIProcess.draw_modal_overlay(region, main_text, sub_text, progress, show_progress=self.process_all)
-    
-    def modal(self, context, event):
-        if event.type == 'TIMER':
-            if not self._processing_done:
-                vs = context.scene.vs
+        try:
+            if self.process_all:
+                total_items = len(vs.pbr_items)
+                if total_items == 0:
+                    self.report({'ERROR'}, "No items to convert")
+                    return {'CANCELLED'}
                 
-                try:
-                    if self.process_all:
-                        if self._current_index < len(vs.pbr_items):
-                            item = vs.pbr_items[self._current_index]
-                            
-                            if not item.diffuse_map:
-                                self._failed_items.append(f"{item.name} (missing diffuse map)")
-                            else:
-                                success, error_msg = self.process_item_conversion(item, self.report)
-                                
-                                if success:
-                                    self._success_count += 1
-                                else:
-                                    fail_reason = error_msg if error_msg else "unknown error"
-                                    self._failed_items.append(f"{item.name} ({fail_reason})")
-                            
-                            self._current_index += 1
-                            context.area.tag_redraw()
-                            return {'RUNNING_MODAL'}
-                        else:
-                            self._processing_done = True
+                success_count = 0
+                failed_items = []
+                
+                for i, item in enumerate(vs.pbr_items):
+                    if not item.diffuse_map:
+                        failed_items.append(f"{item.name} (missing diffuse map)")
                     else:
-                        if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
-                            item = vs.pbr_items[self.item_index]
-                        else:
-                            if vs.pbr_active_index < len(vs.pbr_items):
-                                item = vs.pbr_items[vs.pbr_active_index]
-                            else:
-                                self._result = ({'ERROR'}, "No valid item selected")
-                                self._processing_done = True
-                                return {'RUNNING_MODAL'}
-                        
-                        if not item.diffuse_map:
-                            self._result = ({'ERROR'}, f"Item '{item.name}' missing diffuse map")
-                            self._processing_done = True
-                            return {'RUNNING_MODAL'}
-                        
                         success, error_msg = self.process_item_conversion(item, self.report)
                         
                         if success:
-                            self._result = ({'INFO'}, f"Converted '{item.name}' successfully")
+                            success_count += 1
                         else:
                             fail_reason = error_msg if error_msg else "unknown error"
-                            self._result = ({'ERROR'}, f"Conversion failed for '{item.name}': {fail_reason}")
-                        
-                        self._processing_done = True
+                            failed_items.append(f"{item.name} ({fail_reason})")
                 
-                except Exception as e:
-                    self._result = ({'ERROR'}, f"Error during processing: {str(e)}")
-                    self._processing_done = True
-                    
+                if success_count > 0:
+                    self.report({'INFO'}, f"Converted {success_count}/{total_items} items")
+                
+                if failed_items:
+                    self.report({'WARNING'}, f"Failed: {', '.join(failed_items)}")
+                
             else:
-                self.cleanup(context)
-                
-                if self.process_all:
-                    if self._success_count > 0:
-                        self.report({'INFO'}, f"Converted {self._success_count}/{self._total_items} items")
-                    
-                    if self._failed_items:
-                        self.report({'WARNING'}, f"Failed: {', '.join(self._failed_items)}")
+                if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
+                    item = vs.pbr_items[self.item_index]
                 else:
-                    if self._result:
-                        self.report(self._result[0], self._result[1])
+                    if vs.pbr_active_index < len(vs.pbr_items):
+                        item = vs.pbr_items[vs.pbr_active_index]
+                    else:
+                        self.report({'ERROR'}, "No valid item selected")
+                        return {'CANCELLED'}
                 
-                return {'FINISHED'}
-        
-        context.area.tag_redraw()
-        return {'RUNNING_MODAL'}
-    
-    def execute(self, context : Context) -> set:
-        vs = context.scene.vs
-        
-        if self.process_all:
-            self._total_items = len(vs.pbr_items)
-            if self._total_items == 0:
-                self.report({'ERROR'}, "No items to convert")
-                return {'CANCELLED'}
-        
-        wm = context.window_manager
-        self._timer = wm.event_timer_add(0.1, window=context.window)
-        wm.modal_handler_add(self)
-        
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_callback, (context,), 'WINDOW', 'POST_PIXEL'
-        )
-        
-        return {'RUNNING_MODAL'}
-    
-    def cleanup(self, context):
-        if self._timer:
-            wm = context.window_manager
-            wm.event_timer_remove(self._timer)
-            self._timer = None
-        
-        if self._handle:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
-            self._handle = None
-            context.area.tag_redraw()
-    
-    def cancel(self, context):
-        self.cleanup(context)
+                if not item.diffuse_map:
+                    self.report({'ERROR'}, f"Item '{item.name}' missing diffuse map")
+                    return {'CANCELLED'}
+                
+                success, error_msg = self.process_item_conversion(item, self.report)
+                
+                if success:
+                    self.report({'INFO'}, f"Converted '{item.name}' successfully")
+                else:
+                    fail_reason = error_msg if error_msg else "unknown error"
+                    self.report({'ERROR'}, f"Conversion failed for '{item.name}': {fail_reason}")
+                    return {'CANCELLED'}
+            
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Error during processing: {str(e)}")
+            return {'CANCELLED'}
 
 class PSEUDOPBR_OT_ConvertPBRItem(Operator):
-    bl_idname = 'valvemodel.convert_pbr_item'
+    bl_idname = 'pseudopbr.convert_pbr_item'
     bl_label = 'Convert Selected Item'
     bl_options = {'INTERNAL'}
     
@@ -750,12 +676,12 @@ class PSEUDOPBR_OT_ConvertPBRItem(Operator):
     def poll(cls, context):
         return len(context.scene.vs.pbr_items) > 0
     
-    def execute(self, context) -> set:
-        bpy.ops.valvemodel.processing_modal('INVOKE_DEFAULT', item_index=self.item_index, process_all=False)
+    def execute(self, context):
+        bpy.ops.pseudopbr.process_item('EXEC_DEFAULT', item_index=self.item_index, process_all=False)
         return {'FINISHED'}
 
 class PSEUDOPBR_OT_ConvertAllPBRItems(Operator):
-    bl_idname = 'valvemodel.convert_all_pbr_items'
+    bl_idname = 'pseudopbr.convert_all_pbr_items'
     bl_label = 'Convert All Items'
     bl_options = {'INTERNAL'}
     
@@ -763,8 +689,8 @@ class PSEUDOPBR_OT_ConvertAllPBRItems(Operator):
     def poll(cls, context):
         return len(context.scene.vs.pbr_items) > 0
     
-    def execute(self, context) -> set:
-        bpy.ops.valvemodel.processing_modal('INVOKE_DEFAULT', process_all=True)
+    def execute(self, context):
+        bpy.ops.pseudopbr.process_item('EXEC_DEFAULT', process_all=True)
         return {'FINISHED'}
 
 class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
@@ -794,7 +720,6 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
             if not item.name.strip(): col.alert = True
             col.prop(item, "name")
             col.alert = False
-            col.prop(item, "export_path")
             
             self.draw_material_maps(context, box, item)
             
