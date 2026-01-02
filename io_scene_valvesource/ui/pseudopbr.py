@@ -789,6 +789,7 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
         row = col.split(align=True, factor=0.8)
         row.prop_search(item, 'ambientocclu_map', bpy.data, 'images', text='')
         row.prop(item, 'ambientocclu_map_ch', text='')
+        col.prop(item, 'ambientocclu_strength', slider=True)
         col.prop(item, 'invert_ambientocclu_map')
         
         box = layout.box()
