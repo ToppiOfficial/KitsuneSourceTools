@@ -167,42 +167,6 @@ class SmdExporter(bpy.types.Operator, Logger):
         for child in layer_col.children:
             self.enable_collection_recursively(child)
             
-    def check_duplicate_bone_export_names(self, bone_dict):
-        """
-        Check for duplicate bone export names.
-        
-        Args:
-            bone_dict: Dictionary mapping internal bone names to export names
-        
-        Returns:
-            bool: True if no duplicates found (or dict is empty), False if duplicates exist
-        """
-        if not bone_dict:
-            return True
-        
-        # Check for duplicate export names
-        bone_export_name_mapping = {}
-        for internal_bone_name, final_export_name in bone_dict.items():
-            if final_export_name not in bone_export_name_mapping:
-                bone_export_name_mapping[final_export_name] = []
-            bone_export_name_mapping[final_export_name].append(internal_bone_name)
-
-        # Find duplicates
-        duplicate_export_names = {
-            final_export_name: conflicting_bones 
-            for final_export_name, conflicting_bones in bone_export_name_mapping.items() 
-            if len(conflicting_bones) > 1
-        }
-
-        if duplicate_export_names:
-            error_msg = "Duplicate bone export names found:\n"
-            for final_export_name, conflicting_bones in duplicate_export_names.items():
-                error_msg += f"  Export name '{final_export_name}' used by: {', '.join(conflicting_bones)}\n"
-            self.error(error_msg)
-            return False
-        
-        return True
-
     def execute(self, context):
         #bpy.context.window_manager.progress_begin(0,1)
         
@@ -604,16 +568,11 @@ class SmdExporter(bpy.types.Operator, Logger):
             exporting_armature = isinstance(id, bpy.types.Object) and id.type == 'ARMATURE'
             self.exportable_bones = list([self.armature.pose.bones[edit_bone.name] for edit_bone in self.armature.data.bones if (exporting_armature or edit_bone.use_deform)])
 
-            temp_bone_export_names = {
+            self.exportable_boneNames = {
                 edit_bone.name: get_bone_exportname(edit_bone)
                 for edit_bone in self.armature.data.bones
                 if (exporting_armature or edit_bone.use_deform)
             }
-
-            if not self.check_duplicate_bone_export_names(temp_bone_export_names):
-                return
-
-            self.exportable_boneNames = temp_bone_export_names
             
             skipped_bones = len(self.armature.pose.bones) - len(self.exportable_bones)
             if skipped_bones:
@@ -1093,7 +1052,7 @@ class SmdExporter(bpy.types.Operator, Logger):
             preserve_basis_normals = id.data.vs.bake_shapekey_as_basis_normals
             valid_controllers = {fc[0]: fc[3] for fc in get_flexcontrollers(id)}
             
-            if preserve_basis_normals: print("- Preserving basis normals for shapekeys in {}".format(id.name))
+            if preserve_basis_normals: print("- Ignoring changes normals for shapekeys in {}".format(id.name))
 
             for i, shape in enumerate(id.data.shape_keys.key_blocks):
                 if i == 0: 

@@ -138,20 +138,34 @@ def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, c
     normalize_vertexgroup_weights(ob, deform_bone_names)
     
 def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str]]:
-    """Return list of (shapekey, eyelid, stereo, min, max) from object,
+    """Return list of (shapekey, eyelid, stereo, raw_delta) from object,
     only including valid shapekeys on the object, excluding the Basis."""
     
     if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
         return []
 
     valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
-
-    return [
-        (fc.shapekey, fc.eyelid, fc.stereo, fc.raw_delta_name if fc.raw_delta_name else fc.shapekey)
-        for fc in ob.vs.dme_flexcontrollers
-        if fc.shapekey in valid_keys
-    ]
     
+    used_names = {}
+    result = []
+    
+    for fc in ob.vs.dme_flexcontrollers:
+        if fc.shapekey not in valid_keys:
+            continue
+        
+        raw_delta = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+        
+        if raw_delta in used_names:
+            base_name = raw_delta
+            counter = used_names[raw_delta]
+            used_names[raw_delta] += 1
+            raw_delta = f"{base_name}.{counter:03d}"
+        else:
+            used_names[raw_delta] = 1
+        
+        result.append((fc.shapekey, fc.eyelid, fc.stereo, raw_delta))
+    
+    return result
     
 def get_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
     """

@@ -24,7 +24,7 @@ from ..core.boneutils import(
 )
 
 from ..core.armatureutils import(
-    copy_target_armature_visualpose, sort_bone_by_hierachy, get_bone_matrix
+    copy_target_armature_visualpose, sort_bone_by_hierachy, get_bone_matrix, get_relative_target_matrix
 )
 
 from ..core.objectutils import(
@@ -917,7 +917,7 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExport
         folder_node = KVNode(_class='Folder', name="constraints_CustomProportions")
 
         for bone in bones:
-            bone_name = bone.getBoneExportName(bone, for_write=True)
+            bone_name = get_bone_exportname(bone, for_write=True)
             posebone = armature.pose.bones.get(bone.name)
             original_bone_name = sanitize_string(bone.name)
             has_parent = bool(bone.parent)
@@ -948,15 +948,15 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExport
                 folder_node.add_child(con_orient)
 
             else:
-                parent_name = bone.getBoneExportName(bone.parent, for_write=True) if has_parent else None
+                parent_name = get_bone_exportname(bone.parent, for_write=True) if has_parent else None
 
                 con_point = KVNode(
                     _class="AnimConstraintPoint",
                     name=f'Point_{bone_name}'
                 )
 
-                relativepos = bone.getRelativeTargetMatrix(posebone, posebone.parent, mode='LOCATION') if has_parent else [0,0,0]
-                relativeangle = bone.getRelativeTargetMatrix(posebone, posebone.parent, mode='ROTATION', axis='YZX') if has_parent else [0,0,0]
+                relativepos = get_relative_target_matrix(posebone, posebone.parent, mode='LOCATION') if has_parent else [0,0,0]
+                relativeangle = get_relative_target_matrix(posebone, posebone.parent, mode='ROTATION', axis='YZX') if has_parent else [0,0,0]
 
                 con_point.add_child(KVNode(_class="AnimConstraintBoneInput",
                                         parent_bone=parent_name if has_parent else bone_name,

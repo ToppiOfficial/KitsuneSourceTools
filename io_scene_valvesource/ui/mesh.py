@@ -173,7 +173,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             ('COMPONENT_SIZE', "Component Size", "Use mesh island size"),
             ('BOTH', "Both Combined", "Combine shape keys and component size"),
         ],
-        default='NONE'
+        default='COMPONENT_SIZE'
     )
     
     overwrite_existing_weights: bpy.props.BoolProperty(
@@ -197,7 +197,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     weight_min: bpy.props.FloatProperty(
         name="Min Weight",
         description="Minimum weight value",
-        default=0.0,
+        default=0.3,
         min=0.0,
         max=1.0,
     )
@@ -205,7 +205,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     weight_max: bpy.props.FloatProperty(
         name="Max Weight",
         description="Maximum weight value",
-        default=1.0,
+        default=0.8,
         min=0.0,
         max=1.0,
     )
@@ -242,13 +242,13 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             ('AREA', "Surface Area", "Use total surface area of faces"),
             ('VERTICES', "Vertex Count", "Use number of vertices"),
         ],
-        default='VOLUME'
+        default='AREA'
     )
     
     edgeline_thickness: bpy.props.FloatProperty(
         name="Edgeline Thickness",
         description="Thickness of the toon edgeline (in scene units)",
-        default=0.05,
+        default=0.15,
         min=0.0,
         precision=4,
         unit='LENGTH',

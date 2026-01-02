@@ -748,29 +748,61 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
        
 class DME_UL_FlexControllers(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
+        
         ob : Object | None = context.object
         
-        split = layout.split(factor=0.6)
-        row : UILayout = split.row(align=True)
-        row.label(text=item.shapekey, icon='SHAPEKEY_DATA')
+        has_duplicate_shapekey = False
+        shapekey_count = sum(1 for fc in ob.vs.dme_flexcontrollers if fc.shapekey == item.shapekey)
+        has_duplicate_shapekey = shapekey_count > 1
+        
+        valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
+        
+        used_names = {}
+        has_duplicate_raw = False
+        actual_export_name = None
+        
+        for fc in ob.vs.dme_flexcontrollers:
+            if fc.shapekey not in valid_keys:
+                continue
+            
+            raw_delta = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+            
+            if fc == item:
+                if raw_delta in used_names:
+                    has_duplicate_raw = True
+                    base_name = raw_delta
+                    counter = used_names[raw_delta]
+                    actual_export_name = f"{base_name}.{counter:03d}"
+                else:
+                    actual_export_name = raw_delta
+            
+            if raw_delta in used_names:
+                used_names[raw_delta] += 1
+            else:
+                used_names[raw_delta] = 1
+        
+        invalid_shapekey = item.shapekey is None or item.shapekey not in ob.data.shape_keys.key_blocks
+        
+        split = layout.split(factor=0.6, align=True)
+        
+        name_row = split.row(align=True)
+        if has_duplicate_shapekey:
+            name_row.alert = True
+        name_row.label(text=item.shapekey, icon='SHAPEKEY_DATA')
+        
+        info_row = split.row(align=True)
+        info_row.alignment = 'RIGHT'
         
         if len(item.raw_delta_name.strip()) > 0 and item.shapekey in ob.data.shape_keys.key_blocks:
-            row.label(text="(" + item.raw_delta_name + ")")
-        
-        sk : bpy.types.ShapeKey | None = ob.data.shape_keys.key_blocks.get(item.shapekey)
-        if sk is not None:
-            row : UILayout = split.row(align=True)
-            row.alignment = 'RIGHT'
+            if has_duplicate_raw:
+                info_row.alert = True
+            info_row.label(text=actual_export_name if actual_export_name else item.raw_delta_name)
+            
+        if item.stereo:
+                info_row.label(text="", icon='MOD_MIRROR')
                 
-            row.label(text="{}".format(round(sk.slider_max, 3)))
-            
-            if item.stereo:
-                row.label(text="(S)")
-            
-        if item.shapekey is None or item.shapekey not in ob.data.shape_keys.key_blocks or sk is None:
-            row : UILayout = split.row(align=True)
-            row.alignment = 'RIGHT'
-            row.label(text='',icon='ERROR')
+        if item.eyelid:
+                info_row.label(text="", icon='HIDE_OFF')
                 
 class DME_OT_AddFlexController(Operator):
     bl_idname : str = "dme.add_flexcontroller"
