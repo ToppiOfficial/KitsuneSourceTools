@@ -485,6 +485,7 @@ _classes = (
     properties.DME_UL_FlexControllers,
     properties.DME_OT_AddFlexController,
     properties.DME_OT_RemoveFlexController,
+    properties.DME_OT_PreviewFlexController,
     properties.SMD_OT_AddVertexMapRemap,
     
     valvemodel.VALVEMODEL_PT_PANEL,

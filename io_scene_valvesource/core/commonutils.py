@@ -432,7 +432,7 @@ def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bp
 def get_armature_meshes(arm: bpy.types.Object | None,
                       visible_only: bool = False,
                       viewlayer_only: bool = True,
-                      strict_visibility: bool = True ) -> set[bpy.types.Object]:
+                      strict_visibility: bool = True) -> set[bpy.types.Object]:
     """
     Get meshes using the given armature.
     
@@ -444,15 +444,62 @@ def get_armature_meshes(arm: bpy.types.Object | None,
             - True: use ob.visible_get() (full scene visibility check).
             - False: use ob.hide_get() (manual object hide only).
     """
-    if arm is None: return set()
-    objects = bpy.context.view_layer.objects if viewlayer_only else bpy.data.objects
+    if arm is None: 
+        return set()
+    
+    if viewlayer_only:
+        view_layer = bpy.context.view_layer
+        valid_objects = set(view_layer.objects)
+    else:
+        valid_objects = set(bpy.data.objects)
+    
+    result = set()
+    
+    for ob in valid_objects:
+        if ob.type != 'MESH':
+            continue
+        
+        if not any(mod.type == 'ARMATURE' and mod.object == arm for mod in ob.modifiers):
+            continue
+        
+        if visible_only:
+            if viewlayer_only:
+                layer_collection = view_layer.layer_collection
+                if not is_object_visible_in_viewlayer(ob, layer_collection):
+                    continue
+            
+            if strict_visibility:
+                if not ob.visible_get():
+                    continue
+            else:
+                if ob.hide_get():
+                    continue
+        
+        result.add(ob)
+    
+    return result
 
-    return {
-        ob for ob in objects
-        if ob.type == 'MESH'
-        and (not visible_only or not (ob.visible_get() if strict_visibility else ob.hide_get()))
-        and any(mod.type == 'ARMATURE' and mod.object == arm for mod in ob.modifiers)
-    }
+
+def is_object_visible_in_viewlayer(obj: bpy.types.Object, layer_collection: bpy.types.LayerCollection) -> bool:
+    """Check if object is visible in the view layer (not excluded from collections)."""
+    
+    def find_collection_in_layer(obj_collection, layer_col):
+        if obj_collection.name == layer_col.collection.name:
+            return layer_col
+        
+        for child in layer_col.children:
+            result = find_collection_in_layer(obj_collection, child)
+            if result:
+                return result
+        return None
+    
+    for collection in obj.users_collection:
+        layer_col = find_collection_in_layer(collection, layer_collection)
+        
+        if layer_col and not layer_col.exclude and not layer_col.hide_viewport:
+            return True
+    
+    return False
     
 def get_hitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
     

@@ -926,7 +926,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         arm = get_armature(bone)
         if not arm:
             return
-        meshes = get_armature_meshes(arm, bpy.context.scene.vs.visible_mesh_only)
+        meshes = get_armature_meshes(arm, visible_only=bpy.context.scene.vs.visible_mesh_only)
         if not meshes:
             return
         

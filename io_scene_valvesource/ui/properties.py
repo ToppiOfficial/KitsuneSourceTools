@@ -517,6 +517,8 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
                 prop_col.alignment = 'RIGHT'
                 prop_col.label(text='')
                 prop_col.prop(item,'stereo',text='Is Stereo')
+                
+                box.operator(DME_OT_PreviewFlexController.bl_idname)
             
             second_col = row.column(align=True)
             second_col.operator("dme.add_flexcontroller", icon='ADD',text='')
@@ -830,6 +832,38 @@ class DME_OT_RemoveFlexController(Operator):
         context.object.vs.dme_flexcontrollers.remove(context.object.vs.dme_flexcontrollers_index)
         context.object.vs.dme_flexcontrollers_index = min(max(0, context.object.vs.dme_flexcontrollers_index - 1), 
                                                  len(context.object.vs.dme_flexcontrollers) - 1)
+        return {'FINISHED'}
+
+class DME_OT_PreviewFlexController(Operator):
+    bl_idname: str = "dme.preview_flexcontroller"
+    bl_label: str = "Preview Flex Controller"
+    bl_options: set = {'INTERNAL', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context) -> bool:
+        ob = context.object
+        return bool(ob and ob.type == 'MESH' and ob.data.shape_keys and len(ob.vs.dme_flexcontrollers) > 0)
+    
+    def execute(self, context: Context) -> set:
+        ob: Object = context.object
+        shape_keys = ob.data.shape_keys
+        current_index = ob.vs.dme_flexcontrollers_index
+        
+        if current_index >= len(ob.vs.dme_flexcontrollers):
+            return {'CANCELLED'}
+        
+        current_flex = ob.vs.dme_flexcontrollers[current_index]
+        target_shapekey_name = current_flex.shapekey
+        
+        for i, key_block in enumerate(shape_keys.key_blocks):
+            if i == 0:
+                continue
+            if key_block.name == target_shapekey_name:
+                ob.active_shape_key_index = i
+                key_block.value = 1.0
+            else:
+                key_block.value = 0.0
+        
         return {'FINISHED'}
 
 class SMD_OT_AddVertexMapRemap(Operator):
