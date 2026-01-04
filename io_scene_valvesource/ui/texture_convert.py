@@ -17,7 +17,7 @@ from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, draw_toggleable_layout
 )
 
-class PSEUDOPBR_UL_PBRToPhongList(UIList):
+class TEXTURECONVERSION_UL_ItemList(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname) -> None: 
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             row = layout.row(align=True)
@@ -34,33 +34,33 @@ class PSEUDOPBR_UL_PBRToPhongList(UIList):
             layout.alignment = 'CENTER'
             layout.label(text="", icon='MATERIAL')
             
-class PSEUDOPBR_OT_AddPBRItem(Operator):
-    bl_idname = "pseudopbr.add_pbr_item"
+class TEXTURECONVERSION_OT_AddItem(Operator):
+    bl_idname = "textureconvert.add_pbr_item"
     bl_label = "Add PBR Item"
     bl_options = {'INTERNAL', 'UNDO'}
     
     def execute(self, context : Context) -> set:
-        item = context.scene.vs.pbr_items.add()
-        item.name = f"PBR Item {len(context.scene.vs.pbr_items)}"
-        context.scene.vs.pbr_active_index = len(context.scene.vs.pbr_items) - 1
+        item = context.scene.vs.texture_conversion_items.add()
+        item.name = f"PBR Item {len(context.scene.vs.texture_conversion_items)}"
+        context.scene.vs.texture_conversion_active_index = len(context.scene.vs.texture_conversion_items) - 1
         return {'FINISHED'}
 
-class PSEUDOPBR_OT_RemovePBRItem(Operator):
-    bl_idname = "pseudopbr.remove_pbr_item"
+class TEXTURECONVERSION_OT_RemoveItem(Operator):
+    bl_idname = "textureconvert.remove_pbr_item"
     bl_label = "Remove PBR Item"
     bl_options = {'INTERNAL', 'UNDO'}
     
     @classmethod
     def poll(cls, context : Context):
-        return len(context.scene.vs.pbr_items) > 0
+        return len(context.scene.vs.texture_conversion_items) > 0
     
     def execute(self, context) -> set:
-        context.scene.vs.pbr_items.remove(context.scene.vs.pbr_active_index)
-        context.scene.vs.pbr_active_index = min(max(0, context.scene.vs.pbr_active_index - 1), 
-                                                 len(context.scene.vs.pbr_items) - 1)
+        context.scene.vs.texture_conversion_items.remove(context.scene.vs.texture_conversion_active_index)
+        context.scene.vs.texture_conversion_active_index = min(max(0, context.scene.vs.texture_conversion_active_index - 1), 
+                                                 len(context.scene.vs.texture_conversion_items) - 1)
         return {'FINISHED'}
 
-class PBRConversionMixin:
+class From_PBR_Conversion:
     @property
     def img_proc(self):
         if not hasattr(self, '_img_proc'):
@@ -546,7 +546,7 @@ class PBRConversionMixin:
         
         self._ensure_item_maps(item)
         
-        export_path = bpy.context.scene.vs.pbr_to_phong_export_path
+        export_path = bpy.context.scene.vs.texture_conversion_export_path
         
         export_dir = os.path.dirname(export_path)
         base_name = item.name
@@ -579,7 +579,7 @@ class PBRConversionMixin:
             report_func({'ERROR'}, error_msg)
             return False, error_msg
         
-        conversion_mode = bpy.context.scene.vs.pbr_conversion_mode
+        conversion_mode = bpy.context.scene.vs.texture_conversion_mode
         print(f"\nConversion mode: {conversion_mode}")
         
         try:
@@ -597,8 +597,8 @@ class PBRConversionMixin:
             report_func({'ERROR'}, f"Conversion error for '{item.name}': {error_msg}")
             return False, error_msg
 
-class PSEUDOPBR_OT_ProcessItem(Operator, PBRConversionMixin):
-    bl_idname = 'pseudopbr.process_item'
+class TEXTURECONVERSION_OT_ProcessItem(Operator, From_PBR_Conversion):
+    bl_idname = 'textureconvert.process_item'
     bl_label = 'Processing'
     bl_options = {'INTERNAL'}
     
@@ -610,7 +610,7 @@ class PSEUDOPBR_OT_ProcessItem(Operator, PBRConversionMixin):
         
         try:
             if self.process_all:
-                total_items = len(vs.pbr_items)
+                total_items = len(vs.texture_conversion_items)
                 if total_items == 0:
                     self.report({'ERROR'}, "No items to convert")
                     return {'CANCELLED'}
@@ -618,7 +618,7 @@ class PSEUDOPBR_OT_ProcessItem(Operator, PBRConversionMixin):
                 success_count = 0
                 failed_items = []
                 
-                for i, item in enumerate(vs.pbr_items):
+                for i, item in enumerate(vs.texture_conversion_items):
                     if not item.diffuse_map:
                         failed_items.append(f"{item.name} (missing diffuse map)")
                     else:
@@ -637,11 +637,11 @@ class PSEUDOPBR_OT_ProcessItem(Operator, PBRConversionMixin):
                     self.report({'WARNING'}, f"Failed: {', '.join(failed_items)}")
                 
             else:
-                if self.item_index >= 0 and self.item_index < len(vs.pbr_items):
-                    item = vs.pbr_items[self.item_index]
+                if self.item_index >= 0 and self.item_index < len(vs.texture_conversion_items):
+                    item = vs.texture_conversion_items[self.item_index]
                 else:
-                    if vs.pbr_active_index < len(vs.pbr_items):
-                        item = vs.pbr_items[vs.pbr_active_index]
+                    if vs.texture_conversion_active_index < len(vs.texture_conversion_items):
+                        item = vs.texture_conversion_items[vs.texture_conversion_active_index]
                     else:
                         self.report({'ERROR'}, "No valid item selected")
                         return {'CANCELLED'}
@@ -665,8 +665,8 @@ class PSEUDOPBR_OT_ProcessItem(Operator, PBRConversionMixin):
             self.report({'ERROR'}, f"Error during processing: {str(e)}")
             return {'CANCELLED'}
 
-class PSEUDOPBR_OT_ConvertPBRItem(Operator):
-    bl_idname = 'pseudopbr.convert_pbr_item'
+class TEXTURECONVERSION_OT_ConvertItem(Operator):
+    bl_idname = 'textureconvert.convert_pbr_item'
     bl_label = 'Convert Selected Item'
     bl_options = {'INTERNAL'}
     
@@ -674,47 +674,94 @@ class PSEUDOPBR_OT_ConvertPBRItem(Operator):
     
     @classmethod
     def poll(cls, context):
-        return len(context.scene.vs.pbr_items) > 0
+        return len(context.scene.vs.texture_conversion_items) > 0
     
     def execute(self, context):
-        bpy.ops.pseudopbr.process_item('EXEC_DEFAULT', item_index=self.item_index, process_all=False)
+        bpy.ops.textureconvert.process_item('EXEC_DEFAULT', item_index=self.item_index, process_all=False)
         return {'FINISHED'}
 
-class PSEUDOPBR_OT_ConvertAllPBRItems(Operator):
-    bl_idname = 'pseudopbr.convert_all_pbr_items'
+class TEXTURECONVERSION_OT_ConvertAllItems(Operator):
+    bl_idname = 'textureconvert.convert_all_pbr_items'
     bl_label = 'Convert All Items'
     bl_options = {'INTERNAL'}
     
     @classmethod
     def poll(cls, context):
-        return len(context.scene.vs.pbr_items) > 0
+        return len(context.scene.vs.texture_conversion_items) > 0
     
     def execute(self, context):
-        bpy.ops.pseudopbr.process_item('EXEC_DEFAULT', process_all=True)
+        bpy.ops.textureconvert.process_item('EXEC_DEFAULT', process_all=True)
         return {'FINISHED'}
 
-class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
-    bl_label = 'PseudoPBR'
+class TEXTURECONVERSION_OT_Convert_Legacy_PBR_Items(Operator):
+    bl_idname = "textureconvert.convert_legacy_pbr_items"
+    bl_label = "Convert Legacy PBR Items"
+    bl_description = "Convert legacy pbr_items to texture_conversion_items"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context) -> bool:
+        sce = context.scene
+        return bool(sce and hasattr(sce.vs, 'pbr_items'))
+    
+    def execute(self, context) -> set:
+        sce = context.scene
+        converted_count = 0
+        
+        if not hasattr(sce.vs, 'pbr_items'):
+            self.report({'WARNING'}, "No legacy texture_conversion_items found")
+            return {'CANCELLED'}
+        
+        if not hasattr(sce.vs, 'texture_conversion_items'):
+            self.report({'ERROR'}, "texture_conversion_items property not found")
+            return {'CANCELLED'}
+        
+        sce.vs.texture_conversion_items.clear()
+        
+        for old_item in sce.vs.pbr_items:
+            new_item = sce.vs.texture_conversion_items.add()
+            
+            setattr(new_item, 'name', old_item.name)
+            
+            for prop in old_item.bl_rna.properties:
+                if prop.identifier not in {'rna_type', 'name'}:
+                    try:
+                        setattr(new_item, prop.identifier, getattr(old_item, prop.identifier))
+                    except:
+                        pass
+            
+            converted_count += 1
+        
+        sce.vs.pbr_items.clear()
+        
+        self.report({'INFO'}, f"Converted {converted_count} items")
+        return {'FINISHED'}
+
+class TEXTURECONVERSION_PT_Panel(Tools_SubCategoryPanel):
+    bl_label = 'Texture Conversion'
     
     def draw(self, context : Context) -> None:
         layout = self.layout
         vs = context.scene.vs
         
-        box = draw_title_box_layout(layout, text="PBR Conversion",icon='MATERIAL')
+        box = draw_title_box_layout(layout, text="Texture Conversion",icon='TEXTURE')
         
-        box.prop(vs, "pbr_conversion_mode", text="Mode")
-        box.prop(vs, "pbr_to_phong_export_path")
+        box.prop(vs, "texture_conversion_mode", text="Mode")
+        box.prop(vs, "texture_conversion_export_path")
+        
+        if len(vs.pbr_items) > 0:
+            op = box.operator(TEXTURECONVERSION_OT_Convert_Legacy_PBR_Items.bl_idname)
         
         row = box.row()
-        row.template_list("PSEUDOPBR_UL_PBRToPhongList", "", vs, "pbr_items", 
-                         vs, "pbr_active_index", rows=3)
+        row.template_list("TEXTURECONVERSION_UL_ItemList", "", vs, "texture_conversion_items", 
+                         vs, "texture_conversion_active_index", rows=3)
         
         col = row.column(align=True)
-        col.operator(PSEUDOPBR_OT_AddPBRItem.bl_idname, icon='ADD', text="")
-        col.operator(PSEUDOPBR_OT_RemovePBRItem.bl_idname, icon='REMOVE', text="")
+        col.operator(TEXTURECONVERSION_OT_AddItem.bl_idname, icon='ADD', text="")
+        col.operator(TEXTURECONVERSION_OT_RemoveItem.bl_idname, icon='REMOVE', text="")
         
-        if len(vs.pbr_items) > 0 and vs.pbr_active_index < len(vs.pbr_items):
-            item = vs.pbr_items[vs.pbr_active_index]
+        if len(vs.texture_conversion_items) > 0 and vs.texture_conversion_active_index < len(vs.texture_conversion_items):
+            item = vs.texture_conversion_items[vs.texture_conversion_active_index]
             
             col = box.column(align=True)
             if not item.name.strip(): col.alert = True
@@ -724,9 +771,9 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
             self.draw_material_maps(context, box, item)
             
             row = box.row(align=True)
-            op = row.operator(PSEUDOPBR_OT_ConvertPBRItem.bl_idname, text="Convert This Item")
-            op.item_index = vs.pbr_active_index
-            row.operator(PSEUDOPBR_OT_ConvertAllPBRItems.bl_idname, text="Convert All")
+            op = row.operator(TEXTURECONVERSION_OT_ConvertItem.bl_idname, text="Convert This Item")
+            op.item_index = vs.texture_conversion_active_index
+            row.operator(TEXTURECONVERSION_OT_ConvertAllItems.bl_idname, text="Convert All")
             
         self.draw_help_section(context, box)
     
@@ -746,7 +793,7 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
         row.prop(item, 'alpha_map_ch', text='')
         col.prop(item, 'invert_alpha_map')
         
-        if vs.pbr_conversion_mode == 'PHONG':
+        if vs.texture_conversion_mode == 'PHONG':
             box = layout.box()
             col = box.column(align=True)
             col.label(text="Skin Map")
@@ -799,7 +846,7 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
         row.prop_search(item, 'emissive_map', bpy.data, 'images', text='')
         row.prop(item, 'emissive_map_ch', text='')
             
-        if vs.pbr_conversion_mode == 'PHONG':
+        if vs.texture_conversion_mode == 'PHONG':
             box = layout.box()
             col = box.column(align=True)
             col.label(text="Albedo Boost Settings")
@@ -808,7 +855,7 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
         
         box = layout.box()
         
-        if vs.pbr_conversion_mode == 'PHONG':
+        if vs.texture_conversion_mode == 'PHONG':
             box.prop(item, 'is_npr')
             
         box.prop(item, 'color_alpha_mode')
@@ -816,7 +863,7 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
     def draw_help_section(self, context, layout):
         vs = context.scene.vs
         
-        if vs.pbr_conversion_mode == 'PHONG':
+        if vs.texture_conversion_mode == 'PHONG':
             messages = [
                 'Use the following Phong settings for a balanced starting point:',
                 '   - $phongboost 5',
@@ -841,7 +888,7 @@ class PSEUDOPBR_PT_Panel(Tools_SubCategoryPanel):
         
         helpsection = draw_toggleable_layout(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
         if helpsection is not None:
-            if vs.pbr_conversion_mode == 'PHONG':
+            if vs.texture_conversion_mode == 'PHONG':
                 draw_wrapped_texts(helpsection,title='A good initial VMT phong setting', text=messages, boxed=False)
                 draw_wrapped_texts(helpsection,text="The conversion may or may not be accurate!", alert=True, boxed=False)
             else:

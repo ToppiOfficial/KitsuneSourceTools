@@ -40,7 +40,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
 
 from . import datamodel, import_smd, export_smd, flex, GUI
 from .core import armatureutils, boneutils, commonutils, meshutils, objectutils, networkutils
-from .ui import developer, common, humanoid_armature_map, objectdata, properties, valvemodel, animation, vertexgroup, armature, mesh, bone, pseudopbr
+from .ui import developer, common, humanoid_armature_map, objectdata, properties, texture_convert, valvemodel, animation, vertexgroup, armature, mesh, bone
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -84,8 +84,8 @@ _relativePathOptions : Set = {'PATH_SUPPORTS_BLEND_RELATIVE'} if bpy.app.version
 class ValveSource_PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options=_relativePathOptions)
 
-class PseudoPBRItem(PropertyGroup):
-    name: StringProperty(name="Item Name", default="PBR Item")
+class TextureConversionItem(PropertyGroup):
+    name: StringProperty(name="Name", default="TexturesItem")
     enforce_white_b_ch_normal : BoolProperty(name='Force White on Blue Channel')
     
     diffuse_map: StringProperty(name='Color Map')
@@ -158,7 +158,7 @@ class ValveSource_SceneProps(PropertyGroup):
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
     
     weightlink_threshold : FloatProperty(name=get_id("weightlinkcull"),description=get_id("weightlinkcull_tip"),max=0.001,min=0.0001, default=0.0001,precision=4)
-    vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=4,max=32, soft_max=8,min=1)
+    vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=3,max=32, soft_max=8,min=1)
 
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
 
@@ -186,18 +186,19 @@ class ValveSource_SceneProps(PropertyGroup):
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
     
     smd_prefabs : CollectionProperty(type=ValveSource_PrefabItem)
-    smd_prefabs_index : IntProperty(default=-1)
+    smd_prefabs_index : IntProperty(default=-1,get=lambda self: -1,set=lambda self, context: None)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     
-    pbr_items : CollectionProperty(type=PseudoPBRItem)
-    pbr_active_index : IntProperty(default=0)
-    pbr_to_phong_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
+    pbr_items : CollectionProperty(type=TextureConversionItem) # deprecated
+    texture_conversion_items : CollectionProperty(type=TextureConversionItem)
+    texture_conversion_active_index : IntProperty(default=0)
+    texture_conversion_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options=_relativePathOptions)
     
-    pbr_conversion_mode: EnumProperty(
+    texture_conversion_mode: EnumProperty(
         name="Conversion Mode",
         items=[
-            ('PHONG', "PBR to Phong", "Convert PBR to Source Engine Phong"),
-            ('PBR', "PBR to SourcePBR", "Convert to simple PBR format (_color, _mrao, _normal)")
+            ('PHONG', "to Phong", "Convert PBR to Source Engine Phong (PseudoPBR)"),
+            ('PBR', "to SourcePBR", "Convert to simple PBR format (_color, _mrao, _normal)")
         ],default='PHONG')
     
     for entry in toggle_show_ops:
@@ -444,7 +445,7 @@ _classes = (
     FlexControllerItem,
     HumanoidArmatureMap,
     ValveSource_PrefabItem,
-    PseudoPBRItem,
+    TextureConversionItem,
 
     ValveSource_Exportable,
     ValveSource_SceneProps,
@@ -466,11 +467,6 @@ _classes = (
     GUI.SMD_OT_ShowExportCollection,
     GUI.SMD_OT_ShowVertexAnimation,
     GUI.SMD_UL_GroupItems,
-    GUI.SMD_UL_VertexAnimationItem,
-    GUI.SMD_OT_AddVertexAnimation,
-    GUI.SMD_OT_RemoveVertexAnimation,
-    GUI.SMD_OT_PreviewVertexAnimation,
-    GUI.SMD_OT_GenerateVertexAnimationQCSnippet,
     GUI.SMD_OT_LaunchHLMV,
     GUI.SMD_PT_Object_Config,
     GUI.SMD_PT_Scene_QC_Complie,
@@ -485,9 +481,15 @@ _classes = (
     properties.DME_UL_FlexControllers,
     properties.DME_OT_AddFlexController,
     properties.DME_OT_RemoveFlexController,
+    properties.DME_OT_ClearFlexControllers,
     properties.DME_OT_PreviewFlexController,
     properties.SMD_OT_AddVertexMapRemap,
-    
+    properties.SMD_UL_VertexAnimationItem,
+    properties.SMD_OT_AddVertexAnimation,
+    properties.SMD_OT_RemoveVertexAnimation,
+    properties.SMD_OT_PreviewVertexAnimation,
+    properties.SMD_OT_GenerateVertexAnimationQCSnippet,
+
     valvemodel.VALVEMODEL_PT_PANEL,
     valvemodel.VALVEMODEL_OT_FixAttachment,
     valvemodel.VALVEMODEL_OT_ExportJiggleBone,
@@ -545,13 +547,14 @@ _classes = (
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadConfig,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
     
-    pseudopbr.PSEUDOPBR_UL_PBRToPhongList,
-    pseudopbr.PSEUDOPBR_OT_AddPBRItem,
-    pseudopbr.PSEUDOPBR_OT_RemovePBRItem,
-    pseudopbr.PSEUDOPBR_OT_ProcessItem,
-    pseudopbr.PSEUDOPBR_OT_ConvertPBRItem,
-    pseudopbr.PSEUDOPBR_OT_ConvertAllPBRItems,
-    pseudopbr.PSEUDOPBR_PT_Panel,
+    texture_convert.TEXTURECONVERSION_UL_ItemList,
+    texture_convert.TEXTURECONVERSION_OT_AddItem,
+    texture_convert.TEXTURECONVERSION_OT_RemoveItem,
+    texture_convert.TEXTURECONVERSION_OT_ProcessItem,
+    texture_convert.TEXTURECONVERSION_OT_ConvertItem,
+    texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
+    texture_convert.TEXTURECONVERSION_OT_Convert_Legacy_PBR_Items,
+    texture_convert.TEXTURECONVERSION_PT_Panel,
     
     developer.DEVELOPER_PT_PANEL,
     developer.DEVELOPER_OT_ImportLegacyData,

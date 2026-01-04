@@ -1,5 +1,4 @@
 import bpy
-from bpy.props import IntProperty
 from typing import Any
 
 from bpy.types import (
@@ -21,13 +20,14 @@ from ..core.commonutils import (
     is_armature, is_mesh, is_empty, is_curve, get_unparented_attachments,
     get_unparented_hitboxes, get_bugged_hitboxes, get_bugged_attachments,
     get_all_materials, has_materials, draw_wrapped_texts, draw_toggleable_layout,
-    draw_title_box_layout, draw_listing_layout, get_rotated_hitboxes, is_valid_string
+    draw_title_box_layout, draw_listing_layout, get_rotated_hitboxes, is_valid_string,
+    get_valid_vertexanimation_object, is_mesh_compatible
 )
 
 from ..utils import (
     get_id, vertex_maps, vertex_float_maps, hasShapes, countShapes,
     State, ExportFormat, MakeObjectIcon, hasFlexControllerSource,
-    hasCurves
+    hasCurves, getFileExt
 )
 
 from ..flex import (
@@ -404,7 +404,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         l : UILayout = layout
         ob : Object | None = context.object
         
-        if is_mesh(ob): pass
+        if is_mesh_compatible(ob): pass
         else:
             draw_wrapped_texts(l,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
@@ -413,6 +413,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
             ('show_flex', 'Show Shapekey Conifg', 'SHAPEKEY_DATA', self._draw_shapekey_config),
             ('show_vertexmap', 'Show VertexMap Conifg', 'GROUP_VERTEX', self._draw_vertexmap_config),
             ('show_floatmaps', 'Show FloatMaps Conifg', 'MOD_CLOTH', self._draw_floatmaps_config),
+            ('show_vertexanimation', 'Show Vertex Animation', 'ANIM_DATA', self._draw_vertex_animations),
         ]
         
         col = l.column()
@@ -431,7 +432,7 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         ob = context.object
         
         if not hasShapes(ob):
-            draw_wrapped_texts(bx,'Mesh has no Shapekeys!',alert=True,icon='ERROR')
+            draw_wrapped_texts(bx,get_id("panel_select_mesh_sk"),alert=True,icon='ERROR')
             return
         
         num_shapes, num_correctives = countShapes(ob)
@@ -518,11 +519,24 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
                 prop_col.label(text='')
                 prop_col.prop(item,'stereo',text='Is Stereo')
                 
-                box.operator(DME_OT_PreviewFlexController.bl_idname)
+                box_row = box.row(align=True)
+                
+                preview_op = box_row.operator(DME_OT_PreviewFlexController.bl_idname, text="Preview (Reset)", icon='HIDE_OFF')
+                preview_op.reset_others = True
+
+                preview_op = box_row.operator(DME_OT_PreviewFlexController.bl_idname, text="Preview (Additive)", icon='ADD')
+                preview_op.reset_others = False
+                
+                box_row.operator("object.shape_key_clear", icon='X', text="")
             
             second_col = row.column(align=True)
-            second_col.operator("dme.add_flexcontroller", icon='ADD',text='')
-            second_col.operator("dme.remove_flexcontroller", icon='REMOVE',text='')   
+            second_col.operator(DME_OT_AddFlexController.bl_idname, icon='ADD',text='')
+            second_col.operator(DME_OT_RemoveFlexController.bl_idname, icon='REMOVE',text='')   
+            
+            second_col.separator()
+            
+            second_col.alert = True
+            second_col.operator(DME_OT_ClearFlexControllers.bl_idname, icon='TRASH',text='')   
             
             insertStereoSplitUi(col)
             
@@ -582,6 +596,23 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
 
             if not found:
                 r.operator("smd.add_vertex_map_remap").map_name = map_name
+    
+    def _draw_vertex_animations(self, context : Context, layout : UILayout):
+        
+        ob = get_valid_vertexanimation_object(context.object)
+        if ob is None: return
+        
+        draw_wrapped_texts(layout, text="Target Object: {}".format(ob.name), icon='MESH_DATA' if is_mesh_compatible(ob) else "OUTLINER_COLLECTION")
+        
+        row = layout.row(align=True)
+        add_op = row.operator(SMD_OT_AddVertexAnimation.bl_idname, icon="ADD", text="Add")
+        
+        remove_op = row.operator(SMD_OT_RemoveVertexAnimation.bl_idname, icon="REMOVE", text="Remove")
+        remove_op.vertexindex = ob.vs.active_vertex_animation
+        
+        if ob.vs.vertex_animations:
+            layout.template_list("SMD_UL_VertexAnimationItem", "", ob.vs, "vertex_animations", ob.vs, "active_vertex_animation", rows=2, maxrows=4)
+            layout.operator(SMD_OT_GenerateVertexAnimationQCSnippet.bl_idname, icon='FILE_TEXT')
     
     def draw_boneproperties(self, context : Context, layout : UILayout) -> None:
         l : UILayout = layout
@@ -839,6 +870,12 @@ class DME_OT_PreviewFlexController(Operator):
     bl_label: str = "Preview Flex Controller"
     bl_options: set = {'INTERNAL', 'UNDO'}
     
+    reset_others: bpy.props.BoolProperty(
+        name="Reset Others",
+        description="Reset all other shape keys to 0",
+        default=True
+    )
+    
     @classmethod
     def poll(cls, context) -> bool:
         ob = context.object
@@ -861,9 +898,26 @@ class DME_OT_PreviewFlexController(Operator):
             if key_block.name == target_shapekey_name:
                 ob.active_shape_key_index = i
                 key_block.value = 1.0
-            else:
+            elif self.reset_others:
                 key_block.value = 0.0
         
+        return {'FINISHED'}
+
+class DME_OT_ClearFlexControllers(Operator):
+    bl_idname: str = "dme.clear_flexcontrollers"
+    bl_label: str = "Clear All Flex Controllers"
+    bl_options: set = {'INTERNAL', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(len(context.object.vs.dme_flexcontrollers) > 0)
+    
+    def invoke(self, context: Context, event) -> set:
+        return context.window_manager.invoke_confirm(self, event)
+    
+    def execute(self, context: Context) -> set:
+        context.object.vs.dme_flexcontrollers.clear()
+        context.object.vs.dme_flexcontrollers_index = 0
         return {'FINISHED'}
 
 class SMD_OT_AddVertexMapRemap(Operator):
@@ -879,4 +933,118 @@ class SMD_OT_AddVertexMapRemap(Operator):
             group.group = self.map_name
             group.min = 0.0
             group.max = 1.0
+        return {'FINISHED'}
+
+class SMD_UL_VertexAnimationItem(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        r = layout.row()
+        r.alignment='LEFT'
+        r.prop(item,"name",text="",emboss=False)
+        r = layout.row(align=True)
+        r.alignment='RIGHT'
+        r.operator(SMD_OT_PreviewVertexAnimation.bl_idname,text="",icon='PAUSE' if context.screen.is_animation_playing else 'PLAY')
+        r.prop(item,"start",text="")
+        r.prop(item,"end",text="")
+        r.prop(item,"export_sequence",text="",icon='ACTION')
+
+class SMD_OT_AddVertexAnimation(bpy.types.Operator):
+    bl_idname = "smd.vertexanim_add"
+    bl_label = get_id("vca_add")
+    bl_description = get_id("vca_add_tip")
+    bl_options = {'INTERNAL', 'UNDO'}
+    
+    index: bpy.props.IntProperty()
+    
+    def execute(self,context : Context) -> set:
+        item = get_valid_vertexanimation_object(context.object)
+        item.vs.vertex_animations.add()
+        item.vs.active_vertex_animation = len(item.vs.vertex_animations) - 1
+        return {'FINISHED'}
+
+class SMD_OT_RemoveVertexAnimation(bpy.types.Operator):
+    bl_idname = "smd.vertexanim_remove"
+    bl_label = get_id("vca_remove")
+    bl_description = get_id("vca_remove_tip")
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    index : bpy.props.IntProperty(min=0)
+    vertexindex : bpy.props.IntProperty(min=0)
+
+    def execute(self, context) -> set:
+        item = get_valid_vertexanimation_object(context.object)
+        if len(item.vs.vertex_animations) > self.vertexindex:
+            item.vs.vertex_animations.remove(self.vertexindex)
+            item.vs.active_vertex_animation = max(
+                0, min(self.vertexindex, len(item.vs.vertex_animations) - 1)
+            )
+        return {'FINISHED'}
+        
+class SMD_OT_PreviewVertexAnimation(bpy.types.Operator):
+    bl_idname = "smd.vertexanim_preview"
+    bl_label = get_id("vca_preview")
+    bl_description = get_id("vca_preview_tip")
+    bl_options = {'INTERNAL'}
+
+    index: bpy.props.IntProperty(min=0)
+    vertexindex: bpy.props.IntProperty(min=0)
+
+    def execute(self, context) -> set:
+        scene = context.scene
+
+        item = get_valid_vertexanimation_object(context.object)
+        if self.vertexindex >= len(item.vs.vertex_animations):
+            self.report({'ERROR'}, "Invalid vertex animation index")
+            return {'CANCELLED'}
+
+        anim = item.vs.vertex_animations[self.vertexindex]
+
+        scene.use_preview_range = True
+        scene.frame_preview_start = anim.start
+        scene.frame_preview_end = anim.end
+
+        if not context.screen.is_animation_playing:
+            scene.frame_set(anim.start)
+        bpy.ops.screen.animation_play()
+
+        return {'FINISHED'}
+
+class SMD_OT_GenerateVertexAnimationQCSnippet(bpy.types.Operator):
+    bl_idname = "smd.vertexanim_generate_qc"
+    bl_label = get_id("vca_qcgen")
+    bl_description = get_id("vca_qcgen_tip")
+    bl_options = {'INTERNAL'}
+
+    index: bpy.props.IntProperty(min=0)
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return len(context.scene.vs.export_list) > 0
+
+    def execute(self, context) -> set:
+        scene = context.scene
+
+        item = get_valid_vertexanimation_object(context.object)
+        fps = scene.render.fps / scene.render.fps_base
+        wm = context.window_manager
+
+        wm.clipboard = '$model "merge_me" {0}{1}'.format(item.name, getFileExt())
+        if scene.vs.export_format == 'SMD':
+            wm.clipboard += ' {{\n{0}\n}}\n'.format(
+                "\n".join([f"\tvcafile {vca.name}.vta" for vca in item.vs.vertex_animations])
+            )
+        else:
+            wm.clipboard += '\n'
+
+        wm.clipboard += "\n// vertex animation block begins\n$upaxis Y\n"
+        wm.clipboard += "\n".join([
+            f'''
+$boneflexdriver "vcabone_{vca.name}" tx "{vca.name}" 0 1
+$boneflexdriver "vcabone_{vca.name}" ty "multi_{vca.name}" 0 1
+$sequence "{vca.name}" "vcaanim_{vca.name}{getFileExt()}" fps {fps}
+'''.strip()
+            for vca in item.vs.vertex_animations if vca.export_sequence
+        ])
+        wm.clipboard += "\n// vertex animation block ends\n"
+
+        self.report({'INFO'}, "QC segment copied to clipboard.")
         return {'FINISHED'}

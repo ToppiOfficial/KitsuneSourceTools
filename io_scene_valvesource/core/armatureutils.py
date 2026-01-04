@@ -7,7 +7,7 @@ from .objectutils import (
     )
 
 from .commonutils import (
-    get_armature_meshes, unselect_all, hide_objects, preserve_context_mode, unhide_all_objects
+    get_armature_meshes, unselect_all, hide_objects, preserve_context_mode, unhide_all_objects, is_armature
     )
 
 from contextlib import contextmanager
@@ -19,7 +19,7 @@ filter_exclude_vertexgroup_names = [ "Hips", 'Lower Spine', 'Spine', 'Lower Ches
                          'Left eye', 'Right eye']
 
 @contextmanager
-def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True):
+def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, restore_action=True):
     """
     Temporarily reset one or multiple armatures, then restore them on exit.
 
@@ -37,7 +37,6 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True):
     states = {}
     armature_names = []
 
-    # Save state
     for armature in armatures:
         if armature.type != 'ARMATURE':
             raise TypeError(f"{armature.name} is not an armature")
@@ -111,7 +110,7 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True):
             if "pose_mirror_x" in state and hasattr(armature.pose, "use_mirror_x"):
                 armature.pose.use_mirror_x = state["pose_mirror_x"]
 
-            if state.get("action"):
+            if restore_action and state.get("action"):
                 if armature.animation_data is None:
                     armature.animation_data_create()
                 armature.animation_data.action = state["action"]
@@ -233,61 +232,29 @@ def copy_target_armature_visualpose(base_armature: bpy.types.Object,
                        target_armature: bpy.types.Object,
                        copy_type='ANGLES') -> bool:
     
-    if not base_armature or not target_armature:
+    if not is_armature(base_armature) or not is_armature(target_armature):
         return False
     
     base_bones = {get_bone_exportname(b, for_write=True): b for b in base_armature.data.bones}
     base_bones.update({b.name: b for b in base_armature.data.bones})
     target_bones = list(target_armature.data.bones)
 
-    original_bone_states = {b: b.hide for b in base_armature.data.bones}
-    original_bone_states.update({b: b.hide for b in target_armature.data.bones})
+    with preserve_context_mode(base_armature, "POSE"):
+        with preserve_armature_state(base_armature, target_armature, reset_pose=False, restore_action=False):
+            bpy.ops.pose.select_all(action='DESELECT')
+            
+            copy_op = bpy.ops.pose.copy_pose_vis_loc if copy_type == 'ORIGIN' else bpy.ops.pose.copy_pose_vis_rot
 
-    original_collection_states = {
-        col: (col.is_solo, col.is_visible)
-        for col in base_armature.data.collections
-    }
-    original_collection_states.update({
-        col: (col.is_solo, col.is_visible)
-        for col in target_armature.data.collections
-    })
+            for b in target_bones:
+                export_name = get_bone_exportname(b, for_write=True)
+                target_bone = base_bones.get(export_name) or base_bones.get(b.name)
+                if not target_bone:
+                    continue
 
-    bpy.ops.object.mode_set(mode='OBJECT')
-    bpy.ops.object.select_all(action='DESELECT')
-    base_armature.select_set(True)
-    target_armature.select_set(True)
-    bpy.context.view_layer.objects.active = base_armature
-
-    try:
-        for b in original_bone_states:
-            b.hide = False
-        for col in original_collection_states:
-            col.is_solo = False
-            col.is_visible = True
-
-        bpy.ops.object.mode_set(mode='POSE')
-        bpy.ops.pose.select_all(action='DESELECT')
-
-        copy_op = bpy.ops.pose.copy_pose_vis_loc if copy_type == 'ORIGIN' else bpy.ops.pose.copy_pose_vis_rot
-
-        for b in target_bones:
-            export_name = get_bone_exportname(b, for_write=True)
-            target_bone = base_bones.get(export_name) or base_bones.get(b.name)
-            if not target_bone:
-                continue
-
-            base_armature.data.bones.active = target_bone
-            b.select = target_bone.select = True
-            copy_op()
-            b.select = target_bone.select = False
-
-    finally:
-        for b, h in original_bone_states.items():
-            b.hide = h
-        for c, (solo_state, visible_state) in original_collection_states.items():
-            c.is_solo = solo_state
-            c.is_visible = visible_state
-        bpy.ops.object.mode_set(mode='OBJECT')
+                base_armature.data.bones.active = target_bone
+                b.select = target_bone.select = True
+                copy_op()
+                b.select = target_bone.select = False
 
     return True
 
@@ -534,15 +501,12 @@ def remove_bone(
     bone: typing.Union[str, typing.Iterable[str]],
     source: str | None = None,
     match_parent_to_head: bool = False,
-    match_parent_to_head_tolerance: float = 3e-5
-):
-    if arm is None or arm.type != 'ARMATURE':
+    match_parent_to_head_tolerance: float = 3e-5):
+    
+    if not is_armature(arm):
         return
 
-    original_symmetry = arm.data.use_mirror_x
-    arm.data.use_mirror_x = False
-
-    try:
+    with preserve_armature_state(arm,reset_pose=False):
         bones_to_remove = {bone} if isinstance(bone, str) else set(bone)
         
         if isinstance(bone, str):
@@ -550,8 +514,6 @@ def remove_bone(
         elif isinstance(bone, typing.Iterable):
             for entry in bone:
                 _remove_single_bone(arm, entry, source, match_parent_to_head, match_parent_to_head_tolerance, bones_to_remove)
-    finally:
-        arm.data.use_mirror_x = original_symmetry
 
 def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance, bones_to_remove):
     edit_bone = arm.data.edit_bones.get(bone_name)
@@ -611,30 +573,31 @@ def centralize_bone_pairs(arm: bpy.types.Object, pairs: list, min_length: float 
     - Centers source bone's head and tail between itself and the target's head/tail.
     - Ensures the resulting bone has at least `min_length`, otherwise skips adjustment.
     """
-    if not arm or arm.type != 'ARMATURE':
+    if not is_armature(arm):
         return
 
     with preserve_context_mode(arm, "EDIT") as edit_bones:
-        for src_name, tgt_name in pairs:
-            if src_name not in edit_bones or tgt_name not in edit_bones:
-                continue
+        with preserve_armature_state(arm,reset_pose=False):
+            for src_name, tgt_name in pairs:
+                if src_name not in edit_bones or tgt_name not in edit_bones:
+                    continue
 
-            src_bone = edit_bones[src_name] # type: ignore
-            tgt_bone = edit_bones[tgt_name] # type: ignore
+                src_bone = edit_bones[src_name] # type: ignore
+                tgt_bone = edit_bones[tgt_name] # type: ignore
 
-            mid_head = (src_bone.head + tgt_bone.head) * 0.5
-            mid_tail = (src_bone.tail + tgt_bone.tail) * 0.5
+                mid_head = (src_bone.head + tgt_bone.head) * 0.5
+                mid_tail = (src_bone.tail + tgt_bone.tail) * 0.5
 
-            if (mid_tail - mid_head).length < min_length:
-                direction = (
-                    (src_bone.tail - src_bone.head).normalized()
-                    if (src_bone.tail - src_bone.head).length > 0
-                    else mathutils.Vector((0, 0, 1))
-                )
-                mid_tail = mid_head + direction * min_length
+                if (mid_tail - mid_head).length < min_length:
+                    direction = (
+                        (src_bone.tail - src_bone.head).normalized()
+                        if (src_bone.tail - src_bone.head).length > 0
+                        else mathutils.Vector((0, 0, 1))
+                    )
+                    mid_tail = mid_head + direction * min_length
 
-            src_bone.head = mid_head
-            src_bone.tail = mid_tail
+                src_bone.head = mid_head
+                src_bone.tail = mid_tail
 
 def assign_bone_headtip_positions(arm, bone_data: list[tuple]):
     """

@@ -30,45 +30,13 @@ class OBJECT_PT_Translate_Panel(Tools_SubCategoryPanel):
             return
         
         transformbox = draw_title_box_layout(bx,text=f'Transform (Active: {context.active_object.name})',icon='TRANSFORM_ORIGINS',align=True)
-        
-        transformbox.separator()
-        
-        text = [
-            "Key Differences:\n",
-            "- Automatically applies transforms to child objects\n",
-            "- Filter which child types to include/exclude\n",
-            "- Fixes bone-parented empties on armatures (prevents position errors when scale is applied)\n\n",
-            
-            "Use this when you need to apply transforms to complex hierarchies, ",
-            "especially armatures with bone-parented empties that would otherwise get misplaced.\n\n",
-            
-            "Note: This only applies object transforms. For armature pose application, use 'Apply Current Pose as Rest Pose' instead."
-        ]
-        
-        text2 = [
-            "Will only work on the current active object, multi apply is not applicable\n\n"
-            "Ideally should only be used for complex object hierarchies! Will work poorly for simple apply, just use blender's instead"
-        ]
-        
-        transform_helpsection = draw_toggleable_layout(transformbox,context.scene.vs,'show_applytransform_help',show_text='Show Help',icon='HELP')
-        
-        if transform_helpsection is not None:
-            draw_wrapped_texts(transform_helpsection, " ".join(text), alert=False, boxed=False)
-            draw_wrapped_texts(transform_helpsection, " ".join(text2), alert=True, boxed=False)
-        
-        transformbox.separator()
-        
         transformbox.operator(OBJECT_OT_Apply_Transform.bl_idname)
             
         translatebox = draw_title_box_layout(bx,text=f'Translate (Active: {context.active_object.name})',icon='NETWORK_DRIVE',align=True)
         
         text = [
             "Requires Internet Connection\n",
-            "Translator: Google Translate\n\n",
-            "Blender will freeze for 30-90 seconds during translation.\n",
-            "This is a one-time process per model.\n\n",
-            "If some names don't translate, wait 1 hour and try again\n",
-            "(Google rate limit cooldown)."
+            "Translator: Google Translate",
         ]
         
         draw_wrapped_texts(translatebox," ".join(text),alert=True, boxed=False)
@@ -372,19 +340,6 @@ class OBJECT_OT_Apply_Transform(Operator):
         default=True
     )
     
-    excluded_types: EnumProperty(
-        name="Exclude Types",
-        description="Object types to exclude from transform application",
-        items=[
-            ('EMPTY', "Empty", "Exclude empty objects"),
-            ('CURVE', "Curve", "Exclude curve objects"),
-            ('LIGHT', "Light", "Exclude light objects"),
-            ('CAMERA', "Camera", "Exclude camera objects"),
-        ],
-        options={'ENUM_FLAG'},
-        default={'EMPTY', 'CURVE'}
-    )
-    
     fix_bone_empties: BoolProperty(
         name="Fix Bone-Parented Empties",
         description="Automatically fix bone-parented empties after applying transforms to armatures",
@@ -409,10 +364,6 @@ class OBJECT_OT_Apply_Transform(Operator):
         col.prop(self, "rotation")
         col.prop(self, "scale")
         
-        if self.include_children:
-            col.label(text="Excluded Types:")
-            col.prop(self, "excluded_types")
-        
         col = layout.column(align=True)
         col.label(text="Options:")
         col.prop(self, "include_children")
@@ -428,8 +379,6 @@ class OBJECT_OT_Apply_Transform(Operator):
             self.report({'ERROR'}, "No active object")
             return {'CANCELLED'}
         
-        excluded_types = set(self.excluded_types)
-        
         try:
             count, fixed_count = apply_object_transforms(
                 obj=obj,
@@ -437,8 +386,7 @@ class OBJECT_OT_Apply_Transform(Operator):
                 rotation=self.rotation,
                 scale=self.scale,
                 include_children=self.include_children,
-                excluded_types=excluded_types,
-                fix_bone_empties=self.fix_bone_empties
+                fix_bone_parented=self.fix_bone_empties
             )
             
             if fixed_count > 0:

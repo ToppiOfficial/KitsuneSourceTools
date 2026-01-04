@@ -25,7 +25,6 @@ from mathutils import Matrix, Vector
 from math import radians, pi, ceil
 from io import TextIOWrapper
 from . import datamodel
-from .core.meshutils import get_flexcontrollers
 
 intsize = struct.calcsize("i")
 floatsize = struct.calcsize("f")
@@ -94,10 +93,9 @@ toggle_show_ops = [
     "show_clothnodes",
     "show_objectwarnings",
     ['show_smdobject', 'show_smdmesh', 'show_smdcurve', 'show_smdbone', 'show_smdmaterials', 'show_smdempty'],
-    ['show_flex','show_vertexmap','show_floatmaps'],
+    ['show_flex','show_vertexmap','show_floatmaps', 'show_vertexanimation'],
     'show_smdarmature',
     ['show_smdattachments', 'show_smdjigglebone', 'show_smdanimation', 'show_smdhitbox'],
-    'show_applytransform_help',
     'show_valvemodel_operators'
 ]
 
@@ -619,6 +617,8 @@ def hasShapes(id, valid_only = True):
         return _test(id)
 
 def countShapes(*objects):
+    from .core.meshutils import get_flexcontrollers
+    
     num_shapes = 0
     num_correctives = 0
     flattened_objects = []

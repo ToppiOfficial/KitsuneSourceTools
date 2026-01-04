@@ -222,6 +222,10 @@ def is_empty(ob : bpy.types.Object | None) -> bool:
 def is_curve(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'CURVE'
 
+def is_mesh_compatible(ob : bpy.types.Object | None) -> bool:
+    from ..utils import mesh_compatible
+    return bool(ob and hasattr(ob,'type') and ob.type in mesh_compatible)
+
 def has_materials(ob : bpy.types.Object | None) -> bool:
     return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
 
@@ -479,7 +483,6 @@ def get_armature_meshes(arm: bpy.types.Object | None,
     
     return result
 
-
 def is_object_visible_in_viewlayer(obj: bpy.types.Object, layer_collection: bpy.types.LayerCollection) -> bool:
     """Check if object is visible in the view layer (not excluded from collections)."""
     
@@ -717,6 +720,23 @@ def get_rotated_hitboxes():
             rotated.append(obj.name)
     
     return rotated
+
+def get_collection_parent(ob, scene) -> bpy.types.Collection | None:
+    for collection in scene.collection.children_recursive:
+        if ob.name in collection.objects:
+            return collection
+    
+    if ob.name in scene.collection.objects:
+        return None
+    
+    return None
+
+def get_valid_vertexanimation_object(ob : bpy.types.Object | None, use_rigid_world : bool = False) -> bpy.types.Object | bpy.types.Collection | None:
+    if not is_mesh_compatible(ob): return None
+    
+    collection = get_collection_parent(ob, bpy.context.scene)
+    if collection is None or collection.vs.mute: return ob
+    else: return collection
 
 # LAYOUT UTILITIES
 

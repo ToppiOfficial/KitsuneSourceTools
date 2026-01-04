@@ -263,33 +263,37 @@ def apply_object_transforms(
     rotation: bool = True,
     scale: bool = True,
     include_children: bool = True,
-    excluded_types: set | None = None,
-    fix_bone_empties: bool = True
+    fix_bone_parented: bool = True,
 ) -> tuple[int, int]:
     """
     Apply transforms to an object and optionally its children.
-    Returns count of objects transformed and count of fixed empties.
+    Automatically excludes bone-parented objects (except ARMATURE/MESH) when fix_bone_parented=True.
+    Returns count of objects transformed and count of fixed bone-parented objects.
     """
-    if excluded_types is None:
-        excluded_types = set()
-    
-    empty_snapshot = {}
-    
-    if obj.type == 'ARMATURE' and fix_bone_empties:
-        for child in obj.children:
-            if child.type == 'EMPTY' and child.parent_type == 'BONE':
-                empty_snapshot[child.name] = {
-                    'location': child.matrix_world.to_translation().copy(),
-                    'rotation_matrix': child.matrix_world.to_3x3().copy(),
-                    'scale': child.matrix_world.to_scale().copy()
-                }
-    
     objects_to_transform = {obj}
     
     if include_children:
         for child in obj.children:
-            if child.type not in excluded_types:
-                objects_to_transform.add(child)
+            objects_to_transform.add(child)
+    
+    bone_parented_snapshot = {}
+    affected_armatures = set()
+    
+    if fix_bone_parented:
+        for ob in list(objects_to_transform):
+            if ob.type not in {'ARMATURE', 'MESH'} and ob.parent_type == 'BONE':
+                objects_to_transform.discard(ob)
+        
+        for ob in objects_to_transform:
+            if ob.type == 'ARMATURE':
+                affected_armatures.add(ob)
+                for child in ob.children:
+                    if child.type not in {'ARMATURE', 'MESH'} and child.parent_type == 'BONE':
+                        bone_parented_snapshot[child.name] = {
+                            'location': child.matrix_world.to_translation().copy(),
+                            'rotation_matrix': child.matrix_world.to_3x3().copy(),
+                            'scale': child.matrix_world.to_scale().copy()
+                        }
     
     selected_objects = bpy.context.selected_objects
     active_object = bpy.context.view_layer.objects.active
@@ -312,11 +316,12 @@ def apply_object_transforms(
     bpy.context.view_layer.objects.active = active_object
     
     fixed_count = 0
-    if obj.type == 'ARMATURE' and fix_bone_empties and empty_snapshot:
-        fixed_count = reevaluate_bone_parented_empty_matrix(
-            armature=obj,
-            preserve_rotation=True,
-            pre_transform_snapshot=empty_snapshot
-        )
+    if fix_bone_parented and bone_parented_snapshot:
+        for armature in affected_armatures:
+            fixed_count += reevaluate_bone_parented_empty_matrix(
+                armature=armature,
+                preserve_rotation=True,
+                pre_transform_snapshot=bone_parented_snapshot
+            )
     
     return len(objects_to_transform), fixed_count

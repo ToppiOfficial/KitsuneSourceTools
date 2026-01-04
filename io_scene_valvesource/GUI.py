@@ -190,11 +190,8 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         if is_collection:
             if enabled:
                 self._draw_collection_content(col, obj, row)
-                self._draw_mesh_content(col, obj,index,item)
         elif obj.type == 'ARMATURE':
             self._draw_armature_content(col, obj,index)
-        elif obj.type in mesh_compatible:
-            self._draw_mesh_content(col, obj,index,item)
     
     def _draw_collection_content(self, col : UILayout, obj, row):
         row.prop(obj.vs, 'automerge',toggle=True)
@@ -216,32 +213,6 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         
         if obj.animation_data and not State.useActionSlots:
             col.template_ID(obj.animation_data, "action", new="action.new")
-    
-    def _draw_mesh_content(self, col : UILayout, obj, index,item):
-        col.separator(type='LINE')
-        
-        box = col.box()
-        
-        toggle_icon = 'TRIA_DOWN' if obj.vs.show_vertexanim_items else 'TRIA_RIGHT'
-        op = box.operator(SMD_OT_ShowVertexAnimation.bl_idname, icon=toggle_icon, text='Vertex Animation', emboss=False)
-        op.index = index
-        
-        if obj.vs.show_vertexanim_items:
-            row = box.row(align=True)
-            
-            row.enabled = type(obj) in [bpy.types.Object, bpy.types.Collection]
-            
-            add_op = row.operator(SMD_OT_AddVertexAnimation.bl_idname, icon="ADD", text="Add")
-            add_op.index = index
-            
-            remove_op = row.operator(SMD_OT_RemoveVertexAnimation.bl_idname, icon="REMOVE", text="Remove")
-            remove_op.index = index
-            remove_op.vertexindex = obj.vs.active_vertex_animation
-            
-            if obj.vs.vertex_animations:
-                box.template_list("SMD_UL_VertexAnimationItem", "", obj.vs, "vertex_animations", 
-                                obj.vs, "active_vertex_animation", rows=2, maxrows=4)
-                box.operator(SMD_OT_GenerateVertexAnimationQCSnippet.bl_idname, icon='FILE_TEXT')
     
     def _draw_stats_row(self, split1 : UILayout, obj):
         row = split1.row(align=True)
@@ -315,127 +286,6 @@ class SMD_UL_GroupItems(bpy.types.UIList):
             gui_cache[data] = cache
             
         return cache.filter, cache.order if self.use_filter_sort_alpha else []
-
-class SMD_UL_VertexAnimationItem(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        r = layout.row()
-        r.alignment='LEFT'
-        r.prop(item,"name",text="",emboss=False)
-        r = layout.row(align=True)
-        r.alignment='RIGHT'
-        r.operator(SMD_OT_PreviewVertexAnimation.bl_idname,text="",icon='PAUSE' if context.screen.is_animation_playing else 'PLAY')
-        r.prop(item,"start",text="")
-        r.prop(item,"end",text="")
-        r.prop(item,"export_sequence",text="",icon='ACTION')
-
-class SMD_OT_AddVertexAnimation(bpy.types.Operator):
-    bl_idname = "smd.vertexanim_add"
-    bl_label = get_id("vca_add")
-    bl_description = get_id("vca_add_tip")
-    bl_options = {'INTERNAL', 'UNDO'}
-    
-    index: bpy.props.IntProperty()
-    
-    def execute(self,context : Context) -> set:
-        item = context.scene.vs.export_list[self.index].item
-        item.vs.vertex_animations.add()
-        item.vs.active_vertex_animation = len(item.vs.vertex_animations) - 1
-        return {'FINISHED'}
-
-class SMD_OT_RemoveVertexAnimation(bpy.types.Operator):
-    bl_idname = "smd.vertexanim_remove"
-    bl_label = get_id("vca_remove")
-    bl_description = get_id("vca_remove_tip")
-    bl_options = {'INTERNAL', 'UNDO'}
-
-    index : bpy.props.IntProperty(min=0)
-    vertexindex : bpy.props.IntProperty(min=0)
-
-    def execute(self, context) -> set:
-        item = context.scene.vs.export_list[self.index].item
-        if len(item.vs.vertex_animations) > self.vertexindex:
-            item.vs.vertex_animations.remove(self.vertexindex)
-            item.vs.active_vertex_animation = max(
-                0, min(self.vertexindex, len(item.vs.vertex_animations) - 1)
-            )
-        return {'FINISHED'}
-        
-class SMD_OT_PreviewVertexAnimation(bpy.types.Operator):
-    bl_idname = "smd.vertexanim_preview"
-    bl_label = get_id("vca_preview")
-    bl_description = get_id("vca_preview_tip")
-    bl_options = {'INTERNAL'}
-
-    index: bpy.props.IntProperty(min=0)
-    vertexindex: bpy.props.IntProperty(min=0)
-
-    def execute(self, context):
-        scene = context.scene
-
-        if self.index >= len(scene.vs.export_list):
-            self.report({'ERROR'}, "Invalid export list index")
-            return {'CANCELLED'}
-
-        item = scene.vs.export_list[self.index].item
-        if self.vertexindex >= len(item.vs.vertex_animations):
-            self.report({'ERROR'}, "Invalid vertex animation index")
-            return {'CANCELLED'}
-
-        anim = item.vs.vertex_animations[self.vertexindex]
-
-        scene.use_preview_range = True
-        scene.frame_preview_start = anim.start
-        scene.frame_preview_end = anim.end
-
-        if not context.screen.is_animation_playing:
-            scene.frame_set(anim.start)
-        bpy.ops.screen.animation_play()
-
-        return {'FINISHED'}
-
-class SMD_OT_GenerateVertexAnimationQCSnippet(bpy.types.Operator):
-    bl_idname = "smd.vertexanim_generate_qc"
-    bl_label = get_id("vca_qcgen")
-    bl_description = get_id("vca_qcgen_tip")
-    bl_options = {'INTERNAL'}
-
-    index: bpy.props.IntProperty(min=0)
-
-    @classmethod
-    def poll(cls, c):
-        return hasattr(c.scene, "vs") and len(c.scene.vs.export_list) > 0
-
-    def execute(self, c):
-        scene = c.scene
-        if self.index >= len(scene.vs.export_list):
-            self.report({'ERROR'}, "Invalid export list index")
-            return {'CANCELLED'}
-
-        item = scene.vs.export_list[self.index].item
-        fps = scene.render.fps / scene.render.fps_base
-        wm = c.window_manager
-
-        wm.clipboard = '$model "merge_me" {0}{1}'.format(item.name, getFileExt())
-        if scene.vs.export_format == 'SMD':
-            wm.clipboard += ' {{\n{0}\n}}\n'.format(
-                "\n".join([f"\tvcafile {vca.name}.vta" for vca in item.vs.vertex_animations])
-            )
-        else:
-            wm.clipboard += '\n'
-
-        wm.clipboard += "\n// vertex animation block begins\n$upaxis Y\n"
-        wm.clipboard += "\n".join([
-            f'''
-$boneflexdriver "vcabone_{vca.name}" tx "{vca.name}" 0 1
-$boneflexdriver "vcabone_{vca.name}" ty "multi_{vca.name}" 0 1
-$sequence "{vca.name}" "vcaanim_{vca.name}{getFileExt()}" fps {fps}
-'''.strip()
-            for vca in item.vs.vertex_animations if vca.export_sequence
-        ])
-        wm.clipboard += "\n// vertex animation block ends\n"
-
-        self.report({'INFO'}, "QC segment copied to clipboard.")
-        return {'FINISHED'}
 
 class SMD_PT_Object_Config(bpy.types.Panel):
     bl_label = get_id('exportables_title')
