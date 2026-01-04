@@ -14,7 +14,7 @@ from ..core.objectutils import (
     apply_object_transforms
 )
 
-from .common import Tools_SubCategoryPanel
+from .common import Tools_SubCategoryPanel, ShowConsole
 
 class OBJECT_PT_Translate_Panel(Tools_SubCategoryPanel):
     bl_label : str = "Object"
@@ -241,7 +241,7 @@ class OBJECT_OT_Translate_Object_Process(Operator):
             self.report({'ERROR'}, f"Translation error: {str(e)}")
             return {'CANCELLED'}
 
-class OBJECT_OT_Translate_Object(Operator):
+class OBJECT_OT_Translate_Object(Operator, ShowConsole):
     bl_idname = "objectdata.translate_names"
     bl_label = "Translate Names to English"
     bl_description = "Translate selected name types to English using Google Translate"

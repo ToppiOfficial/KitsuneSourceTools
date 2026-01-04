@@ -1,8 +1,10 @@
 import bpy, typing, re, os, mathutils
-from contextlib import contextmanager
-from ..keyvalue3 import *
 from typing import List
 from bpy.types import UILayout
+
+from contextlib import contextmanager
+from ..keyvalue3 import *
+from ..utils import mesh_compatible
 
 MODE_MAP: dict[str, str] = {
     "OBJECT": "OBJECT",
@@ -223,7 +225,6 @@ def is_curve(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'CURVE'
 
 def is_mesh_compatible(ob : bpy.types.Object | None) -> bool:
-    from ..utils import mesh_compatible
     return bool(ob and hasattr(ob,'type') and ob.type in mesh_compatible)
 
 def has_materials(ob : bpy.types.Object | None) -> bool:

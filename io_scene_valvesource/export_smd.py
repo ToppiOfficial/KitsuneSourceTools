@@ -32,6 +32,7 @@ from .core.boneutils import get_bone_exportname, get_bone_matrix
 from .core.objectutils import apply_modifier
 from .core.meshutils import normalize_object_vertexgroups, get_flexcontrollers
 from .core.commonutils import sanitize_string
+from .ui.common import ShowConsole
 
 class SMD_OT_Compile(bpy.types.Operator, Logger):
     bl_idname = "smd.compile_qc"
@@ -135,7 +136,7 @@ class SMD_OT_Compile(bpy.types.Operator, Logger):
                 i+=1
         return num_good_compiles
 
-class SmdExporter(bpy.types.Operator, Logger):
+class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
     bl_idname = "export_scene.smd"
     bl_label = get_id("exporter_title")
     bl_description = get_id("exporter_tip")

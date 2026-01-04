@@ -157,6 +157,12 @@ class ValveSource_SceneProps(PropertyGroup):
     use_kv2 : BoolProperty(name="Write KeyValues2 (DEBUG)",description="Write ASCII DMX files",default=False)
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
     
+    enable_gui_console : BoolProperty(
+        name='Enable Console GUI',
+        default=False, 
+        description='Show console overlay with live progress updates. Adds ~20% processing time for visual feedback'
+    )
+    
     weightlink_threshold : FloatProperty(name=get_id("weightlinkcull"),description=get_id("weightlinkcull_tip"),max=0.001,min=0.0001, default=0.0001,precision=4)
     vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=3,max=32, soft_max=8,min=1)
 

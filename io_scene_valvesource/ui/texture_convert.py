@@ -11,7 +11,7 @@ from bpy.props import (
     IntProperty
 )
 
-from .common import Tools_SubCategoryPanel
+from .common import Tools_SubCategoryPanel, ShowConsole
 
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, draw_toggleable_layout
@@ -665,7 +665,7 @@ class TEXTURECONVERSION_OT_ProcessItem(Operator, From_PBR_Conversion):
             self.report({'ERROR'}, f"Error during processing: {str(e)}")
             return {'CANCELLED'}
 
-class TEXTURECONVERSION_OT_ConvertItem(Operator):
+class TEXTURECONVERSION_OT_ConvertItem(Operator, ShowConsole):
     bl_idname = 'textureconvert.convert_pbr_item'
     bl_label = 'Convert Selected Item'
     bl_options = {'INTERNAL'}
@@ -676,11 +676,11 @@ class TEXTURECONVERSION_OT_ConvertItem(Operator):
     def poll(cls, context):
         return len(context.scene.vs.texture_conversion_items) > 0
     
-    def execute(self, context):
+    def execute(self, context) -> set:
         bpy.ops.textureconvert.process_item('EXEC_DEFAULT', item_index=self.item_index, process_all=False)
         return {'FINISHED'}
 
-class TEXTURECONVERSION_OT_ConvertAllItems(Operator):
+class TEXTURECONVERSION_OT_ConvertAllItems(Operator, ShowConsole):
     bl_idname = 'textureconvert.convert_all_pbr_items'
     bl_label = 'Convert All Items'
     bl_options = {'INTERNAL'}
