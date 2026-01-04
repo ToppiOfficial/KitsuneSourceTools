@@ -192,7 +192,7 @@ class ValveSource_SceneProps(PropertyGroup):
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
     
     smd_prefabs : CollectionProperty(type=ValveSource_PrefabItem)
-    smd_prefabs_index : IntProperty(default=-1,get=lambda self: -1,set=lambda self, context: None)
+    smd_prefabs_index : IntProperty(default=-1)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     
     pbr_items : CollectionProperty(type=TextureConversionItem) # deprecated
