@@ -158,40 +158,22 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     bl_label: str = "Add Black Toon Edgeline"
     bl_options: Set = {"REGISTER", "UNDO"}
 
-    has_sharp_edgesplit: bpy.props.BoolProperty(
-        name="Has Sharp EdgeSplit",
-        description="Add or ensure a sharp-only EdgeSplit modifier before the Solidify modifier",
-        default=False,
+    per_material_edgeline: bpy.props.BoolProperty(
+        name="Per Material Edgeline",
+        description="Create separate edgeline materials for each base material, or use a single unified edgeline material",
+        default=True,
     )
 
-    weight_calculation_mode: bpy.props.EnumProperty(
-        name="Weight Calculation",
-        description="Method for calculating vertex weights",
-        items=[
-            ('NONE', "None", "Use uniform weights (all 1.0)"),
-            ('SHAPE_KEYS', "Shape Keys", "Use shape key deformation"),
-            ('COMPONENT_SIZE', "Component Size", "Use mesh island size"),
-            ('BOTH', "Both Combined", "Combine shape keys and component size"),
-        ],
-        default='COMPONENT_SIZE'
+    use_component_weights: bpy.props.BoolProperty(
+        name="Use Component Weights",
+        description="Calculate vertex weights based on mesh island size",
+        default=True,
     )
     
     overwrite_existing_weights: bpy.props.BoolProperty(
         name="Overwrite Existing Weights",
         description="Update vertex group weights even if the vertex group already exists",
         default=True
-    )
-    
-    shape_key_weight_mode: bpy.props.EnumProperty(
-        name="Weight Mode",
-        description="How to apply shape key deformation as vertex weights",
-        items=[
-            ('ABSOLUTE', "Absolute", "Set all deformed vertices to weight 1.0"),
-            ('LINEAR', "Linear", "Map deformation linearly between min and max weights"),
-            ('SQUARED', "Squared", "Apply squared falloff for smoother transitions"),
-            ('SQRT', "Square Root", "Apply square root for sharper transitions"),
-        ],
-        default='LINEAR'
     )
     
     weight_min: bpy.props.FloatProperty(
@@ -208,30 +190,6 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         default=0.8,
         min=0.0,
         max=1.0,
-    )
-    
-    weight_threshold: bpy.props.FloatProperty(
-        name="Threshold",
-        description="Minimum deformation distance to consider (in scene units)",
-        default=0.0001,
-        min=0.0,
-        precision=5,
-        unit='LENGTH',
-        subtype='DISTANCE'
-    )
-    
-    weight_expansion: bpy.props.FloatProperty(
-        name="Weight Expansion",
-        description="Expand weights to neighboring vertices (0 = no expansion)",
-        default=0.0,
-        min=0.0,
-        max=10.0,
-    )
-    
-    normalize_per_shapekey: bpy.props.BoolProperty(
-        name="Normalize Per Shape Key",
-        description="Normalize weights for each shape key individually before combining",
-        default=False
     )
     
     component_size_metric: bpy.props.EnumProperty(
@@ -263,33 +221,17 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         layout = self.layout
         
         layout.prop(self, "edgeline_thickness")
-        layout.prop(self, "has_sharp_edgesplit")
+        layout.prop(self, "per_material_edgeline")
+        layout.prop(self, "use_component_weights")
         
-        layout.separator()
-        layout.prop(self, "weight_calculation_mode")
-        
-        uses_shape_keys = self.weight_calculation_mode in {'SHAPE_KEYS', 'BOTH'}
-        uses_components = self.weight_calculation_mode in {'COMPONENT_SIZE', 'BOTH'}
-        
-        if uses_shape_keys or uses_components:
+        if self.use_component_weights:
             layout.prop(self, "overwrite_existing_weights")
             
             row = layout.row(align=True)
             row.prop(self, "weight_min")
             row.prop(self, "weight_max")
-        
-        if uses_shape_keys:
-            box = layout.box()
-            box.label(text="Shape Key Settings:")
-            box.prop(self, "shape_key_weight_mode")
-            box.prop(self, "weight_threshold")
-            box.prop(self, "weight_expansion")
-            box.prop(self, "normalize_per_shapekey")
-        
-        if uses_components:
-            box = layout.box()
-            box.label(text="Component Size Settings:")
-            box.prop(self, "component_size_metric")
+            
+            layout.prop(self, "component_size_metric")
 
     def calculate_component_weights(self, ob):
         bm = bmesh.new()
@@ -360,72 +302,29 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         bm.free()
         return vertex_weights
 
-    def calculate_shape_key_weights(self, ob):
-        if not ob.data.shape_keys or len(ob.data.shape_keys.key_blocks) <= 1:
-            return None
-            
-        base = ob.data.shape_keys.key_blocks[0].data
-        shape_weights = [0.0] * len(ob.data.vertices)
-
-        for sk in ob.data.shape_keys.key_blocks[1:]:
-            sk_weights = [0.0] * len(ob.data.vertices)
-            
-            for i, vert in enumerate(sk.data):
-                delta = (vert.co - base[i].co).length
-                if delta > self.weight_threshold:
-                    sk_weights[i] = delta
-            
-            if self.normalize_per_shapekey and max(sk_weights) > 0:
-                max_delta = max(sk_weights)
-                sk_weights = [w / max_delta for w in sk_weights]
-            
-            for i, weight in enumerate(sk_weights):
-                shape_weights[i] += weight
-
-        if max(shape_weights) == 0:
-            return None
-            
-        max_weight = max(shape_weights)
+    def create_edgeline_material(self, base_mat_name):
+        edgeline_name = f"{base_mat_name}_edgeline"
+        edgeline_mat = bpy.data.materials.get(edgeline_name)
         
-        for i, weight in enumerate(shape_weights):
-            if weight > 0:
-                normalized = weight / max_weight
-                
-                if self.shape_key_weight_mode == 'ABSOLUTE':
-                    final_weight = self.weight_max
-                elif self.shape_key_weight_mode == 'LINEAR':
-                    final_weight = self.weight_min + normalized * (self.weight_max - self.weight_min)
-                elif self.shape_key_weight_mode == 'SQUARED':
-                    final_weight = self.weight_min + (normalized ** 2) * (self.weight_max - self.weight_min)
-                elif self.shape_key_weight_mode == 'SQRT':
-                    final_weight = self.weight_min + (normalized ** 0.5) * (self.weight_max - self.weight_min)
-                
-                shape_weights[i] = final_weight
+        if edgeline_mat is None:
+            edgeline_mat = bpy.data.materials.new(name=edgeline_name)
+            edgeline_mat.use_nodes = True
+            nodes = edgeline_mat.node_tree.nodes
+            nodes.clear()
+            emission_node = nodes.new(type="ShaderNodeEmission")
+            emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+            emission_node.inputs["Strength"].default_value = 1.0
+            output_node = nodes.new(type="ShaderNodeOutputMaterial")
+            edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
 
-        if self.weight_expansion > 0:
-            shape_weights = self.expand_weights(ob, shape_weights)
-            
-        return shape_weights
+        edgeline_mat.use_backface_culling = True
+        if hasattr(edgeline_mat, "use_backface_culling_shadow"):
+            edgeline_mat.use_backface_culling_shadow = True
 
-    def expand_weights(self, ob, weights):
-        bm = bmesh.new()
-        bm.from_mesh(ob.data)
-        bm.verts.ensure_lookup_table()
+        edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
+        edgeline_mat.vs.do_not_export_faces_vgroup = True
         
-        expanded_weights = weights.copy()
-        iterations = int(self.weight_expansion)
-        
-        for _ in range(iterations):
-            new_weights = expanded_weights.copy()
-            for v in bm.verts:
-                if expanded_weights[v.index] > 0:
-                    for edge in v.link_edges:
-                        other = edge.other_vert(v)
-                        new_weights[other.index] = max(new_weights[other.index], expanded_weights[v.index])
-            expanded_weights = new_weights
-        
-        bm.free()
-        return expanded_weights
+        return edgeline_mat
 
     def execute(self, context: Context) -> Set:
         obs: set[Object] = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
@@ -436,60 +335,96 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             scene = context.scene
             unit_scale = scene.unit_settings.scale_length or 1.0
 
-            edgeline_mat = next((mat for mat in bpy.data.materials if "edgeline" in mat.name.lower()), None)
+            if self.per_material_edgeline:
+                original_materials = []
+                old_to_new_index = {}
+                
+                for old_idx, slot in enumerate(ob.material_slots):
+                    mat = slot.material
+                    if mat and not mat.name.endswith("_edgeline"):
+                        if mat not in original_materials:
+                            original_materials.append(mat)
+                        new_idx = original_materials.index(mat)
+                        old_to_new_index[old_idx] = new_idx
+                    else:
+                        old_to_new_index[old_idx] = 0
 
-            if edgeline_mat is None:
-                edgeline_mat = bpy.data.materials.new(name="edgeline")
-                edgeline_mat.use_nodes = True
-                nodes = edgeline_mat.node_tree.nodes
-                nodes.clear()
-                emission_node = nodes.new(type="ShaderNodeEmission")
-                emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
-                emission_node.inputs["Strength"].default_value = 1.0
-                output_node = nodes.new(type="ShaderNodeOutputMaterial")
-                edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
+                mesh = ob.data
+                poly_materials = [poly.material_index for poly in mesh.polygons]
 
-            edgeline_mat.use_backface_culling = True
-            if hasattr(edgeline_mat, "use_backface_culling_shadow"):
-                edgeline_mat.use_backface_culling_shadow = True
+                edgeline_materials = []
+                for mat in original_materials:
+                    edgeline_mat = self.create_edgeline_material(mat.name if mat else "Material")
+                    edgeline_materials.append(edgeline_mat)
 
-            edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
-            edgeline_mat.vs.do_not_export_faces_vgroup = True
-
-            old_to_new_index = {}
-            non_edgeline_indices = []
-            edgeline_indices = []
-            
-            for old_idx, slot in enumerate(ob.material_slots):
-                if slot.material and "edgeline" in slot.material.name.lower():
-                    edgeline_indices.append(old_idx)
-                else:
-                    non_edgeline_indices.append(old_idx)
-
-            original_mat_count = len(non_edgeline_indices)
-            
-            for new_idx, old_idx in enumerate(non_edgeline_indices):
-                old_to_new_index[old_idx] = new_idx
-            
-            for new_idx, old_idx in enumerate(edgeline_indices):
-                old_to_new_index[old_idx] = original_mat_count + new_idx
-            
-            for poly in ob.data.polygons:
-                if poly.material_index in old_to_new_index:
-                    poly.material_index = old_to_new_index[poly.material_index]
-            
-            new_order = non_edgeline_indices + edgeline_indices
-            temp_materials = [ob.material_slots[i].material for i in new_order]
-            
-            expected_edgeline_count = original_mat_count
-            while len(temp_materials) < original_mat_count + expected_edgeline_count:
-                temp_materials.append(edgeline_mat)
-            
-            for i, mat in enumerate(temp_materials):
-                if i < len(ob.material_slots):
-                    ob.material_slots[i].material = mat
-                else:
+                ob.data.materials.clear()
+                for mat in original_materials:
                     ob.data.materials.append(mat)
+                for mat in edgeline_materials:
+                    ob.data.materials.append(mat)
+
+                for poly_idx, old_mat_idx in enumerate(poly_materials):
+                    if old_mat_idx in old_to_new_index:
+                        mesh.polygons[poly_idx].material_index = old_to_new_index[old_mat_idx]
+                
+                material_offset = len(original_materials)
+            else:
+                edgeline_mat = next((mat for mat in bpy.data.materials if mat.name == "edgeline"), None)
+                
+                if edgeline_mat is None:
+                    edgeline_mat = bpy.data.materials.new(name="edgeline")
+                    edgeline_mat.use_nodes = True
+                    nodes = edgeline_mat.node_tree.nodes
+                    nodes.clear()
+                    emission_node = nodes.new(type="ShaderNodeEmission")
+                    emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+                    emission_node.inputs["Strength"].default_value = 1.0
+                    output_node = nodes.new(type="ShaderNodeOutputMaterial")
+                    edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
+
+                edgeline_mat.use_backface_culling = True
+                if hasattr(edgeline_mat, "use_backface_culling_shadow"):
+                    edgeline_mat.use_backface_culling_shadow = True
+
+                edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
+                edgeline_mat.vs.do_not_export_faces_vgroup = True
+
+                old_to_new_index = {}
+                non_edgeline_indices = []
+                edgeline_indices = []
+                
+                for old_idx, slot in enumerate(ob.material_slots):
+                    if slot.material and "edgeline" in slot.material.name.lower():
+                        edgeline_indices.append(old_idx)
+                    else:
+                        non_edgeline_indices.append(old_idx)
+
+                original_mat_count = len(non_edgeline_indices)
+                
+                for new_idx, old_idx in enumerate(non_edgeline_indices):
+                    old_to_new_index[old_idx] = new_idx
+                
+                for new_idx, old_idx in enumerate(edgeline_indices):
+                    old_to_new_index[old_idx] = original_mat_count + new_idx
+                
+                for poly in ob.data.polygons:
+                    if poly.material_index in old_to_new_index:
+                        poly.material_index = old_to_new_index[poly.material_index]
+                
+                new_order = non_edgeline_indices + edgeline_indices
+                temp_materials = [ob.material_slots[i].material for i in new_order]
+                
+                expected_edgeline_count = original_mat_count
+                while len(temp_materials) < original_mat_count + expected_edgeline_count:
+                    temp_materials.append(edgeline_mat)
+                
+                for i, mat in enumerate(temp_materials):
+                    if i < len(ob.material_slots):
+                        ob.material_slots[i].material = mat
+                    else:
+                        ob.data.materials.append(mat)
+                
+                material_offset = original_mat_count
 
             solid = ob.modifiers.get("Toon_Edgeline") or ob.modifiers.new(name="Toon_Edgeline", type="SOLIDIFY")
             filter_vgroup = ob.vertex_groups.get('Edgeline_Thickness')
@@ -500,46 +435,18 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             
             solid.use_rim = False
             solid.thickness = -(self.edgeline_thickness / 1000.0) / unit_scale
-            solid.material_offset = original_mat_count
+            solid.material_offset = material_offset
             solid.use_flip_normals = True
             solid.vertex_group = filter_vgroup.name
             solid.invert_vertex_group = True
 
-            vertex_weights = [0.0] * len(ob.data.vertices)
-            
-            should_update_weights = self.weight_calculation_mode != 'NONE' and (self.overwrite_existing_weights or not vgroup_exists)
+            should_update_weights = self.use_component_weights and (self.overwrite_existing_weights or not vgroup_exists)
             
             if should_update_weights:
-                if self.weight_calculation_mode in {'COMPONENT_SIZE', 'BOTH'}:
-                    component_weights = self.calculate_component_weights(ob)
-                    for i in range(len(vertex_weights)):
-                        vertex_weights[i] = max(vertex_weights[i], component_weights[i])
-                
-                if self.weight_calculation_mode in {'SHAPE_KEYS', 'BOTH'}:
-                    shape_weights = self.calculate_shape_key_weights(ob)
-                    if shape_weights:
-                        for i, weight in enumerate(shape_weights):
-                            vertex_weights[i] = max(vertex_weights[i], weight)
-
+                vertex_weights = self.calculate_component_weights(ob)
                 for i, weight in enumerate(vertex_weights):
                     if weight > 0:
                         final_weight = round(weight, 2)
                         filter_vgroup.add([i], final_weight, 'REPLACE')
-                        
-            if self.has_sharp_edgesplit:
-                edgesplit = ob.modifiers.get("Toon_EdgeSplit") or ob.modifiers.new(name="Toon_EdgeSplit", type="EDGE_SPLIT")
-                edgesplit.use_edge_angle = False
-                edgesplit.use_edge_sharp = True
-                while ob.modifiers[0] != edgesplit:
-                    bpy.ops.object.modifier_move_up(modifier=edgesplit.name)
-                solid_index_target = 1
-            else:
-                edgesplit = ob.modifiers.get("Toon_EdgeSplit")
-                if edgesplit:
-                    ob.modifiers.remove(edgesplit)
-                solid_index_target = 0
-
-            while ob.modifiers[solid_index_target] != solid:
-                bpy.ops.object.modifier_move_up(modifier=solid.name)
 
         return {"FINISHED"}

@@ -395,7 +395,7 @@ class SMD_OT_RemovePrefab(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return len(context.scene.vs.smd_prefabs) > 0
+        return len(context.scene.vs.smd_prefabs) > 0 and context.scene.vs.smd_prefabs_index >= 0
     
     def execute(self, context):
         context.scene.vs.smd_prefabs.remove(context.scene.vs.smd_prefabs_index)
@@ -407,9 +407,9 @@ class SMD_UL_Prefabs(bpy.types.UIList):
     bl_idname = "SMD_UL_Prefabs"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        row = layout.row(align=True)
+        row : UILayout = layout.row(align=True)
 
         if not item.filepath:
             row.alert = True
         
-        row.prop(item, "filepath", text="", emboss = False, icon='FILE')  
+        row.prop(item, "filepath", text="", emboss = False, icon='FILE', placeholder='qci or vmdl_prefab')  

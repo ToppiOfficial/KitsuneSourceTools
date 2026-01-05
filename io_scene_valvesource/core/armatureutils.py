@@ -19,7 +19,7 @@ filter_exclude_vertexgroup_names = [ "Hips", 'Lower Spine', 'Spine', 'Lower Ches
                          'Left eye', 'Right eye']
 
 @contextmanager
-def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, restore_action=True):
+def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, reset_action=True):
     """
     Temporarily reset one or multiple armatures, then restore them on exit.
 
@@ -89,7 +89,7 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, resto
             armature.data.use_mirror_x = False
         if hasattr(armature.pose, "use_mirror_x"):
             armature.pose.use_mirror_x = False
-        if armature.animation_data:
+        if armature.animation_data and reset_action:
             armature.animation_data.action = None
 
         states[armature.name] = state
@@ -110,7 +110,7 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, resto
             if "pose_mirror_x" in state and hasattr(armature.pose, "use_mirror_x"):
                 armature.pose.use_mirror_x = state["pose_mirror_x"]
 
-            if restore_action and state.get("action"):
+            if reset_action and state.get("action"):
                 if armature.animation_data is None:
                     armature.animation_data_create()
                 armature.animation_data.action = state["action"]
@@ -240,7 +240,7 @@ def copy_target_armature_visualpose(base_armature: bpy.types.Object,
     target_bones = list(target_armature.data.bones)
 
     with preserve_context_mode(base_armature, "POSE"):
-        with preserve_armature_state(base_armature, target_armature, reset_pose=False, restore_action=False):
+        with preserve_armature_state(base_armature, target_armature, reset_pose=False, reset_action=False):
             bpy.ops.pose.select_all(action='DESELECT')
             
             copy_op = bpy.ops.pose.copy_pose_vis_loc if copy_type == 'ORIGIN' else bpy.ops.pose.copy_pose_vis_rot

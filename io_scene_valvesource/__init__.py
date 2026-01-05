@@ -159,7 +159,7 @@ class ValveSource_SceneProps(PropertyGroup):
     
     enable_gui_console : BoolProperty(
         name='Enable Console GUI',
-        default=False, 
+        default=True, 
         description='Show console overlay with live progress updates. Adds ~20% processing time for visual feedback'
     )
     

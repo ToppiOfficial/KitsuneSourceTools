@@ -5,7 +5,8 @@ from typing import Set
 
 from ..core.commonutils import (
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
-    get_armature, get_armature_meshes, preserve_context_mode, draw_listing_layout
+    get_armature, get_armature_meshes, preserve_context_mode, draw_listing_layout,
+    get_selected_bones
 )
 
 from ..core.meshutils import (
@@ -32,13 +33,16 @@ class TOOLS_PT_Armature(Tools_SubCategoryPanel):
             draw_wrapped_texts(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
             return
         
-        col = bx.column()
+        col = bx.column(align=True)
+        col.label(text='Apply Pose As Rest Pose')
+        
         col.scale_y = 1.3
         row = col.row(align=True)
-        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT')
-        row.operator(TOOLS_OT_MergeArmatures.bl_idname,icon='AUTOMERGE_ON')
+        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT',text='Entire Armature').selected_only = False
+        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT', text='Selected Bones').selected_only = True
         
         col = bx.column()
+        col.operator(TOOLS_OT_MergeArmatures.bl_idname,icon='AUTOMERGE_ON')
         col.operator(TOOLS_OT_CleanUnWeightedBones.bl_idname,icon='GROUP_BONE')
         
         col = bx.column(align=True)
@@ -50,6 +54,8 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
     bl_label : str = "Apply Pose As Restpose"
     bl_options : Set = {'REGISTER', 'UNDO'}
     
+    selected_only : BoolProperty(name='Selected Only', default=False)
+    
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
@@ -60,7 +66,14 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
             
             success_count = 0
             for armature in armatures:
-                success = apply_current_pose_as_restpose(armature)
+                
+                if self.selected_only:
+                    selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
+                    for posebone in armature.pose.bones:
+                        if posebone.name in {pb.name for pb in selected_bones}: continue
+                        posebone.matrix_basis.identity()
+                
+                success = apply_current_pose_as_restpose(armature=armature)
                 if success: success_count += 1
                 
         if success_count > 0:

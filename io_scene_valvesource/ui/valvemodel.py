@@ -587,9 +587,7 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
     def _export_qc(self, collection_groups):
         entries = []
         for group_name, group_bones in collection_groups.items():
-            entries.append("//=====================================================")
-            entries.append(f"// Jigglebones - Collection: {group_name}")
-            entries.append("//=====================================================")
+            entries.append(f"// Jigglebones: {group_name}")
             entries.append("")
             for bone in group_bones:
                 _datas = []

@@ -819,9 +819,9 @@ class DME_UL_FlexControllers(UIList):
         split = layout.split(factor=0.6, align=True)
         
         name_row = split.row(align=True)
-        if has_duplicate_shapekey:
+        if has_duplicate_shapekey or not item.shapekey:
             name_row.alert = True
-        name_row.label(text=item.shapekey, icon='SHAPEKEY_DATA')
+        name_row.label(text=item.shapekey if item.shapekey else "Null Flexcontroller", icon='SHAPEKEY_DATA')
         
         info_row = split.row(align=True)
         info_row.alignment = 'RIGHT'
