@@ -544,6 +544,7 @@ _classes = (
     animation.TOOLS_OT_merge_animation_slots,
     animation.TOOLS_OT_merge_two_actions,
     animation.TOOLS_OT_convert_rotation_keyframes,
+    animation.TOOLS_OT_delete_action_slot,
     
     humanoid_armature_map.HUMANOIDARMATUREMAP_PT_Panel,
     humanoid_armature_map.HUMANOIDARMATUREMAP_UL_ConfigList,

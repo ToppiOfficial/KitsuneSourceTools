@@ -3,14 +3,14 @@ schema_version = "1.0.0"
 # Basic Add-on Info
 id = "kitsune_source_tools"
 name = "Kitsune Source Tools"
-version = "0.0.280"
+version = "0.0.281"
 tagline = "A forked of BlenderSourceTools, an Importer and exporter for Valve Software's Source Engine Models"
 maintainer = "Tom Edwards (BlenderSourceTools) & Toppi (KitsuneSourceTools)"
 type = "add-on"
 website = "http://steamcommunity.com/groups/BlenderSourceTools"
 
 # Blender Compatibility
-blender_version_min = "4.5.5"
+blender_version_min = "4.5.0"
 
 # Licensing
 license = [

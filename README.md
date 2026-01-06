@@ -1,4 +1,4 @@
-# KitsuneSourceTool [Blender 4.5.5+] [Alpha]
+# KitsuneSourceTool [Blender 4.5+] [Alpha]
 
 KitsuneSourceTool is a personal Blender addon built for my own Source engine workflow. It's a fork of BlenderSourceTool with extensions from my older unreleased projects.
 

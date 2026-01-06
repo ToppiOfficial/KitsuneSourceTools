@@ -28,6 +28,7 @@ class TOOLS_PT_Animation(Tools_SubCategoryPanel):
         col.operator(TOOLS_OT_merge_animation_slots.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_merge_two_actions.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_convert_rotation_keyframes.bl_idname, icon='ACTION_SLOT')
+        col.operator(TOOLS_OT_delete_action_slot.bl_idname, icon='TRASH')
         
 class TOOLS_OT_merge_animation_slots(Operator):
     bl_idname : str = 'kitsunetools.merged_animations'
@@ -581,3 +582,63 @@ class TOOLS_OT_merge_two_actions(Operator):
                 target_fcurve.keyframe_points.insert(frame=frame, value=new_value, options={'REPLACE'})
             else:
                 target_fcurve.keyframe_points.insert(frame=frame, value=value, options={'FAST'})
+                
+class TOOLS_OT_delete_action_slot(Operator):
+    bl_idname : str = 'kitsunetools.delete_action_slot'
+    bl_label : str = 'Delete Action Slot'
+    bl_description : str = 'Delete a slot from the current object\'s action'
+    bl_options : set = {'REGISTER', 'UNDO'}
+
+    slot_name: StringProperty(
+        name="Slot to Delete",
+        description="Name of the slot to delete"
+    )
+
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        obj = context.object
+        if not obj or not obj.animation_data or not obj.animation_data.action:
+            return False
+        return len(obj.animation_data.action.slots) > 0
+
+    def invoke(self, context : Context, event : Event) -> set:
+        obj = context.object
+        action = obj.animation_data.action
+        
+        if action and action.slots:
+            self.slot_name = action.slots[0].name_display
+        
+        return context.window_manager.invoke_props_dialog(self, width=350)
+
+    def draw(self, context : Context) -> None:
+        layout = self.layout
+        obj = context.object
+        action = obj.animation_data.action
+        
+        box = layout.box()
+        box.label(text=f"Action: {action.name}", icon='ACTION')
+        
+        row = box.row()
+        row.prop_search(self, "slot_name", action, "slots", text="Slot")
+
+    def execute(self, context : Context) -> set:
+        obj = context.object
+        action = obj.animation_data.action
+        
+        if not action:
+            self.report({'ERROR'}, "No action found on current object")
+            return {'CANCELLED'}
+        
+        slot = next((s for s in action.slots if s.name_display == self.slot_name), None)
+        
+        if not slot:
+            self.report({'ERROR'}, f"Slot '{self.slot_name}' not found")
+            return {'CANCELLED'}
+        
+        slot_name = slot.name_display
+        slot_index = next(i for i, s in enumerate(action.slots) if s == slot)
+        
+        action.slots.remove(slot)
+        
+        self.report({'INFO'}, f"Deleted slot '{slot_name}' from action '{action.name}'")
+        return {'FINISHED'}

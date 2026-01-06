@@ -74,6 +74,6 @@ for platform_name, platform_wheels in wheel_platform_map.items():
     
     zip_file.close()
     zip_size = os.path.getsize(os.path.join("..", zip_name)) / (1024 * 1024)
-    print(f"  ✓ {zip_name} ({zip_size:.2f} MB)")
+    print(f" {zip_name} ({zip_size:.2f} MB)")
 
-print(f"\n✓ All platform releases created in ../")
+print(f"\nAll platform releases created in ../")
