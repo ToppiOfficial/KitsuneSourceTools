@@ -7,7 +7,7 @@ from ..core.commonutils import (
 )
 
 class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
-    bl_label : str = 'Developer'
+    bl_label : str = 'Developer Tools'
     bl_order : int = 1000
     bl_options : set = {'DEFAULT_CLOSED'}
 

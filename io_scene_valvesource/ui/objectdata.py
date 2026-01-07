@@ -14,10 +14,10 @@ from ..core.objectutils import (
     apply_object_transforms
 )
 
-from .common import Tools_SubCategoryPanel, ShowConsole
+from .common import ToolsCategoryPanel, ShowConsole
 
-class OBJECT_PT_Translate_Panel(Tools_SubCategoryPanel):
-    bl_label : str = "Object"
+class OBJECT_PT_Translate_Panel(ToolsCategoryPanel):
+    bl_label : str = "Object Tools"
     
     def draw(self, context : Context) -> None:
         layout : UILayout = self.layout

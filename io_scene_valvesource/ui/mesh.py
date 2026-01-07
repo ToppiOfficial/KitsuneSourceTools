@@ -2,7 +2,7 @@ import bpy, bmesh, mathutils
 from bpy.types import UILayout, Context, Object, Operator, Mesh
 from typing import Set
 
-from .common import Tools_SubCategoryPanel
+from .common import ToolsCategoryPanel
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts,
     is_armature, is_mesh,
@@ -13,8 +13,8 @@ from ..core.meshutils import (
 from ..utils import hasShapes
 from ..utils import get_id
 
-class TOOLS_PT_Mesh(Tools_SubCategoryPanel):
-    bl_label : str = "Mesh"
+class TOOLS_PT_Mesh(ToolsCategoryPanel):
+    bl_label : str = "Mesh Tools"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
@@ -161,6 +161,12 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     per_material_edgeline: bpy.props.BoolProperty(
         name="Per Material Edgeline",
         description="Create separate edgeline materials for each base material, or use a single unified edgeline material",
+        default=False,
+    )
+    
+    overwrite_existing_materials: bpy.props.BoolProperty(
+        name="Overwrite Existing Materials",
+        description="Replace existing edgeline material setup even if edgeline materials already exist",
         default=True,
     )
 
@@ -173,7 +179,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     overwrite_existing_weights: bpy.props.BoolProperty(
         name="Overwrite Existing Weights",
         description="Update vertex group weights even if the vertex group already exists",
-        default=True
+        default=False
     )
     
     weight_min: bpy.props.FloatProperty(
@@ -222,6 +228,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         
         layout.prop(self, "edgeline_thickness")
         layout.prop(self, "per_material_edgeline")
+        layout.prop(self, "overwrite_existing_materials")
         layout.prop(self, "use_component_weights")
         
         if self.use_component_weights:
@@ -232,6 +239,12 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             row.prop(self, "weight_max")
             
             layout.prop(self, "component_size_metric")
+
+    def has_existing_edgeline_setup(self, ob):
+        for slot in ob.material_slots:
+            if slot.material and "edgeline" in slot.material.name.lower():
+                return True
+        return False
 
     def calculate_component_weights(self, ob):
         bm = bmesh.new()
@@ -335,96 +348,96 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             scene = context.scene
             unit_scale = scene.unit_settings.scale_length or 1.0
 
-            if self.per_material_edgeline:
-                original_materials = []
-                old_to_new_index = {}
-                
-                for old_idx, slot in enumerate(ob.material_slots):
-                    mat = slot.material
-                    if mat and not mat.name.endswith("_edgeline"):
-                        if mat not in original_materials:
-                            original_materials.append(mat)
-                        new_idx = original_materials.index(mat)
-                        old_to_new_index[old_idx] = new_idx
-                    else:
-                        old_to_new_index[old_idx] = 0
-
-                mesh = ob.data
-                poly_materials = [poly.material_index for poly in mesh.polygons]
-
-                edgeline_materials = []
-                for mat in original_materials:
-                    edgeline_mat = self.create_edgeline_material(mat.name if mat else "Material")
-                    edgeline_materials.append(edgeline_mat)
-
-                ob.data.materials.clear()
-                for mat in original_materials:
-                    ob.data.materials.append(mat)
-                for mat in edgeline_materials:
-                    ob.data.materials.append(mat)
-
-                for poly_idx, old_mat_idx in enumerate(poly_materials):
-                    if old_mat_idx in old_to_new_index:
-                        mesh.polygons[poly_idx].material_index = old_to_new_index[old_mat_idx]
-                
-                material_offset = len(original_materials)
+            has_edgeline_setup = self.has_existing_edgeline_setup(ob)
+            
+            if has_edgeline_setup and not self.overwrite_existing_materials:
+                pass
             else:
-                edgeline_mat = next((mat for mat in bpy.data.materials if mat.name == "edgeline"), None)
-                
-                if edgeline_mat is None:
-                    edgeline_mat = bpy.data.materials.new(name="edgeline")
-                    edgeline_mat.use_nodes = True
-                    nodes = edgeline_mat.node_tree.nodes
-                    nodes.clear()
-                    emission_node = nodes.new(type="ShaderNodeEmission")
-                    emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
-                    emission_node.inputs["Strength"].default_value = 1.0
-                    output_node = nodes.new(type="ShaderNodeOutputMaterial")
-                    edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
+                if self.per_material_edgeline:
+                    original_materials = []
+                    old_to_new_index = {}
+                    
+                    for old_idx, slot in enumerate(ob.material_slots):
+                        mat = slot.material
+                        if mat and not mat.name.endswith("_edgeline"):
+                            if mat not in original_materials:
+                                original_materials.append(mat)
+                            new_idx = original_materials.index(mat)
+                            old_to_new_index[old_idx] = new_idx
+                        else:
+                            old_to_new_index[old_idx] = 0
 
-                edgeline_mat.use_backface_culling = True
-                if hasattr(edgeline_mat, "use_backface_culling_shadow"):
-                    edgeline_mat.use_backface_culling_shadow = True
+                    mesh = ob.data
+                    poly_materials = [poly.material_index for poly in mesh.polygons]
 
-                edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
-                edgeline_mat.vs.do_not_export_faces_vgroup = True
+                    edgeline_materials = []
+                    for mat in original_materials:
+                        edgeline_mat = self.create_edgeline_material(mat.name if mat else "Material")
+                        edgeline_materials.append(edgeline_mat)
 
-                old_to_new_index = {}
-                non_edgeline_indices = []
-                edgeline_indices = []
-                
-                for old_idx, slot in enumerate(ob.material_slots):
-                    if slot.material and "edgeline" in slot.material.name.lower():
-                        edgeline_indices.append(old_idx)
-                    else:
-                        non_edgeline_indices.append(old_idx)
-
-                original_mat_count = len(non_edgeline_indices)
-                
-                for new_idx, old_idx in enumerate(non_edgeline_indices):
-                    old_to_new_index[old_idx] = new_idx
-                
-                for new_idx, old_idx in enumerate(edgeline_indices):
-                    old_to_new_index[old_idx] = original_mat_count + new_idx
-                
-                for poly in ob.data.polygons:
-                    if poly.material_index in old_to_new_index:
-                        poly.material_index = old_to_new_index[poly.material_index]
-                
-                new_order = non_edgeline_indices + edgeline_indices
-                temp_materials = [ob.material_slots[i].material for i in new_order]
-                
-                expected_edgeline_count = original_mat_count
-                while len(temp_materials) < original_mat_count + expected_edgeline_count:
-                    temp_materials.append(edgeline_mat)
-                
-                for i, mat in enumerate(temp_materials):
-                    if i < len(ob.material_slots):
-                        ob.material_slots[i].material = mat
-                    else:
+                    ob.data.materials.clear()
+                    for mat in original_materials:
                         ob.data.materials.append(mat)
-                
-                material_offset = original_mat_count
+                    for mat in edgeline_materials:
+                        ob.data.materials.append(mat)
+
+                    for poly_idx, old_mat_idx in enumerate(poly_materials):
+                        if old_mat_idx in old_to_new_index:
+                            mesh.polygons[poly_idx].material_index = old_to_new_index[old_mat_idx]
+                    
+                    material_offset = len(original_materials)
+                else:
+                    edgeline_mat = next((mat for mat in bpy.data.materials if mat.name == "edgeline"), None)
+                    
+                    if edgeline_mat is None:
+                        edgeline_mat = bpy.data.materials.new(name="edgeline")
+                        edgeline_mat.use_nodes = True
+                        nodes = edgeline_mat.node_tree.nodes
+                        nodes.clear()
+                        emission_node = nodes.new(type="ShaderNodeEmission")
+                        emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+                        emission_node.inputs["Strength"].default_value = 1.0
+                        output_node = nodes.new(type="ShaderNodeOutputMaterial")
+                        edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
+
+                    edgeline_mat.use_backface_culling = True
+                    if hasattr(edgeline_mat, "use_backface_culling_shadow"):
+                        edgeline_mat.use_backface_culling_shadow = True
+
+                    edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
+                    edgeline_mat.vs.do_not_export_faces_vgroup = True
+
+                    mesh = ob.data
+                    poly_materials = [poly.material_index for poly in mesh.polygons]
+                    
+                    old_to_new_index = {}
+                    non_edgeline_materials = []
+                    
+                    for old_idx, slot in enumerate(ob.material_slots):
+                        mat = slot.material
+                        if mat and "edgeline" not in mat.name.lower():
+                            if mat not in non_edgeline_materials:
+                                non_edgeline_materials.append(mat)
+                            new_idx = non_edgeline_materials.index(mat)
+                            old_to_new_index[old_idx] = new_idx
+                        else:
+                            old_to_new_index[old_idx] = 0
+                    
+                    ob.data.materials.clear()
+                    
+                    for mat in non_edgeline_materials:
+                        ob.data.materials.append(mat)
+                    
+                    original_mat_count = len(non_edgeline_materials)
+                    
+                    for _ in range(original_mat_count):
+                        ob.data.materials.append(edgeline_mat)
+                    
+                    for poly_idx, old_mat_idx in enumerate(poly_materials):
+                        if old_mat_idx in old_to_new_index:
+                            mesh.polygons[poly_idx].material_index = old_to_new_index[old_mat_idx]
+                    
+                    material_offset = original_mat_count
 
             solid = ob.modifiers.get("Toon_Edgeline") or ob.modifiers.new(name="Toon_Edgeline", type="SOLIDIFY")
             filter_vgroup = ob.vertex_groups.get('Edgeline_Thickness')
@@ -435,14 +448,15 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             
             solid.use_rim = False
             solid.thickness = -(self.edgeline_thickness / 1000.0) / unit_scale
-            solid.material_offset = material_offset
+            if not has_edgeline_setup or self.overwrite_existing_materials:
+                solid.material_offset = material_offset
             solid.use_flip_normals = True
             solid.vertex_group = filter_vgroup.name
             solid.invert_vertex_group = True
 
-            should_update_weights = self.use_component_weights and (self.overwrite_existing_weights or not vgroup_exists)
+            should_calculate_weights = (not vgroup_exists) or (vgroup_exists and self.overwrite_existing_weights)
             
-            if should_update_weights:
+            if self.use_component_weights and should_calculate_weights:
                 vertex_weights = self.calculate_component_weights(ob)
                 for i, weight in enumerate(vertex_weights):
                     if weight > 0:

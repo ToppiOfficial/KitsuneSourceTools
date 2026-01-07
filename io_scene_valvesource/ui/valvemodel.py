@@ -119,7 +119,7 @@ class VALVEMODEL_PrefabExportOperator():
         return True
 
 class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
-    bl_label: str = 'ValveModels'
+    bl_label: str = 'ValveModel'
 
     def draw(self, context: Context) -> None:
         l = self.layout 
@@ -186,7 +186,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             for attachment in attachments:
                 row = att_section.row(align=True)
                 row.label(text=attachment.name, icon='EMPTY_DATA')
-                row.label(text=attachment.parent_bone, icon='BONE_DATA')
+                row.prop_search(attachment, 'parent_bone', search_data=ob.data, search_property='bones', text='')
         
         if is_armature(ob):
             jigglebones = get_jigglebones(ob)
@@ -223,7 +223,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
                 try:
                     row = hb_section.row()
                     row.label(text=hbox.name, icon='CUBE')
-                    row.label(text=hbox.parent_bone, icon='BONE_DATA')
+                    row.prop_search(hbox, 'parent_bone', search_data=ob.data, search_property='bones', text='')
                     row.prop(hbox.vs, 'smd_hitbox_group', text='')
                 except:
                     continue

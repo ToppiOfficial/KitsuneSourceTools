@@ -4,15 +4,15 @@ from bpy.types import UILayout, Context, Object, Operator, Event
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy_extras import anim_utils
 
-from .common import Tools_SubCategoryPanel
+from .common import ToolsCategoryPanel
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, is_armature,
     sanitize_string
 )
 from ..utils import get_id
 
-class TOOLS_PT_Animation(Tools_SubCategoryPanel):
-    bl_label : str = "Animation"
+class TOOLS_PT_Animation(ToolsCategoryPanel):
+    bl_label : str = "Animation Tools"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout

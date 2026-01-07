@@ -14,10 +14,10 @@ from ..core.armatureutils import(
 )
 
 from ..utils import get_id
-from .common import Tools_SubCategoryPanel
+from .common import ToolsCategoryPanel
 
-class TOOLS_PT_Bone(Tools_SubCategoryPanel):
-    bl_label: str = "Bone"
+class TOOLS_PT_Bone(ToolsCategoryPanel):
+    bl_label: str = "Bone Tools"
 
     def draw(self, context: Context) -> None:
         layout = self.layout

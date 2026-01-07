@@ -29,7 +29,7 @@ class TOOLS_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         l : UILayout = self.layout
         return
 
-class Tools_SubCategoryPanel(KITSUNE_PT_CustomToolPanel, Panel):
+class ToolsCategoryPanel(KITSUNE_PT_CustomToolPanel, Panel):
     "Sub panel for the sub panel 'TOOLS_PT_PANEL'"
     bl_label : str = "SubTools"
     bl_parent_id : str = "TOOLS_PT_PANEL"

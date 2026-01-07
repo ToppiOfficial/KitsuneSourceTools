@@ -27,9 +27,9 @@ from ..core.meshutils import get_armature
 from ..flex import get_id
 from ..utils import print
 
-from .common import Tools_SubCategoryPanel
+from .common import ToolsCategoryPanel
 
-class HUMANOIDARMATUREMAP_PT_Panel(Tools_SubCategoryPanel):
+class HUMANOIDARMATUREMAP_PT_Panel(ToolsCategoryPanel):
     bl_label : str = 'Humanoid Armature Mapper'
 
     def draw(self, context : Context) -> None:

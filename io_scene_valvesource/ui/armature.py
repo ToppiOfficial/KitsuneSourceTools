@@ -15,14 +15,14 @@ from ..core.meshutils import (
 
 from ..core.armatureutils import (
     apply_current_pose_as_restpose, remove_bone, filter_exclude_vertexgroup_names,
-    merge_armatures, copy_target_armature_visualpose
+    merge_armatures, copy_target_armature_visualpose, remove_empty_bonecollections
 )
 
 from ..utils import get_id
-from .common import Tools_SubCategoryPanel
+from .common import ToolsCategoryPanel
 
-class TOOLS_PT_Armature(Tools_SubCategoryPanel):
-    bl_label : str = "Armature"
+class TOOLS_PT_Armature(ToolsCategoryPanel):
+    bl_label : str = "Armature Tools"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
@@ -125,6 +125,8 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         description='Keep bones marked as deform even if unweighted',
         default=False
     )
+    
+    remove_unused_bonecollections : BoolProperty(name='Remove Unused Bone Collections', default=True)
 
     @classmethod
     def poll(cls, context: Context) -> bool:
@@ -141,6 +143,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         col.separator()
         col.prop(self, 'preserve_deform_bones')
         rootcol, itemcol = draw_listing_layout(col,indent_factor=0.05)
+        rootcol.prop(self, 'remove_unused_bonecollections')
         rootcol.prop(self, 'remove_empty_vertex_groups')
         itemcol.prop(self, 'weight_threshold', slider=True)
         
@@ -211,12 +214,16 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                         constraint_owners = self.get_constraint_owners(armature)
                         bones_with_children = self.get_bones_with_parented_objects(armature)
                 else:
+                    
+                    if self.remove_unused_bonecollections:
+                        success, total_collection_removed = remove_empty_bonecollections(armature)
+
                     break
 
-        if total_bones_removed == 0 and total_vgroups_removed == 0:
+        if total_bones_removed == 0 and total_vgroups_removed == 0 and total_collection_removed == 0:
             self.report({'INFO'}, 'No bones or vertex groups to remove.')
         else:
-            self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_vgroups_removed} empty vertex groups cleaned.')
+            self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_collection_removed} bone collections removed, and {total_vgroups_removed} empty vertex groups cleaned.')
         return {'FINISHED'}
 
     def should_preserve_bone(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:

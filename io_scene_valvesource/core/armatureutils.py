@@ -953,3 +953,23 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         else:
             for b in bone:
                 subdivide_bone(b, subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)
+                
+def remove_empty_bonecollections(armature: bpy.types.Object) -> tuple[bool, int]:
+    "Remove empty bone collections from armature"
+    if not is_armature: return False, 0
+
+    bonecollections : bpy.types.BoneCollection = armature.data.collections
+    if bonecollections is None or len(bonecollections) == 0: return True, 0
+    
+    collection_to_remove = set()
+    removed_collection_count = 0
+    
+    for bonecoll in bonecollections:
+        if hasattr(bonecoll, "bones") and len(bonecoll.bones) > 0: continue
+        collection_to_remove.add(bonecoll)
+        
+    for col in collection_to_remove:
+        armature.data.collections.remove(col)
+        removed_collection_count += 1
+    
+    return True, removed_collection_count

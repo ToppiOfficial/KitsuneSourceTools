@@ -11,7 +11,7 @@ from bpy.props import (
     IntProperty
 )
 
-from .common import Tools_SubCategoryPanel, ShowConsole
+from .common import ToolsCategoryPanel, ShowConsole
 
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, draw_toggleable_layout
@@ -737,7 +737,7 @@ class TEXTURECONVERSION_OT_Convert_Legacy_PBR_Items(Operator):
         self.report({'INFO'}, f"Converted {converted_count} items")
         return {'FINISHED'}
 
-class TEXTURECONVERSION_PT_Panel(Tools_SubCategoryPanel):
+class TEXTURECONVERSION_PT_Panel(ToolsCategoryPanel):
     bl_label = 'Texture Conversion'
     
     def draw(self, context : Context) -> None:

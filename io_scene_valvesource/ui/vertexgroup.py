@@ -3,7 +3,7 @@ from bpy.props import FloatProperty, BoolProperty, StringProperty
 from bpy.types import UILayout, Context, Object, Operator, PoseBone
 from typing import Set
 
-from .common import Tools_SubCategoryPanel
+from .common import ToolsCategoryPanel
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts,
     is_armature, is_mesh, get_armature, get_armature_meshes,
@@ -20,8 +20,8 @@ from ..utils import get_id
 
 from .bone import TOOLS_OT_SubdivideBone
 
-class TOOLS_PT_VertexGroup(Tools_SubCategoryPanel):
-    bl_label : str = "Vertex Group"
+class TOOLS_PT_VertexGroup(ToolsCategoryPanel):
+    bl_label : str = "Vertex Group Tools"
     
     def draw(self, context : Context) -> None:
         l : UILayout = self.layout
