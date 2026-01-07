@@ -684,6 +684,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             new_bone.tail = head.lerp(tail, t_end)
             new_bone.roll = bone.roll
             new_bone.parent = bone_chain[i - 2]
+            new_bone.use_connect = True
             
             bone_chain.append(new_bone)
             
@@ -715,9 +716,10 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
     
     def reparent_children(bone, bone_chain):
         for child in bone.children:
+            child_connect_state = child.use_connect
             child.use_connect = False
             child.parent = bone_chain[-1]
-            child.use_connect = True
+            child.use_connect = child_connect_state
     
     def collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq):
         all_vertex_data = []
