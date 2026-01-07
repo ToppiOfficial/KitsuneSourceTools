@@ -6,7 +6,7 @@ from typing import Set
 from ..core.commonutils import (
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
     get_armature, get_armature_meshes, preserve_context_mode, draw_listing_layout,
-    get_selected_bones
+    get_selected_bones, unselect_all
 )
 
 from ..core.meshutils import (
@@ -339,6 +339,8 @@ class TOOLS_OT_MergeArmatures(Operator):
     
     match_posture : BoolProperty(name='Match Visual Pose', default=True)
     
+    clean_bones : BoolProperty(name='Clean Bones', default=True)
+    
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(is_armature(context.object) and {ob for ob in context.selected_objects if is_armature(ob) and ob != context.object})
@@ -346,22 +348,51 @@ class TOOLS_OT_MergeArmatures(Operator):
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
     
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.prop(self, 'match_posture')
+        row.prop(self, 'clean_bones')
+    
     def execute(self, context : Context) -> Set:
         currOb : Object | None = context.object
         
         if currOb is None: return {'CANCELLED'}
         
-        armatures = [ob for ob in context.selected_objects if ob != currOb]
+        armatures_to_merge = [ob for ob in context.selected_objects if ob != currOb and is_armature(ob)]
         
-        if not armatures: return {'CANCELLED'}
+        if not armatures_to_merge:
+            self.report({'WARNING'}, "No other armatures selected to merge.")
+            return {'CANCELLED'}
         
         success_count = 0
-        for arm in armatures:
-            success = merge_armatures(currOb, arm, match_posture=self.match_posture)
-            if success: success_count += 1
+
+        original_active = context.view_layer.objects.active
+        
+        try:
+            for arm in armatures_to_merge:
+                
+                if self.clean_bones:
+                    unselect_all()
+                    context.view_layer.objects.active = arm
+                    arm.select_set(True)
+                    
+                    bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
+                
+                success = merge_armatures(currOb, arm, match_posture=self.match_posture)
+                if success:
+                    success_count += 1
             
-        self.report({'INFO'}, f'Merged {success_count} armatures to active armature')
-            
+        finally:
+            unselect_all()
+            if original_active and original_active.name in bpy.data.objects:
+                context.view_layer.objects.active = original_active
+
+            if success_count > 0:
+                self.report({'INFO'}, f'Merged {success_count} armatures to active armature')
+            else:
+                self.report({'WARNING'}, 'No armatures were merged.')
+
         return {'FINISHED'}
 
 class TOOLS_OT_CopyVisPosture(Operator):

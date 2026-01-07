@@ -499,12 +499,13 @@ _classes = (
     valvemodel.VALVEMODEL_PT_PANEL,
     valvemodel.VALVEMODEL_OT_FixAttachment,
     valvemodel.VALVEMODEL_OT_ExportJiggleBone,
+    valvemodel.VALVEMODEL_OT_ImportJigglebones,
+    valvemodel.VALVEMODEL_OT_CopyJiggleBoneProperties,
     valvemodel.VALVEMODEL_OT_CreateProportionActions,
     valvemodel.VALVEMODEL_OT_ExportConstraintProportion,
     valvemodel.VALVEMODEL_OT_ExportHitBox,
     valvemodel.VALVEMODEL_OT_FixHitBox,
     valvemodel.VALVEMODEL_OT_AddHitbox,
-    valvemodel.VALVEMODEL_OT_CopyJiggleBoneProperties,
     
     common.TOOLS_PT_PANEL,
     

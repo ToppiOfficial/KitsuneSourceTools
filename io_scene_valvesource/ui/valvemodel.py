@@ -1,9 +1,9 @@
-import os, math, bpy, mathutils
+import os, math, bpy, mathutils, re
 from bpy.props import StringProperty, EnumProperty
 from typing import Set, Any
 from bpy import props
 from bpy.types import Context, Object, Operator, Panel, UILayout, Event
-from ..keyvalue3 import KVBool, KVNode, KVVector3
+from ..keyvalue3 import KVBool, KVNode, KVVector3, KVParser
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
 from ..utils import hitbox_group
@@ -256,11 +256,8 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         
         bone = ob.data.bones.active
 
-        self._draw_export_buttons(
-            layout, 
-            VALVEMODEL_OT_ExportJiggleBone.bl_idname,
-            scale_y=1.2
-        )
+        self._draw_export_buttons(layout, VALVEMODEL_OT_ExportJiggleBone.bl_idname,scale_y=1.2)
+        layout.operator(VALVEMODEL_OT_ImportJigglebones.bl_idname, icon='IMPORT')
         
         if bone and bone.select:
             layout.operator(VALVEMODEL_OT_CopyJiggleBoneProperties.bl_idname, icon='COPYDOWN')
@@ -509,6 +506,393 @@ class VALVEMODEL_OT_FixAttachment(Operator):
             self.report({'INFO'}, 'No attachments needed fixing')
         
         return {'FINISHED'}
+
+class VALVEMODEL_OT_ImportJigglebones(Operator):
+    bl_idname : str = "smd.import_jigglebones"
+    bl_label : str = "Import Jigglebones"
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    
+    filepath: StringProperty(
+        subtype='FILE_PATH',
+        name="File Path",
+        description="Path to the VMDL or QC file containing jigglebone data"
+    )
+    
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.mode in {'OBJECT', 'POSE'} and is_armature(context.object) and len(context.object.data.bones) > 0)
+    
+    def invoke(self, context, event) -> set:
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+    
+    def execute(self, context) -> set:
+        armature = context.object
+        
+        if not self.filepath:
+            self.report({'ERROR'}, "No file selected.")
+            return {'CANCELLED'}
+        
+        filepath = self.filepath
+        
+        # Determine file type
+        file_extension = filepath.lower().split('.')[-1]
+        
+        if file_extension in ['vmdl', 'vmdl_prefab']:
+            imported_count = self._import_vmdl(context, armature, filepath)
+        elif file_extension in ['qc', 'qci']:
+            imported_count = self._import_qc(context, armature, filepath)
+        else:
+            self.report({'ERROR'}, f"Unsupported file type: .{file_extension}. Please select a .vmdl, .vmdl_prefab, .qc, or .qci file.")
+            return {'CANCELLED'}
+            
+        if imported_count > 0:
+            self.report({'INFO'}, f"Successfully imported jigglebone data for {imported_count} bone(s).")
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "No jigglebone data imported.")
+            return {'CANCELLED'}
+
+    def _import_vmdl(self, context, armature, filepath) -> int:
+        imported_count = 0
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to read VMDL file '{filepath}': {e}")
+            return 0
+            
+        try:
+            parser = KVParser(file_content)
+            kv_doc = parser.parse()
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to parse VMDL file '{filepath}': {e}")
+            return 0
+            
+        bone_map = {}
+        for b in armature.data.bones:
+            bone_map[get_bone_exportname(b)] = b
+        
+        def find_jigglebone_nodes(node):
+            """Recursively find all JiggleBone nodes in the structure."""
+            found = []
+            
+            if isinstance(node, KVNode):
+                if node.properties.get('_class') == "JiggleBone":
+                    found.append(node)
+                
+                for child in node.children:
+                    found.extend(find_jigglebone_nodes(child))
+            
+            elif isinstance(node, dict):
+                for value in node.values():
+                    found.extend(find_jigglebone_nodes(value))
+            
+            elif isinstance(node, (list, tuple)):
+                for item in node:
+                    found.extend(find_jigglebone_nodes(item))
+            
+            return found
+        
+        jigglebone_nodes = []
+        for root_key, root_node in kv_doc.roots.items():
+            jigglebone_nodes.extend(find_jigglebone_nodes(root_node))
+        
+        if not jigglebone_nodes:
+            self.report({'WARNING'}, f"No JiggleBone nodes found in VMDL file. Searched {len(kv_doc.roots)} root(s).")
+            return 0
+
+        for jb_node in jigglebone_nodes:
+            props = jb_node.properties
+            root_bone_name = props.get('jiggle_root_bone')
+            
+            if not root_bone_name:
+                self.report({'WARNING'}, f"JiggleBone node without 'jiggle_root_bone' property found. Skipping.")
+                continue
+                
+            blender_bone = bone_map.get(root_bone_name)
+            if not blender_bone:
+                self.report({'WARNING'}, f"No matching Blender bone found for '{root_bone_name}'. Skipping.")
+                continue
+                
+            vs_bone = blender_bone.vs
+            vs_bone.bone_is_jigglebone = True
+            imported_count += 1
+            
+            jiggle_type_int = props.get('jiggle_type')
+            if jiggle_type_int == 0:
+                vs_bone.jiggle_flex_type = 'RIGID'
+            elif jiggle_type_int == 1:
+                vs_bone.jiggle_flex_type = 'FLEXIBLE'
+            elif jiggle_type_int == 2:
+                vs_bone.jiggle_flex_type = 'NONE'
+                
+            vs_bone.jiggle_has_yaw_constraint = props.get('has_yaw_constraint', False)
+            vs_bone.jiggle_has_pitch_constraint = props.get('has_pitch_constraint', False)
+            vs_bone.jiggle_has_angle_constraint = props.get('has_angle_constraint', False)
+            vs_bone.jiggle_has_base_spring = props.get('has_base_spring', False)
+            vs_bone.jiggle_allow_length_flex = props.get('allow_flex_length', False)
+            
+            if vs_bone.jiggle_has_base_spring:
+                vs_bone.jiggle_base_type = 'BASESPRING'
+            else:
+                vs_bone.jiggle_base_type = 'NONE'
+
+            if 'length' in props:
+                vs_bone.use_bone_length_for_jigglebone_length = False
+                vs_bone.jiggle_length = float(props['length'])
+            if 'tip_mass' in props:
+                vs_bone.jiggle_tip_mass = float(props['tip_mass'])
+
+            if 'angle_limit' in props:
+                vs_bone.jiggle_angle_constraint = math.radians(float(props['angle_limit']))
+            if 'min_yaw' in props:
+                vs_bone.jiggle_yaw_constraint_min = math.radians(float(props['min_yaw']))
+            if 'max_yaw' in props:
+                vs_bone.jiggle_yaw_constraint_max = math.radians(float(props['max_yaw']))
+            if 'min_pitch' in props:
+                vs_bone.jiggle_pitch_constraint_min = math.radians(float(props['min_pitch']))
+            if 'max_pitch' in props:
+                vs_bone.jiggle_pitch_constraint_max = math.radians(float(props['max_pitch']))
+            
+            if 'yaw_friction' in props:
+                vs_bone.jiggle_yaw_friction = float(props['yaw_friction'])
+            if 'pitch_friction' in props:
+                vs_bone.jiggle_pitch_friction = float(props['pitch_friction'])
+
+            if 'base_mass' in props:
+                vs_bone.jiggle_base_mass = int(float(props['base_mass']))
+            if 'base_stiffness' in props:
+                vs_bone.jiggle_base_stiffness = float(props['base_stiffness'])
+            if 'base_damping' in props:
+                vs_bone.jiggle_base_damping = float(props['base_damping'])
+
+            if 'base_left_min' in props:
+                vs_bone.jiggle_left_constraint_min = float(props['base_left_min'])
+            if 'base_left_max' in props:
+                vs_bone.jiggle_left_constraint_max = float(props['base_left_max'])
+            if 'base_left_friction' in props:
+                vs_bone.jiggle_left_friction = float(props['base_left_friction'])
+            if 'base_up_min' in props:
+                vs_bone.jiggle_up_constraint_min = float(props['base_up_min'])
+            if 'base_up_max' in props:
+                vs_bone.jiggle_up_constraint_max = float(props['base_up_max'])
+            if 'base_up_friction' in props:
+                vs_bone.jiggle_up_friction = float(props['base_up_friction'])
+            if 'base_forward_min' in props:
+                vs_bone.jiggle_forward_constraint_min = float(props['base_forward_min'])
+            if 'base_forward_max' in props:
+                vs_bone.jiggle_forward_constraint_max = float(props['base_forward_max'])
+            if 'base_forward_friction' in props:
+                vs_bone.jiggle_forward_friction = float(props['base_forward_friction'])
+            
+            if 'yaw_stiffness' in props:
+                vs_bone.jiggle_yaw_stiffness = float(props['yaw_stiffness'])
+            if 'yaw_damping' in props:
+                vs_bone.jiggle_yaw_damping = float(props['yaw_damping'])
+            if 'pitch_stiffness' in props:
+                vs_bone.jiggle_pitch_stiffness = float(props['pitch_stiffness'])
+            if 'pitch_damping' in props:
+                vs_bone.jiggle_pitch_damping = float(props['pitch_damping'])
+            if 'along_stiffness' in props:
+                vs_bone.jiggle_along_stiffness = float(props['along_stiffness'])
+            if 'along_damping' in props:
+                vs_bone.jiggle_along_damping = float(props['along_damping'])
+
+        return imported_count
+
+    def _import_qc(self, context, armature, filepath) -> int:
+        imported_count = 0
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to read QC file '{filepath}': {e}")
+            return 0
+            
+        bone_map = {}
+        for b in armature.data.bones:
+            bone_map[get_bone_exportname(b)] = b
+            
+        current_jigglebone_data = None
+        current_bone_name = None
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            if line.startswith('$jigglebone'):
+                match = re.search(r'\$jigglebone\s+"([^"]+)"', line)
+                if match:
+                    current_bone_name = match.group(1)
+                    current_jigglebone_data = {}
+                    
+                    i += 1
+                    while i < len(lines) and lines[i].strip() != '{':
+                        i += 1
+                    
+                    if i < len(lines):
+                        depth = 1
+                        i += 1
+                        while i < len(lines) and depth > 0:
+                            sub_line = lines[i].strip()
+                            if sub_line == '{':
+                                depth += 1
+                            elif sub_line == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    break
+                            
+                            if depth == 1:
+                                parts = sub_line.split(maxsplit=1)
+                                if len(parts) > 0:
+                                    key = parts[0]
+                                    
+                                    if len(parts) == 1 or (len(parts) > 1 and parts[1] == '{'):
+                                        nested_props = {}
+                                        nested_depth = 1
+                                        j = i + 1
+                                        
+                                        if len(parts) == 1:
+                                            while j < len(lines) and lines[j].strip() != '{':
+                                                j += 1
+                                            if j < len(lines):
+                                                j += 1
+                                        
+                                        while j < len(lines) and nested_depth > 0:
+                                            nested_line = lines[j].strip()
+                                            if nested_line == '{':
+                                                nested_depth += 1
+                                            elif nested_line == '}':
+                                                nested_depth -= 1
+                                                if nested_depth == 0:
+                                                    break
+                                            
+                                            if nested_depth == 1 and nested_line:
+                                                nested_parts = nested_line.split(maxsplit=1)
+                                                if len(nested_parts) > 1:
+                                                    nested_props[nested_parts[0]] = nested_parts[1]
+                                            j += 1
+                                        current_jigglebone_data[key] = nested_props
+                                        i = j
+                                    else:
+                                        current_jigglebone_data[key] = parts[1]
+                            i += 1
+                    
+                    if current_bone_name and current_jigglebone_data:
+                        blender_bone = bone_map.get(current_bone_name)
+                        if blender_bone:
+                            vs_bone = blender_bone.vs
+                            vs_bone.bone_is_jigglebone = True
+                            imported_count += 1
+                            
+                            if 'is_flexible' in current_jigglebone_data:
+                                vs_bone.jiggle_flex_type = 'FLEXIBLE'
+                                flex_data = current_jigglebone_data['is_flexible']
+                                if isinstance(flex_data, dict):
+                                    vs_bone.jiggle_length = float(flex_data.get('length', 0.0))
+                                    vs_bone.jiggle_tip_mass = float(flex_data.get('tip_mass', 0.0))
+                                    vs_bone.jiggle_yaw_stiffness = float(flex_data.get('yaw_stiffness', 0.0))
+                                    vs_bone.jiggle_yaw_damping = float(flex_data.get('yaw_damping', 0.0))
+                                    
+                                    if 'yaw_constraint' in flex_data:
+                                        vs_bone.jiggle_has_yaw_constraint = True
+                                        yc_vals = [float(x) for x in flex_data['yaw_constraint'].split()]
+                                        vs_bone.jiggle_yaw_constraint_min = math.radians(yc_vals[0])
+                                        vs_bone.jiggle_yaw_constraint_max = math.radians(yc_vals[1])
+                                    if 'yaw_friction' in flex_data:
+                                        vs_bone.jiggle_yaw_friction = float(flex_data['yaw_friction'])
+
+                                    vs_bone.jiggle_pitch_stiffness = float(flex_data.get('pitch_stiffness', 0.0))
+                                    vs_bone.jiggle_pitch_damping = float(flex_data.get('pitch_damping', 0.0))
+
+                                    if 'pitch_constraint' in flex_data:
+                                        vs_bone.jiggle_has_pitch_constraint = True
+                                        pc_vals = [float(x) for x in flex_data['pitch_constraint'].split()]
+                                        vs_bone.jiggle_pitch_constraint_min = math.radians(pc_vals[0])
+                                        vs_bone.jiggle_pitch_constraint_max = math.radians(pc_vals[1])
+                                    if 'pitch_friction' in flex_data:
+                                        vs_bone.jiggle_pitch_friction = float(flex_data['pitch_friction'])
+                                    
+                                    vs_bone.jiggle_allow_length_flex = 'allow_length_flex' in flex_data
+                                    if vs_bone.jiggle_allow_length_flex:
+                                        vs_bone.jiggle_along_stiffness = float(flex_data.get('along_stiffness', 0.0))
+                                        vs_bone.jiggle_along_damping = float(flex_data.get('along_damping', 0.0))
+                                    
+                                    if 'angle_constraint' in flex_data:
+                                        vs_bone.jiggle_has_angle_constraint = True
+                                        vs_bone.jiggle_angle_constraint = math.radians(float(flex_data['angle_constraint']))
+
+                            elif 'is_rigid' in current_jigglebone_data:
+                                vs_bone.jiggle_flex_type = 'RIGID'
+                                rigid_data = current_jigglebone_data['is_rigid']
+                                if isinstance(rigid_data, dict):
+                                    vs_bone.jiggle_length = float(rigid_data.get('length', 0.0))
+                                    vs_bone.jiggle_tip_mass = float(rigid_data.get('tip_mass', 0.0))
+                            else:
+                                vs_bone.jiggle_flex_type = 'NONE'
+
+                            if 'has_base_spring' in current_jigglebone_data:
+                                vs_bone.jiggle_base_type = 'BASESPRING'
+                                base_data = current_jigglebone_data['has_base_spring']
+                                if isinstance(base_data, dict):
+                                    vs_bone.jiggle_base_stiffness = float(base_data.get('stiffness', 0.0))
+                                    vs_bone.jiggle_base_damping = float(base_data.get('damping', 0.0))
+                                    vs_bone.jiggle_base_mass = int(float(base_data.get('base_mass', 0)))
+                                    
+                                    if 'left_constraint' in base_data:
+                                        vs_bone.jiggle_has_left_constraint = True
+                                        lc_vals = [float(x) for x in base_data['left_constraint'].split()]
+                                        vs_bone.jiggle_left_constraint_min = lc_vals[0]
+                                        vs_bone.jiggle_left_constraint_max = lc_vals[1]
+                                    if 'left_friction' in base_data:
+                                        vs_bone.jiggle_left_friction = float(base_data['left_friction'])
+                                    
+                                    if 'up_constraint' in base_data:
+                                        vs_bone.jiggle_has_up_constraint = True
+                                        uc_vals = [float(x) for x in base_data['up_constraint'].split()]
+                                        vs_bone.jiggle_up_constraint_min = uc_vals[0]
+                                        vs_bone.jiggle_up_constraint_max = uc_vals[1]
+                                    if 'up_friction' in base_data:
+                                        vs_bone.jiggle_up_friction = float(base_data['up_friction'])
+                                    
+                                    if 'forward_constraint' in base_data:
+                                        vs_bone.jiggle_has_forward_constraint = True
+                                        fc_vals = [float(x) for x in base_data['forward_constraint'].split()]
+                                        vs_bone.jiggle_forward_constraint_min = fc_vals[0]
+                                        vs_bone.jiggle_forward_constraint_max = fc_vals[1]
+                                    if 'forward_friction' in base_data:
+                                        vs_bone.jiggle_forward_friction = float(base_data['forward_friction'])
+
+                            elif 'is_boing' in current_jigglebone_data:
+                                vs_bone.jiggle_base_type = 'BOING'
+                                boing_data = current_jigglebone_data['is_boing']
+                                if isinstance(boing_data, dict):
+                                    vs_bone.jiggle_impact_speed = int(float(boing_data.get('impact_speed', 0)))
+                                    vs_bone.jiggle_impact_angle = math.radians(float(boing_data.get('impact_angle', 0.0)))
+                                    vs_bone.jiggle_damping_rate = float(boing_data.get('damping_rate', 0.0))
+                                    vs_bone.jiggle_frequency = float(boing_data.get('frequency', 0.0))
+                                    vs_bone.jiggle_amplitude = float(boing_data.get('amplitude', 0.0))
+                            else:
+                                vs_bone.jiggle_base_type = 'NONE'
+
+                            if 'length' in current_jigglebone_data and vs_bone.jiggle_flex_type == 'NONE':
+                                vs_bone.jiggle_length = float(current_jigglebone_data['length'])
+                                vs_bone.use_bone_length_for_jigglebone_length = False
+                            
+                            if vs_bone.jiggle_length > 0:
+                                vs_bone.use_bone_length_for_jigglebone_length = False
+
+                        else:
+                            self.report({'WARNING'}, f"QC: No matching Blender bone found for '{current_bone_name}'. Skipping jigglebone import for this bone.")
+                    
+                    current_jigglebone_data = None
+                    current_bone_name = None
+            i += 1
+            
+        return imported_count
 
 class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
     bl_idname : str = "smd.write_jigglebone"

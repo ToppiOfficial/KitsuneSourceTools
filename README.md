@@ -1,11 +1,11 @@
-# KitsuneSourceTool [Blender 4.5+] [Alpha]
+# KitsuneSourceTool [Blender 4.5+]
 
 KitsuneSourceTool is a personal Blender addon built for my own Source engine workflow. It's a fork of BlenderSourceTool with extensions from my older unreleased projects.
 
 I'm releasing this publicly in case anyone finds it useful, but be aware: **this is built for my specific needs and workflow**. Don't expect comprehensive documentation or support.
 
 > [!WARNING]
-> - Alpha - use at your own risk
+> - Work in progress
 > - Original export code has been modified
 > - Incomplete translations and tooltips
 > - Features are being ported gradually from older versions
