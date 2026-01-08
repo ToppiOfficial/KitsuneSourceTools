@@ -156,6 +156,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         
         total_vgroups_removed = 0
         total_bones_removed = 0
+        total_collection_removed = 0
         
         for armature in armatures:
             bones = armature.pose.bones
