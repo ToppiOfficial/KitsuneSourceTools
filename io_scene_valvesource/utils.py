@@ -96,7 +96,6 @@ toggle_show_ops = [
     ['show_flex','show_vertexmap','show_floatmaps', 'show_vertexanimation'],
     'show_smdarmature',
     ['show_smdattachments', 'show_smdjigglebone', 'show_smdanimation', 'show_smdhitbox'],
-    'show_valvemodel_operators'
 ]
 
 class ExportFormat:

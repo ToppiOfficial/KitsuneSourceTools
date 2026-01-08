@@ -1005,7 +1005,10 @@ class SmdImporter(bpy.types.Operator, Logger):
             # In readQC when you encounter $hbox lines:
             if line[0] == "$hbox":
                 if not qc.a:
-                    continue
+                    qc.a = self.findArmature()
+                    if not qc.a:
+                        self.warning(get_id("qc_warn_noarmature_hbox", True).format(filename))
+                        continue
                 
                 hitbox_lines = [line_str]
                 for next_line in file:

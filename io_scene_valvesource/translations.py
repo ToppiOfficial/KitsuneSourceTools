@@ -610,6 +610,9 @@ _data = {
     'qc_warn_noarmature': {
         'en': "Skipping {0}; no armature found.",
     },
+    'qc_warn_noarmature_hbox': {
+        'en': "Skipping $hbox import in {0}; no armature found.",
+    },
     'exportstate_pattern_tip': {
         'en': "Visible objects with this string in their name will be affected",
     },

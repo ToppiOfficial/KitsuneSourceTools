@@ -128,18 +128,12 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         col = l.column(align=True)  
         self._draw_active_armature_info(context, col)
         
-        section = draw_toggleable_layout(col, context.scene.vs, 'show_valvemodel_operators', toggle_scale_y=0.9,
-                                         show_text='ValveModel Operators', icon='MODIFIER')
-        
-        if section is not None:
-            section.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
-            section.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
-        
         col.separator()
         
         sections = [
             ('show_smdjigglebone', 'JiggleBone', 'BONE_DATA', self.draw_jigglebone),
             ('show_smdhitbox', 'Hitbox', 'CUBE', self.draw_hitbox),
+            ('show_smdattachments', 'Attachment', 'EMPTY_DATA', self.draw_attachment),
             ('show_smdanimation', 'Animation', 'ANIM_DATA', self.draw_animation)
         ]
         
@@ -147,7 +141,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             section = draw_toggleable_layout(
                 col, context.scene.vs, prop, 
                 show_text=label, icon=icon, 
-                toggle_scale_y=0.9,
+                toggle_scale_y=1.0,
                 icon_outside=True
             )
             if section:
@@ -470,6 +464,13 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         
         layout.label(text='Hitbox Tools')
         layout.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
+        layout.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+    
+    def draw_attachment(self,context: Context, layout: UILayout) -> None:
+        ob = get_armature(context.object)
+        
+        layout.label(text='Attachment Tools')
+        layout.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
     
     def draw_animation(self, context: Context, layout: UILayout) -> None:
         ob = get_armature(context.object)
@@ -496,7 +497,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
       
 class VALVEMODEL_OT_FixAttachment(Operator):
     bl_idname: str = "smd.fix_attachments"
-    bl_label: str = "Fix Source Attachment Empties Matrix"
+    bl_label: str = "Fix Attachment Matrix"
     bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
     bl_options: Set = {'INTERNAL', 'UNDO'}
     
@@ -1549,7 +1550,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
 
         return {'FINISHED'}
 
-class VALVEMODEL_OT_ImportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
+class VALVEMODEL_OT_ImportHitBox(Operator):
     bl_idname: str = "smd.import_hitboxes"
     bl_label: str = "Import Source Hitboxes"
     bl_description: str = "Import Source Engine hitbox format from QC/QCI file"
