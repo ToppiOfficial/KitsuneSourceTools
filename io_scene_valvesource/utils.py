@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing
+import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils
 from bpy.app.translations import pgettext
 from bpy.app.handlers import depsgraph_update_post, load_post, persistent
 from mathutils import Matrix, Vector
@@ -976,3 +976,122 @@ def get_smd_prefab_enum(self, context):
         label = os.path.basename(filepath) or f"Prefab {i+1}"
         items.append((str(i), label, ""))
     return items
+
+
+def parse_hitbox_line(line: str):
+    """Parse a $hbox line and return hitbox data dict or None. Returns None for capsule hitboxes."""
+    import re
+    
+    pattern = r'\$hbox\s+(\d+)\s+"([^"]+)"\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?'
+    match = re.match(pattern, line.strip())
+    
+    if not match:
+        return None
+    
+    group = int(match.group(1))
+    bone_name = match.group(2)
+    min_x, min_y, min_z = float(match.group(3)), float(match.group(4)), float(match.group(5))
+    max_x, max_y, max_z = float(match.group(6)), float(match.group(7)), float(match.group(8))
+    scale = match.group(9) # capsule htibox is not supported for now. TODO
+    
+    if scale is not None:
+        scale_value = float(scale)
+        if scale_value != -1.0:
+            return None
+    
+    return {
+        'group': group,
+        'bone': bone_name,
+        'min': mathutils.Vector((min_x, min_y, min_z)),
+        'max': mathutils.Vector((max_x, max_y, max_z))
+    }
+
+def import_hitboxes_from_content(content: str, armature : bpy.types.Object, context : bpy.types.Context):
+    """
+    Import hitboxes from text content containing $hbox lines.
+    Returns (created_count, skipped_count, skipped_bones list)
+    """
+    from .core.boneutils import get_bone_exportname, get_bone_matrix
+    
+    hitboxes = []
+    for line in content.split('\n'):
+        if line.strip().startswith('$hbox'):
+            parsed = parse_hitbox_line(line)
+            if parsed:
+                hitboxes.append(parsed)
+    
+    if not hitboxes:
+        return (0, 0, [])
+    
+    created_count = 0
+    skipped_count = 0
+    skipped_bones = []
+    
+    previous_mode = armature.mode
+    if previous_mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    
+    for hb_data in hitboxes:
+        bone_name = hb_data['bone']
+        
+        bone = None
+        for b in armature.data.bones:
+            if get_bone_exportname(b) == bone_name:
+                bone = b
+                break
+        
+        if not bone:
+            skipped_bones.append(bone_name)
+            skipped_count += 1
+            continue
+        
+        min_point = hb_data['min']
+        max_point = hb_data['max']
+        
+        center = (min_point + max_point) / 2
+        half_extents = (max_point - min_point) / 2
+        
+        bpy.ops.object.empty_add(type='CUBE', location=(0, 0, 0))
+        empty = context.active_object
+        empty.name = f"hbox_{bone.name}"
+        
+        empty.parent = armature
+        empty.parent_type = 'BONE'
+        empty.parent_bone = bone.name
+        
+        pose_bone = armature.pose.bones[bone.name]
+        
+        bone_matrix_no_offset = bone.matrix_local
+        bone_matrix_world_no_offset = armature.matrix_world @ bone_matrix_no_offset
+        
+        bone_matrix_with_offset = get_bone_matrix(pose_bone, rest_space=True)
+        offset_only = bone_matrix_no_offset.inverted() @ bone_matrix_with_offset
+        
+        local_center = offset_only @ center
+        world_center = bone_matrix_world_no_offset @ local_center
+        
+        empty.matrix_world.translation = world_center
+        empty.rotation_euler = (0, 0, 0)
+        
+        avg_scale = (half_extents.x + half_extents.y + half_extents.z) / 3
+        empty.empty_display_size = avg_scale
+        
+        scale_factor = offset_only.to_3x3() @ half_extents
+        if avg_scale > 0.0001:
+            empty.scale = mathutils.Vector((
+                scale_factor.x / avg_scale,
+                scale_factor.y / avg_scale,
+                scale_factor.z / avg_scale
+            ))
+        
+        empty.vs.smd_hitbox = True
+        empty.vs.smd_hitbox_group = str(hb_data['group'])
+        
+        created_count += 1
+    
+    if previous_mode != 'OBJECT':
+        armature.select_set(True)
+        context.view_layer.objects.active = armature
+        bpy.ops.object.mode_set(mode=previous_mode)
+    
+    return (created_count, skipped_count, skipped_bones)

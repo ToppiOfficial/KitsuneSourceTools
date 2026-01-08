@@ -967,8 +967,12 @@ class SmdImporter(bpy.types.Operator, Logger):
             # Skip macros
             if line[0] == "$definemacro":
                 self.warning(get_id("importer_qc_macroskip", True).format(filename))
-                while line[-1] == "\\\\":
-                    line = self.parseQuoteBlockedLine( file.readline())
+                while True:
+                    line = self.parseQuoteBlockedLine(file.readline())
+                    if not line or (line and line[-1] != "\\\\"):
+                        break
+                    
+                continue  
 
             # register new QC variable
             if line[0] == "$definevariable":
@@ -997,6 +1001,26 @@ class SmdImporter(bpy.types.Operator, Logger):
             # bones in pure animation QCs
             if line[0] == "$definebone":
                 pass # TODO
+            
+            # In readQC when you encounter $hbox lines:
+            if line[0] == "$hbox":
+                if not qc.a:
+                    continue
+                
+                hitbox_lines = [line_str]
+                for next_line in file:
+                    if next_line.strip().startswith('$hbox'):
+                        hitbox_lines.append(next_line)
+                    elif next_line.strip() and not next_line.startswith('//'):
+                        break
+                
+                created, skipped, bones = import_hitboxes_from_content(''.join(hitbox_lines), qc.a, bpy.context)
+                if created > 0:
+                    print(f"- Imported {created} hitbox(es) from QC")
+                if skipped > 0:
+                    print(f"  Warning: Skipped {skipped} hitbox(es) with missing bones: {', '.join(bones)}")
+                
+                continue
 
             def import_file(word_index,default_ext,smd_type,append='APPEND',layer=0,in_file_recursion = False):
                 path = os.path.join( qc.cd(), appendExt(normalisePath(line[word_index]),default_ext) )
@@ -1139,17 +1163,30 @@ class SmdImporter(bpy.types.Operator, Logger):
 
                 qc.origin = origin
 
-            # QC inclusion
             if line[0] == "$include":
-                path = os.path.join(qc.root_filedir,normalisePath(line[1])) # special case: ignores dir stack
+                path = os.path.join(qc.root_filedir, normalisePath(line[1]))
 
                 if not path.endswith(".qc") and not path.endswith(".qci"):
-                    if os.path.exists(appendExt(path,".qci")):
-                        path = appendExt(path,".qci")
-                    elif os.path.exists(appendExt(path,".qc")):
-                        path = appendExt(path,".qc")
+                    if os.path.exists(appendExt(path, ".qci")):
+                        path = appendExt(path, ".qci")
+                    elif os.path.exists(appendExt(path, ".qc")):
+                        path = appendExt(path, ".qc")
+                
                 try:
-                    self.readQC(path,False, doAnim, makeCamera, rotMode)
+                    self.readQC(path, False, doAnim, makeCamera, rotMode)
+                    
+                    if path.lower().endswith(('.qci', '.qc')):
+                        already_added = False
+                        for prefab in bpy.context.scene.vs.smd_prefabs:
+                            if os.path.normpath(prefab.filepath) == os.path.normpath(path):
+                                already_added = True
+                                break
+                        
+                        if not already_added:
+                            prefab = bpy.context.scene.vs.smd_prefabs.add()
+                            prefab.filepath = path
+                            print(f"- Added QCI prefab: {os.path.basename(path)}")
+                
                 except IOError:
                     self.warning(get_id("importer_err_qci", True).format(path))
 

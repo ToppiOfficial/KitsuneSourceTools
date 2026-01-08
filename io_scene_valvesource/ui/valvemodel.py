@@ -6,7 +6,7 @@ from bpy.types import Context, Object, Operator, Panel, UILayout, Event
 from ..keyvalue3 import KVBool, KVNode, KVVector3, KVParser
 from ..ui.common import KITSUNE_PT_CustomToolPanel
 
-from ..utils import hitbox_group
+from ..utils import hitbox_group, import_hitboxes_from_content
 
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, is_armature, sanitize_string,
@@ -120,6 +120,8 @@ class VALVEMODEL_PrefabExportOperator():
 
 class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label: str = 'ValveModel'
+    
+    write_load_button_scale = 1.25
 
     def draw(self, context: Context) -> None:
         l = self.layout 
@@ -255,10 +257,16 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             return
         
         bone = ob.data.bones.active
-
-        self._draw_export_buttons(layout, VALVEMODEL_OT_ExportJiggleBone.bl_idname,scale_y=1.2)
-        layout.operator(VALVEMODEL_OT_ImportJigglebones.bl_idname, icon='IMPORT')
         
+        layout.label(text='Write & Load')
+        
+        self._draw_export_buttons(layout, VALVEMODEL_OT_ExportJiggleBone.bl_idname,scale_y=self.write_load_button_scale)
+        
+        col = layout.column()
+        col.scale_y = self.write_load_button_scale
+        col.operator(VALVEMODEL_OT_ImportJigglebones.bl_idname, icon='IMPORT')
+        
+        layout.label(text='Jigglebone Tools')
         if bone and bone.select:
             layout.operator(VALVEMODEL_OT_CopyJiggleBoneProperties.bl_idname, icon='COPYDOWN')
             self.draw_jigglebone_properties(layout, bone)
@@ -270,7 +278,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
                             clipboard_text: str = 'Write to Clipboard',
                             file_text: str = 'Write to File',
                             clipboard_icon: str = 'FILE_TEXT',
-                            file_icon: str = 'TEXT') -> None:
+                            file_icon: str = 'EXPORT') -> None:
         """Draw standard export button pair (clipboard/file)."""
         row = layout.row(align=True)
         row.scale_y = scale_y
@@ -452,14 +460,15 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         if not self._validate_object_type(layout, ob, 'armature_or_empty'):
             return
         
-        self._draw_export_buttons(
-            layout,
-            VALVEMODEL_OT_ExportHitBox.bl_idname,
-            scale_y=1.25
-        )
+        layout.label(text='Write & Load')
         
-        layout.separator(type='LINE')
+        self._draw_export_buttons(layout,VALVEMODEL_OT_ExportHitBox.bl_idname,scale_y=self.write_load_button_scale)
         
+        col = layout.column()
+        col.scale_y = self.write_load_button_scale
+        col.operator(VALVEMODEL_OT_ImportHitBox.bl_idname, icon='IMPORT')
+        
+        layout.label(text='Hitbox Tools')
         layout.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
     
     def draw_animation(self, context: Context, layout: UILayout) -> None:
@@ -1539,7 +1548,51 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
                 return {'CANCELLED'}
 
         return {'FINISHED'}
+
+class VALVEMODEL_OT_ImportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
+    bl_idname: str = "smd.import_hitboxes"
+    bl_label: str = "Import Source Hitboxes"
+    bl_description: str = "Import Source Engine hitbox format from QC/QCI file"
+    bl_options: Set = {'REGISTER', 'UNDO'}
     
+    filepath: StringProperty(subtype='FILE_PATH')
+    filter_glob: StringProperty(default='*.qc;*.qci', options={'HIDDEN'})
+    
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        return is_armature(context.object)
+    
+    def invoke(self, context: Context, event: Event) -> set:
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+    
+    def execute(self, context: Context) -> set:
+        armature = get_armature(context.object)
+        
+        if not armature:
+            self.report({'WARNING'}, "Active object is not an armature")
+            return {'CANCELLED'}
+        
+        try:
+            with open(self.filepath, 'r') as f:
+                content = f.read()
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to read file: {str(e)}")
+            return {'CANCELLED'}
+        
+        created_count, skipped_count, skipped_bones = import_hitboxes_from_content(content, armature, context)
+        
+        if created_count > 0:
+            if skipped_count > 0:
+                self.report({'WARNING'}, f"Imported {created_count} hitbox(es), skipped {skipped_count}")
+            else:
+                self.report({'INFO'}, f"Imported {created_count} hitbox(es)")
+        else:
+            self.report({'WARNING'}, "No hitboxes were imported")
+            return {'CANCELLED'}
+        
+        return {'FINISHED'}
+
 class VALVEMODEL_OT_FixHitBox(Operator):
     bl_idname: str = "smd.fix_hitboxes"
     bl_label: str = "Fix Source Hitboxes Empties Matrix"

@@ -504,6 +504,7 @@ _classes = (
     valvemodel.VALVEMODEL_OT_CreateProportionActions,
     valvemodel.VALVEMODEL_OT_ExportConstraintProportion,
     valvemodel.VALVEMODEL_OT_ExportHitBox,
+    valvemodel.VALVEMODEL_OT_ImportHitBox,
     valvemodel.VALVEMODEL_OT_FixHitBox,
     valvemodel.VALVEMODEL_OT_AddHitbox,
     
