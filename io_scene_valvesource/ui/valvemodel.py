@@ -16,7 +16,7 @@ from ..core.commonutils import (
 )
 
 from ..utils import (
-    get_filepath, get_smd_prefab_enum, get_id, State, Compiler
+    get_filepath, get_smd_prefab_enum, get_id, State, Compiler, import_jigglebones_from_content
 )
 
 from ..core.boneutils import(
@@ -31,7 +31,7 @@ from ..core.objectutils import(
     reevaluate_bone_parented_empty_matrix
 )
 
-class VALVEMODEL_PrefabExportOperator():
+class PrefabExport():
     
     to_clipboard: props.BoolProperty(
         name='Copy To Clipboard',
@@ -117,6 +117,20 @@ class VALVEMODEL_PrefabExportOperator():
         else:
             self.report({'INFO'}, f"Data exported to {export_path}")
         return True
+
+class PrefabImport():
+    
+    def simple_read_file(self, filepath: str):
+        content = None
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+        
+        except Exception as e:
+            print(f"- Failed to read file '{filepath}': {e}")
+            
+        finally:
+            return content if content else None
 
 class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
     bl_label: str = 'ValveModel'
@@ -517,7 +531,7 @@ class VALVEMODEL_OT_FixAttachment(Operator):
         
         return {'FINISHED'}
 
-class VALVEMODEL_OT_ImportJigglebones(Operator):
+class VALVEMODEL_OT_ImportJigglebones(Operator, PrefabImport):
     bl_idname : str = "smd.import_jigglebones"
     bl_label : str = "Import Jigglebones"
     bl_options: Set = {'REGISTER', 'UNDO'}
@@ -543,15 +557,25 @@ class VALVEMODEL_OT_ImportJigglebones(Operator):
             self.report({'ERROR'}, "No file selected.")
             return {'CANCELLED'}
         
-        filepath = self.filepath
+        filepath : str = self.filepath
         
         # Determine file type
         file_extension = filepath.lower().split('.')[-1]
         
         if file_extension in ['vmdl', 'vmdl_prefab']:
             imported_count = self._import_vmdl(context, armature, filepath)
+            
         elif file_extension in ['qc', 'qci']:
-            imported_count = self._import_qc(context, armature, filepath)
+            content = self.simple_read_file(filepath)
+            
+            if not content:
+                self.report({'ERROR'}, f"Failed to read file '{filepath}'.")
+                return {'CANCELLED'}
+            
+            imported_count, missing_bones = import_jigglebones_from_content(content, armature)
+            if missing_bones:
+                self.report({'WARNING'}, f"Could not find bones for {len(missing_bones)} jigglebone(s): {', '.join(missing_bones)}")
+        
         else:
             self.report({'ERROR'}, f"Unsupported file type: .{file_extension}. Please select a .vmdl, .vmdl_prefab, .qc, or .qci file.")
             return {'CANCELLED'}
@@ -712,199 +736,7 @@ class VALVEMODEL_OT_ImportJigglebones(Operator):
 
         return imported_count
 
-    def _import_qc(self, context, armature, filepath) -> int:
-        imported_count = 0
-        
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to read QC file '{filepath}': {e}")
-            return 0
-            
-        bone_map = {}
-        for b in armature.data.bones:
-            bone_map[get_bone_exportname(b)] = b
-            
-        current_jigglebone_data = None
-        current_bone_name = None
-        
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
-            
-            if line.startswith('$jigglebone'):
-                match = re.search(r'\$jigglebone\s+"([^"]+)"', line)
-                if match:
-                    current_bone_name = match.group(1)
-                    current_jigglebone_data = {}
-                    
-                    i += 1
-                    while i < len(lines) and lines[i].strip() != '{':
-                        i += 1
-                    
-                    if i < len(lines):
-                        depth = 1
-                        i += 1
-                        while i < len(lines) and depth > 0:
-                            sub_line = lines[i].strip()
-                            if sub_line == '{':
-                                depth += 1
-                            elif sub_line == '}':
-                                depth -= 1
-                                if depth == 0:
-                                    break
-                            
-                            if depth == 1:
-                                parts = sub_line.split(maxsplit=1)
-                                if len(parts) > 0:
-                                    key = parts[0]
-                                    
-                                    if len(parts) == 1 or (len(parts) > 1 and parts[1] == '{'):
-                                        nested_props = {}
-                                        nested_depth = 1
-                                        j = i + 1
-                                        
-                                        if len(parts) == 1:
-                                            while j < len(lines) and lines[j].strip() != '{':
-                                                j += 1
-                                            if j < len(lines):
-                                                j += 1
-                                        
-                                        while j < len(lines) and nested_depth > 0:
-                                            nested_line = lines[j].strip()
-                                            if nested_line == '{':
-                                                nested_depth += 1
-                                            elif nested_line == '}':
-                                                nested_depth -= 1
-                                                if nested_depth == 0:
-                                                    break
-                                            
-                                            if nested_depth == 1 and nested_line:
-                                                nested_parts = nested_line.split(maxsplit=1)
-                                                if len(nested_parts) > 1:
-                                                    nested_props[nested_parts[0]] = nested_parts[1]
-                                            j += 1
-                                        current_jigglebone_data[key] = nested_props
-                                        i = j
-                                    else:
-                                        current_jigglebone_data[key] = parts[1]
-                            i += 1
-                    
-                    if current_bone_name and current_jigglebone_data:
-                        blender_bone = bone_map.get(current_bone_name)
-                        if blender_bone:
-                            vs_bone = blender_bone.vs
-                            vs_bone.bone_is_jigglebone = True
-                            imported_count += 1
-                            
-                            if 'is_flexible' in current_jigglebone_data:
-                                vs_bone.jiggle_flex_type = 'FLEXIBLE'
-                                flex_data = current_jigglebone_data['is_flexible']
-                                if isinstance(flex_data, dict):
-                                    vs_bone.jiggle_length = float(flex_data.get('length', 0.0))
-                                    vs_bone.jiggle_tip_mass = float(flex_data.get('tip_mass', 0.0))
-                                    vs_bone.jiggle_yaw_stiffness = float(flex_data.get('yaw_stiffness', 0.0))
-                                    vs_bone.jiggle_yaw_damping = float(flex_data.get('yaw_damping', 0.0))
-                                    
-                                    if 'yaw_constraint' in flex_data:
-                                        vs_bone.jiggle_has_yaw_constraint = True
-                                        yc_vals = [float(x) for x in flex_data['yaw_constraint'].split()]
-                                        vs_bone.jiggle_yaw_constraint_min = math.radians(yc_vals[0])
-                                        vs_bone.jiggle_yaw_constraint_max = math.radians(yc_vals[1])
-                                    if 'yaw_friction' in flex_data:
-                                        vs_bone.jiggle_yaw_friction = float(flex_data['yaw_friction'])
-
-                                    vs_bone.jiggle_pitch_stiffness = float(flex_data.get('pitch_stiffness', 0.0))
-                                    vs_bone.jiggle_pitch_damping = float(flex_data.get('pitch_damping', 0.0))
-
-                                    if 'pitch_constraint' in flex_data:
-                                        vs_bone.jiggle_has_pitch_constraint = True
-                                        pc_vals = [float(x) for x in flex_data['pitch_constraint'].split()]
-                                        vs_bone.jiggle_pitch_constraint_min = math.radians(pc_vals[0])
-                                        vs_bone.jiggle_pitch_constraint_max = math.radians(pc_vals[1])
-                                    if 'pitch_friction' in flex_data:
-                                        vs_bone.jiggle_pitch_friction = float(flex_data['pitch_friction'])
-                                    
-                                    vs_bone.jiggle_allow_length_flex = 'allow_length_flex' in flex_data
-                                    if vs_bone.jiggle_allow_length_flex:
-                                        vs_bone.jiggle_along_stiffness = float(flex_data.get('along_stiffness', 0.0))
-                                        vs_bone.jiggle_along_damping = float(flex_data.get('along_damping', 0.0))
-                                    
-                                    if 'angle_constraint' in flex_data:
-                                        vs_bone.jiggle_has_angle_constraint = True
-                                        vs_bone.jiggle_angle_constraint = math.radians(float(flex_data['angle_constraint']))
-
-                            elif 'is_rigid' in current_jigglebone_data:
-                                vs_bone.jiggle_flex_type = 'RIGID'
-                                rigid_data = current_jigglebone_data['is_rigid']
-                                if isinstance(rigid_data, dict):
-                                    vs_bone.jiggle_length = float(rigid_data.get('length', 0.0))
-                                    vs_bone.jiggle_tip_mass = float(rigid_data.get('tip_mass', 0.0))
-                            else:
-                                vs_bone.jiggle_flex_type = 'NONE'
-
-                            if 'has_base_spring' in current_jigglebone_data:
-                                vs_bone.jiggle_base_type = 'BASESPRING'
-                                base_data = current_jigglebone_data['has_base_spring']
-                                if isinstance(base_data, dict):
-                                    vs_bone.jiggle_base_stiffness = float(base_data.get('stiffness', 0.0))
-                                    vs_bone.jiggle_base_damping = float(base_data.get('damping', 0.0))
-                                    vs_bone.jiggle_base_mass = int(float(base_data.get('base_mass', 0)))
-                                    
-                                    if 'left_constraint' in base_data:
-                                        vs_bone.jiggle_has_left_constraint = True
-                                        lc_vals = [float(x) for x in base_data['left_constraint'].split()]
-                                        vs_bone.jiggle_left_constraint_min = lc_vals[0]
-                                        vs_bone.jiggle_left_constraint_max = lc_vals[1]
-                                    if 'left_friction' in base_data:
-                                        vs_bone.jiggle_left_friction = float(base_data['left_friction'])
-                                    
-                                    if 'up_constraint' in base_data:
-                                        vs_bone.jiggle_has_up_constraint = True
-                                        uc_vals = [float(x) for x in base_data['up_constraint'].split()]
-                                        vs_bone.jiggle_up_constraint_min = uc_vals[0]
-                                        vs_bone.jiggle_up_constraint_max = uc_vals[1]
-                                    if 'up_friction' in base_data:
-                                        vs_bone.jiggle_up_friction = float(base_data['up_friction'])
-                                    
-                                    if 'forward_constraint' in base_data:
-                                        vs_bone.jiggle_has_forward_constraint = True
-                                        fc_vals = [float(x) for x in base_data['forward_constraint'].split()]
-                                        vs_bone.jiggle_forward_constraint_min = fc_vals[0]
-                                        vs_bone.jiggle_forward_constraint_max = fc_vals[1]
-                                    if 'forward_friction' in base_data:
-                                        vs_bone.jiggle_forward_friction = float(base_data['forward_friction'])
-
-                            elif 'is_boing' in current_jigglebone_data:
-                                vs_bone.jiggle_base_type = 'BOING'
-                                boing_data = current_jigglebone_data['is_boing']
-                                if isinstance(boing_data, dict):
-                                    vs_bone.jiggle_impact_speed = int(float(boing_data.get('impact_speed', 0)))
-                                    vs_bone.jiggle_impact_angle = math.radians(float(boing_data.get('impact_angle', 0.0)))
-                                    vs_bone.jiggle_damping_rate = float(boing_data.get('damping_rate', 0.0))
-                                    vs_bone.jiggle_frequency = float(boing_data.get('frequency', 0.0))
-                                    vs_bone.jiggle_amplitude = float(boing_data.get('amplitude', 0.0))
-                            else:
-                                vs_bone.jiggle_base_type = 'NONE'
-
-                            if 'length' in current_jigglebone_data and vs_bone.jiggle_flex_type == 'NONE':
-                                vs_bone.jiggle_length = float(current_jigglebone_data['length'])
-                                vs_bone.use_bone_length_for_jigglebone_length = False
-                            
-                            if vs_bone.jiggle_length > 0:
-                                vs_bone.use_bone_length_for_jigglebone_length = False
-
-                        else:
-                            self.report({'WARNING'}, f"QC: No matching Blender bone found for '{current_bone_name}'. Skipping jigglebone import for this bone.")
-                    
-                    current_jigglebone_data = None
-                    current_bone_name = None
-            i += 1
-            
-        return imported_count
-
-class VALVEMODEL_OT_ExportJiggleBone(Operator, VALVEMODEL_PrefabExportOperator):
+class VALVEMODEL_OT_ExportJiggleBone(Operator, PrefabExport):
     bl_idname : str = "smd.write_jigglebone"
     bl_label : str = "Write Jigglebones"
 
@@ -1253,7 +1085,7 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
         
         return matched_bones
 
-class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExportOperator):
+class VALVEMODEL_OT_ExportConstraintProportion(Operator, PrefabExport):
     bl_idname : str = "smd.encode_exportname_as_constraint_proportion"
     bl_label : str = "Write Constraint Proportions (Source 2)"
 
@@ -1373,7 +1205,7 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, VALVEMODEL_PrefabExport
 
         return kv_doc.to_text()
 
-class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
+class VALVEMODEL_OT_ExportHitBox(Operator, PrefabExport):
     bl_idname : str = "smd.export_hitboxes"
     bl_label : str = "Export Source Hitboxes"
     bl_description = "Export empty cubes as Source Engine hitbox format"
@@ -1550,7 +1382,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, VALVEMODEL_PrefabExportOperator):
 
         return {'FINISHED'}
 
-class VALVEMODEL_OT_ImportHitBox(Operator):
+class VALVEMODEL_OT_ImportHitBox(Operator, PrefabImport):
     bl_idname: str = "smd.import_hitboxes"
     bl_label: str = "Import Source Hitboxes"
     bl_description: str = "Import Source Engine hitbox format from QC/QCI file"
@@ -1574,13 +1406,13 @@ class VALVEMODEL_OT_ImportHitBox(Operator):
             self.report({'WARNING'}, "Active object is not an armature")
             return {'CANCELLED'}
         
-        try:
-            with open(self.filepath, 'r') as f:
-                content = f.read()
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to read file: {str(e)}")
-            return {'CANCELLED'}
         
+        content = self.simple_read_file(filepath=self.filepath)
+        
+        if not content:
+            self.report({'ERROR'}, "Failed to read file")
+            return {'CANCELLED'}
+
         created_count, skipped_count, skipped_bones = import_hitboxes_from_content(content, armature, context)
         
         if created_count > 0:

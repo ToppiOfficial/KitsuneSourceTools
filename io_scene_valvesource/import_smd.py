@@ -939,10 +939,26 @@ class SmdImporter(bpy.types.Operator, Logger):
             qc.animation_names = []
             if newscene:
                 bpy.context.screen.scene = bpy.data.scenes.new(filename) # BLENDER BUG: this currently doesn't update bpy.context.scene
-            else:
+            elif filename.lower().endswith('.qc'):
                 bpy.context.scene.name = filename
         else:
             qc = self.qc
+
+        try:
+            with open(filepath, 'r') as f:
+                qc_content = f.read()
+        except IOError:
+            qc_content = ""
+
+        if qc_content and '$jigglebone' in qc_content.lower():
+            if not qc.a:
+                qc.a = self.findArmature()
+            if qc.a:
+                imported_count, missing_bones = import_jigglebones_from_content(qc_content, qc.a)
+                if imported_count > 0:
+                    print(f"- Imported {imported_count} jigglebone(s) from {filename}")
+                if missing_bones:
+                    self.warning(f"Could not find bones for {len(missing_bones)} jigglebone(s) in {filename}: {', '.join(missing_bones)}")
 
         file = open(filepath, 'r')
         in_bodygroup = in_lod = in_sequence = False

@@ -305,7 +305,7 @@ _data = {
         'en': "File > Import/Export, Scene properties",
     },
     'import_menuitem': {
-        'en': "Source Engine (.smd, .vta, .dmx, .qc)",
+        'en': "Source Engine (.smd, .vta, .dmx, .qc, .qci)",
     },
     'exporter_err_nogroupitems': {
         'en': "Nothing in Group \"{0}\" is enabled for export",

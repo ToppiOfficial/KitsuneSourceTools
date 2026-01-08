@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils
+import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils, re, math
 from bpy.app.translations import pgettext
 from bpy.app.handlers import depsgraph_update_post, load_post, persistent
 from mathutils import Matrix, Vector
@@ -1094,3 +1094,221 @@ def import_hitboxes_from_content(content: str, armature : bpy.types.Object, cont
         bpy.ops.object.mode_set(mode=previous_mode)
     
     return (created_count, skipped_count, skipped_bones)
+
+def import_jigglebones_from_content(content: str, armature: bpy.types.Object) -> tuple[int, list[str]]:
+    """
+    Import jigglebones from text content containing $jigglebone definitions.
+    Returns (imported_count, missing_bones_list)
+    """
+    from .core.boneutils import get_bone_exportname
+    
+    imported_count = 0
+    missing_bones = []
+    
+    # Remove comments to simplify parsing
+    content = re.sub(r"//.*", "", content)
+        
+    bone_map = {get_bone_exportname(b): b for b in armature.data.bones}
+
+    # A simple recursive descent parser for the QC-like key-value format.
+    # It handles nested blocks and values.
+    def parse_from_tokens(token_stream):
+        result = {}
+        tokens = list(token_stream)
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            
+            if token == "}":
+                return result
+
+            key = token.lower()
+            i += 1
+
+            if i >= len(tokens):
+                result[key] = ""
+                break
+            
+            value_token = tokens[i]
+
+            if value_token == "{":
+                brace_depth = 1
+                j = i + 1
+                while j < len(tokens):
+                    if tokens[j] == '{': brace_depth += 1
+                    elif tokens[j] == '}': brace_depth -= 1
+                    if brace_depth == 0: break
+                    j += 1
+                
+                sub_tokens = tokens[i+1:j]
+                result[key] = parse_from_tokens(iter(sub_tokens))
+                i = j + 1
+            else:
+                values = [value_token.strip('"')]
+                i += 1
+                while i < len(tokens):
+                    next_token = tokens[i]
+                    
+                    is_value = False
+                    try:
+                        float(next_token.strip('"'))
+                        is_value = True
+                    except ValueError:
+                        pass
+                    
+                    if next_token == "{" or next_token == "}":
+                        is_value = False
+
+                    if is_value:
+                        values.append(next_token.strip('"'))
+                        i += 1
+                    else:
+                        break
+                result[key] = " ".join(values)
+        return result
+
+    # Iterate through all matches of `$jigglebone "bone_name"` to find each definition.
+    for match in re.finditer(r'\$jigglebone\s+"([^"]+)"', content, re.IGNORECASE):
+        current_bone_name = match.group(1)
+        
+        # Find the start of the block for this jigglebone
+        block_start_index = content.find('{', match.end())
+        if block_start_index == -1:
+            print(f"- Missing '{{' for jigglebone '{current_bone_name}'.")
+            continue
+
+        # Manually find the matching closing brace to extract the block content
+        brace_depth = 1
+        block_end_index = -1
+        for i in range(block_start_index + 1, len(content)):
+            if content[i] == '{':
+                brace_depth += 1
+            elif content[i] == '}':
+                brace_depth -= 1
+            
+            if brace_depth == 0:
+                block_end_index = i
+                break
+        
+        if block_end_index == -1:
+            print(f"QC: Unmatched '{{' for jigglebone '{current_bone_name}'.")
+            continue
+
+        block_content = content[block_start_index + 1 : block_end_index]
+        
+        # Tokenize and parse the extracted block
+        tokens = iter(re.findall(r'"[^"]+"|\S+', block_content))
+        current_jigglebone_data = parse_from_tokens(tokens)
+
+        if not current_bone_name or not current_jigglebone_data:
+            continue
+
+        blender_bone = bone_map.get(current_bone_name)
+        if not blender_bone:
+            print(f"- No matching Blender bone found for '{current_bone_name}'.")
+            missing_bones.append(current_bone_name)
+            continue
+
+        vs_bone = blender_bone.vs
+        vs_bone.bone_is_jigglebone = True
+        imported_count += 1
+        
+        # Apply parsed properties
+        if 'is_flexible' in current_jigglebone_data:
+            vs_bone.jiggle_flex_type = 'FLEXIBLE'
+            flex_data = current_jigglebone_data['is_flexible']
+            if isinstance(flex_data, dict):
+                vs_bone.jiggle_length = float(flex_data.get('length', 0.0))
+                vs_bone.jiggle_tip_mass = float(flex_data.get('tip_mass', 0.0))
+                vs_bone.jiggle_yaw_stiffness = float(flex_data.get('yaw_stiffness', 0.0))
+                vs_bone.jiggle_yaw_damping = float(flex_data.get('yaw_damping', 0.0))
+                
+                if 'yaw_constraint' in flex_data:
+                    vs_bone.jiggle_has_yaw_constraint = True
+                    yc_vals = [float(x) for x in flex_data['yaw_constraint'].split()]
+                    vs_bone.jiggle_yaw_constraint_min = abs(math.radians(yc_vals[0]))
+                    vs_bone.jiggle_yaw_constraint_max = abs(math.radians(yc_vals[1]))
+                if 'yaw_friction' in flex_data:
+                    vs_bone.jiggle_yaw_friction = float(flex_data['yaw_friction'])
+
+                vs_bone.jiggle_pitch_stiffness = float(flex_data.get('pitch_stiffness', 0.0))
+                vs_bone.jiggle_pitch_damping = float(flex_data.get('pitch_damping', 0.0))
+
+                if 'pitch_constraint' in flex_data:
+                    vs_bone.jiggle_has_pitch_constraint = True
+                    pc_vals = [float(x) for x in flex_data['pitch_constraint'].split()]
+                    vs_bone.jiggle_pitch_constraint_min = abs(math.radians(pc_vals[0]))
+                    vs_bone.jiggle_pitch_constraint_max = abs(math.radians(pc_vals[1]))
+                if 'pitch_friction' in flex_data:
+                    vs_bone.jiggle_pitch_friction = float(flex_data['pitch_friction'])
+                
+                vs_bone.jiggle_allow_length_flex = 'allow_length_flex' in flex_data
+                if vs_bone.jiggle_allow_length_flex and isinstance(flex_data['allow_length_flex'], dict):
+                    along_data = flex_data['allow_length_flex']
+                    vs_bone.jiggle_along_stiffness = float(along_data.get('along_stiffness', 0.0))
+                    vs_bone.jiggle_along_damping = float(along_data.get('along_damping', 0.0))
+                
+                if 'angle_constraint' in flex_data:
+                    vs_bone.jiggle_has_angle_constraint = True
+                    vs_bone.jiggle_angle_constraint = math.radians(float(flex_data['angle_constraint']))
+
+        elif 'is_rigid' in current_jigglebone_data:
+            vs_bone.jiggle_flex_type = 'RIGID'
+            rigid_data = current_jigglebone_data['is_rigid']
+            if isinstance(rigid_data, dict):
+                vs_bone.jiggle_length = float(rigid_data.get('length', 0.0))
+                vs_bone.jiggle_tip_mass = float(rigid_data.get('tip_mass', 0.0))
+        else:
+            vs_bone.jiggle_flex_type = 'NONE'
+
+        if 'has_base_spring' in current_jigglebone_data:
+            vs_bone.jiggle_base_type = 'BASESPRING'
+            base_data = current_jigglebone_data['has_base_spring']
+            if isinstance(base_data, dict):
+                vs_bone.jiggle_base_stiffness = float(base_data.get('stiffness', 0.0))
+                vs_bone.jiggle_base_damping = float(base_data.get('damping', 0.0))
+                vs_bone.jiggle_base_mass = int(float(base_data.get('base_mass', 0)))
+                
+                if 'left_constraint' in base_data:
+                    vs_bone.jiggle_has_left_constraint = True
+                    lc_vals = [float(x) for x in base_data['left_constraint'].split()]
+                    vs_bone.jiggle_left_constraint_min = abs(lc_vals[0])
+                    vs_bone.jiggle_left_constraint_max = abs(lc_vals[1])
+                if 'left_friction' in base_data:
+                    vs_bone.jiggle_left_friction = float(base_data['left_friction'])
+                
+                if 'up_constraint' in base_data:
+                    vs_bone.jiggle_has_up_constraint = True
+                    uc_vals = [float(x) for x in base_data['up_constraint'].split()]
+                    vs_bone.jiggle_up_constraint_min = abs(uc_vals[0])
+                    vs_bone.jiggle_up_constraint_max = abs(uc_vals[1])
+                if 'up_friction' in base_data:
+                    vs_bone.jiggle_up_friction = float(base_data['up_friction'])
+                
+                if 'forward_constraint' in base_data:
+                    vs_bone.jiggle_has_forward_constraint = True
+                    fc_vals = [float(x) for x in base_data['forward_constraint'].split()]
+                    vs_bone.jiggle_forward_constraint_min = abs(fc_vals[0])
+                    vs_bone.jiggle_forward_constraint_max = abs(fc_vals[1])
+                if 'forward_friction' in base_data:
+                    vs_bone.jiggle_forward_friction = float(base_data['forward_friction'])
+
+        elif 'is_boing' in current_jigglebone_data:
+            vs_bone.jiggle_base_type = 'BOING'
+            boing_data = current_jigglebone_data['is_boing']
+            if isinstance(boing_data, dict):
+                vs_bone.jiggle_impact_speed = int(float(boing_data.get('impact_speed', 0)))
+                vs_bone.jiggle_impact_angle = math.radians(float(boing_data.get('impact_angle', 0.0)))
+                vs_bone.jiggle_damping_rate = float(boing_data.get('damping_rate', 0.0))
+                vs_bone.jiggle_frequency = float(boing_data.get('frequency', 0.0))
+                vs_bone.jiggle_amplitude = float(boing_data.get('amplitude', 0.0))
+        else:
+            vs_bone.jiggle_base_type = 'NONE'
+
+        if 'length' in current_jigglebone_data and vs_bone.jiggle_flex_type == 'NONE':
+            vs_bone.jiggle_length = float(current_jigglebone_data['length'])
+        
+        if vs_bone.jiggle_length > 0:
+            vs_bone.use_bone_length_for_jigglebone_length = False
+    
+    return imported_count, missing_bones
