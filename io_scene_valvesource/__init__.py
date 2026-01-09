@@ -109,7 +109,7 @@ class TextureConversionItem(PropertyGroup):
     invert_roughness_map : BoolProperty(name='Invert Roughness Map', default=False)
     
     ambientocclu_map: StringProperty(name='AO Map')
-    ambientocclu_strength: IntProperty(name='AO Map Strength', default=80, min=0, max=100)
+    ambientocclu_strength: IntProperty(name='AO Map Strength', default=60, min=0, max=100)
     ambientocclu_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
     invert_ambientocclu_map : BoolProperty(name='Invert AO Map', default=False)
     

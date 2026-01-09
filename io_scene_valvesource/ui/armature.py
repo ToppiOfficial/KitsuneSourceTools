@@ -128,6 +128,8 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
     
     remove_unused_bonecollections : BoolProperty(name='Remove Unused Bone Collections', default=True)
 
+    respect_mirror : BoolProperty(name='Respect Mirror', default=True)
+    
     @classmethod
     def poll(cls, context: Context) -> bool:
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
@@ -136,20 +138,33 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         return context.window_manager.invoke_props_dialog(self, width=400)
     
     def draw(self, context: Context) -> None:
-        l: UILayout = self.layout
-        col = l.column(align=True)
-        col.prop(self, 'cleaning_mode', expand=False)
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        
+        col = layout.column(align=True)
+        col.prop(self, 'cleaning_mode')
         
         col.separator()
+        
         col.prop(self, 'preserve_deform_bones')
-        rootcol, itemcol = draw_listing_layout(col,indent_factor=0.05)
-        rootcol.prop(self, 'remove_unused_bonecollections')
-        rootcol.prop(self, 'remove_empty_vertex_groups')
-        itemcol.prop(self, 'weight_threshold', slider=True)
+        col.prop(self, 'respect_mirror')
+        col.prop(self, 'remove_unused_bonecollections')
+        
+        col.separator()
+        
+        col.prop(self, 'remove_empty_vertex_groups')
+        
+        subcol = col.column(align=True)
+        subcol.enabled = self.remove_empty_vertex_groups
+        subcol.prop(self, 'weight_threshold', slider=True)
         
         if self.cleaning_mode == 'FULL_CLEAN':
-            bx = l.box()
-            bx.label(text='WARNING: May break rigs with IK/constraints!', icon='ERROR')
+            col.separator()
+            box = layout.box()
+            row = box.row()
+            row.alert = True
+            row.label(text='WARNING: May break rigs with IK/constraints!', icon='ERROR')
 
     def execute(self, context: Context) -> Set:
         armatures: Set[Object | None] = {get_armature(ob) for ob in context.selected_objects}
@@ -175,7 +190,8 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 removed_vgroups = remove_unused_vertexgroups(
                     armature, 
                     armature.data.bones,
-                    weight_limit=self.weight_threshold
+                    weight_limit=self.weight_threshold,
+                    respect_mirror=self.respect_mirror
                 )
                 total_vgroups_removed += sum(len(vgs) for vgs in removed_vgroups.values())
 

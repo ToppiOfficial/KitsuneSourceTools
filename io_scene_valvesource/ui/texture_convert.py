@@ -362,7 +362,7 @@ class From_PBR_Conversion:
         result = self.img_proc.multiply(result, ao_blend, opacity=ao_strength / 100.0)
         
         if color_alpha_mode == 'RGB_ALPHA':
-            darkened = self.img_proc.brightness_contrast(result, brightness=-60, contrast=8, legacy=False)
+            darkened = self.img_proc.brightness_contrast(result, brightness=-55, contrast=6, legacy=False)
             metal_mask = metal[:, :, np.newaxis]
             result = self.img_proc.apply_with_mask(result, darkened, metal_mask)
             saturated = self.img_proc.hue_saturation(result, saturation=20)

@@ -2,6 +2,8 @@ import bpy, bmesh, mathutils
 from bpy.types import UILayout, Context, Object, Operator, Mesh
 from typing import Set
 
+from bpy.props import BoolProperty, EnumProperty, FloatProperty
+
 from .common import ToolsCategoryPanel
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts,
@@ -74,7 +76,7 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
     bl_label : str = 'Select Shapekey Vertices'
     bl_options : Set = {'REGISTER', 'UNDO'}
 
-    select_type: bpy.props.EnumProperty(
+    select_type: EnumProperty(
         name="Selection Type",
         items=[
             ('ACTIVE', "Active Shapekey", "Use only the active shapekey"),
@@ -83,13 +85,13 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
         default='ALL'
     )
 
-    select_inverse: bpy.props.BoolProperty(
+    select_inverse: BoolProperty(
         name="Select Inverse",
         default=False,
         description="Select vertices *not* affected by the shapekey(s)"
     )
 
-    threshold: bpy.props.FloatProperty(
+    threshold: FloatProperty(
         name="Threshold",
         description="Minimum vertex delta to consider as affected by shapekey",
         default=0.01,
@@ -138,16 +140,31 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
     bl_label : str = "Clean Unused Vertex Groups"
     bl_options : Set = {'REGISTER', 'UNDO'}
     
+    respect_mirror : BoolProperty(name='Respect Mirror', default=True)
+    weight_threshold : FloatProperty(name='Weight Threshold', default=0.001,min=0.0001,max=0.1,precision=4)
+    
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(context.selected_objects)
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+    
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.use_property_split = True
+        col.use_property_decorate = False
+        
+        col.prop(self, 'respect_mirror')
+        col.prop(self, 'weight_threshold', slider=True)
     
     def execute(self, context : Context) -> Set:
         obs = context.selected_objects
         total_removed = 0
 
         for ob in obs:
-            removed_vgroups = remove_unused_vertexgroups(ob)
+            removed_vgroups = remove_unused_vertexgroups(ob, weight_limit=self.weight_threshold, respect_mirror=self.respect_mirror)
             total_removed += sum(len(vgs) for vgs in removed_vgroups.values())
 
         self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
@@ -158,31 +175,31 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
     bl_label: str = "Add Black Toon Edgeline"
     bl_options: Set = {"REGISTER", "UNDO"}
 
-    per_material_edgeline: bpy.props.BoolProperty(
+    per_material_edgeline: BoolProperty(
         name="Per Material Edgeline",
         description="Create separate edgeline materials for each base material, or use a single unified edgeline material",
         default=False,
     )
     
-    overwrite_existing_materials: bpy.props.BoolProperty(
+    overwrite_existing_materials: BoolProperty(
         name="Overwrite Existing Materials",
         description="Replace existing edgeline material setup even if edgeline materials already exist",
         default=True,
     )
 
-    use_component_weights: bpy.props.BoolProperty(
+    use_component_weights: BoolProperty(
         name="Use Component Weights",
         description="Calculate vertex weights based on mesh island size",
         default=True,
     )
     
-    overwrite_existing_weights: bpy.props.BoolProperty(
+    overwrite_existing_weights: BoolProperty(
         name="Overwrite Existing Weights",
         description="Update vertex group weights even if the vertex group already exists",
         default=False
     )
     
-    weight_min: bpy.props.FloatProperty(
+    weight_min: FloatProperty(
         name="Min Weight",
         description="Minimum weight value",
         default=0.3,
@@ -190,7 +207,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         max=1.0,
     )
     
-    weight_max: bpy.props.FloatProperty(
+    weight_max: FloatProperty(
         name="Max Weight",
         description="Maximum weight value",
         default=0.8,
@@ -198,7 +215,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         max=1.0,
     )
     
-    component_size_metric: bpy.props.EnumProperty(
+    component_size_metric: EnumProperty(
         name="Size Metric",
         description="How to measure component size",
         items=[
@@ -209,7 +226,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         default='AREA'
     )
     
-    edgeline_thickness: bpy.props.FloatProperty(
+    edgeline_thickness: FloatProperty(
         name="Edgeline Thickness",
         description="Thickness of the toon edgeline (in scene units)",
         default=0.15,

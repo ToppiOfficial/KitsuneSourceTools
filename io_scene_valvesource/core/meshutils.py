@@ -18,9 +18,12 @@ def get_used_vertexgroups(mesh: bpy.types.Object, vertex_groups: set[int] | None
     vertex_groups_set = vertex_groups if vertex_groups is None else set(vertex_groups)
     
     for mat in mesh.data.materials:
-        if mat.vs.non_exportable_vgroup.strip() is not None:
-            exp_vgroup = mesh.vertex_groups.get(mat.vs.non_exportable_vgroup)
-            if exp_vgroup: vgroup_used.add(exp_vgroup)
+        if hasattr(mat, 'vs') and hasattr(mat.vs, 'non_exportable_vgroup'):
+            vgroup_name = mat.vs.non_exportable_vgroup
+            if vgroup_name and vgroup_name.strip():
+                exp_vgroup = mesh.vertex_groups.get(vgroup_name.strip())
+                if exp_vgroup:
+                    vgroup_used.add(exp_vgroup.index)
     
     for v in mesh.data.vertices:
         for g in v.groups:
@@ -30,12 +33,18 @@ def get_used_vertexgroups(mesh: bpy.types.Object, vertex_groups: set[int] | None
     return vgroup_used
 
 def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone] | bpy.types.ArmatureBones | None = None, 
-                        weight_limit: float = 0.001) -> dict[bpy.types.Object, list[str]] | None:
+                        weight_limit: float = 0.001, respect_mirror: bool = True) -> dict[bpy.types.Object, list[str]] | None:
     """
     Clean vertex groups by:
       1. Removing very small weights below `weight_limit`.
       2. Removing unused vertex groups that are tied to bones.
       3. Keeping unused vertex groups that are NOT tied to bones.
+
+    Args:
+        ob: Object (mesh or armature) to clean
+        bones: List of bones to consider, or None for all bones
+        weight_limit: Minimum weight threshold
+        respect_mirror: If True, preserve empty L/R groups when opposite side has weights
 
     Returns a dict mapping each mesh to the list of removed vertex group names.
     """
@@ -57,9 +66,14 @@ def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.type
     
     bone_names = {bone.name for bone in bones}
 
+    def get_opposite_name(name: str) -> str | None:
+        for left_suffix, right_suffix in direction_map.items():
+            if left_suffix in name:
+                return name.replace(left_suffix, right_suffix)
+        return None
+
     def is_left_or_right(name: str) -> bool:
-        name_lower = name.lower()
-        return any(kw.lower() in name_lower for kw in direction_map)
+        return any(suffix in name for suffix in direction_map)
 
     for mesh in meshes:
         vgroups = mesh.vertex_groups
@@ -69,23 +83,41 @@ def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.type
         removed_groups_per_mesh[mesh] = []
 
         has_mirror = any(mod.type == 'MIRROR' for mod in mesh.modifiers)
-        used_groups = get_used_vertexgroups(mesh) if mesh.type == 'MESH' else set()
 
         for v in mesh.data.vertices:
-            remove_indices = [
-                g.group for g in v.groups 
-                if g.group < len(vgroups) and vgroups[g.group].name in bone_names and g.weight < weight_limit
-            ]
-            for idx in remove_indices:
+            groups_to_remove = []
+            
+            for g in v.groups:
+                if g.group >= len(vgroups):
+                    continue
+                    
+                vg_name = vgroups[g.group].name
+                is_bone_group = vg_name in bone_names
+                
+                if is_bone_group and g.weight < weight_limit:
+                    groups_to_remove.append(g.group)
+            
+            for idx in groups_to_remove:
                 vgroups[idx].remove([v.index])
 
-        for idx, vg in reversed(list(enumerate(vgroups))):
+        used_groups_after_cleanup = get_used_vertexgroups(mesh, tolerance=weight_limit)
+        
+        vgroups_snapshot = list(vgroups)
+        
+        for vg in reversed(vgroups_snapshot):
             is_bone_group = vg.name in bone_names
-            is_unused = idx not in used_groups
-            should_keep_for_mirror = has_mirror and is_left_or_right(vg.name)
             
-            # Only remove if: unused AND tied to a bone AND not needed for mirror
-            if is_unused and is_bone_group and not should_keep_for_mirror:
+            is_empty = vg.index not in used_groups_after_cleanup
+            
+            should_keep_for_mirror = False
+            if respect_mirror and has_mirror and is_left_or_right(vg.name):
+                opposite_name = get_opposite_name(vg.name)
+                if opposite_name:
+                    opposite_vg = vgroups.get(opposite_name)
+                    if opposite_vg and opposite_vg.index in used_groups_after_cleanup:
+                        should_keep_for_mirror = True
+            
+            if is_bone_group and is_empty and not should_keep_for_mirror:
                 removed_groups_per_mesh[mesh].append(vg.name)
                 vgroups.remove(vg)
 

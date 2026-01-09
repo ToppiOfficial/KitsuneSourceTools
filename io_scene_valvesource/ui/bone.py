@@ -333,7 +333,7 @@ class TOOLS_OT_SubdivideBone(Operator):
         name='Falloff', 
         min=5, 
         max=20, 
-        default=10,
+        default=8,
         description='Weight falloff curve sharpness (higher = sharper transitions)'
     )
     

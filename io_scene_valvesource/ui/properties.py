@@ -816,10 +816,15 @@ class DME_UL_FlexControllers(UIList):
         
         invalid_shapekey = item.shapekey is None or item.shapekey not in ob.data.shape_keys.key_blocks
         
+        is_basis = False
+        if ob.data and ob.data.shape_keys and item.shapekey and len(ob.data.shape_keys.key_blocks) > 0:
+            if item.shapekey == ob.data.shape_keys.key_blocks[0].name:
+                is_basis = True
+
         split = layout.split(factor=0.6, align=True)
         
         name_row = split.row(align=True)
-        if has_duplicate_shapekey or not item.shapekey:
+        if has_duplicate_shapekey or not item.shapekey or is_basis:
             name_row.alert = True
         name_row.label(text=item.shapekey if item.shapekey else "Null Flexcontroller", icon='SHAPEKEY_DATA')
         
@@ -847,7 +852,13 @@ class DME_OT_AddFlexController(Operator):
 
         new_item = ob.vs.dme_flexcontrollers.add()
         ob.vs.dme_flexcontrollers_index = len(ob.vs.dme_flexcontrollers) - 1
-        new_item.shapekey = ""
+        
+        if hasattr(ob.data, 'shape_keys') and ob.active_shape_key_index is not None and ob.active_shape_key_index > 0:
+            new_item.shapekey = ob.data.shape_keys.key_blocks[ob.active_shape_key_index].name
+            new_item.raw_delta_name = new_item.shapekey.replace("_", "")
+        else:
+            new_item.shapekey = ""
+        
         return {'FINISHED'}
 
 class DME_OT_RemoveFlexController(Operator):

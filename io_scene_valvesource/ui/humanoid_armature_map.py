@@ -945,8 +945,16 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             else:
                 self._add_twist_constraint(arm, pbtwist, bone_name, twist_target, idx, twist_count)
 
-            for col in pb.bone.collections:
-                col.assign(pbtwist.bone)
+            twist_collection = arm.data.collections.get("Twist")
+            if twist_collection is None:
+                twist_collection = arm.data.collections.new("Twist")
+            
+            # Remove from all other collections first.
+            for c in pbtwist.bone.collections:
+                c.unassign(pbtwist.bone)
+            
+            # Add to the twist collection.
+            twist_collection.assign(pbtwist.bone)
 
     def _add_twist_constraint(self, arm: Object, pbtwist, bone_name: str, twist_target: str, idx: int, twist_count: int) -> None:
         pbtwist.rotation_mode = 'XYZ'
