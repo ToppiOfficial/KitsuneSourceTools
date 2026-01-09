@@ -541,6 +541,9 @@ _classes = (
     vertexgroup.TOOLS_OT_WeightMath,
     vertexgroup.TOOLS_OT_SwapVertexGroups,
     vertexgroup.TOOLS_OT_curve_ramp_weights,
+    vertexgroup.TOOLS_OT_multi_weight_paint_start,
+    vertexgroup.TOOLS_OT_multi_weight_paint_finish,
+    vertexgroup.TOOLS_OT_multi_weight_paint_cancel,
 
     animation.TOOLS_PT_Animation,
     animation.TOOLS_OT_merge_animation_slots,

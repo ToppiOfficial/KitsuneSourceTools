@@ -27,6 +27,8 @@ from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, C
 
 from bpy.types import UILayout, Context
 
+from .core.commonutils import sanitize_string
+
 vca_icon = 'EDITMODE_HLT'
 
 class SMD_MT_ExportChoice(bpy.types.Menu):
@@ -163,7 +165,7 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         if enabled:
             self._draw_stats_row(split1, obj)
     
-    def _draw_header_row(self, col, obj, item, enabled,index):
+    def _draw_header_row(self, col : UILayout, obj : bpy.types.Object, item, enabled,index):
         row = col.row(align=True)
         
         export_icon = 'CHECKBOX_HLT' if obj.vs.export and enabled else 'CHECKBOX_DEHLT'
@@ -173,7 +175,7 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         split1 = row.split(factor=0.8)
         split1.alert = not enabled
         toggle_icon = 'TRIA_DOWN' if obj.vs.show_items else 'TRIA_RIGHT'
-        op = split1.operator(SMD_OT_ShowExportCollection.bl_idname, icon=toggle_icon, text=item.name, emboss=False)
+        op = split1.operator(SMD_OT_ShowExportCollection.bl_idname, icon=toggle_icon, text=sanitize_string(item.name), emboss=False)
         op.index = index
         
         return split1

@@ -1,7 +1,8 @@
-import bpy
+import bpy, bmesh
 from bpy.props import FloatProperty, BoolProperty, StringProperty
 from bpy.types import UILayout, Context, Object, Operator, PoseBone
 from typing import Set
+from mathutils import Vector
 
 from .common import ToolsCategoryPanel
 from ..core.commonutils import (
@@ -27,34 +28,53 @@ class TOOLS_PT_VertexGroup(ToolsCategoryPanel):
         l : UILayout = self.layout
         bx : UILayout = draw_title_box_layout(l, TOOLS_PT_VertexGroup.bl_label, icon='GROUP_VERTEX')
         
+        vgroup_mode = False
+        
         ob : Object | None = context.object
-        if (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE'): pass
+        if (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE'): vgroup_mode = True
         else:
             draw_wrapped_texts(bx,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
-            return
-        
-        col = bx.column(align=True)
-        col.prop(context.scene.vs, 'visible_mesh_only')
-        col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
-        col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
-        col.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label + " (Weights Only)").weights_only = True
-        
-        if context.object.mode == 'WEIGHT_PAINT':
-            col = bx.column(align=True)
-            tool_settings = context.tool_settings
-            brush = tool_settings.weight_paint.brush
+            vgroup_mode = False
             
-            col.operator(TOOLS_OT_curve_ramp_weights.bl_idname)
-            row = col.row(align=True)
+        def draw_multi_ob_weightmode(col : UILayout):
+            col2 = col.column()
+            col2.scale_y = 1.5
+            if ob.get("is_temp_weight_paint"):
+                col2.operator(TOOLS_OT_multi_weight_paint_finish.bl_idname)
+                col2.operator(TOOLS_OT_multi_weight_paint_cancel.bl_idname)
+            else:
+                col2.operator(TOOLS_OT_multi_weight_paint_start.bl_idname)
+        
+        if vgroup_mode:
+            col = bx.column(align=True)
+            
+            draw_multi_ob_weightmode(col)
+            
+            col.prop(context.scene.vs, 'visible_mesh_only')
+            col.operator(TOOLS_OT_WeightMath.bl_idname, icon='LINENUMBERS_ON')
+            col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
+            col.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label + " (Weights Only)").weights_only = True
+            
+            if context.object.mode == 'WEIGHT_PAINT':
+                col = bx.column(align=True)
+                tool_settings = context.tool_settings
+                brush = tool_settings.weight_paint.brush
                 
-            col.template_curve_mapping(brush, "curve", brush=False)
-            row = col.row(align=True)
-            row.operator("brush.curve_preset", icon='SMOOTHCURVE', text="").shape = 'SMOOTH'
-            row.operator("brush.curve_preset", icon='SPHERECURVE', text="").shape = 'ROUND'
-            row.operator("brush.curve_preset", icon='ROOTCURVE', text="").shape = 'ROOT'
-            row.operator("brush.curve_preset", icon='SHARPCURVE', text="").shape = 'SHARP'
-            row.operator("brush.curve_preset", icon='LINCURVE', text="").shape = 'LINE'
-            row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
+                col.operator(TOOLS_OT_curve_ramp_weights.bl_idname)
+                row = col.row(align=True)
+                    
+                col.template_curve_mapping(brush, "curve", brush=False)
+                row = col.row(align=True)
+                row.operator("brush.curve_preset", icon='SMOOTHCURVE', text="").shape = 'SMOOTH'
+                row.operator("brush.curve_preset", icon='SPHERECURVE', text="").shape = 'ROUND'
+                row.operator("brush.curve_preset", icon='ROOTCURVE', text="").shape = 'ROOT'
+                row.operator("brush.curve_preset", icon='SHARPCURVE', text="").shape = 'SHARP'
+                row.operator("brush.curve_preset", icon='LINCURVE', text="").shape = 'LINE'
+                row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
+            
+        if(is_mesh(ob) and ob.mode == 'OBJECT'):
+            col = bx.column(align=True)
+            draw_multi_ob_weightmode(col)
 
 class TOOLS_OT_WeightMath(Operator):
     bl_idname : str = "kitsunetools.weight_math"
@@ -311,3 +331,245 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         
         self.report({'INFO'}, f'Processed {len(selected_bones)} Bones')
         return {'FINISHED'}
+
+class TOOLS_OT_multi_weight_paint_start(bpy.types.Operator):
+    bl_idname = "tools.multi_weight_paint_start"
+    bl_label = "Start Multi-Object Weight Paint"
+    bl_description = "Prepare selected meshes for multi-object weight painting"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context) -> bool:
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        return context.mode == 'OBJECT' and len(selected_meshes) > 1
+    
+    def execute(self, context) -> set:
+        original_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        
+        if not original_meshes:
+            self.report({'WARNING'}, "No mesh objects selected")
+            return {'CANCELLED'}
+        
+        armature = None
+        for obj in context.selected_objects:
+            if obj.type == 'ARMATURE':
+                armature = obj
+                break
+        
+        if not armature:
+            for obj in original_meshes:
+                for mod in obj.modifiers:
+                    if mod.type == 'ARMATURE' and mod.object:
+                        armature = mod.object
+                        break
+                if armature:
+                    break
+        
+        bpy.ops.object.select_all(action='DESELECT')
+        
+        duplicated_meshes = []
+        original_names = []
+        
+        for obj in original_meshes:
+            vg_name = f"__temp_id_vg_{obj.name}"
+            id_vg = obj.vertex_groups.new(name=vg_name)
+            all_verts = [v.index for v in obj.data.vertices]
+            id_vg.add(all_verts, 1.0, 'REPLACE')
+            obj["__temp_id_vg_name"] = vg_name
+
+            obj.select_set(True)
+            context.view_layer.objects.active = obj
+            bpy.ops.object.duplicate()
+            
+            dup_obj = context.active_object
+            dup_obj.name = f"temp_wgt_{obj.name}"
+            dup_obj["original_mesh"] = obj.name
+
+            for mod in list(dup_obj.modifiers):
+                if mod.type != 'ARMATURE':
+                    dup_obj.modifiers.remove(mod)
+            
+            duplicated_meshes.append(dup_obj)
+            original_names.append(obj.name)
+            
+            obj.select_set(False)
+            dup_obj.select_set(False)
+            obj.hide_set(True)
+        
+        for obj in duplicated_meshes:
+            obj.select_set(True)
+        
+        context.view_layer.objects.active = duplicated_meshes[0]
+        bpy.ops.object.join()
+        
+        combined_obj = context.active_object
+        combined_obj.name = "temp_wgt_combined"
+        combined_obj["is_temp_weight_paint"] = True
+        combined_obj["original_meshes"] = original_names
+        
+        if armature:
+            armature.select_set(True)
+        
+        context.view_layer.objects.active = combined_obj
+        
+        bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
+        
+        self.report({'INFO'}, f"Combined {len(original_meshes)} meshes for weight painting")
+        return {'FINISHED'}
+
+class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
+    bl_idname = "tools.multi_weight_paint_finish"
+    bl_label = "Finish Multi-Object Weight Paint"
+    bl_description = "Transfer weights back to original meshes and cleanup"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context) -> bool:
+        ob = context.active_object
+        return bool(is_mesh(ob) and ob.get("is_temp_weight_paint"))
+    
+    def execute(self, context) -> set:
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        
+        combined_obj = context.active_object
+        original_names = combined_obj.get("original_meshes", [])
+        
+        if not original_names:
+            self.report({'WARNING'}, "No original mesh data found")
+            return {'CANCELLED'}
+        
+        original_meshes = []
+        for name in original_names:
+            obj = bpy.data.objects.get(name)
+            if obj:
+                original_meshes.append(obj)
+                obj.hide_set(False)
+        
+        if not original_meshes:
+            self.report({'WARNING'}, "Original meshes not found")
+            return {'CANCELLED'}
+        
+        bpy.ops.object.select_all(action='DESELECT')
+        
+        for target_obj in original_meshes:
+            vg_name = target_obj.get("__temp_id_vg_name")
+            if not vg_name or not combined_obj.vertex_groups.get(vg_name):
+                self.report({'WARNING'}, f"Object {target_obj.name} missing ID vertex group. Skipping.")
+                continue
+
+            # Create a temporary object with only the relevant part of the mesh
+            context.view_layer.objects.active = combined_obj
+            combined_obj.select_set(True)
+            bpy.ops.object.duplicate()
+            temp_source_obj = context.active_object
+            combined_obj.select_set(False)
+            
+            try:
+                vg_index = temp_source_obj.vertex_groups[vg_name].index
+                
+                bm = bmesh.new()
+                bm.from_mesh(temp_source_obj.data)
+                
+                deform_layer = bm.verts.layers.deform.verify()
+                
+                verts_to_delete = [v for v in bm.verts if vg_index not in v[deform_layer]]
+                
+                bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
+                
+                bm.to_mesh(temp_source_obj.data)
+                bm.free()
+                temp_source_obj.data.update()
+
+                # Transfer weights using this new temp object
+                if "DataTransfer" in target_obj.modifiers:
+                    target_obj.modifiers.remove(target_obj.modifiers["DataTransfer"])
+
+                mod = target_obj.modifiers.new(name="DataTransfer", type='DATA_TRANSFER')
+                mod.object = temp_source_obj
+                mod.use_vert_data = True
+                mod.data_types_verts = {'VGROUP_WEIGHTS'}
+                mod.vert_mapping = 'TOPOLOGY'
+                
+                override = context.copy()
+                override['object'] = target_obj
+                override['modifier'] = mod
+                with context.temp_override(**override):
+                    bpy.ops.object.modifier_apply(modifier=mod.name)
+                
+                self.report({'INFO'}, f"Successfully transferred weights to {target_obj.name} using Topology.")
+
+            except Exception as e:
+                self.report({'ERROR'}, f"Failed to transfer weights to {target_obj.name}: {e}")
+
+            finally:
+                # Cleanup the temporary source object
+                bpy.data.objects.remove(temp_source_obj, do_unlink=True)
+
+            # Cleanup the ID vertex group
+            vg = target_obj.vertex_groups.get(vg_name)
+            if vg:
+                target_obj.vertex_groups.remove(vg)
+            if "__temp_id_vg_name" in target_obj:
+                del target_obj["__temp_id_vg_name"]
+
+        # Final cleanup of the main combined object
+        bpy.ops.object.select_all(action='DESELECT')
+        combined_obj.select_set(True)
+        context.view_layer.objects.active = combined_obj
+        bpy.ops.object.delete()
+        
+        if original_meshes:
+            for obj in original_meshes:
+                obj.select_set(True)
+            context.view_layer.objects.active = original_meshes[0]
+        
+        self.report({'INFO'}, f"Weight transfer completed for {len(original_meshes)} meshes")
+        return {'FINISHED'}
+
+
+class TOOLS_OT_multi_weight_paint_cancel(bpy.types.Operator):
+    bl_idname = "tools.multi_weight_paint_cancel"
+    bl_label = "Cancel"
+    bl_description = "Discard changes and cleanup"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        ob = context.active_object
+        return bool(is_mesh(ob) and ob.get("is_temp_weight_paint"))
+
+    def execute(self, context) -> set:
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        combined_obj = context.active_object
+        original_names = combined_obj.get("original_meshes", [])
+
+        if not original_names:
+            self.report({'WARNING'}, "No original mesh data found")
+            return {'CANCELLED'}
+
+        original_meshes = []
+        for name in original_names:
+            obj = bpy.data.objects.get(name)
+            if obj:
+                original_meshes.append(obj)
+                obj.hide_set(False)
+                obj.select_set(True)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        combined_obj.select_set(True)
+        context.view_layer.objects.active = combined_obj
+        bpy.ops.object.delete()
+
+        if original_meshes:
+            for obj in original_meshes:
+                obj.select_set(True)
+            context.view_layer.objects.active = original_meshes[0]
+        else:
+            self.report({'WARNING'}, "Original meshes not found, please unhide them from the outliner manually")
+
+        self.report({'INFO'}, "Cancelled multi-object weight paint. Changes discarded.")
+        return {'FINISHED'}
+    
