@@ -119,22 +119,26 @@ def is_valid_string(name: str) -> bool:
     
     return True
 
-def sort_bone_by_hierachy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
+def sort_bone_by_hierarchy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
+    bone_set = set(bones)
     sorted_bones = []
     visited = set()
-    bone_set = set(bones)
     
     def dfs(bone):
-        if bone not in visited and bone in bone_set:
-            visited.add(bone)
-            sorted_bones.append(bone)
-            for child in bone.children:
-                if child in bone_set:
-                    dfs(child)
-
-    for bone in bones:
-        dfs(bone)
+        if bone in visited or bone not in bone_set:
+            return
+        visited.add(bone)
+        sorted_bones.append(bone)
         
+        for child in sorted(bone.children, key=lambda b: b.name):
+            if child in bone_set:
+                dfs(child)
+    
+    roots = [b for b in bone_set if b.parent is None or b.parent not in bone_set]
+    
+    for root in sorted(roots, key=lambda b: b.name):
+        dfs(root)
+    
     return sorted_bones
 
 def get_selected_bones(armature : bpy.types.Object | None,
@@ -185,7 +189,7 @@ def get_selected_bones(armature : bpy.types.Object | None,
             armatureBones = [b for b in armatureBones if b.name != active_name]
             
         if sort_type in ['TO_LAST', 'TO_FIRST']:
-            armatureBones = sort_bone_by_hierachy(armatureBones)
+            armatureBones = sort_bone_by_hierarchy(armatureBones)
             
             if sort_type == 'TO_FIRST':
                 armatureBones.reverse()

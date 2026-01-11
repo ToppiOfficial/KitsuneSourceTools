@@ -299,6 +299,29 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
         if new_name != name:
             self.warning(get_id("exporter_warn_sanitised_filename",True).format(name,new_name))
         return new_name
+
+    def check_duplicate_bone_names(self, bone_names_dict):
+        seen = {}
+        duplicates = []
+        for bone, name in bone_names_dict.items():
+            if name in seen:
+                duplicates.append(name)
+            else:
+                seen[name] = bone
+
+        if duplicates:
+            # Making the error message more informative
+            dupe_report = {}
+            for name in set(duplicates):
+                dupe_report[name] = [bone for bone, export_name in bone_names_dict.items() if export_name == name]
+            
+            error_message = "Found duplicate bone export names:\n"
+            for name, bones in dupe_report.items():
+                error_message += f"- Name '{name}' is used by: {', '.join(bones)}\n"
+            
+            self.report({'ERROR'}, error_message)
+            return False
+        return True
     
     def exportId(self,context,id):
         self.attemptedExports += 1
@@ -574,6 +597,9 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                 for edit_bone in self.armature.data.bones
                 if (exporting_armature or edit_bone.use_deform)
             }
+
+            if not self.check_duplicate_bone_names(self.exportable_boneNames):
+                return
             
             skipped_bones = len(self.armature.pose.bones) - len(self.exportable_bones)
             if skipped_bones:

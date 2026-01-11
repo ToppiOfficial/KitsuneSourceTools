@@ -1,5 +1,5 @@
 import bpy, re, math, typing, math, collections, mathutils
-from .commonutils import sanitize_string, get_armature, sort_bone_by_hierachy
+from .commonutils import sanitize_string, get_armature, sort_bone_by_hierarchy
 
 _shortcut_pattern = re.compile(r"!(\w+)")
 
@@ -36,10 +36,9 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
         return (arm_prop.bone_direction_naming_right if bone_x < 0 
                 else arm_prop.bone_direction_naming_left)
 
-    ordered_bones = sort_bone_by_hierachy(armature.data.bones)
+    ordered_bones = sort_bone_by_hierarchy(armature.data.bones)
     name_count = collections.defaultdict(lambda: arm_prop.bone_name_startcount)
     export_names = {}
-    used_names = set()
 
     for b in ordered_bones:
         b_side = get_bone_side(b)
@@ -60,14 +59,6 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
             final_name = raw_name
 
         final_name = sanitize_string(final_name)
-        
-        if final_name in used_names:
-            counter = 1
-            while f"{final_name}.{counter:03d}" in used_names:
-                counter += 1
-            final_name = f"{final_name}.{counter:03d}"
-        
-        used_names.add(final_name)
         export_names[b.name] = final_name
 
     return export_names[data_bone.name]

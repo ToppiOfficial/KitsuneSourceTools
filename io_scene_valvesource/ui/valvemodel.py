@@ -24,7 +24,7 @@ from ..core.boneutils import(
 )
 
 from ..core.armatureutils import(
-    copy_target_armature_visualpose, sort_bone_by_hierachy, get_bone_matrix, get_relative_target_matrix
+    copy_target_armature_visualpose, sort_bone_by_hierarchy, get_bone_matrix, get_relative_target_matrix
 )
 
 from ..core.objectutils import(
@@ -1326,7 +1326,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, PrefabExport):
             return {'CANCELLED'}
 
         bones_list = [hb['bone'] for hb in hitbox_data]
-        sorted_bones = sort_bone_by_hierachy(bones_list)
+        sorted_bones = sort_bone_by_hierarchy(bones_list)
 
         bone_to_hitbox = {hb['bone']: hb for hb in hitbox_data}
 
