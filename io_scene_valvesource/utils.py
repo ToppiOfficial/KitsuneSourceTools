@@ -62,7 +62,7 @@ axes_lookup = { 'X':0, 'Y':1, 'Z':2 }
 axes_lookup_source2 = { 'X':1, 'Y':2, 'Z':3 }
 
 pbr_to_phong_channels = [
-    ('GREY', 'Greyscale', 'The image is a greyscale mask. (Only the red channel is used)'),
+    ('GREY', 'BW', 'The image is a greyscale mask. (Only the red channel is used)'),
     ('R', 'Red', ''),
     ('G', 'Green', ''),
     ('B', 'Blue', ''),

@@ -103,6 +103,7 @@ class TextureConversionItem(PropertyGroup):
     metal_map: StringProperty(name='Metal Map')
     metal_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
     invert_metal_map : BoolProperty(name='Invert Metal Map', default=False)
+    metal_diffuse_mix : FloatProperty(name='Metal to Diffuse Mix', min=0.0,max=1.0,default=1.0)
     
     roughness_map: StringProperty(name='Roughness Map')
     roughness_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)

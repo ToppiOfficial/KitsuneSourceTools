@@ -229,8 +229,8 @@ class From_PBR_Conversion:
             print("  ERROR: Failed to load roughness, metal, or AO map")
             return None
         
-        max_h = max(rough_raw.shape[0], metal_raw.shape[0], ao_raw.shape[0])
-        max_w = max(rough_raw.shape[1], metal_raw.shape[1], ao_raw.shape[1])
+        max_h = max(rough_raw.shape[0], metal_raw.shape[0], ao_raw.shape[0], maps['normal'].shape[0])
+        max_w = max(rough_raw.shape[1], metal_raw.shape[1], ao_raw.shape[1], maps['normal'].shape[1])
         print(f"  Target size for RMA maps: {max_h}x{max_w}")
         
         print("  Resizing roughness, metal, AO to target size...")
@@ -355,14 +355,14 @@ class From_PBR_Conversion:
         return exponent
     
     def create_diffuse_map(self, diffuse, metal, ao, alpha, skin, ao_strength, 
-                          skin_gamma, skin_contrast, color_alpha_mode):
+                          skin_gamma, skin_contrast, color_alpha_mode, metal_mix_strength):
         result = diffuse.copy()
         
         ao_blend = np.stack([ao]*3 + [np.ones_like(ao)], axis=2)
         result = self.img_proc.multiply(result, ao_blend, opacity=ao_strength / 100.0)
         
         if color_alpha_mode == 'RGB_ALPHA':
-            darkened = self.img_proc.brightness_contrast(result, brightness=-55, contrast=6, legacy=False)
+            darkened = self.img_proc.brightness_contrast(result, brightness=-55 * metal_mix_strength, contrast=6, legacy=False)
             metal_mask = metal[:, :, np.newaxis]
             result = self.img_proc.apply_with_mask(result, darkened, metal_mask)
             saturated = self.img_proc.hue_saturation(result, saturation=20)
@@ -514,7 +514,7 @@ class From_PBR_Conversion:
             maps['diffuse'], maps['metal_diffuse'], maps['ao_diffuse'], maps['alpha'],
             maps.get('skin'), item.ambientocclu_strength, 
             item.skin_map_gamma, item.skin_map_contrast, 
-            item.color_alpha_mode
+            item.color_alpha_mode, item.metal_diffuse_mix
         )
         diffuse_path = os.path.join(export_dir, f"{base_name}_d.tga")
         print(f"  Saving: {diffuse_path}")
@@ -829,6 +829,9 @@ class TEXTURECONVERSION_PT_Panel(ToolsCategoryPanel):
         row.prop_search(item, 'metal_map', bpy.data, 'images', text='')
         row.prop(item, 'metal_map_ch', text='')
         col.prop(item, 'invert_metal_map')
+        
+        if item.color_alpha_mode == 'RGB_ALPHA':
+            col.prop(item, 'metal_diffuse_mix', slider=True)
         
         box = layout.box()
         col = box.column(align=True)

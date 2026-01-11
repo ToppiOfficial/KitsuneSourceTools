@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import BoolProperty, EnumProperty, FloatProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
 from bpy.types import UILayout, Context, Operator, Object
 from typing import Set
 
@@ -70,9 +70,23 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
     
     as_shapekey : BoolProperty(name='Apply As Shapekey', default=False)
     
+    shapekey_name : StringProperty(name='Shapekey Name')
+    add_active_shapekey : BoolProperty(name='Add Active Shapekey', default=False)
+    
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
+    
+    def invoke(self, context, event):
+        if self.as_shapekey:
+            return context.window_manager.invoke_props_dialog(self, width=150)
+        else:
+            return self.execute(context)
+        
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, 'shapekey_name')
+        layout.prop(self, 'add_active_shapekey')
     
     def execute(self, context : Context) -> Set:
         with preserve_context_mode(None, 'OBJECT'):
@@ -83,7 +97,7 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
             
             for armature in armatures:
                 if self.as_shapekey:
-                    success, error_logs = apply_current_pose_shapekey(armature=armature)
+                    success, error_logs = apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip(), add_active_shapekey=self.add_active_shapekey)
 
                 else:
                     if self.selected_only:
@@ -106,7 +120,8 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
             else:
                 self.report({'INFO'}, f'Applied {len(armatures)} Armatures as Rest Pose')
             
-            bpy.ops.object.mode_set(mode='OBJECT')
+            if not self.as_shapekey:
+                bpy.ops.object.mode_set(mode='OBJECT')
                     
         return {'FINISHED'} if success else {'CANCELLED'}
     

@@ -230,7 +230,7 @@ def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> tuple[b
             bpy.context.view_layer.depsgraph.update()
             return True, error_logs
 
-def apply_current_pose_shapekey(armature: bpy.types.Object | None) -> tuple[bool, list[str]]:
+def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = "", add_active_shapekey : bool = False) -> tuple[bool, list[str]]:
     if not is_armature(armature): return False, ['Not an armature']
     
     meshes = get_armature_meshes(armature)
@@ -250,6 +250,13 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None) -> tuple[bool
                     error_logs.append(f"Mesh {mesh.name} has no Armature modifier for {armature.name}")
                     continue
                 
+                original_shapekey_values = {}
+                
+                if (mesh.data.shape_keys and mesh.data.shape_keys.key_blocks) and not add_active_shapekey:
+                    for sk in mesh.data.shape_keys.key_blocks:
+                        original_shapekey_values[sk.name] = sk.value
+                        sk.value = 0
+                
                 try:
                     mesh.select_set(True)
                     context_override = {'object': mesh, 'active_object': mesh, 'selected_objects': [mesh]}
@@ -260,8 +267,8 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None) -> tuple[bool
                         success_count += 1
                         if mesh.data.shape_keys:
                             new_key = mesh.data.shape_keys.key_blocks[-1]
-                            pose_name = armature.animation_data.action.name if armature.animation_data and armature.animation_data.action else "Pose"
-                            new_key.name = f"{pose_name}_Shape"
+                            pose_name = shapekey_name if shapekey_name else 'Pose_Shape'
+                            new_key.name = pose_name
                     else:
                         error_logs.append(f"Failed to apply modifier for {mesh.name}")
                     
@@ -270,6 +277,11 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None) -> tuple[bool
                 except Exception as e:
                     error_logs.append(f"Error processing {mesh.name}: {str(e)}")
                     mesh.select_set(False)
+                    
+                finally:
+                    for sk_name, sk_value in original_shapekey_values.items():
+                        if sk_name in mesh.data.shape_keys.key_blocks:
+                            mesh.data.shape_keys.key_blocks[sk_name].value = sk_value
     
     return success_count > 0, error_logs
 

@@ -210,15 +210,21 @@ def get_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
         return []
 
     shape_keys = ob.data.shape_keys
-    if shape_keys is None or not hasattr(shape_keys, 'key_blocks'): return []
+    if shape_keys is None or not hasattr(shape_keys, 'key_blocks'): 
+        return []
 
     basis = shape_keys.key_blocks[0]
-
     basis_coords = [v.co.copy() for v in basis.data]
 
     removed = []
     for key in list(shape_keys.key_blocks)[1:]:
-        if all((v.co - basis_coords[i]).length < 1e-6 for i, v in enumerate(key.data)):
+        is_unused = True
+        for i, v in enumerate(key.data):
+            if (v.co - basis_coords[i]).length >= 1e-6:
+                is_unused = False
+                break
+        
+        if is_unused:
             removed.append(key.name)
             ob.shape_key_remove(key)
 
