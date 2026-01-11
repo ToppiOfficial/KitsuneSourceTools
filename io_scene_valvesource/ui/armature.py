@@ -71,7 +71,6 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
     as_shapekey : BoolProperty(name='Apply As Shapekey', default=False)
     
     shapekey_name : StringProperty(name='Shapekey Name')
-    add_active_shapekey : BoolProperty(name='Add Active Shapekey', default=False)
     
     @classmethod
     def poll(cls, context : Context) -> bool:
@@ -97,7 +96,7 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
             
             for armature in armatures:
                 if self.as_shapekey:
-                    success, error_logs = apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip(), add_active_shapekey=self.add_active_shapekey)
+                    success, error_logs = apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip())
 
                 else:
                     if self.selected_only:

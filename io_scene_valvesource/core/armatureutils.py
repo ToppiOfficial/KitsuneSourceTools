@@ -230,7 +230,7 @@ def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> tuple[b
             bpy.context.view_layer.depsgraph.update()
             return True, error_logs
 
-def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = "", add_active_shapekey : bool = False) -> tuple[bool, list[str]]:
+def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = "") -> tuple[bool, list[str]]:
     if not is_armature(armature): return False, ['Not an armature']
     
     meshes = get_armature_meshes(armature)
@@ -252,7 +252,7 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name
                 
                 original_shapekey_values = {}
                 
-                if (mesh.data.shape_keys and mesh.data.shape_keys.key_blocks) and not add_active_shapekey:
+                if mesh.data.shape_keys and mesh.data.shape_keys.key_blocks:
                     for sk in mesh.data.shape_keys.key_blocks:
                         original_shapekey_values[sk.name] = sk.value
                         sk.value = 0
