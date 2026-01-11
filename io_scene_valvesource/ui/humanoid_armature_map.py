@@ -432,17 +432,21 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         existing_prefix = "__EXISTING__"
         mapped_bones = {}
         
-        # Collect all target bone names from JSON
         json_bone_names = set(bone_elements.keys())
         
-        # First, rename any existing bones that conflict with JSON bone names
-        for bone in bones:
-            if bone.name in json_bone_names and bone.name not in [getattr(vs_arm, attr) for attr in dir(vs_arm) if attr.startswith("armature_map_")]:
+        mapped_bone_names = set()
+        for attr in dir(vs_arm):
+            if attr.startswith("armature_map_"):
+                bone_name = getattr(vs_arm, attr)
+                if bone_name and isinstance(bone_name, str):
+                    mapped_bone_names.add(bone_name)
+        
+        for bone in list(bones):
+            if bone.name in json_bone_names and bone.name not in mapped_bone_names:
                 temp_name = f"{existing_prefix}{bone.name}"
                 print(f"[PRE-EXISTING] Conflicting bone '{bone.name}' -> '{temp_name}'")
                 bones[bone.name].name = temp_name
         
-        # Then, rename all mapped bones
         for attr in dir(vs_arm):
             if not attr.startswith("armature_map_"):
                 continue
@@ -464,6 +468,9 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         bones = arm.data.bones
 
         if not self._validate_bone_mapping(arm, vs_arm):
+            return False
+
+        if not self._validate_humanoid_hierarchy(vs_arm, bones):
             return False
 
         # Need to load bone_elements early for conflict detection
@@ -505,13 +512,51 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         
         return True
 
+    def _validate_humanoid_hierarchy(self, vs_arm, bones) -> bool:
+        valid = True
+        
+        def check(start_attr, end_attr, label):
+            start = getattr(vs_arm, start_attr, "")
+            end = getattr(vs_arm, end_attr, "")
+            if start and end:
+                chain = self._collect_chain(bones, start, end)
+                if not chain:
+                    self.report({'ERROR'}, f"Hierarchy Error: {label} chain broken ({start} -> {end})")
+                    return False
+                else:
+                    chain_names = " -> ".join([b.name for b in chain])
+                    print(f"[Hierarchy] {label} chain verified: {chain_names}")
+                    self.report({'INFO'}, f"Chain found for {label}: {chain_names}")
+            return True
+
+        if not check('armature_map_pelvis', 'armature_map_chest', "Spine"): valid = False
+        if not check('armature_map_chest', 'armature_map_head', "Neck"): valid = False
+        
+        if not check('armature_map_thigh_l', 'armature_map_knee_l', "Left Thigh"): valid = False
+        if not check('armature_map_knee_l', 'armature_map_ankle_l', "Left Knee"): valid = False
+        if not check('armature_map_ankle_l', 'armature_map_toe_l', "Left Ankle"): valid = False
+        
+        if not check('armature_map_thigh_r', 'armature_map_knee_r', "Right Thigh"): valid = False
+        if not check('armature_map_knee_r', 'armature_map_ankle_r', "Right Knee"): valid = False
+        if not check('armature_map_ankle_r', 'armature_map_toe_r', "Right Ankle"): valid = False
+        
+        if not check('armature_map_upperarm_l', 'armature_map_forearm_l', "Left Arm"): valid = False
+        if not check('armature_map_forearm_l', 'armature_map_wrist_l', "Left Forearm"): valid = False
+        
+        if not check('armature_map_upperarm_r', 'armature_map_forearm_r', "Right Arm"): valid = False
+        if not check('armature_map_forearm_r', 'armature_map_wrist_r', "Right Forearm"): valid = False
+        
+        return valid
+
     def _build_rename_map(self, vs_arm, bones) -> dict:
         rename_map = {}
         
         if self._is_valid_bone(vs_arm.armature_map_eye_l, bones):
-            rename_map[vs_arm.armature_map_eye_l] = "Left eye"
+            actual_name = self._get_actual_bone_name(vs_arm.armature_map_eye_l)
+            rename_map[actual_name] = "Left eye"
         if self._is_valid_bone(vs_arm.armature_map_eye_r, bones):
-            rename_map[vs_arm.armature_map_eye_r] = "Right eye"
+            actual_name = self._get_actual_bone_name(vs_arm.armature_map_eye_r)
+            rename_map[actual_name] = "Right eye"
 
         self._map_spine_chain(bones, vs_arm.armature_map_pelvis, vs_arm.armature_map_spine, vs_arm.armature_map_chest, rename_map)
         self._map_neck_chain(bones, vs_arm.armature_map_chest, vs_arm.armature_map_head, rename_map)
@@ -537,7 +582,8 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         
         for bone_name, target_name in limb_mappings:
             if self._is_valid_bone(bone_name, bones):
-                rename_map[bone_name] = target_name
+                actual_name = self._get_actual_bone_name(bone_name)
+                rename_map[actual_name] = target_name
 
         finger_mappings = [
             (vs_arm.armature_map_index_f_l, "IndexFinger", "L"),
@@ -559,7 +605,11 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         return rename_map
 
     def _map_finger_chain(self, bones, start_name: str, base: str, side: str, rename_map: dict) -> None:
-        bone = bones[start_name]
+        actual_start = self._get_actual_bone_name(start_name)
+        if actual_start not in bones:
+            return
+            
+        bone = bones[actual_start]
         chain = []
         start_idx = 0 if base == "Thumb" else 1
         
@@ -571,24 +621,27 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             rename_map[bone.name] = f"{base}{i+start_idx}_{side}"
 
     def _collect_chain(self, bones, start_name: str, end_name: str) -> list:
+        actual_start = self._get_actual_bone_name(start_name)
+        actual_end = self._get_actual_bone_name(end_name)
+        
         if not (self._is_valid_bone(start_name, bones) and self._is_valid_bone(end_name, bones)):
             return []
 
-        start_bone = bones[start_name]
-        end_bone = bones[end_name]
-
-        def dfs(bone, target, path):
-            path.append(bone)
-            if bone == target:
-                return True
-            for child in bone.children:
-                if dfs(child, target, path):
-                    return True
-            path.pop()
-            return False
+        start_bone = bones[actual_start]
+        end_bone = bones[actual_end]
 
         chain = []
-        return chain if not dfs(start_bone, end_bone, chain) else chain
+        current = end_bone
+        while current:
+            chain.append(current)
+            if current == start_bone:
+                break
+            current = current.parent
+        
+        if chain and chain[-1] == start_bone:
+            chain.reverse()
+            return chain
+        return []
 
     def _map_spine_chain(self, bones, pelvis_name: str, spine_name: str, chest_name: str, rename_map: dict) -> None:
         chain = self._collect_chain(bones, pelvis_name, chest_name)
@@ -596,9 +649,10 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             return
 
         spine_idx = None
+        actual_spine_name = self._get_actual_bone_name(spine_name)
         if self._is_valid_bone(spine_name, bones):
             for idx, bone in enumerate(chain):
-                if bone.name == spine_name:
+                if bone.name == actual_spine_name:
                     spine_idx = idx
                     break
 
@@ -645,7 +699,9 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
         for i, bone in enumerate(chain[1:-1], 1):
             rename_map[bone.name] = "Neck" if i == 1 else f"Neck_{i-1}"
-        rename_map[head_name] = "Head"
+        
+        actual_head_name = self._get_actual_bone_name(head_name)
+        rename_map[actual_head_name] = "Head"
 
     def _remove_intermediate_limb_bones(self, arm: Object, vs_arm, rename_map: dict) -> None:
         prev_mode = arm.mode
@@ -721,9 +777,20 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
                 setattr(vs_arm, attr, old_to_new[old_val])
 
         return old_to_new
+    
+    def _get_actual_bone_name(self, bone_name: str) -> str:
+        """Convert a potentially mapped bone name to its actual current name"""
+        if not bone_name:
+            return bone_name
+        
+        lookup = getattr(self, 'mapped_bones_lookup', {})
+        return lookup.get(bone_name, bone_name)
 
     def _is_valid_bone(self, name: str, bones) -> bool:
-        return bool(name) and isinstance(name, str) and name in bones
+        if not name or not isinstance(name, str):
+            return False
+        actual_name = self._get_actual_bone_name(name)
+        return actual_name in bones
 
     def _setup_armature(self, arm: Object, bone_elements: dict) -> None:
         with preserve_context_mode(arm, 'OBJECT'):
@@ -734,7 +801,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             arm.display_type = 'WIRE'
             arm.data.show_axes = True
             
-            apply_current_pose_as_restpose(arm)
+            _, _ = apply_current_pose_as_restpose(arm)
 
             default_collection = self._ensure_default_collection(arm)
             self._prepare_pose_bones(arm, default_collection)

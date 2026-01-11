@@ -6,7 +6,7 @@ from typing import Set
 from ..core.commonutils import (
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
     get_armature, get_armature_meshes, preserve_context_mode, draw_listing_layout,
-    get_selected_bones, unselect_all
+    get_selected_bones, unselect_all, has_selected_bones
 )
 
 from ..core.meshutils import (
@@ -15,7 +15,8 @@ from ..core.meshutils import (
 
 from ..core.armatureutils import (
     apply_current_pose_as_restpose, remove_bone, filter_exclude_vertexgroup_names,
-    merge_armatures, copy_target_armature_visualpose, remove_empty_bonecollections
+    merge_armatures, copy_target_armature_visualpose, remove_empty_bonecollections,
+    apply_current_pose_shapekey
 )
 
 from ..utils import get_id
@@ -35,13 +36,24 @@ class TOOLS_PT_Armature(ToolsCategoryPanel):
         
         col = bx.column(align=True)
         col.label(text='Apply Pose As Rest Pose')
+        in_pose = bool(context.mode == 'POSE')
         
-        col.scale_y = 1.3
         row = col.row(align=True)
+        row.scale_y = 1.5
         row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT',text='Entire Armature').selected_only = False
-        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT', text='Selected Bones').selected_only = True
+        
+        op_col = row.column(align=True)
+        op_col.enabled = has_selected_bones(context.object) and in_pose
+        op_col.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT', text='Selected Bones').selected_only = True
+        
+        row = col.row(align=True)
+        row.scale_y = 1
+        row.enabled = in_pose
+        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='SHAPEKEY_DATA',text='Apply Pose as Shapekey').as_shapekey = True
         
         col = bx.column()
+        col.label(text='Multi-Armature Tools')
+        
         col.operator(TOOLS_OT_MergeArmatures.bl_idname,icon='AUTOMERGE_ON')
         col.operator(TOOLS_OT_CleanUnWeightedBones.bl_idname,icon='GROUP_BONE')
         
@@ -56,6 +68,8 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
     
     selected_only : BoolProperty(name='Selected Only', default=False)
     
+    as_shapekey : BoolProperty(name='Apply As Shapekey', default=False)
+    
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
@@ -65,16 +79,26 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
             armatures : Set[Object | None] = {get_armature(o) for o in context.selected_objects}
             
             success_count = 0
+            error_logs = []
+            
             for armature in armatures:
-                
-                if self.selected_only:
-                    selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
-                    for posebone in armature.pose.bones:
-                        if posebone.name in {pb.name for pb in selected_bones}: continue
-                        posebone.matrix_basis.identity()
-                
-                success = apply_current_pose_as_restpose(armature=armature)
+                if self.as_shapekey:
+                    success, error_logs = apply_current_pose_shapekey(armature=armature)
+
+                else:
+                    if self.selected_only:
+                        selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
+                        for posebone in armature.pose.bones:
+                            if posebone.name in {pb.name for pb in selected_bones}: continue
+                            posebone.matrix_basis.identity()
+                    
+                    success, error_logs = apply_current_pose_as_restpose(armature=armature)
+                    
                 if success: success_count += 1
+                
+                if len(error_logs) > 0:
+                    for log in error_logs:
+                        self.report({'ERROR'}, log)
                 
         if success_count > 0:
             if len(armatures) == 1:
@@ -403,9 +427,13 @@ class TOOLS_OT_MergeArmatures(Operator):
                     
                     bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
                 
-                success = merge_armatures(currOb, arm, match_posture=self.match_posture)
+                success, logs = merge_armatures(currOb, arm, match_posture=self.match_posture)
                 if success:
                     success_count += 1
+                    
+                if logs:
+                    for err in logs:
+                        self.report({'ERROR'}, err)
             
         finally:
             unselect_all()

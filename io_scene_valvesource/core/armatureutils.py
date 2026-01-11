@@ -142,8 +142,10 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, reset
                     else:
                         pbone.rotation_euler = values["rotation"]
 
-def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:
-    if armature is None: return False
+def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> tuple[bool, list[str]]:
+    if armature is None: return False, ['Not an armature']
+    
+    error_logs = []
     
     with preserve_armature_state(armature, reset_pose=False):
         try:
@@ -217,16 +219,59 @@ def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:
                         continue
                 bpy.context.view_layer.objects.active = active_object
 
-            return True
+            return True, error_logs
 
         except Exception as e:
-            print("applyCurrPoseAsRest failed:", e)
-            return False
+            error_logs.append('Failed to apply armature pose: {}'.format(str(e)))
+            return False, error_logs
 
         finally:
             bpy.context.view_layer.update()
             bpy.context.view_layer.depsgraph.update()
-            return True
+            return True, error_logs
+
+def apply_current_pose_shapekey(armature: bpy.types.Object | None) -> tuple[bool, list[str]]:
+    if not is_armature(armature): return False, ['Not an armature']
+    
+    meshes = get_armature_meshes(armature)
+    if not meshes: return False, ['No meshes found']
+    
+    error_logs = []
+    success_count = 0
+    
+    with preserve_context_mode(armature, 'OBJECT'):
+        with unhide_all_objects():
+            bpy.ops.object.select_all(action='DESELECT')
+            
+            for mesh in meshes:
+                arm_mod = next((mod for mod in mesh.modifiers if mod.type == 'ARMATURE' and mod.object == armature), None)
+                
+                if not arm_mod:
+                    error_logs.append(f"Mesh {mesh.name} has no Armature modifier for {armature.name}")
+                    continue
+                
+                try:
+                    mesh.select_set(True)
+                    context_override = {'object': mesh, 'active_object': mesh, 'selected_objects': [mesh]}
+                    
+                    ret = op_override(bpy.ops.object.modifier_apply_as_shapekey, context_override, keep_modifier=True, modifier=arm_mod.name)
+                    
+                    if 'FINISHED' in ret:
+                        success_count += 1
+                        if mesh.data.shape_keys:
+                            new_key = mesh.data.shape_keys.key_blocks[-1]
+                            pose_name = armature.animation_data.action.name if armature.animation_data and armature.animation_data.action else "Pose"
+                            new_key.name = f"{pose_name}_Shape"
+                    else:
+                        error_logs.append(f"Failed to apply modifier for {mesh.name}")
+                    
+                    mesh.select_set(False)
+                    
+                except Exception as e:
+                    error_logs.append(f"Error processing {mesh.name}: {str(e)}")
+                    mesh.select_set(False)
+    
+    return success_count > 0, error_logs
 
 def copy_target_armature_visualpose(base_armature: bpy.types.Object,
                        target_armature: bpy.types.Object,
@@ -258,11 +303,14 @@ def copy_target_armature_visualpose(base_armature: bpy.types.Object,
 
     return True
 
-def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True) -> bool:
+def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True) -> tuple[bool, list[str]]:
     if not source_arm or not target_arm:
-        return False
+        return False, ['No Objects']
+
     if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE':
-        return False
+        return False, ['Object(s) are not armature(s)']
+
+    error_logs = []
 
     with preserve_armature_state(source_arm, target_arm, reset_pose=True):
         try:
@@ -272,11 +320,11 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 copied_rot = copy_target_armature_visualpose(source_arm, target_arm, 'ANGLES')
                 copied_pos = copy_target_armature_visualpose(source_arm, target_arm, 'ORIGIN')
                 if not copied_rot and not copied_pos:
-                    print('- Error matching and applying posture for {} armature'.format(target_arm.name))
-                    return False
+                    return False, ['Error matching and applying posture for {} armature'.format(target_arm.name)]
                 
-            applied_restpose = apply_current_pose_as_restpose(target_arm)
-
+            _, err_logs = apply_current_pose_as_restpose(target_arm)
+            error_logs.extend(err_logs)
+            
             source_arm_bones = [b.name for b in source_arm.data.bones]
 
             bone_name_map = {}
@@ -390,12 +438,11 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 if mesh.vertex_groups:
                     for vg in mesh.vertex_groups:
                         vg.name = vg.name.replace(".temp_merge", "")
-
-            return True
+                        
+            return True, error_logs
 
         except Exception as e:
-            print("- merge_armatures failed:", e)
-            return False
+            return False, ["- merge_armatures failed: {}".format(str(e))]
 
         finally:
             bpy.context.view_layer.update()

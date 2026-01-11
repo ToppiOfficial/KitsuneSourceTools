@@ -210,8 +210,7 @@ def get_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
         return []
 
     shape_keys = ob.data.shape_keys
-    if len(shape_keys.key_blocks) < 2:
-        return []
+    if shape_keys is None or not hasattr(shape_keys, 'key_blocks'): return []
 
     basis = shape_keys.key_blocks[0]
 

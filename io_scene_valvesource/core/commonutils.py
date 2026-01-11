@@ -739,6 +739,12 @@ def get_valid_vertexanimation_object(ob : bpy.types.Object | None, use_rigid_wor
     if collection is None or collection.vs.mute: return ob
     else: return collection
 
+def has_selected_bones(armature : bpy.types.Object | None) -> bool:
+    if not is_armature(armature): return False
+    
+    if bpy.context.mode in 'EDIT_ARMATURE': return (any([bone.select for bone in armature.data.edit_bones]))
+    else: return any([bone.select for bone in armature.data.bones])
+
 # LAYOUT UTILITIES
 
 def draw_wrapped_texts(
