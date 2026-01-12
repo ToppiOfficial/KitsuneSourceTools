@@ -863,21 +863,31 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
         del cur
 
         if id.type == 'MESH':
-            if hasShapes(id) and id.data.vs.normalize_shapekeys:
-                base_key = id.data.shape_keys.key_blocks[0]
-                
-                for key in id.data.shape_keys.key_blocks[1:]:
-                    if key.slider_max == 1.0:
-                        continue
-                    
-                    for i in range(len(key.data)):
-                        base_co = base_key.data[i].co
-                        shape_co = key.data[i].co
-                        key.data[i].co = base_co + (shape_co - base_co) * key.slider_max
-                    
-                    key.slider_max = 1.0
-                    key.slider_min = -1.0 if key.slider_min < 0.0 else 0.0
             
+            if hasShapes(id): 
+                
+                if not id.data.vs.normalize_shapekeys:
+                    print("- Normalizing shape keys disabled, resetting all shapekey values to 0")
+                    
+                    for sk in id.data.shape_keys.key_blocks:
+                        sk.value = 0
+                        
+                else:
+                    print("- Normalizing shape keys")
+                    base_key = id.data.shape_keys.key_blocks[0]
+                    
+                    for key in id.data.shape_keys.key_blocks[1:]:
+                        if key.slider_max == 1.0:
+                            continue
+                        
+                        for i in range(len(key.data)):
+                            base_co = base_key.data[i].co
+                            shape_co = key.data[i].co
+                            key.data[i].co = base_co + (shape_co - base_co) * key.slider_max
+                        
+                        key.slider_max = 1.0
+                        key.slider_min = -1.0 if key.slider_min < 0.0 else 0.0
+                        
             normalize_object_vertexgroups(ob=id, vgroup_limit=bpy.context.scene.vs.vertex_influence_limit,
                               clean_tolerance=bpy.context.scene.vs.weightlink_threshold)
             
@@ -1075,11 +1085,13 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                     result.balance_vg.add(zeroes, 0, 'REPLACE')
                         
             # bake shapes
-            id.show_only_shape_key = True
+            normalize_shapekey = id.data.vs.normalize_shapekeys
+            id.show_only_shape_key = not normalize_shapekey
             preserve_basis_normals = id.data.vs.bake_shapekey_as_basis_normals
             valid_controllers = {fc[0]: fc[3] for fc in get_flexcontrollers(id)}
-            
-            if preserve_basis_normals: print("- Ignoring changes normals for shapekeys in {}".format(id.name))
+
+            if preserve_basis_normals: 
+                print("- Ignoring changes normals for shapekeys in {}".format(id.name))
 
             for i, shape in enumerate(id.data.shape_keys.key_blocks):
                 if i == 0: 
@@ -1090,19 +1102,24 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                 
                 if id.vs.flex_controller_mode == 'SPECIFIC':
                     new_name = valid_controllers[shape.name]
-                    if new_name != shape.name: shape.name = new_name
+                    if new_name != shape.name: 
+                        shape.name = new_name
 
                 id.active_shape_key_index = i
+                
+                if normalize_shapekey:
+                    original_value = shape.value
+                    shape.value = 1.0
+                
                 depsgraph = bpy.context.evaluated_depsgraph_get()
                 baked_shape = bpy.data.meshes.new_from_object(id.evaluated_get(depsgraph))
                 baked_shape.name = "{} -> {}".format(id.name, shape.name)
 
                 shape_ob = put_in_object(id, baked_shape, quiet=True)
 
-                # Preserve basis normals
                 if preserve_basis_normals:
                     prev_index = id.active_shape_key_index
-                    id.active_shape_key_index = 0  # switch to basis shape
+                    id.active_shape_key_index = 0
 
                     mod = shape_ob.modifiers.new(name="PreserveBasisNormals", type='DATA_TRANSFER')
                     mod.object = baked
@@ -1110,12 +1127,9 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                     mod.data_types_loops = {'CUSTOM_NORMAL'}
                     mod.loop_mapping = 'TOPOLOGY'
 
-                    # use my custom apply modifier! blender's op apply modifier can cause the exporter to freeze in rare cases!
                     apply_modifier(mod=mod, silent=True)
+                    id.active_shape_key_index = prev_index
 
-                    id.active_shape_key_index = prev_index  # restore active shape key
-
-                # Handle duplis if needed
                 if duplis:
                     select_only(shape_ob)
                     duplis.select_set(True)
@@ -1124,6 +1138,9 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                     assert(shape_ob)
 
                 result.shapes[shape.name] = shape_ob.data
+                
+                if normalize_shapekey: 
+                    shape.value = original_value
 
                 if should_triangulate:
                     bpy.context.view_layer.objects.active = shape_ob

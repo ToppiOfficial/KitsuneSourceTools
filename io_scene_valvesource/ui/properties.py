@@ -640,10 +640,13 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         col = title.column(align=True)
         rootitem, subitems = draw_listing_layout(col)
         
+        rootitem.enabled = not bone.vs.bone_is_jigglebone
         rootitem.prop(bone.vs, 'export_name', placeholder=get_bone_exportname(bone))
         subitems.label(text=f'Export Name: {get_bone_exportname(bone)}')
         
         title.separator(type='LINE')
+        
+        title.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname)
         
         split = title.split(factor=0.5)
         
@@ -666,27 +669,6 @@ class SMD_PT_ContextObject(KITSUNE_PT_CustomToolPanel, Panel):
         sub.prop(bone.vs, 'export_rotation_offset_x')
         sub.prop(bone.vs, 'export_rotation_offset_y')
         sub.prop(bone.vs, 'export_rotation_offset_z')
-        
-        sub = title.column(align=True)
-        sub.label(text='Target Bone Forward:')
-        row = sub.row(align=True)
-        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='+X').export_rot_target = 'X'
-        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='+Y').export_rot_target = 'Y'
-        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='+Z').export_rot_target = 'Z'
-        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='-X').export_rot_target = 'X_INVERT'
-        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='-Y').export_rot_target = 'Y_INVERT'
-        row.operator(TOOLS_OT_AssignBoneRotExportOffset.bl_idname,text='-Z').export_rot_target = 'Z_INVERT'
-        
-        message = [
-            "- (Target Bone Forward) assumes you have the bone(s) in Blender's Y-forward\n",
-            '- Bones rotate on export in Z→Y→X order (translation remains X→Y→Z). Use "normal" in edit mode to check. Z+90° from Y-forward → X-forward.',
-        ]
-        
-        draw_wrapped_texts(
-            title,
-            message,
-            max_chars=36,
-            icon='INFO')
         
     def draw_materialproperties(self, context : Context, layout : UILayout) -> None:
         l : UILayout = layout

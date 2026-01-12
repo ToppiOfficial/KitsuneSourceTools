@@ -557,8 +557,9 @@ class TOOLS_OT_MergeBones(Operator):
     
 class TOOLS_OT_AssignBoneRotExportOffset(Operator):
     bl_idname : str = 'kitsunetools.assign_bone_rot_export_offset'
-    bl_label : str = 'Assign Rotation Export Offset'
+    bl_label : str = 'Assign Bone Target Forward'
     bl_options: Set = {'REGISTER', 'UNDO'}
+    bl_description = "Target Bone Forward: Sets the bone's forward direction for export. Blender bones use Y-forward by default in edit mode (check with 'normal' gizmo). This property specifies which axis will be forward in the target engine/application. Example: Setting 'X-forward' rotates the bone +90° around Z on export, converting Y-forward → X-forward. Rotation order on export: Z→Y→X (translation: X→Y→Z)"
     
     export_rot_target : EnumProperty(
         name='Rotation Target',
@@ -582,6 +583,17 @@ class TOOLS_OT_AssignBoneRotExportOffset(Operator):
     def poll(cls, context : Context) -> bool:
         if not is_armature(context.object): return False
         return bool(context.mode not in ['EDIT', 'EDIT_ARMATURE'])
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+    
+    def draw(self, context):
+        layout = self.layout
+        draw_wrapped_texts(layout,text=self.bl_description)
+        layout.separator()
+        layout.label(text='Y to...')
+        row = layout.row(align=True)
+        row.prop(self,'export_rot_target',expand=True)
     
     def execute(self, context : Context) -> set:
         selected_bones = None
