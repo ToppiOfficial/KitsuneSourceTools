@@ -1,35 +1,33 @@
-import os, math, bpy, mathutils, re
+import os, math, bpy, mathutils
 from bpy.props import StringProperty, EnumProperty
 from typing import Set, Any
 from bpy import props
 from bpy.types import Context, Object, Operator, Panel, UILayout, Event
 from ..keyvalue3 import KVBool, KVNode, KVVector3, KVParser
-from ..ui.common import KITSUNE_PT_CustomToolPanel
+from ..ui.common import KITSUNE_SecondaryPanel
 
 from ..utils import hitbox_group, import_hitboxes_from_content
 
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, is_armature, sanitize_string,
     update_vmdl_container, is_empty, get_selected_bones, preserve_context_mode,
-    get_armature, get_hitboxes, draw_toggleable_layout, get_jigglebones, get_dmxattachments,
-    get_object_path
-)
+    get_armature, get_hitboxes, get_jigglebones, get_dmxattachments)
 
-from ..utils import (
-    get_filepath, get_smd_prefab_enum, get_id, State, Compiler, import_jigglebones_from_content
-)
+from ..utils import get_filepath, get_smd_prefab_enum, get_id, State, Compiler, import_jigglebones_from_content
+from ..core.boneutils import get_bone_exportname
+from ..core.armatureutils import copy_target_armature_visualpose, sort_bone_by_hierarchy, get_bone_matrix, get_relative_target_matrix
+from ..core.objectutils import reevaluate_bone_parented_empty_matrix
 
-from ..core.boneutils import(
-    get_bone_exportname,
-)
-
-from ..core.armatureutils import(
-    copy_target_armature_visualpose, sort_bone_by_hierarchy, get_bone_matrix, get_relative_target_matrix
-)
-
-from ..core.objectutils import(
-    reevaluate_bone_parented_empty_matrix
-)
+def draw_export_buttons(layout: UILayout, operator: str, scale_y: float = 1.2, 
+                        clipboard_text: str = 'Write to Clipboard',
+                        file_text: str = 'Write to File',
+                        clipboard_icon: str = 'FILE_TEXT',
+                        file_icon: str = 'EXPORT') -> None:
+    """Draw standard export button pair (clipboard/file)."""
+    row = layout.row(align=True)
+    row.scale_y = scale_y
+    row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
+    row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
 
 class PrefabExport():
     
@@ -132,157 +130,237 @@ class PrefabImport():
         finally:
             return content if content else None
 
-class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
-    bl_label: str = 'ValveModel'
+class VALVEMODEL_PT_tools_panel(KITSUNE_SecondaryPanel, Panel):
+    bl_label = 'ValveModel Tools'
     
-    write_load_button_scale = 1.25
+    def draw(self, context):
+        layout = self.layout
+        active_armature = get_armature(context.object)
+        
+        if active_armature is None:
+            draw_wrapped_texts(layout, get_id("panel_select_object"), max_chars=40, icon='HELP')
+            return
+        
+        title = draw_title_box_layout(layout, text=f'Active Armature: {active_armature.name}', icon='ARMATURE_DATA')
+        
+        
+class VALVEMODEL_PT_animation(KITSUNE_SecondaryPanel, Panel):
+    bl_label = 'Animation'
+    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='', icon='ACTION')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_armature = get_armature(active_object)
+        
+        if active_armature is None:
+            return
+        
+        box = layout.box()
+        box.label(text='Custom Proportions')
+        
+        box1 = box.box()
+        
+        box1.label(text='Source 1')
+        box1.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname, icon='ACTION_TWEAK')
+        
+        box1 = box.box()
+        box1.label(text='Source 2')
+        
+        draw_export_buttons(box1,VALVEMODEL_OT_ExportConstraintProportion.bl_idname,scale_y=1.25,
+            clipboard_icon='CONSTRAINT_BONE',file_icon='CONSTRAINT_BONE')
+        
+        draw_wrapped_texts(box1,
+            'Constraint Proportion exports Orient and Point constraints of bones with a valid export name',
+            max_chars=40, boxed=False)
+       
+        
+class VALVEMODEL_PT_attachments(KITSUNE_SecondaryPanel, Panel):
+    bl_label = 'Attachments'
+    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='', icon='EMPTY_DATA')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_armature = get_armature(active_object)
+        
+        if active_armature is None:
+            return
+        
+        box = layout.box()
+        box.label(text='Attachment Tools')
+        box.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
+        
+        
+class VALVEMODEL_PT_all_attachments(KITSUNE_SecondaryPanel, Panel):
+    bl_label = ''
+    bl_parent_id = 'VALVEMODEL_PT_attachments'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        
+        active_armature = get_armature(context.object)
+        attachments = get_dmxattachments(active_armature)
+        
+        layout.label(text='All Attachments' + ' (' + str(len(attachments)) + ')', icon='CONSTRAINT_BONE')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_armature = get_armature(context.object)
+        
+        box = layout.box()
+        col = box.column(align=True)
 
-    def draw(self, context: Context) -> None:
-        l = self.layout 
-        col = l.column(align=True)  
-        self._draw_active_armature_info(context, col)
+        attachments = get_dmxattachments(active_armature)
         
-        col.separator()
-        
-        sections = [
-            ('show_smdjigglebone', 'JiggleBone', 'BONE_DATA', self.draw_jigglebone),
-            ('show_smdhitbox', 'Hitbox', 'CUBE', self.draw_hitbox),
-            ('show_smdattachments', 'Attachment', 'EMPTY_DATA', self.draw_attachment),
-            ('show_smdanimation', 'Animation', 'ANIM_DATA', self.draw_animation)
-        ]
-        
-        for prop, label, icon, draw_func in sections:
-            section = draw_toggleable_layout(
-                col, context.scene.vs, prop, 
-                show_text=label, icon=icon, 
-                toggle_scale_y=1.0,
-                icon_outside=True
-            )
-            if section:
-                draw_func(context, section)
-    
-    def _draw_active_armature_info(self, context: Context, layout: UILayout) -> None:
-        armature = get_armature(context.object)
-        if armature:
-            path = get_object_path(armature, context.view_layer)
-            text = f'Target Armature: {path}\n'
-        else:
-            text = 'Target Armature: None\n'
-        draw_wrapped_texts(layout, text=text, icon='ARMATURE_DATA')
-        
-        ob = armature if armature else context.object
-        if not ob:
-            return
-        
-        info_section = draw_toggleable_layout(
-            layout, context.scene.vs, 'show_smdarmature',
-            show_text='Show All Lists',
-            icon='PRESET',
-            toggle_scale_y=0.8
-        )
-        
-        if not info_section:
-            return
-        
-        attachments = get_dmxattachments(ob)
-        att_section = draw_toggleable_layout(
-            info_section, context.scene.vs, 'show_attachments',
-            f'Attachment List ({len(attachments)})',
-            alert=not bool(attachments),
-            align=True,
-            toggle_scale_y=0.8
-        )
-        if att_section:
+        if attachments:
             for attachment in attachments:
-                row = att_section.row(align=True)
+                row = col.row(align=True)
                 row.label(text=attachment.name, icon='EMPTY_DATA')
-                row.prop_search(attachment, 'parent_bone', search_data=ob.data, search_property='bones', text='')
+                row.prop_search(attachment, 'parent_bone', search_data=active_armature.data, search_property='bones', text='')
+        else:
+            col.label(text='No Attachments', icon='INFO')
         
-        if is_armature(ob):
-            jigglebones = get_jigglebones(ob)
-            jb_section = draw_toggleable_layout(
-                info_section, context.scene.vs, 'show_jigglebones',
-                f'JiggleBone List ({len(jigglebones)})',
-                alert=not bool(jigglebones),
-                align=True,
-                toggle_scale_y=0.8
-            )
-            if jb_section:
-                for jigglebone in jigglebones:
-                    row = jb_section.row(align=True)
-                    row.label(text=jigglebone.name, icon='BONE_DATA')
-                    
-                    collection_count = len(jigglebone.collections)
-                    if collection_count == 1:
-                        row.label(text=jigglebone.collections[0].name, icon='GROUP_BONE')
-                    elif collection_count > 1:
-                        row.label(text="In Multiple Collection", icon='GROUP_BONE')
-                    else:
-                        row.label(text="Not in Collection", icon='GROUP_BONE')
         
-        hitboxes = get_hitboxes(ob)
-        hb_section = draw_toggleable_layout(
-            info_section, context.scene.vs, 'show_hitboxes',
-            f'Hitbox List ({len(hitboxes)})',
-            alert=not bool(hitboxes),
-            align=True,
-            toggle_scale_y=0.8
-        )
-        if hb_section:
+class VALVEMODEL_PT_hitboxes(KITSUNE_SecondaryPanel, Panel):
+    bl_label = 'Hitboxes'
+    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='', icon='CUBE')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_armature = get_armature(active_object)
+        
+        if active_armature is None:
+            return
+        
+        box = layout.box()
+        box.label(text='Hitbox Tools')
+        
+        col = box.column(align=True)
+        col.scale_y = 1.25
+        draw_export_buttons(col,VALVEMODEL_OT_ExportHitBox.bl_idname)
+        col.operator(VALVEMODEL_OT_ImportHitBox.bl_idname, icon='IMPORT')
+        
+        col = box.column(align=True)
+        col.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
+        col.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        
+
+class VALVEMODEL_PT_all_hitbox(KITSUNE_SecondaryPanel, Panel):
+    bl_label = ''
+    bl_parent_id = 'VALVEMODEL_PT_hitboxes'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        
+        active_armature = get_armature(context.object)
+        hitboxes = get_hitboxes(active_armature)
+        
+        layout.label(text='All Hitboxes' + ' (' + str(len(hitboxes)) + ')', icon='CONSTRAINT_BONE')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_armature = get_armature(context.object)
+        
+        box = layout.box()
+        col = box.column(align=True)
+
+        hitboxes = get_hitboxes(active_armature)
+        if hitboxes:
             for hbox in hitboxes:
                 try:
-                    row = hb_section.row()
+                    row = col.row()
                     row.label(text=hbox.name, icon='CUBE')
-                    row.prop_search(hbox, 'parent_bone', search_data=ob.data, search_property='bones', text='')
+                    row.prop_search(hbox, 'parent_bone', search_data=active_armature.data, search_property='bones', text='')
                     row.prop(hbox.vs, 'smd_hitbox_group', text='')
                 except:
                     continue
+        else:
+            col.label(text='No Hitboxes', icon='INFO')
+
+
+class VALVEMODEL_PT_jigglebones(KITSUNE_SecondaryPanel, Panel):
+    bl_label = 'Jigglebones'
+    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_options = {'DEFAULT_CLOSED'}
     
-    def _validate_object_type(self, layout: UILayout, obj, required_type: str) -> bool:
-        """Validate object type and show error if invalid. Returns True if valid."""
-        type_checks = {
-            'armature': is_armature,
-            'empty': is_empty,
-            'armature_or_empty': lambda o: is_armature(o) or is_empty(o)
-        }
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='', icon='CONSTRAINT_BONE')
         
-        if obj and type_checks.get(required_type, lambda o: False)(obj):
-            return True
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_armature = get_armature(active_object)
+
+        bone = active_armature.data.bones.active
         
-        message_map = {
-            'armature': 'panel_select_armature',
-            'empty': 'panel_select_empty',
-            'armature_or_empty': 'panel_select_armature'
-        }
+        box = layout.box()
+        box.label(text='Write & Load')
         
-        draw_wrapped_texts(layout, get_id(message_map[required_type]), max_chars=40, icon='HELP')
-        return False
-       
-    def draw_jigglebone(self, context: Context, layout: UILayout) -> None:
-        ob = get_armature(context.object)
-        
-        if not self._validate_object_type(layout, ob, 'armature'):
-            return
-        
-        bone = ob.data.bones.active
-        
-        layout.label(text='Write & Load')
-        
-        self._draw_export_buttons(layout, VALVEMODEL_OT_ExportJiggleBone.bl_idname,scale_y=self.write_load_button_scale)
-        
-        col = layout.column()
-        col.scale_y = self.write_load_button_scale
+        col = box.column(align=True)
+        col.scale_y = 1.25
+        self._draw_export_buttons(col, VALVEMODEL_OT_ExportJiggleBone.bl_idname)
         col.operator(VALVEMODEL_OT_ImportJigglebones.bl_idname, icon='IMPORT')
         
-        layout.label(text='Jigglebone Tools')
+        box = layout.box()
+        box.label(text='Jigglebone Properties')
         if bone and bone.select:
-            layout.operator(VALVEMODEL_OT_CopyJiggleBoneProperties.bl_idname, icon='COPYDOWN')
-            self.draw_jigglebone_properties(layout, bone)
+            box.operator(VALVEMODEL_OT_CopyJiggleBoneProperties.bl_idname, icon='COPYDOWN')
+            self.draw_jigglebone_properties(box, bone)
         else:
-            box = layout.box()
+            box = box.box()
             box.label(text='Select a Valid Bone', icon='ERROR')
-
-    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.2, 
+        
+    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.25, 
                             clipboard_text: str = 'Write to Clipboard',
                             file_text: str = 'Write to File',
                             clipboard_icon: str = 'FILE_TEXT',
@@ -292,7 +370,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         row.scale_y = scale_y
         row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
         row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
-
+        
     def draw_jigglebone_properties(self, layout: UILayout, bone: bpy.types.Bone) -> None:
         vs_bone = bone.vs
         
@@ -376,8 +454,7 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
         has_any = any([
             vs_bone.jiggle_has_angle_constraint,
             vs_bone.jiggle_has_yaw_constraint,
-            vs_bone.jiggle_has_pitch_constraint
-        ])
+            vs_bone.jiggle_has_pitch_constraint])
         
         if not has_any:
             return
@@ -509,6 +586,50 @@ class VALVEMODEL_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
             file_icon='CONSTRAINT_BONE'
         )
       
+    
+class VALVEMODEL_PT_all_jigglebones(KITSUNE_SecondaryPanel, Panel):
+    bl_label = ''
+    bl_parent_id = 'VALVEMODEL_PT_jigglebones'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        active_armature = get_armature(context.object)
+        return bool(active_armature)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        
+        active_armature = get_armature(context.object)
+        jigglebones = get_jigglebones(active_armature)
+        
+        layout.label(text='All Jigglebones' + ' (' + str(len(jigglebones)) + ')', icon='CONSTRAINT_BONE')
+    
+    def draw(self, context):
+        layout = self.layout
+        active_armature = get_armature(context.object)
+        
+        box = layout.box()
+        col = box.column(align=True)
+        
+        jigglebones = get_jigglebones(active_armature)
+        
+        if jigglebones:
+            for jigglebone in jigglebones:
+                row = col.row(align=True)
+                row.label(text=jigglebone.name, icon='BONE_DATA')
+                
+                collection_count = len(jigglebone.collections)
+                if collection_count == 1:
+                    row.label(text=jigglebone.collections[0].name, icon='GROUP_BONE')
+                elif collection_count > 1:
+                    row.label(text="In Multiple Collection", icon='GROUP_BONE')
+                else:
+                    row.label(text="Not in Collection", icon='GROUP_BONE')
+        else:
+            col.label(text='No Jigglebones', icon='INFO')
+    
+    
 class VALVEMODEL_OT_FixAttachment(Operator):
     bl_idname: str = "smd.fix_attachments"
     bl_label: str = "Fix Attachment Matrix"
@@ -1212,7 +1333,7 @@ class VALVEMODEL_OT_ExportHitBox(Operator, PrefabExport):
     bl_options : Set = {'REGISTER', 'UNDO'}
 
     @classmethod
-    def poll(cls, context : Context) -> bool:
+    def poll(cls, context) -> bool:
         return is_armature(context.object) or is_empty(context.object)
 
     def get_hitbox_bounds(self, empty_obj):
@@ -1437,16 +1558,13 @@ class VALVEMODEL_OT_FixHitBox(Operator):
             return (obj.empty_display_type == 'CUBE' and 
                     obj.vs.smd_hitbox_group)
         
+        fixed_count = 0
         fixed_count = reevaluate_bone_parented_empty_matrix(
             filter_func=is_hitbox,
             preserve_rotation=False
         )
         
-        if fixed_count > 0:
-            self.report({'INFO'}, f'Fixed {fixed_count} hitbox(es)')
-        else:
-            self.report({'INFO'}, 'No hitboxes needed fixing')
-        
+        self.report({'INFO'}, f'Fixed {fixed_count} hitbox(es)')
         return {'FINISHED'}
     
 class VALVEMODEL_OT_AddHitbox(Operator):
@@ -1468,9 +1586,9 @@ class VALVEMODEL_OT_AddHitbox(Operator):
     )
     
     def invoke(self, context : Context, event : Event) -> set:
-        armature = get_armature()
+        active_armature = get_armature()
         
-        if not armature or len(armature.data.bones) == 0:
+        if not active_armature or len(active_armature.data.bones) == 0:
             self.report({'WARNING'}, 'Armature has no bones')
             return {'CANCELLED'}
         
@@ -1488,52 +1606,27 @@ class VALVEMODEL_OT_AddHitbox(Operator):
         layout.prop(self, "hitbox_group")
     
     def execute(self, context : Context) -> set:
-        armature = get_armature()
-        
-        previous_mode = armature.mode if armature else 'OBJECT'
-        selected_pose_bones = []
-        
-        if previous_mode == 'POSE' and context.selected_pose_bones:
-            selected_pose_bones = [bone.name for bone in context.selected_pose_bones]
-        elif self.parent_bone:
-            selected_pose_bones = [self.parent_bone]
-        
-        if not selected_pose_bones:
-            self.report({'WARNING'}, 'No parent bone selected')
-            return {'CANCELLED'}
-        
-        if previous_mode == 'POSE':
-            bpy.ops.object.mode_set(mode='OBJECT')
+        active_armature = get_armature()
+        selected_pose_bones = get_selected_bones(active_armature, 'BONE', sort_type='TO_LAST')
         
         created_count = 0
-        for bone_name in selected_pose_bones:
-            if bone_name not in armature.data.bones:
-                self.report({'WARNING'}, f'Bone "{bone_name}" not found')
-                continue
-            
-            bpy.ops.object.empty_add(type='CUBE')
-            empty = context.active_object
-            empty.name = f"hbox_{bone_name}"
-            
-            empty.parent = armature
-            empty.parent_type = 'BONE'
-            empty.parent_bone = bone_name
-            empty.location = [0,0,0]
-            empty.vs.smd_hitbox = True
-            empty.vs.smd_hitbox_group = self.hitbox_group
-            
-            created_count += 1
+        with preserve_context_mode(active_armature, 'OBJECT'):
+            for bone in selected_pose_bones:
+                bone_name = bone.name
+                
+                bpy.ops.object.empty_add(type='CUBE')
+                empty = context.active_object
+                empty.name = f"hbox_{bone_name}"
+                empty.parent = active_armature
+                empty.parent_type = 'BONE'
+                empty.parent_bone = bone_name
+                empty.location = [0,0,0]
+                empty.vs.smd_hitbox = True
+                empty.vs.smd_hitbox_group = self.hitbox_group
+                
+                created_count += 1
         
-        if created_count > 0:
-            self.report({'INFO'}, f'Created {created_count} hitbox(es)')
-        
-        if previous_mode == 'POSE':
-            armature.select_set(True)
-            context.view_layer.objects.active = armature
-            bpy.ops.object.mode_set(mode='POSE')
-        else:
-            bpy.ops.object.mode_set(mode='OBJECT')
-        
+        self.report({'INFO'}, f'Created {created_count} hitbox(es)')
         return {'FINISHED'}
 
 class VALVEMODEL_OT_CopyJiggleBoneProperties(Operator):

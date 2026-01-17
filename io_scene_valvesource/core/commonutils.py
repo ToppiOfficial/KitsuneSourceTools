@@ -1,10 +1,12 @@
-import bpy, typing, re, os, mathutils
-from typing import List
+import bpy, typing, re, os
 from bpy.types import UILayout
+from functools import wraps
+import inspect
 
 from contextlib import contextmanager
 from ..keyvalue3 import *
 from ..utils import mesh_compatible
+from .objectutils import get_bugged_transform_objects
 
 MODE_MAP: dict[str, str] = {
     "OBJECT": "OBJECT",
@@ -17,19 +19,14 @@ MODE_MAP: dict[str, str] = {
     "PAINT_WEIGHT": "WEIGHT_PAINT",
     "WEIGHT_PAINT": "WEIGHT_PAINT",
     "PAINT_TEXTURE": "TEXTURE_PAINT",
-    "TEXTURE_PAINT": "TEXTURE_PAINT",
-}
+    "TEXTURE_PAINT": "TEXTURE_PAINT"
+    }
 
-def unselect_all() -> None:
-    for ob in bpy.data.objects:
-        if ob.select_get():
-            ob.select_set(False)
-
-def hide_objects(ob : bpy.types.Object | None, val=True) -> None:
-    if hasattr(ob, 'hide_set'):
-        ob.hide_set(val)
-    elif hasattr(ob, 'hide'):
-        ob.hide = val
+# ------------------------------------------------
+#
+# CONTEXT MANAGEMENT
+#
+# ------------------------------------------------
 
 @contextmanager
 def unhide_all_objects():
@@ -67,7 +64,7 @@ def unhide_all_objects():
         for child in layer_coll.children:
             unhide_all_layer_collections(child)
 
-    # --- Save + unhide ---
+    # Save + unhide
     store_layer_collection_visibility(root_layer_coll, original_visibility)
 
     for obj in bpy.data.objects:
@@ -82,8 +79,9 @@ def unhide_all_objects():
 
     try:
         yield
+        
     finally:
-        # --- Restore ---
+        # Restore
         restore_layer_collection_visibility(original_visibility)
         for name, state in original_obj_visibility.items():
             if name not in bpy.data.objects:
@@ -92,7 +90,119 @@ def unhide_all_objects():
             obj.hide_set(state["hide"])
             obj.hide_viewport = state["hide_viewport"]
 
-def sanitize_string(data: str):
+@contextmanager
+def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
+    ctx = bpy.context
+    view_layer = ctx.view_layer
+    
+    prev_selected = list(view_layer.objects.selected)
+    prev_active = view_layer.objects.active
+    prev_mode = ctx.mode
+
+    target_obj = obj or prev_active
+    prev_vgroup_index = None
+    prev_bone_name = None
+    prev_bone_mode = None
+    prev_bone_selected = None
+
+    if target_obj:
+        if target_obj.type == "MESH":
+            prev_vgroup_index = target_obj.vertex_groups.active_index
+        elif target_obj.type == "ARMATURE":
+            data = target_obj.data
+            if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
+                prev_bone_name = data.edit_bones.active.name
+                prev_bone_mode = "EDIT"
+                prev_bone_selected = data.edit_bones.active.select
+            elif prev_mode == "POSE" and data.bones.active:
+                prev_bone_name = data.bones.active.name
+                prev_bone_mode = "POSE"
+                prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
+
+    if target_obj and target_obj.name in bpy.data.objects:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except RuntimeError:
+            pass
+
+        view_layer.objects.active = target_obj
+        target_obj.select_set(True)
+
+        try:
+            bpy.ops.object.mode_set(mode=mode)
+        except RuntimeError:
+            pass
+
+    try:
+        if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
+            yield target_obj.data.edit_bones
+        elif mode == "POSE" and target_obj and target_obj.type == "ARMATURE":
+            yield target_obj.pose.bones
+        else:
+            yield target_obj
+    finally:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except RuntimeError:
+            pass
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for sel in prev_selected:
+            try:
+                if sel and sel.name in bpy.data.objects:
+                    sel.select_set(True)
+            except ReferenceError:
+                pass
+
+        if prev_active:
+            try:
+                if prev_active.name in bpy.data.objects:
+                    view_layer.objects.active = prev_active
+            except ReferenceError:
+                pass
+
+        mapped_mode : str = MODE_MAP.get(prev_mode, "OBJECT")
+        try:
+            bpy.ops.object.mode_set(mode=mapped_mode)
+        except RuntimeError:
+            if prev_active:
+                try:
+                    if prev_active.type == "ARMATURE":
+                        bpy.ops.object.mode_set(mode="POSE")
+                    elif prev_active.type == "MESH":
+                        bpy.ops.object.mode_set(mode="OBJECT")
+                except ReferenceError:
+                    pass
+
+        if prev_active:
+            try:
+                if prev_active.type == "MESH" and prev_vgroup_index is not None:
+                    if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
+                        prev_active.vertex_groups.active_index = prev_vgroup_index
+
+                elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
+                    data = prev_active.data
+
+                    if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
+                        edit_bone = data.edit_bones.get(prev_bone_name)
+                        if edit_bone:
+                            data.edit_bones.active = edit_bone
+                            edit_bone.select = prev_bone_selected
+                    elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
+                        bone = data.bones.get(prev_bone_name)
+                        if bone:
+                            data.bones.active = bone
+                            bone.select = prev_bone_selected
+            except ReferenceError:
+                pass
+
+# ------------------------------------------------
+#
+# OPERATIONS
+#
+# ------------------------------------------------
+
+def sanitize_string(data: typing.Union[str, list]) -> typing.Union[str, list]:
     
     if isinstance(data, list):
         return [sanitize_string(item) for item in data]
@@ -107,17 +217,10 @@ def sanitize_string(data: str):
     
     return _data
 
-def is_valid_string(name: str) -> bool:
-    if not name or not name.strip():
-        return False
-    
-    name = name.strip()
-    
-    for char in name:
-        if not (char.isalnum() or char in (' ', '_', '.')):
-            return False
-    
-    return True
+def unselect_all() -> None:
+    for ob in bpy.data.objects:
+        if ob.select_get():
+            ob.select_set(False)
 
 def sort_bone_by_hierarchy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
     bone_set = set(bones)
@@ -140,6 +243,121 @@ def sort_bone_by_hierarchy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.t
         dfs(root)
     
     return sorted_bones
+
+def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, export_path: str | None = None,
+                          to_clipboard: bool = False) -> KVDocument | bool:
+    """
+    Insert or update node(s) into a container inside a KV3 RootNode.
+    Folders are overwritten if they exist; other nodes are appended.
+
+    Args:
+        container_class: _class of container (e.g., "JiggleBoneList" or "AnimConstraintList"/"ScratchArea").
+        nodes: Single KVNode or list of KVNodes to insert.
+        export_path: Filepath to load existing KV3 document if not clipboard.
+        to_clipboard: If True, uses ScratchArea container instead of a file.
+
+    Returns:
+        KVDocument ready for writing or clipboard.
+    """
+    if not isinstance(nodes, list):
+        nodes = [nodes]
+
+    root = None
+    if to_clipboard:
+        root = KVNode(_class="RootNode")
+    else:
+        if export_path and os.path.exists(export_path):
+            root = open_and_parse_vmdl(export_path)
+
+            if root is None:
+                return False
+        else:
+            root = KVNode(_class="RootNode")
+
+    container = root.get(_class=container_class)
+    if not container:
+        container = KVNode(_class=container_class)
+        root.add_child(container)
+
+    for node in nodes:
+        node_name = node.properties.get("name")
+        if node_name:
+            existing = next(
+                (c for c in container.children if c.properties.get("name") == node_name and c.properties.get("_class") == node.properties.get("_class")),
+                None
+            )
+            if existing:
+                existing.children.clear()
+                for child in node.children:
+                    existing.add_child(child)
+                continue
+
+        container.add_child(node)
+
+    kv_doc = KVDocument()
+    kv_doc.add_root("rootNode", root)
+    return kv_doc
+
+# ------------------------------------------------
+#
+# CHECK UTILITIES
+#
+# ------------------------------------------------
+
+def is_valid_string(name: str) -> bool:
+    if not name or not name.strip():
+        return False
+    
+    name = name.strip()
+    
+    for char in name:
+        if not (char.isalnum() or char in (' ', '_', '.')):
+            return False
+    
+    return True
+
+def is_mesh(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'MESH'
+
+def is_armature(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'ARMATURE'
+
+def is_empty(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'EMPTY'
+
+def is_curve(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'CURVE'
+
+def is_mesh_compatible(ob : bpy.types.Object | None) -> bool:
+    return bool(ob and hasattr(ob,'type') and ob.type in mesh_compatible)
+
+def has_materials(ob : bpy.types.Object | None) -> bool:
+    return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
+                        
+def open_and_parse_vmdl(filepath: str) -> KVNode | None:
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    
+    try:
+        parser = KVParser(text)
+        doc = parser.parse()
+
+        root_node = doc.roots.get("rootNode")
+        if not root_node or root_node.properties.get("_class") != "RootNode":
+            return None
+        return root_node
+
+    except Exception:
+        return None
+
+# ------------------------------------------------
+#
+# GET UTILITIES
+#
+# ------------------------------------------------
 
 def get_selected_bones(armature : bpy.types.Object | None,
                      bone_type : str = 'BONE',
@@ -215,190 +433,6 @@ def get_selected_bones(armature : bpy.types.Object | None,
     if bone_type == 'POSEBONE': return [armature.pose.bones.get(b) for b in selectedBones]
     if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in selectedBones]
     else: return [armature.data.bones.get(b) for b in selectedBones]
-
-def is_mesh(ob : bpy.types.Object | None) -> bool:
-    return ob is not None and ob.type == 'MESH'
-
-def is_armature(ob : bpy.types.Object | None) -> bool:
-    return ob is not None and ob.type == 'ARMATURE'
-
-def is_empty(ob : bpy.types.Object | None) -> bool:
-    return ob is not None and ob.type == 'EMPTY'
-
-def is_curve(ob : bpy.types.Object | None) -> bool:
-    return ob is not None and ob.type == 'CURVE'
-
-def is_mesh_compatible(ob : bpy.types.Object | None) -> bool:
-    return bool(ob and hasattr(ob,'type') and ob.type in mesh_compatible)
-
-def has_materials(ob : bpy.types.Object | None) -> bool:
-    return bool(is_mesh(ob) and getattr(ob, "material_slots", []) and any(slot.material for slot in ob.material_slots))
-
-@contextmanager
-def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
-    ctx = bpy.context
-    view_layer = ctx.view_layer
-    
-    prev_selected = list(view_layer.objects.selected)
-    prev_active = view_layer.objects.active
-    prev_mode = ctx.mode
-
-    target_obj = obj or prev_active
-    prev_vgroup_index = None
-    prev_bone_name = None
-    prev_bone_mode = None
-    prev_bone_selected = None
-
-    if target_obj:
-        if target_obj.type == "MESH":
-            prev_vgroup_index = target_obj.vertex_groups.active_index
-        elif target_obj.type == "ARMATURE":
-            data = target_obj.data
-            if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
-                prev_bone_name = data.edit_bones.active.name
-                prev_bone_mode = "EDIT"
-                prev_bone_selected = data.edit_bones.active.select
-            elif prev_mode == "POSE" and data.bones.active:
-                prev_bone_name = data.bones.active.name
-                prev_bone_mode = "POSE"
-                prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
-
-    if target_obj and target_obj.name in bpy.data.objects:
-        try:
-            bpy.ops.object.mode_set(mode="OBJECT")
-        except RuntimeError:
-            pass
-
-        view_layer.objects.active = target_obj
-        target_obj.select_set(True)
-
-        try:
-            bpy.ops.object.mode_set(mode=mode)
-        except RuntimeError:
-            pass
-
-    try:
-        if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
-            yield target_obj.data.edit_bones
-        elif mode == "POSE" and target_obj and target_obj.type == "ARMATURE":
-            yield target_obj.pose.bones
-        else:
-            yield target_obj
-    finally:
-        try:
-            bpy.ops.object.mode_set(mode="OBJECT")
-        except RuntimeError:
-            pass
-
-        bpy.ops.object.select_all(action="DESELECT")
-        for sel in prev_selected:
-            if sel and sel.name in bpy.data.objects:
-                sel.select_set(True)
-
-        if prev_active and prev_active.name in bpy.data.objects:
-            view_layer.objects.active = prev_active
-
-        mapped_mode : str = MODE_MAP.get(prev_mode, "OBJECT")
-        try:
-            bpy.ops.object.mode_set(mode=mapped_mode)
-        except RuntimeError:
-            if prev_active and prev_active.type == "ARMATURE":
-                bpy.ops.object.mode_set(mode="POSE")
-            elif prev_active and prev_active.type == "MESH":
-                bpy.ops.object.mode_set(mode="OBJECT")
-
-        if prev_active:
-            if prev_active.type == "MESH" and prev_vgroup_index is not None:
-                if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
-                    prev_active.vertex_groups.active_index = prev_vgroup_index
-
-            elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
-                data = prev_active.data
-
-                if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
-                    edit_bone = data.edit_bones.get(prev_bone_name)
-                    if edit_bone:
-                        data.edit_bones.active = edit_bone
-                        edit_bone.select = prev_bone_selected
-                elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
-                    bone = data.bones.get(prev_bone_name)
-                    if bone:
-                        data.bones.active = bone
-                        bone.select = prev_bone_selected
-                        
-def open_vmdl(filepath: str) -> KVNode | None:
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return None
-    
-    try:
-        parser = KVParser(text)
-        doc = parser.parse()
-
-        root_node = doc.roots.get("rootNode")
-        if not root_node or root_node.properties.get("_class") != "RootNode":
-            return None
-        return root_node
-
-    except Exception:
-        return None
-
-def update_vmdl_container(container_class: str, nodes: list[KVNode] | KVNode, export_path: str | None = None, to_clipboard: bool = False) -> KVDocument | bool:
-    """
-    Insert or update node(s) into a container inside a KV3 RootNode.
-    Folders are overwritten if they exist; other nodes are appended.
-
-    Args:
-        container_class: _class of container (e.g., "JiggleBoneList" or "AnimConstraintList"/"ScratchArea").
-        nodes: Single KVNode or list of KVNodes to insert.
-        export_path: Filepath to load existing KV3 document if not clipboard.
-        to_clipboard: If True, uses ScratchArea container instead of a file.
-
-    Returns:
-        KVDocument ready for writing or clipboard.
-    """
-    if not isinstance(nodes, list):
-        nodes = [nodes]
-
-    root = None
-    if to_clipboard:
-        root = KVNode(_class="RootNode")
-    else:
-        if export_path and os.path.exists(export_path):
-            root = open_vmdl(export_path)
-
-            if root is None:
-                return False
-        else:
-            root = KVNode(_class="RootNode")
-
-    container = root.get(_class=container_class)
-    if not container:
-        container = KVNode(_class=container_class)
-        root.add_child(container)
-
-    for node in nodes:
-        node_name = node.properties.get("name")
-        if node_name:
-            existing = next(
-                (c for c in container.children if c.properties.get("name") == node_name and c.properties.get("_class") == node.properties.get("_class")),
-                None
-            )
-            if existing:
-                existing.children.clear()
-                for child in node.children:
-                    existing.add_child(child)
-                continue
-
-        container.add_child(node)
-
-    kv_doc = KVDocument()
-    kv_doc.add_root("rootNode", root)
-    return kv_doc
-
-# GET UTILITIES
 
 def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
     if isinstance(ob, bpy.types.Object):
@@ -509,7 +543,7 @@ def is_object_visible_in_viewlayer(obj: bpy.types.Object, layer_collection: bpy.
     
     return False
     
-def get_hitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
+def get_hitboxes(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
     
     armature : bpy.types.Object | None = None
     if ob is None:
@@ -529,7 +563,7 @@ def get_hitboxes(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
         
     return hitboxes
 
-def get_jigglebones(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]:
+def get_jigglebones(ob : bpy.types.Object | None) -> list[bpy.types.Bone | None]:
     armature = None
     if ob is None:
         armature = get_armature()
@@ -540,7 +574,7 @@ def get_jigglebones(ob : bpy.types.Object | None) -> List[bpy.types.Bone | None]
     
     return [b for b in armature.data.bones if b.vs.bone_is_jigglebone]
 
-def get_dmxattachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | None]:
+def get_dmxattachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
     armature = None
     if ob is None:
         armature = get_armature()
@@ -561,121 +595,6 @@ def get_dmxattachments(ob : bpy.types.Object | None) -> List[bpy.types.Object | 
         attchs.append(ob)
         
     return attchs
-
-def get_all_materials(ob : bpy.types.Object | None) -> set[bpy.types.Material | None]:
-    armature = None
-    if ob is None:
-        armature = get_armature()
-    else:
-        armature = get_armature(ob)
-        
-    if armature is None: return set()
-    
-    meshes = get_armature_meshes(armature)
-    
-    if meshes is None: return set()
-    
-    mats = set()
-    
-    for mesh in meshes:
-      for mat in mesh.data.materials:
-          mats.add(mat)
-          
-    return mats  
-
-def get_unparented_hitboxes() -> List[str]:
-    """Returns list of hitbox empties without bone parent"""
-    unparented = []
-    
-    for obj in bpy.data.objects:
-        if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
-            continue
-        
-        if not obj.vs.smd_hitbox:
-            continue
-        
-        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE' or not obj.parent_bone.strip():
-            unparented.append(obj.name)
-    
-    return unparented
-
-def get_unparented_attachments() -> List[str]:
-    """Returns list of attachment empties without bone parent"""
-    unparented = []
-    
-    for obj in bpy.data.objects:
-        if obj.type != 'EMPTY':
-            continue
-        
-        if not obj.vs.dmx_attachment:
-            continue
-        
-        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE' or not obj.parent_bone.strip():
-            unparented.append(obj.name)
-    
-    return unparented
-
-def get_bugged_hitboxes() -> List[str]:
-    """Returns list of hitbox empties with world-space matrix bug"""
-    bugged = []
-    
-    for obj in bpy.data.objects:
-        if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
-            continue
-        
-        if not obj.vs.smd_hitbox_group:
-            continue
-        
-        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
-            continue
-        
-        armature = obj.parent
-        bone_name = obj.parent_bone
-        
-        if bone_name not in armature.pose.bones:
-            continue
-        
-        pose_bone = armature.pose.bones[bone_name]
-        bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
-        
-        local_matrix = bone_tip_matrix.inverted() @ obj.matrix_world
-        local_location = local_matrix.to_translation()
-        
-        if local_location.length > 0.001 and (abs(obj.location.x) < 0.001 and abs(obj.location.y) < 0.001 and abs(obj.location.z) < 0.001):
-            bugged.append(obj.name)
-    
-    return bugged
-
-def get_bugged_attachments() -> List[str]:
-    """Returns list of attachment empties with world-space matrix bug"""
-    bugged = []
-    
-    for obj in bpy.data.objects:
-        if obj.type != 'EMPTY':
-            continue
-        
-        if not obj.vs.dmx_attachment:
-            continue
-        
-        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
-            continue
-        
-        armature = obj.parent
-        bone_name = obj.parent_bone
-        
-        if bone_name not in armature.pose.bones:
-            continue
-        
-        pose_bone = armature.pose.bones[bone_name]
-        bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation((0, pose_bone.length, 0))
-        
-        local_matrix = bone_tip_matrix.inverted() @ obj.matrix_world
-        local_location = local_matrix.to_translation()
-        
-        if local_location.length > 0.001 and (abs(obj.location.x) < 0.001 and abs(obj.location.y) < 0.001 and abs(obj.location.z) < 0.001):
-            bugged.append(obj.name)
-    
-    return bugged
 
 def get_object_path(obj, view_layer) -> str:
     if obj is None:
@@ -705,27 +624,6 @@ def get_all_child_objects(parent_obj : bpy.types.Object) -> list[bpy.types.Objec
         children.extend(get_all_child_objects(child))
     return children
 
-def get_rotated_hitboxes():
-    rotated = []
-    rotation_threshold = 0.0001
-    
-    for obj in bpy.data.objects:
-        if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
-            continue
-        
-        if not hasattr(obj, 'vs') or not hasattr(obj.vs, 'smd_hitbox'):
-            continue
-        
-        if not obj.vs.smd_hitbox:
-            continue
-        
-        if (abs(obj.rotation_euler.x) > rotation_threshold or
-            abs(obj.rotation_euler.y) > rotation_threshold or
-            abs(obj.rotation_euler.z) > rotation_threshold):
-            rotated.append(obj.name)
-    
-    return rotated
-
 def get_collection_parent(ob, scene) -> bpy.types.Collection | None:
     for collection in scene.collection.children_recursive:
         if ob.name in collection.objects:
@@ -736,7 +634,7 @@ def get_collection_parent(ob, scene) -> bpy.types.Collection | None:
     
     return None
 
-def get_valid_vertexanimation_object(ob : bpy.types.Object | None, use_rigid_world : bool = False) -> bpy.types.Object | bpy.types.Collection | None:
+def get_valid_vertexanimation_object(ob : bpy.types.Object | None) -> bpy.types.Object | bpy.types.Collection | None:
     if not is_mesh_compatible(ob): return None
     
     collection = get_collection_parent(ob, bpy.context.scene)
@@ -749,20 +647,16 @@ def has_selected_bones(armature : bpy.types.Object | None) -> bool:
     if bpy.context.mode in 'EDIT_ARMATURE': return (any([bone.select for bone in armature.data.edit_bones]))
     else: return any([bone.select for bone in armature.data.bones])
 
+# ------------------------------------------------
+#
 # LAYOUT UTILITIES
+#
+# ------------------------------------------------
 
-def draw_wrapped_texts(
-    layout: UILayout,
-    text: str | list[str],
-    max_chars: int = 40,
-    icon: str | None = None,
-    alert: bool = False,
-    boxed: bool = True,
-    title: str | None = None,
-    scale_y: float = 0.7,
-    icon_factor: float = 0.08,
-    exclude_endspacer = False,
-) -> None:
+def draw_wrapped_texts(layout: UILayout, text: str | list[str], max_chars: int = 40, 
+                       icon: str | None = None, alert: bool = False, boxed: bool = True,
+                       title: str | None = None, scale_y: float = 0.7, icon_factor: float = 0.08,
+                       exclude_endspacer = False,) -> None:
     """
     Draw text with automatic word wrapping in a column layout.
     Preserves paragraph breaks and handles both string and list inputs.
@@ -828,14 +722,9 @@ def draw_wrapped_texts(
     if not exclude_endspacer: 
         layout.separator(factor=0.125)
 
-def draw_title_box_layout(
-    layout: UILayout,
-    text: str,
-    icon: str = 'NONE',
-    align: bool = False,
-    alert: bool = False,
-    scale_y: float = 1.0
-) -> UILayout:
+def draw_title_box_layout(layout: UILayout, text: str, icon: str = 'NONE',
+                          align: bool = False, alert: bool = False,
+                          scale_y: float = 1.0) -> UILayout:
     """
     Create a box with a title row and return the box for further content.
     
@@ -864,165 +753,70 @@ def draw_title_box_layout(
     
     return box
 
-def draw_listing_layout(parent_column, indent_factor=0.1, indent_char='└'):
-    """
-    Creates an indented sub-item UI pattern.
-    
-    Args:
-        parent_column: The parent UI column to add items to
-        indent_factor: Split factor for indentation (default: 0.1)
-        indent_char: Character to use for indent indicator (default: '└')
-    
-    Returns:
-        tuple: (root_column, sub_wrapper) where:
-            - root_column: Column for the main item
-            - sub_wrapper: Wrapper that provides column(), row(), label(), etc. for sub-items
-    """
-    root_col = parent_column.column(align=True)
-    
-    class SubItemWrapper:
-        def __init__(self, parent, factor, char):
-            self.parent = parent
-            self.factor = factor
-            self.char = char
-        
-        def _create_layout(self, layout_method, **kwargs):
-            split = self.parent.split(align=True, factor=self.factor)
-            split.label(text=self.char)
-            return getattr(split, layout_method)(**kwargs)
-        
-        def column(self, **kwargs):
-            return self._create_layout('column', **kwargs)
-        
-        def row(self, **kwargs):
-            return self._create_layout('row', **kwargs)
-        
-        def split(self, **kwargs):
-            return self._create_layout('split', **kwargs)
-        
-        def box(self, **kwargs):
-            return self._create_layout('box', **kwargs)
-        
-        def label(self, **kwargs):
-            split = self.parent.split(align=True, factor=self.factor)
-            split.label(text=self.char)
-            split.label(**kwargs)
-        
-        def prop(self, data, property, **kwargs):
-            split = self.parent.split(align=True, factor=self.factor)
-            split.label(text=self.char)
-            split.prop(data, property, **kwargs)
-    
-    sub_wrapper = SubItemWrapper(root_col, indent_factor, indent_char)
-    
-    return root_col, sub_wrapper
+# ------------------------------------------------
+#
+# DECORATOR UTILITIES
+#
+# ------------------------------------------------
 
-class LayoutWrapper:
-    def __init__(self, layout):
-        self.layout = layout
+_report_buffer = []
+_nesting_level = 0
 
-def draw_toggleable_layout(
-    layout: UILayout,
-    data,
-    prop_name: str,
-    show_text: str,
-    hide_text: str = "",
-    alert: bool = False,
-    align: bool = False,
-    icon: str | None = None,
-    icon_value: int = 0,
-    wrapper: bool = False,
-    boxed: bool = True,
-    emboss: bool = False,
-    depress : bool = False,
-    toggle_scale_y: float = 1.0,
-    enabled : bool = True,
-    icon_outside: bool = False
-) -> UILayout | LayoutWrapper | None:
-    """
-    Create a collapsible section with a toggle operator.
-    Returns the layout if expanded, None if collapsed.
+def report(level, message):
+    _report_buffer.append((level, message))
+
+def selfreport(func=None, debug=False):
     
-    Args:
-        layout: Blender UILayout to draw into
-        data: Data object containing the property
-        prop_name: Name of the boolean property controlling visibility
-        show_text: Text to display when section is collapsed
-        hide_text: Text to display when expanded (defaults to show_text)
-        alert: Whether to highlight with alert styling
-        align: Whether to align column content
-        icon: String icon identifier
-        icon_value: Integer icon value (alternative to icon)
-        wrapper: Return a wrapper object instead of direct layout
-        boxed: Whether to wrap in a box
-        emboss: Whether to emboss the toggle button
-        toggle_scale_y: Vertical scale factor for toggle button only
-        enabled: Whether the section is enabled
-        icon_outside: Whether to place icon outside the box (left side)
-        
-    Returns:
-        UILayout if section is expanded, None if collapsed
-        If wrapper=True, returns object with .layout attribute
-    """
-    # If icon should be outside, only use it for the toggle row
-    if icon_outside and (icon is not None or icon_value != 0):
-        toggle_row = layout.row(align=True)
-        if icon_value != 0:
-            toggle_row.label(text='', icon_value=icon_value)
-        else:
-            toggle_row.label(text='', icon=icon)
-        container = toggle_row.box() if boxed else toggle_row.column()
-    else:
-        container = layout.box() if boxed else layout.column()
+    def _find_operator_in_stack():
+        for frame_info in inspect.stack():
+            frame_locals = frame_info.frame.f_locals
+            if 'self' in frame_locals:
+                obj = frame_locals['self']
+                if isinstance(obj, bpy.types.Operator):
+                    return obj
+        return None
     
-    container.enabled = enabled
-    
-    if alert:
-        container.alert = True
-    
-    if align:
-        container = container.column(align=True)
-    
-    is_active = getattr(data, prop_name)
-    display_text = (hide_text or show_text) if is_active else show_text
-    toggle_icon = 'TRIA_DOWN' if is_active else 'TRIA_RIGHT'
-    
-    # Only show icon inside if not placing it outside
-    if (icon is not None or icon_value != 0) and not icon_outside:
-        row = container.row(align=True)
-        row.scale_y = toggle_scale_y
-        if icon_value != 0:
-            row.label(text='', icon_value=icon_value)
-        else:
-            row.label(text='', icon=icon)
-        row.operator(
-            f"kitsunetoggle.{prop_name}",
-            icon=toggle_icon,
-            text=display_text,
-            emboss=emboss,
-            depress=depress
-        )
-    else:
-        row = container.row()
-        row.scale_y = toggle_scale_y
-        row.operator(
-            f"kitsunetoggle.{prop_name}",
-            icon=toggle_icon,
-            text=display_text,
-            emboss=emboss,
-            depress=depress
-        )
-    
-    if is_active:
-        # If icon is outside, create content in the main layout (not in toggle_row)
-        if icon_outside and (icon is not None or icon_value != 0):
-            content_container = layout.box() if boxed else layout.column()
-            content = content_container.column()
-        else:
-            content = container.column()
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            global _report_buffer, _nesting_level
             
-        if wrapper:
-            return LayoutWrapper(content)
-        return content
+            _nesting_level += 1
+            is_outermost = (_nesting_level == 1)
+            
+            if is_outermost:
+                _report_buffer.clear()
+            
+            operator = _find_operator_in_stack()
+            if debug:
+                print(f"DEBUG: Found operator: {operator}, nesting level: {_nesting_level}")
+            
+            try:
+                result = f(*args, **kwargs)
+            except Exception as e:
+                report('ERROR', f"Exception in {f.__name__}: {str(e)}")
+                raise
+            finally:
+                _nesting_level -= 1
+                
+                if is_outermost:
+                    if debug:
+                        print(f"DEBUG: Buffer has {len(_report_buffer)} reports")
+                    if operator:
+                        for level, message in _report_buffer:
+                            operator.report({level}, message)
+                        _report_buffer.clear()
+            
+            return result
+        
+        return wrapper
     
-    return None
+    if func is None:
+        return decorator
+    else:
+        return decorator(func)
+
+def flush_reports(operator):
+    for level, message in _report_buffer:
+        operator.report({level}, message)
+    _report_buffer.clear()

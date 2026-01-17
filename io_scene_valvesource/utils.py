@@ -61,7 +61,7 @@ axes_forward = (('-X','-X',''),('-Y','-Y',''),('-Z','-Z',''),('X','X',''),('Y','
 axes_lookup = { 'X':0, 'Y':1, 'Z':2 }
 axes_lookup_source2 = { 'X':1, 'Y':2, 'Z':3 }
 
-pbr_to_phong_channels = [
+image_channels = [
     ('GREY', 'BW', 'The image is a greyscale mask. (Only the red channel is used)'),
     ('R', 'Red', ''),
     ('G', 'Green', ''),
@@ -79,23 +79,6 @@ hitbox_group = [
     ('6', 'Left Leg', 'Used for human Left Leg, appears Bright Cyan in HLMV'),
     ('7', 'Right Leg', 'Used for human Right Leg, appears White like the default group in HLMV (Orange in Garry\'s Mod'),
     ('8', 'Neck', 'Used for human neck (to fix penetration to head from behind), appears Orange in HLMV (In all games since CS:GO)'),
-]
-
-toggle_show_ops = [
-    "show_jigglebones",
-    "show_hitboxes",
-    "show_attachments",
-    "show_materials",
-    "show_armaturemapper_help",
-    "show_prefab_help",
-    "show_exportable_help",
-    "show_pbrphong_help",
-    "show_clothnodes",
-    "show_objectwarnings",
-    ['show_smdobject', 'show_smdmesh', 'show_smdcurve', 'show_smdbone', 'show_smdmaterials', 'show_smdempty'],
-    ['show_flex','show_vertexmap','show_floatmaps', 'show_vertexanimation'],
-    'show_smdarmature',
-    ['show_smdattachments', 'show_smdjigglebone', 'show_smdanimation', 'show_smdhitbox'],
 ]
 
 class ExportFormat:
@@ -235,8 +218,26 @@ class State(metaclass=_StateMeta):
     @staticmethod
     @persistent
     def _onDepsgraphUpdate(scene : bpy.types.Scene):
-        if scene == bpy.context.scene and time.time() - State.last_export_refresh > 0.25:
-            State.update_scene(scene)
+        if scene == bpy.context.scene:
+            # Export list refresh
+            if time.time() - State.last_export_refresh > 0.25:
+                State.update_scene(scene)
+            
+            # Sync active shape key to DME flex controllers
+            obj = bpy.context.active_object
+            if obj is None: return
+            if obj.vs.sync_active_shapekey_to_dme:
+                from .core.commonutils import is_mesh
+                
+                if is_mesh(obj) and hasShapes(obj):
+                    active_key = obj.data.shape_keys.key_blocks[obj.active_shape_key_index] # type: ignore
+                    
+                    for i, flex in enumerate(obj.vs.dme_flexcontrollers):
+                        if flex.shapekey == active_key.name:
+                            obj.vs.dme_flexcontrollers_index = i
+                            return
+                    
+                    obj.vs.dme_flexcontrollers_index = -1
 
     @staticmethod
     @persistent
@@ -631,7 +632,7 @@ def countShapes(*objects):
             flattened_objects.append(ob)
 
     for ob in [o for o in flattened_objects if o.vs.export and hasShapes(o)]:
-        if ob.vs.flex_controller_mode == 'SPECIFIC':
+        if ob.vs.flex_controller_mode == 'BUILDER':
             flex_controllers = get_flexcontrollers(ob)
             unique_names = set(fc[0] for fc in flex_controllers)
             num_shapes += len(unique_names)

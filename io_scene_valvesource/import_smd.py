@@ -69,6 +69,8 @@ class SmdImporter(bpy.types.Operator, Logger):
 
         self.existingBones = [] # bones which existed before importing began
         self.num_files_imported = 0
+        self.imported_jigglebones = 0
+        self.imported_hitboxes = 0
 
         for filepath in [os.path.join(self.directory,file.name) for file in self.files] if self.files else [self.filepath]:
             filepath_lc = filepath.lower()
@@ -89,7 +91,17 @@ class SmdImporter(bpy.types.Operator, Logger):
 
             self.append = pre_append
 
-        self.errorReport(get_id("importer_complete", True).format(self.num_files_imported,self.elapsed_time()))
+        report_message = get_id("importer_complete", True).format(self.num_files_imported, self.elapsed_time())
+        details = []
+        if self.imported_hitboxes > 0:
+            details.append(f"{self.imported_hitboxes} hitboxes")
+        if self.imported_jigglebones > 0:
+            details.append(f"{self.imported_jigglebones} jigglebones")
+
+        if details:
+            report_message += f" ({', '.join(details)})"
+
+        self.errorReport(report_message)
         if self.num_files_imported:
             ops.object.select_all(action='DESELECT')
             new_obs = set(bpy.context.scene.objects).difference(pre_obs)
@@ -956,6 +968,7 @@ class SmdImporter(bpy.types.Operator, Logger):
             if qc.a:
                 imported_count, missing_bones = import_jigglebones_from_content(qc_content, qc.a)
                 if imported_count > 0:
+                    self.imported_jigglebones += imported_count
                     print(f"- Imported {imported_count} jigglebone(s) from {filename}")
                 if missing_bones:
                     self.warning(f"Could not find bones for {len(missing_bones)} jigglebone(s) in {filename}: {', '.join(missing_bones)}")
@@ -1035,6 +1048,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 
                 created, skipped, bones = import_hitboxes_from_content(''.join(hitbox_lines), qc.a, bpy.context)
                 if created > 0:
+                    self.imported_hitboxes += created
                     print(f"- Imported {created} hitbox(es) from QC")
                 if skipped > 0:
                     print(f"  Warning: Skipped {skipped} hitbox(es) with missing bones: {', '.join(bones)}")

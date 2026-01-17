@@ -1,27 +1,29 @@
 import bpy
 
-from .commonutils import (
-    get_armature, get_armature_meshes
-)
+from .commonutils import get_armature, get_armature_meshes
 
 direction_map = {
             '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
             '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
         }
 
-def get_used_vertexgroups(mesh: bpy.types.Object, vertex_groups: set[int] | None = None, tolerance: float = 0.001) -> set[int]:
+def get_used_vertexgroups(mesh: bpy.types.Object, vertex_groups: set[int] | None = None,
+                          tolerance: float = 0.001, respect_mirror: bool = True,
+                          return_names = False,) -> set[int | str]:
     """
     Return the set of vertex group indices that are actually used (weight > tolerance).
-    Optionally filter by a provided set of vertex group indices.
+    If respect_mirror is True, also include mirror pairs of used groups.
     """
     vgroup_used = set()
     vertex_groups_set = vertex_groups if vertex_groups is None else set(vertex_groups)
+    vgroups = mesh.vertex_groups
+    vgroups_len = len(vgroups)
     
     for mat in mesh.data.materials:
         if hasattr(mat, 'vs') and hasattr(mat.vs, 'non_exportable_vgroup'):
             vgroup_name = mat.vs.non_exportable_vgroup
             if vgroup_name and vgroup_name.strip():
-                exp_vgroup = mesh.vertex_groups.get(vgroup_name.strip())
+                exp_vgroup = vgroups.get(vgroup_name.strip())
                 if exp_vgroup:
                     vgroup_used.add(exp_vgroup.index)
     
@@ -30,10 +32,34 @@ def get_used_vertexgroups(mesh: bpy.types.Object, vertex_groups: set[int] | None
             if g.weight > tolerance and (vertex_groups_set is None or g.group in vertex_groups_set):
                 vgroup_used.add(g.group)
 
-    return vgroup_used
+    if respect_mirror and any(mod.type == 'MIRROR' for mod in mesh.modifiers):
+        for idx in list(vgroup_used):
+            if idx >= vgroups_len:
+                continue
+            vg_name = vgroups[idx].name
+            
+            for left_suffix, right_suffix in direction_map.items():
+                if left_suffix in vg_name:
+                    opposite_name = vg_name.replace(left_suffix, right_suffix)
+                    opposite_vg = vgroups.get(opposite_name)
+                    if opposite_vg:
+                        vgroup_used.add(opposite_vg.index)
+                    break
+                elif right_suffix in vg_name:
+                    opposite_name = vg_name.replace(right_suffix, left_suffix)
+                    opposite_vg = vgroups.get(opposite_name)
+                    if opposite_vg:
+                        vgroup_used.add(opposite_vg.index)
+                    break
+    
+    if return_names:
+        used_vgroup_names = {mesh.vertex_groups[i].name for i in vgroup_used if i < len(mesh.vertex_groups)}
+        return used_vgroup_names
+    else:
+        return vgroup_used
 
-def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone] | bpy.types.ArmatureBones | None = None, 
-                        weight_limit: float = 0.001, respect_mirror: bool = True) -> dict[bpy.types.Object, list[str]] | None:
+def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.types.Bone] | bpy.types.ArmatureBones | None = None,
+                               weight_limit: float = 0.001, respect_mirror: bool = True) -> dict[bpy.types.Object, list[str]] | None:
     """
     Clean vertex groups by:
       1. Removing very small weights below `weight_limit`.
@@ -48,7 +74,8 @@ def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.type
 
     Returns a dict mapping each mesh to the list of removed vertex group names.
     """
-    if ob is None: return None
+    if ob is None:
+        return None
     
     removed_groups_per_mesh: dict[bpy.types.Object, list[str]] = {}
 
@@ -60,64 +87,23 @@ def remove_unused_vertexgroups(ob: bpy.types.Object | None, bones: list[bpy.type
         return removed_groups_per_mesh
     
     armature = get_armature(ob)
-    
-    if bones is None:
-        bones = list(armature.data.bones) if armature else []
-    
-    bone_names = {bone.name for bone in bones}
-
-    def get_opposite_name(name: str) -> str | None:
-        for left_suffix, right_suffix in direction_map.items():
-            if left_suffix in name:
-                return name.replace(left_suffix, right_suffix)
-        return None
-
-    def is_left_or_right(name: str) -> bool:
-        return any(suffix in name for suffix in direction_map)
+    bone_names = {bone.name for bone in (bones or (armature.data.bones if armature else []))}
 
     for mesh in meshes:
-        vgroups = mesh.vertex_groups
-        if not vgroups:
+        if not mesh.vertex_groups:
             continue
 
         removed_groups_per_mesh[mesh] = []
 
-        has_mirror = any(mod.type == 'MIRROR' for mod in mesh.modifiers)
-
-        for v in mesh.data.vertices:
-            groups_to_remove = []
-            
-            for g in v.groups:
-                if g.group >= len(vgroups):
-                    continue
-                    
-                vg_name = vgroups[g.group].name
-                is_bone_group = vg_name in bone_names
-                
-                if is_bone_group and g.weight < weight_limit:
-                    groups_to_remove.append(g.group)
-            
-            for idx in groups_to_remove:
-                vgroups[idx].remove([v.index])
-
-        used_groups_after_cleanup = get_used_vertexgroups(mesh, tolerance=weight_limit)
+        used_groups = get_used_vertexgroups(
+            mesh, 
+            tolerance=weight_limit, 
+            respect_mirror=respect_mirror,
+        )
         
-        vgroups_snapshot = list(vgroups)
-        
-        for vg in reversed(vgroups_snapshot):
-            is_bone_group = vg.name in bone_names
-            
-            is_empty = vg.index not in used_groups_after_cleanup
-            
-            should_keep_for_mirror = False
-            if respect_mirror and has_mirror and is_left_or_right(vg.name):
-                opposite_name = get_opposite_name(vg.name)
-                if opposite_name:
-                    opposite_vg = vgroups.get(opposite_name)
-                    if opposite_vg and opposite_vg.index in used_groups_after_cleanup:
-                        should_keep_for_mirror = True
-            
-            if is_bone_group and is_empty and not should_keep_for_mirror:
+        vgroups = mesh.vertex_groups
+        for vg in reversed(list(vgroups)):
+            if vg.name in bone_names and vg.index not in used_groups:
                 removed_groups_per_mesh[mesh].append(vg.name)
                 vgroups.remove(vg)
 
@@ -165,7 +151,7 @@ def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, c
     deform_bones = [b for b in arm.data.bones if b.use_deform]
     deform_bone_names = {b.name for b in deform_bones}
     
-    remove_unused_vertexgroups(ob, bones=deform_bones, weight_limit=clean_tolerance)
+    remove_unused_vertexgroups(ob, bones=deform_bones, weight_limit=clean_tolerance, respect_mirror=True)
     limit_vertexgroup_influence(ob, deform_bone_names, limit=vgroup_limit)
     normalize_vertexgroup_weights(ob, deform_bone_names)
     
@@ -199,7 +185,7 @@ def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str]
     
     return result
     
-def get_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
+def clean_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
     """
     Remove unused shape keys (keys that don't move any vertices)
     from the given object.
@@ -234,18 +220,10 @@ def get_unused_shapekeys(ob: bpy.types.Object) -> list[str]:
 
     return removed
 
-def reapply_vertexgroup_as_curve(
-    arm: bpy.types.Object,
-    bones: bpy.types.PoseBone | list[bpy.types.PoseBone],
-    curve: bpy.types.CurveMapping,
-    invert: bool = False,
-    vertex_group_target: str | None = None,
-    min_weight_mask: float = 0.01,
-    max_weight_mask: float = 1.0,
-    normalize_to_parent: bool = True,
-    constant_mask: bool = False,
-    weight_threshold: float = 0.001,
-):
+def reapply_vertexgroup_as_curve(arm: bpy.types.Object, bones: bpy.types.PoseBone | list[bpy.types.PoseBone],
+                                 curve: bpy.types.CurveMapping, invert: bool = False, vertex_group_target: str | None = None,
+                                 min_weight_mask: float = 0.01, max_weight_mask: float = 1.0, normalize_to_parent: bool = True,
+                                 constant_mask: bool = False, weight_threshold: float = 0.001,):
     """
     Apply a curve-based ramp to vertex weights along bones in an armature.
     

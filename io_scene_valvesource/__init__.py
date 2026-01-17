@@ -86,44 +86,47 @@ class ValveSource_PrefabItem(PropertyGroup):
 
 class TextureConversionItem(PropertyGroup):
     name: StringProperty(name="Name", default="TexturesItem")
-    enforce_white_b_ch_normal : BoolProperty(name='Force White on Blue Channel')
     
     diffuse_map: StringProperty(name='Color Map')
     
     alpha_map: StringProperty(name='Alpha Map')
-    alpha_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    alpha_map_ch: EnumProperty(name='Channel', items=image_channels)
     invert_alpha_map : BoolProperty(name='Invert Alpha Map', default=False)
     
     skin_map: StringProperty(name='Skin Map')
-    skin_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    skin_map_ch: EnumProperty(name='Channel', items=image_channels)
     skin_map_gamma: FloatProperty(name='Gamma Correction', soft_min=0, soft_max=10, default=1)
     skin_map_contrast: FloatProperty(name='Contrast', soft_min=-100, soft_max=100, default=0)
     invert_skin_map : BoolProperty(name='Invert Skin Map', default=False)
     
     metal_map: StringProperty(name='Metal Map')
-    metal_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    metal_map_ch: EnumProperty(name='Channel', items=image_channels)
     invert_metal_map : BoolProperty(name='Invert Metal Map', default=False)
     metal_diffuse_mix : FloatProperty(name='Metal to Diffuse Mix', min=0.0,max=1.0,default=1.0)
     
     roughness_map: StringProperty(name='Roughness Map')
-    roughness_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    roughness_map_ch: EnumProperty(name='Channel', items=image_channels)
     invert_roughness_map : BoolProperty(name='Invert Roughness Map', default=False)
     
     ambientocclu_map: StringProperty(name='AO Map')
     ambientocclu_strength: IntProperty(name='AO Map Strength', default=60, min=0, max=100)
-    ambientocclu_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    ambientocclu_map_ch: EnumProperty(name='Channel', items=image_channels)
     invert_ambientocclu_map : BoolProperty(name='Invert AO Map', default=False)
     
     emissive_map: StringProperty(name='Emissive Map')
-    emissive_map_ch: EnumProperty(name='Channel', items=pbr_to_phong_channels)
+    emissive_ch_choice = [('COLOR', 'Color', 'Non Mask')] + image_channels
+    emissive_map_ch: EnumProperty(name='Channel', items=emissive_ch_choice)
     
     normal_map: StringProperty(name='Normal Map')
-    normal_map_type: EnumProperty(name='Normal Map Type', items=[
-        ('DEF', 'Default', ''),
-        ('RED', 'Red', 'The normal map is a red-type normal map'),
-        ('YELLOW', 'Yellow', 'The normal map is a yellow-type normal map that simply requires invert to all channel'),
-        ('OPENGL', 'OpenGL', 'The normal map is a OpenGL type that requires the green channel to be inverted'),
-    ])
+    normal_map_preprocess: EnumProperty(
+        name="Normal Map Preprocess",
+        options={'ENUM_FLAG'},
+        items=[
+            ('RED', 'Red Normal Map', 'The normal map is a red-type normal map'),
+            ('FORCE_WHITE_B', 'Force White on Blue', 'Force White on Blue Channel'),
+            ('INVERT_G', 'Invert Green Channel', 'Invert Green Channel (Use for DirectX format from OpenGL)'),
+        ]
+    )
     
     color_alpha_mode: EnumProperty(
         name="Color Alpha Channel",
@@ -158,11 +161,8 @@ class ValveSource_SceneProps(PropertyGroup):
     use_kv2 : BoolProperty(name="Write KeyValues2 (DEBUG)",description="Write ASCII DMX files",default=False)
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
     
-    enable_gui_console : BoolProperty(
-        name='Enable Console GUI',
-        default=True, 
-        description='Show console overlay with live progress updates. Adds ~20% processing time for visual feedback'
-    )
+    enable_gui_console : BoolProperty(name='Enable Console GUI',default=True, 
+        description='Show console overlay with live progress updates. Adds ~20% processing time for visual feedback')
     
     weightlink_threshold : FloatProperty(name=get_id("weightlinkcull"),description=get_id("weightlinkcull_tip"),max=0.001,min=0.0001, default=0.0001,precision=4)
     vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=3,max=32, soft_max=8,min=1)
@@ -207,13 +207,6 @@ class ValveSource_SceneProps(PropertyGroup):
             ('PHONG', "to Phong", "Convert PBR to Source Engine Phong (PseudoPBR)"),
             ('PBR', "to SourcePBR", "Convert to simple PBR format (_color, _mrao, _normal)")
         ],default='PHONG')
-    
-    for entry in toggle_show_ops:
-        if isinstance(entry, list):
-            for _name in entry:
-                exec(f"{_name} : BoolProperty(name='{_name.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
-        else:
-            exec(f"{entry} : BoolProperty(name='{entry.replace('_', ' ').title()}', options={{'SKIP_SAVE'}})")
 
 class ValveSource_VertexAnimation(PropertyGroup):
     name : StringProperty(name="Name",default="VertexAnim")
@@ -233,12 +226,12 @@ class ExportableProps():
     flex_controller_modes = (
         ('SIMPLE',"Simple",get_id("controllers_simple_tip")),
         ('ADVANCED',"Advanced",get_id("controllers_advanced_tip")),
-        ('SPECIFIC',"Specific",get_id("controllers_strict_tip"))
+        ('BUILDER',"Build",get_id("controllers_strict_tip"))
     )
 
     export : BoolProperty(name=get_id("scene_export"),description=get_id("use_scene_export_tip"),default=True)
     subdir : StringProperty(name=get_id("subdir"),description=get_id("subdir_tip"))
-    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"),description=get_id("controllers_mode_tip"),items=flex_controller_modes,default='SPECIFIC')
+    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"),description=get_id("controllers_mode_tip"),items=flex_controller_modes,default='BUILDER')
     flex_controller_source : StringProperty(name=get_id("controller_source"),description=get_id("controllers_source_tip"),subtype='FILE_PATH', options=_relativePathOptions)
 
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=ValveSource_VertexAnimation)
@@ -282,6 +275,8 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     
     dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=FlexControllerItem)
     dme_flexcontrollers_index : IntProperty(default=-1)
+    
+    sync_active_shapekey_to_dme : BoolProperty(name='Sync Active Shape Key',default=False)
     
     dmx_attachment : BoolProperty(name='DMX Attachment',default=False)
     smd_hitbox : BoolProperty(name='SMD Hitbox',default=False)    
@@ -482,7 +477,17 @@ _classes = (
     GUI.SMD_OT_RemovePrefab,
     GUI.SMD_UL_Prefabs,
     
-    properties.SMD_PT_ContextObject,
+    properties.KITSUNE_PT_active_object_properties,
+    properties.KITSUNE_PT_object_properties,
+    properties.KITSUNE_PT_bone_properties,
+    properties.KITSUNE_PT_mesh_properties,
+    properties.KITSUNE_PT_material_properties,
+    properties.KITSUNE_PT_shapekey_properties,
+    properties.KITSUNE_PT_vertexmap_properties,
+    properties.KITSUNE_PT_vertexfloatmap_properties,
+    properties.KITSUNE_PT_vertex_animations,
+    properties.KITSUNE_PT_empty_properties,
+    properties.KITSUNE_PT_curve_properties,
     
     # MESH PANEL
     properties.DME_UL_FlexControllers,
@@ -497,7 +502,15 @@ _classes = (
     properties.SMD_OT_PreviewVertexAnimation,
     properties.SMD_OT_GenerateVertexAnimationQCSnippet,
 
-    valvemodel.VALVEMODEL_PT_PANEL,
+    valvemodel.VALVEMODEL_PT_tools_panel,
+    valvemodel.VALVEMODEL_PT_animation,
+    valvemodel.VALVEMODEL_PT_attachments,
+    valvemodel.VALVEMODEL_PT_all_attachments,
+    valvemodel.VALVEMODEL_PT_hitboxes,
+    valvemodel.VALVEMODEL_PT_all_hitbox,
+    valvemodel.VALVEMODEL_PT_jigglebones,
+    valvemodel.VALVEMODEL_PT_all_jigglebones,
+    
     valvemodel.VALVEMODEL_OT_FixAttachment,
     valvemodel.VALVEMODEL_OT_ExportJiggleBone,
     valvemodel.VALVEMODEL_OT_ImportJigglebones,
@@ -509,15 +522,14 @@ _classes = (
     valvemodel.VALVEMODEL_OT_FixHitBox,
     valvemodel.VALVEMODEL_OT_AddHitbox,
     
-    common.TOOLS_PT_PANEL,
-    
     objectdata.OBJECT_PT_Translate_Panel,
     objectdata.OBJECT_OT_Translate_Object_Process,
     objectdata.OBJECT_OT_Translate_Object,
     objectdata.OBJECT_OT_Apply_Transform,
 
     armature.TOOLS_PT_Armature,
-    armature.TOOLS_OT_ApplyCurrentPoseAsRestPose,
+    armature.TOOLS_OT_Apply_Current_Pose_As_RestPose,
+    armature.TOOLS_OT_Apply_Current_Pose_As_Shapekey,
     armature.TOOLS_OT_CleanUnWeightedBones,
     armature.TOOLS_OT_MergeArmatures,
     armature.TOOLS_OT_CopyVisPosture,
@@ -535,6 +547,8 @@ _classes = (
     mesh.TOOLS_PT_Mesh,
     mesh.TOOLS_OT_CleanShapeKeys,
     mesh.TOOLS_OT_SelectShapekeyVets,
+    mesh.TOOLS_OT_Delete_Faces_by_ImageMask,
+    mesh.TOOLS_OT_Select_Faces_by_ImageMask,
     mesh.TOOLS_OT_RemoveUnusedVertexGroups,
     mesh.TOOLS_OT_AddToonEdgeLine,
 

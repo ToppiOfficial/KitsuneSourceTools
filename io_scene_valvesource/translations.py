@@ -901,7 +901,7 @@ _data = {
         'en': "Select a mesh with vertex groups in Weight Paint Mode, or an armature in Pose Mode.",
     },
     'panel_select_mesh_mat': {
-        'en': "Select a mesh with materials",
+        'en': "Select a material",
     },
     'panel_select_mesh_sk': {
         'en': "Select a mesh with shapekeys",
@@ -911,6 +911,9 @@ _data = {
     },
     'panel_select_empty': {
         'en': "Select an empty",
+    },
+    'panel_select_noneditbone': {
+        'en': "Select a non-edit bone",
     },
 }
 

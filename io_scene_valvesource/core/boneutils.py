@@ -1,16 +1,14 @@
 import bpy, re, math, typing, math, collections, mathutils
 from .commonutils import sanitize_string, get_armature, sort_bone_by_hierarchy
 
-_shortcut_pattern = re.compile(r"!(\w+)")
-
 exportname_shortcut_keywords = {
-    "vbip": "ValveBiped.Bip01",
-}
+    "vbip": "ValveBiped.Bip01"
+    }
 
 bonename_direction_map = {
             '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
             '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
-        }
+            }
 
 def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_write = False) -> str:
     """Generate the export name for a bone or posebone, respecting custom naming rules."""
@@ -46,7 +44,8 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
         raw_name = b.name if is_jigglebone else (b.vs.export_name.strip() or b.name)
         raw_name = raw_name.replace("*", b_side)
 
-        raw_name = _shortcut_pattern.sub(
+        shortcut_pattern = re.compile(r"!(\w+)")
+        raw_name = shortcut_pattern.sub(
             lambda match: exportname_shortcut_keywords.get(match.group(1), match.group(0)),
             raw_name
         )
@@ -84,11 +83,8 @@ def get_canonical_bonename(export_name: str) -> str:
 
     return export_name
 
-def get_bone_matrix(
-    data: bpy.types.PoseBone | mathutils.Matrix,
-    bone: bpy.types.PoseBone | None = None,
-    rest_space : bool = False
-) -> mathutils.Matrix:
+def get_bone_matrix(data: bpy.types.PoseBone | mathutils.Matrix, bone: bpy.types.PoseBone | None = None,
+                    rest_space : bool = False) -> mathutils.Matrix:
     """
     Returns the effective matrix of a PoseBone or matrix with applied export offsets.
 
@@ -136,14 +132,8 @@ def get_bone_matrix(
     # Apply offsets in bone space
     return matrix @ offset_matrix
 
-def get_relative_target_matrix(
-    slave: bpy.types.PoseBone,
-    master: bpy.types.PoseBone | None = None,
-    axis: str = 'XYZ',
-    mode: str = 'ROTATION',
-    is_string: bool = False,
-    rest_space : bool = True
-) -> typing.Union[list[float], str]:
+def get_relative_target_matrix( slave: bpy.types.PoseBone, master: bpy.types.PoseBone | None = None, axis: str = 'XYZ',
+                               mode: str = 'ROTATION', is_string: bool = False, rest_space : bool = True) -> typing.Union[list[float], str]:
     """
     Returns relative translation or rotation of `slave` to `master`.
 

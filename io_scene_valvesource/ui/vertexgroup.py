@@ -2,31 +2,25 @@ import bpy, bmesh
 from bpy.props import FloatProperty, BoolProperty, StringProperty
 from bpy.types import UILayout, Context, Object, Operator, PoseBone
 from typing import Set
-from mathutils import Vector
 
-from .common import ToolsCategoryPanel
+from .common import KITSUNE_PT_ToolsPanel
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts,
     is_armature, is_mesh, get_armature, get_armature_meshes,
-    get_selected_bones, preserve_context_mode
-)
-from ..core.armatureutils import (
-    remove_bone, preserve_armature_state
-)
-from ..core.meshutils import (
-    reapply_vertexgroup_as_curve
-)
+    get_selected_bones, preserve_context_mode)
 
+from ..core.armatureutils import preserve_armature_state
+from ..core.meshutils import reapply_vertexgroup_as_curve
 from ..utils import get_id
 
 from .bone import TOOLS_OT_SubdivideBone
 
-class TOOLS_PT_VertexGroup(ToolsCategoryPanel):
+class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolsPanel):
     bl_label : str = "Vertex Group Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_VertexGroup.bl_label, icon='GROUP_VERTEX')
+        layout = self.layout
+        bx = layout.box()
         
         vgroup_mode = False
         
@@ -367,6 +361,14 @@ class TOOLS_OT_multi_weight_paint_start(bpy.types.Operator):
         
         bpy.ops.object.select_all(action='DESELECT')
         
+        for obj in original_meshes:
+            modifier_states = {}
+            for mod in obj.modifiers:
+                if mod.type != 'ARMATURE':
+                    modifier_states[mod.name] = mod.show_viewport
+                    mod.show_viewport = False
+            obj["__temp_modifier_states"] = str(modifier_states)
+        
         duplicated_meshes = []
         original_names = []
         
@@ -386,8 +388,7 @@ class TOOLS_OT_multi_weight_paint_start(bpy.types.Operator):
             dup_obj["original_mesh"] = obj.name
 
             for mod in list(dup_obj.modifiers):
-                if mod.type != 'ARMATURE':
-                    dup_obj.modifiers.remove(mod)
+                dup_obj.modifiers.remove(mod)
             
             duplicated_meshes.append(dup_obj)
             original_names.append(obj.name)
@@ -408,6 +409,8 @@ class TOOLS_OT_multi_weight_paint_start(bpy.types.Operator):
         combined_obj["original_meshes"] = original_names
         
         if armature:
+            arm_mod = combined_obj.modifiers.new(name="Armature", type='ARMATURE')
+            arm_mod.object = armature
             armature.select_set(True)
         
         context.view_layer.objects.active = combined_obj
@@ -458,7 +461,6 @@ class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
                 self.report({'WARNING'}, f"Object {target_obj.name} missing ID vertex group. Skipping.")
                 continue
 
-            # Create a temporary object with only the relevant part of the mesh
             context.view_layer.objects.active = combined_obj
             combined_obj.select_set(True)
             bpy.ops.object.duplicate()
@@ -481,7 +483,6 @@ class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
                 bm.free()
                 temp_source_obj.data.update()
 
-                # Transfer weights using this new temp object
                 if "DataTransfer" in target_obj.modifiers:
                     target_obj.modifiers.remove(target_obj.modifiers["DataTransfer"])
 
@@ -491,29 +492,42 @@ class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
                 mod.data_types_verts = {'VGROUP_WEIGHTS'}
                 mod.vert_mapping = 'TOPOLOGY'
                 
-                override = context.copy()
-                override['object'] = target_obj
-                override['modifier'] = mod
-                with context.temp_override(**override):
-                    bpy.ops.object.modifier_apply(modifier=mod.name)
+                context.view_layer.objects.active = target_obj
+                target_obj.select_set(True)
                 
-                self.report({'INFO'}, f"Successfully transferred weights to {target_obj.name} using Topology.")
+                while len(target_obj.modifiers) > 1 and target_obj.modifiers[0] != mod:
+                    bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
+                
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+                
+                target_obj.select_set(False)
+                
+                self.report({'INFO'}, f"Successfully transferred weights to {target_obj.name}")
 
             except Exception as e:
                 self.report({'ERROR'}, f"Failed to transfer weights to {target_obj.name}: {e}")
 
             finally:
-                # Cleanup the temporary source object
                 bpy.data.objects.remove(temp_source_obj, do_unlink=True)
 
-            # Cleanup the ID vertex group
+            for mod in target_obj.modifiers:
+                if mod.type == 'ARMATURE':
+                    mod.show_viewport = True
+
+            if "__temp_modifier_states" in target_obj:
+                import ast
+                modifier_states = ast.literal_eval(target_obj["__temp_modifier_states"])
+                for mod_name, show_state in modifier_states.items():
+                    if mod_name in target_obj.modifiers:
+                        target_obj.modifiers[mod_name].show_viewport = show_state
+                del target_obj["__temp_modifier_states"]
+
             vg = target_obj.vertex_groups.get(vg_name)
             if vg:
                 target_obj.vertex_groups.remove(vg)
             if "__temp_id_vg_name" in target_obj:
                 del target_obj["__temp_id_vg_name"]
 
-        # Final cleanup of the main combined object
         bpy.ops.object.select_all(action='DESELECT')
         combined_obj.select_set(True)
         context.view_layer.objects.active = combined_obj
@@ -527,10 +541,9 @@ class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
         self.report({'INFO'}, f"Weight transfer completed for {len(original_meshes)} meshes")
         return {'FINISHED'}
 
-
 class TOOLS_OT_multi_weight_paint_cancel(bpy.types.Operator):
     bl_idname = "tools.multi_weight_paint_cancel"
-    bl_label = "Cancel"
+    bl_label = "Cancel Multi-Object Weight Paint"
     bl_description = "Discard changes and cleanup"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -556,7 +569,25 @@ class TOOLS_OT_multi_weight_paint_cancel(bpy.types.Operator):
             if obj:
                 original_meshes.append(obj)
                 obj.hide_set(False)
-                obj.select_set(True)
+                
+                for mod in obj.modifiers:
+                    if mod.type == 'ARMATURE':
+                        mod.show_viewport = True
+                
+                if "__temp_modifier_states" in obj:
+                    import ast
+                    modifier_states = ast.literal_eval(obj["__temp_modifier_states"])
+                    for mod_name, show_state in modifier_states.items():
+                        if mod_name in obj.modifiers:
+                            obj.modifiers[mod_name].show_viewport = show_state
+                    del obj["__temp_modifier_states"]
+                
+                vg_name = obj.get("__temp_id_vg_name")
+                if vg_name:
+                    vg = obj.vertex_groups.get(vg_name)
+                    if vg:
+                        obj.vertex_groups.remove(vg)
+                    del obj["__temp_id_vg_name"]
 
         bpy.ops.object.select_all(action='DESELECT')
         combined_obj.select_set(True)
@@ -568,8 +599,7 @@ class TOOLS_OT_multi_weight_paint_cancel(bpy.types.Operator):
                 obj.select_set(True)
             context.view_layer.objects.active = original_meshes[0]
         else:
-            self.report({'WARNING'}, "Original meshes not found, please unhide them from the outliner manually")
+            self.report({'WARNING'}, "Original meshes not found")
 
         self.report({'INFO'}, "Cancelled multi-object weight paint. Changes discarded.")
         return {'FINISHED'}
-    

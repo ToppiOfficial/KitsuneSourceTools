@@ -1,39 +1,40 @@
 import bpy, bmesh, mathutils
 from bpy.types import UILayout, Context, Object, Operator, Mesh
-from typing import Set
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty, IntProperty
 
-from bpy.props import BoolProperty, EnumProperty, FloatProperty
+from .common import KITSUNE_PT_ToolsPanel
+from ..core.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature, is_mesh
+from ..core.meshutils import clean_unused_shapekeys, remove_unused_vertexgroups
+from ..utils import hasShapes, get_id, image_channels
 
-from .common import ToolsCategoryPanel
-from ..core.commonutils import (
-    draw_title_box_layout, draw_wrapped_texts,
-    is_armature, is_mesh,
-)
-from ..core.meshutils import (
-    get_unused_shapekeys, remove_unused_vertexgroups
-)
-from ..utils import hasShapes
-from ..utils import get_id
-
-class TOOLS_PT_Mesh(ToolsCategoryPanel):
+class TOOLS_PT_Mesh(KITSUNE_PT_ToolsPanel):
     bl_label : str = "Mesh Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_Mesh.bl_label, icon='MESH_DATA')
+        layout = self.layout
+        box = layout.box()
         
         if is_mesh(context.object) or is_armature(context.object): pass
         else:
-            draw_wrapped_texts(bx,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
+            draw_wrapped_texts(box,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
         
-        col = bx.column()
-        row = col.row(align=True)
-        row.scale_y = 1.3
-        row.operator(TOOLS_OT_CleanShapeKeys.bl_idname, icon='SHAPEKEY_DATA')
-        row.operator(TOOLS_OT_RemoveUnusedVertexGroups.bl_idname, icon='GROUP_VERTEX')
+        box1 = box.box()
+        col = box1.column(align=True)
+        col.label(text='Optimization')
+        col.operator(TOOLS_OT_CleanShapeKeys.bl_idname, icon='SHAPEKEY_DATA')
+        col.operator(TOOLS_OT_RemoveUnusedVertexGroups.bl_idname, icon='GROUP_VERTEX')
+        col.operator(TOOLS_OT_Delete_Faces_by_ImageMask.bl_idname, icon='UV_FACESEL')
         
+        box1 = box.box()
+        col = box1.column(align=True)
+        col.label(text='Selection')
         col.operator(TOOLS_OT_SelectShapekeyVets.bl_idname, icon='VERTEXSEL')
+        col.operator(TOOLS_OT_Select_Faces_by_ImageMask.bl_idname, icon='RESTRICT_SELECT_OFF')
+        
+        box1 = box.box()
+        col = box1.column(align=True)
+        col.label(text='Modifiers')
         col.operator(TOOLS_OT_AddToonEdgeLine.bl_idname, icon='MOD_SOLIDIFY')
         
 class TOOLS_OT_CleanShapeKeys(Operator):
@@ -58,7 +59,7 @@ class TOOLS_OT_CleanShapeKeys(Operator):
         for ob in objects:
             if ob.type != 'MESH': continue
             
-            deleted_sk = get_unused_shapekeys(ob)
+            deleted_sk = clean_unused_shapekeys(ob)
             
             if deleted_sk:
                 cleaned_objects += 1
@@ -74,7 +75,7 @@ class TOOLS_OT_CleanShapeKeys(Operator):
 class TOOLS_OT_SelectShapekeyVets(Operator):
     bl_idname : str = 'kitsunetools.select_shapekey_vertices'
     bl_label : str = 'Select Shapekey Vertices'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_options : set = {'REGISTER', 'UNDO'}
 
     select_type: EnumProperty(
         name="Selection Type",
@@ -105,7 +106,7 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
         ob : Object | None = context.object
         return bool(is_mesh(ob) and ob.data.shape_keys and ob.mode == 'EDIT')
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         obj = context.active_object
         mesh : Mesh = obj.data # type: ignore
         bm = bmesh.from_edit_mesh(mesh)
@@ -138,7 +139,7 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
 class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
     bl_idname : str = "kitsunetools.remove_unused_vertexgroups"
     bl_label : str = "Clean Unused Vertex Groups"
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_options : set = {'REGISTER', 'UNDO'}
     
     respect_mirror : BoolProperty(name='Respect Mirror', default=True)
     weight_threshold : FloatProperty(name='Weight Threshold', default=0.001,min=0.0001,max=0.1,precision=4)
@@ -159,7 +160,7 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         col.prop(self, 'respect_mirror')
         col.prop(self, 'weight_threshold', slider=True)
     
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         obs = context.selected_objects
         total_removed = 0
 
@@ -173,7 +174,7 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
 class TOOLS_OT_AddToonEdgeLine(Operator):
     bl_idname: str = "kitsunetools.add_toon_edgeline"
     bl_label: str = "Add Black Toon Edgeline"
-    bl_options: Set = {"REGISTER", "UNDO"}
+    bl_options: set = {"REGISTER", "UNDO"}
 
     per_material_edgeline: BoolProperty(
         name="Per Material Edgeline",
@@ -238,7 +239,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
 
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return bool({ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()})
+        return bool(context.mode == 'OBJECT' and {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()})
 
     def draw(self, context: Context):
         layout = self.layout
@@ -356,7 +357,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         
         return edgeline_mat
 
-    def execute(self, context: Context) -> Set:
+    def execute(self, context: Context) -> set:
         obs: set[Object] = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
 
         for ob in obs:
@@ -370,39 +371,30 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             if has_edgeline_setup and not self.overwrite_existing_materials:
                 pass
             else:
+                for i in range(len(ob.material_slots) - 1, -1, -1):
+                    slot = ob.material_slots[i]
+                    if slot.material and "edgeline" in slot.material.name.lower():
+                        ob.active_material_index = i
+                        bpy.ops.object.material_slot_remove()
+                
+                bpy.ops.object.material_slot_remove_unused()
+                
                 if self.per_material_edgeline:
-                    original_materials = []
-                    old_to_new_index = {}
+                    original_slot_count = len(ob.material_slots)
+                    edgeline_materials = []
                     
-                    for old_idx, slot in enumerate(ob.material_slots):
+                    for slot in ob.material_slots:
                         mat = slot.material
                         if mat and not mat.name.endswith("_edgeline"):
-                            if mat not in original_materials:
-                                original_materials.append(mat)
-                            new_idx = original_materials.index(mat)
-                            old_to_new_index[old_idx] = new_idx
+                            edgeline_mat = self.create_edgeline_material(mat.name)
                         else:
-                            old_to_new_index[old_idx] = 0
-
-                    mesh = ob.data
-                    poly_materials = [poly.material_index for poly in mesh.polygons]
-
-                    edgeline_materials = []
-                    for mat in original_materials:
-                        edgeline_mat = self.create_edgeline_material(mat.name if mat else "Material")
+                            edgeline_mat = self.create_edgeline_material("Material")
                         edgeline_materials.append(edgeline_mat)
-
-                    ob.data.materials.clear()
-                    for mat in original_materials:
-                        ob.data.materials.append(mat)
-                    for mat in edgeline_materials:
-                        ob.data.materials.append(mat)
-
-                    for poly_idx, old_mat_idx in enumerate(poly_materials):
-                        if old_mat_idx in old_to_new_index:
-                            mesh.polygons[poly_idx].material_index = old_to_new_index[old_mat_idx]
                     
-                    material_offset = len(original_materials)
+                    for edgeline_mat in edgeline_materials:
+                        ob.data.materials.append(edgeline_mat)
+                    
+                    material_offset = original_slot_count
                 else:
                     edgeline_mat = next((mat for mat in bpy.data.materials if mat.name == "edgeline"), None)
                     
@@ -424,37 +416,12 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
                     edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
                     edgeline_mat.vs.do_not_export_faces_vgroup = True
 
-                    mesh = ob.data
-                    poly_materials = [poly.material_index for poly in mesh.polygons]
+                    original_slot_count = len(ob.material_slots)
                     
-                    old_to_new_index = {}
-                    non_edgeline_materials = []
-                    
-                    for old_idx, slot in enumerate(ob.material_slots):
-                        mat = slot.material
-                        if mat and "edgeline" not in mat.name.lower():
-                            if mat not in non_edgeline_materials:
-                                non_edgeline_materials.append(mat)
-                            new_idx = non_edgeline_materials.index(mat)
-                            old_to_new_index[old_idx] = new_idx
-                        else:
-                            old_to_new_index[old_idx] = 0
-                    
-                    ob.data.materials.clear()
-                    
-                    for mat in non_edgeline_materials:
-                        ob.data.materials.append(mat)
-                    
-                    original_mat_count = len(non_edgeline_materials)
-                    
-                    for _ in range(original_mat_count):
+                    for _ in range(original_slot_count):
                         ob.data.materials.append(edgeline_mat)
                     
-                    for poly_idx, old_mat_idx in enumerate(poly_materials):
-                        if old_mat_idx in old_to_new_index:
-                            mesh.polygons[poly_idx].material_index = old_to_new_index[old_mat_idx]
-                    
-                    material_offset = original_mat_count
+                    material_offset = original_slot_count
 
             solid = ob.modifiers.get("Toon_Edgeline") or ob.modifiers.new(name="Toon_Edgeline", type="SOLIDIFY")
             filter_vgroup = ob.vertex_groups.get('Edgeline_Thickness')
@@ -481,3 +448,281 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
                         filter_vgroup.add([i], final_weight, 'REPLACE')
 
         return {"FINISHED"}
+    
+class faces_by_imagemask():
+    image_mask : StringProperty(name="Image Mask", default="")
+    
+    image_channel : EnumProperty(name='Channel', items=image_channels)
+    
+    invert_image_mask : BoolProperty(
+        name="Invert Image Mask",
+        default=False)
+
+    exclude_selected_faces: BoolProperty(
+        name="Exclude Selected Faces",
+        description="Don't delete faces that are currently selected in Edit Mode",
+        default=True
+    )
+    
+    
+class TOOLS_OT_Delete_Faces_by_ImageMask(Operator, faces_by_imagemask):
+    bl_idname: str = "kitsunetools.delete_face_by_image_mask"
+    bl_label: str = "Delete Face by Image Mask"
+    bl_options: set = {"REGISTER", "UNDO"}
+    
+    material_name : StringProperty(
+        name="Material",
+        description="Only process faces assigned to this material. If empty, process all.",
+        default="",
+    )
+    
+    tolerance : FloatProperty(name='Tolerance', default=0.01, soft_min=0.00001,soft_max=0.03, precision=5)
+
+    @classmethod
+    def poll(cls, context):
+        if bpy.data.images is None: return False
+        return context.mode in ['OBJECT', 'EDIT_MESH'] and is_mesh(context.object) and hasattr(context.object.data, 'uv_layers')
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=400)
+    
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        
+        col.prop_search(self, "image_mask", bpy.data, "images")
+
+        if context.object and context.object.data and hasattr(context.object.data, 'materials'):
+             col.prop_search(self, "material_name", context.object.data, "materials")
+        
+        col.prop(self, "image_channel")
+        col.prop(self, "invert_image_mask")
+
+        if context.mode == 'EDIT_MESH':
+            col.prop(self, "exclude_selected_faces")
+
+        col.prop(self, "tolerance", slider=True)
+    
+    def execute(self, context) -> set:
+        image = bpy.data.images.get(self.image_mask)
+        if image is None:
+            self.report({'WARNING'}, "Image not found")
+            return {'CANCELLED'}
+
+        is_editmode = (context.mode == 'EDIT_MESH')
+        
+        if is_editmode:
+            objects_to_process = {context.edit_object}
+        else:
+            objects_to_process = {obj for obj in context.selected_objects if is_mesh(obj)}
+
+        if not objects_to_process:
+            self.report({'WARNING'}, "No suitable mesh selected")
+            return {'CANCELLED'}
+
+        pixels = list(image.pixels)
+        img_width = image.size[0]
+        img_height = image.size[1]
+        channels = image.channels
+
+        faces_deleted_total = 0
+
+        for obj in objects_to_process:
+            target_mat_index = -1
+            if self.material_name:
+                target_mat_index = obj.data.materials.find(self.material_name)
+                if target_mat_index == -1:
+                    self.report({'INFO'}, f"Material '{self.material_name}' not on '{obj.name}', skipping.")
+                    continue
+            
+            if is_editmode:
+                bm = bmesh.from_edit_mesh(obj.data)
+            else:
+                bm = bmesh.new()
+                bm.from_mesh(obj.data)
+            
+            uv_layer = bm.loops.layers.uv.active
+            if not uv_layer:
+                self.report({'INFO'}, f"Object '{obj.name}' has no active UV layer, skipping.")
+                if not is_editmode:
+                    bm.free()
+                continue
+            
+            bm.faces.ensure_lookup_table()
+
+            faces_to_delete = []
+            for face in bm.faces:
+                if is_editmode and self.exclude_selected_faces and face.select:
+                    continue
+
+                if target_mat_index != -1 and face.material_index != target_mat_index:
+                    continue
+                
+                avg_brightness = 0.0
+                
+                if not face.loops:
+                    continue
+                
+                for loop in face.loops:
+                    uv = loop[uv_layer].uv
+                    
+                    u = uv.x % 1.0
+                    v = uv.y % 1.0
+                    
+                    px = int(u * (img_width - 1))
+                    py = int(v * (img_height - 1))
+
+                    px = max(0, min(img_width - 1, px))
+                    py = max(0, min(img_height - 1, py))
+                    
+                    pix_index = (py * img_width + px) * channels
+                    
+                    brightness = 0.0
+                    if pix_index + (channels - 1) < len(pixels):
+                        if self.image_channel == 'GREY':
+                            if channels >= 1:
+                                brightness = pixels[pix_index] # Red channel is used for greyscale
+                        else:
+                            channel_map = {'R': 0, 'G': 1, 'B': 2, 'A': 3}
+                            channel_index = channel_map.get(self.image_channel)
+                            if channel_index is not None and channel_index < channels:
+                                brightness = pixels[pix_index + channel_index]
+                    
+                    avg_brightness += brightness
+                
+                avg_brightness /= len(face.loops)
+                
+                should_delete = avg_brightness < self.tolerance
+                if self.invert_image_mask:
+                    should_delete = not should_delete
+
+                if should_delete:
+                    faces_to_delete.append(face)
+
+            if faces_to_delete:
+                faces_deleted_total += len(faces_to_delete)
+                bmesh.ops.delete(bm, geom=faces_to_delete, context='FACES')
+
+                if is_editmode:
+                    bmesh.update_edit_mesh(obj.data)
+                else:
+                    bm.to_mesh(obj.data)
+                    obj.data.update()
+            
+            if not is_editmode:
+                bm.free()
+
+        self.report({'INFO'}, f"Deleted {faces_deleted_total} faces.")
+        return {'FINISHED'}
+
+
+class TOOLS_OT_Select_Faces_by_ImageMask(Operator, faces_by_imagemask):
+    bl_idname: str = "kitsunetools.select_faces_by_image_mask"
+    bl_label: str = "Select Faces by Image Mask"
+    bl_options: set = {"REGISTER", "UNDO"}
+
+    min_white_threshold: IntProperty(
+        name="Min White Threshold",
+        description="Select faces where the average brightness is above this value (0-255)",
+        default=175,
+        min=0,
+        max=255
+    )
+    
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH' and is_mesh(context.object) and hasattr(context.object.data, 'uv_layers')
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        
+        col.prop_search(self, "image_mask", bpy.data, "images")
+        
+        col.prop(self, "image_channel")
+        col.prop(self, "invert_image_mask")
+        col.prop(self, "exclude_selected_faces")
+        col.prop(self, "min_white_threshold", slider=True)
+
+    def execute(self, context) -> set:
+        image = bpy.data.images.get(self.image_mask)
+        if image is None:
+            self.report({'WARNING'}, "Image not found")
+            return {'CANCELLED'}
+
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        
+        uv_layer = bm.loops.layers.uv.active
+        if not uv_layer:
+            self.report({'INFO'}, f"Object '{obj.name}' has no active UV layer, skipping.")
+            return {'CANCELLED'}
+        
+        pixels = list(image.pixels)
+        img_width = image.size[0]
+        img_height = image.size[1]
+        channels = image.channels
+        
+        bm.faces.ensure_lookup_table()
+        
+        faces_selected_total = 0
+        
+        for face in bm.faces:
+            if self.exclude_selected_faces and face.select:
+                continue
+            
+            avg_brightness = 0.0
+            
+            if not face.loops:
+                continue
+            
+            for loop in face.loops:
+                uv = loop[uv_layer].uv
+                
+                u = uv.x % 1.0
+                v = uv.y % 1.0
+                
+                px = int(u * (img_width - 1))
+                py = int(v * (img_height - 1))
+                
+                px = max(0, min(img_width - 1, px))
+                py = max(0, min(img_height - 1, py))
+                
+                pix_index = (py * img_width + px) * channels
+                
+                brightness = 0.0
+                if pix_index + (channels - 1) < len(pixels):
+                    if self.image_channel == 'GREY':
+                        if channels >= 1:
+                            brightness = pixels[pix_index] # Red channel is used for greyscale
+                    else:
+                        channel_map = {'R': 0, 'G': 1, 'B': 2, 'A': 3}
+                        channel_index = channel_map.get(self.image_channel)
+                        if channel_index is not None and channel_index < channels:
+                            brightness = pixels[pix_index + channel_index]
+                
+                avg_brightness += brightness
+            
+            avg_brightness /= len(face.loops)
+            
+            avg_brightness_int = int(avg_brightness * 255)
+            
+            should_select = avg_brightness_int > self.min_white_threshold
+            if self.invert_image_mask:
+                should_select = not should_select
+                
+            if should_select:
+                face.select = True
+                faces_selected_total += 1
+
+        bmesh.update_edit_mesh(obj.data)
+        
+        self.report({'INFO'}, f"Selected {faces_selected_total} faces.")
+        return {'FINISHED'}

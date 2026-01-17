@@ -1,5 +1,4 @@
 import numpy as np
-from typing import Tuple, List
 from PIL import Image, ImageOps, ImageChops, ImageEnhance
 
 class ImageProcessor:
@@ -113,7 +112,7 @@ class ImageProcessor:
         return result
     
     @staticmethod
-    def curves(img: np.ndarray, points: List[Tuple[float, float]]) -> np.ndarray:
+    def curves(img: np.ndarray, points: list[tuple[float, float]]) -> np.ndarray:
         """Apply curve adjustment"""
         result = img.copy()
         rgb = result[:, :, :3]
@@ -216,9 +215,9 @@ class ImageProcessor:
     
     @staticmethod
     def color_balance(img: np.ndarray, 
-                      shadows: Tuple[float, float, float] = (0, 0, 0),
-                      midtones: Tuple[float, float, float] = (0, 0, 0),
-                      highlights: Tuple[float, float, float] = (0, 0, 0),
+                      shadows: tuple[float, float, float] = (0, 0, 0),
+                      midtones: tuple[float, float, float] = (0, 0, 0),
+                      highlights: tuple[float, float, float] = (0, 0, 0),
                       preserve_luminosity: bool = True) -> np.ndarray:
         """Adjust color balance"""
         result = img.copy()

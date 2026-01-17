@@ -1088,23 +1088,25 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
             normalize_shapekey = id.data.vs.normalize_shapekeys
             id.show_only_shape_key = not normalize_shapekey
             preserve_basis_normals = id.data.vs.bake_shapekey_as_basis_normals
-            valid_controllers = {fc[0]: fc[3] for fc in get_flexcontrollers(id)}
 
+            shapes_to_process = []
+            if id.vs.flex_controller_mode == 'BUILDER':
+                valid_controllers = {fc[0]: fc[3] for fc in get_flexcontrollers(id)}
+                
+                for shape_name, new_name in valid_controllers.items():
+                    shape_index = id.data.shape_keys.key_blocks.find(shape_name)
+                    if shape_index != -1:
+                        shape = id.data.shape_keys.key_blocks[shape_index]
+                        if new_name != shape.name:
+                            shape.name = new_name
+                        shapes_to_process.append((shape_index, shape))
+            else:
+                shapes_to_process = list(enumerate(id.data.shape_keys.key_blocks))[1:]
+                
             if preserve_basis_normals: 
-                print("- Ignoring changes normals for shapekeys in {}".format(id.name))
+                print("- Ignoring changes normals for shapekeys in {}".format(id.name),)
 
-            for i, shape in enumerate(id.data.shape_keys.key_blocks):
-                if i == 0: 
-                    continue
-                
-                if id.vs.flex_controller_mode == 'SPECIFIC' and shape.name not in valid_controllers:
-                    continue
-                
-                if id.vs.flex_controller_mode == 'SPECIFIC':
-                    new_name = valid_controllers[shape.name]
-                    if new_name != shape.name: 
-                        shape.name = new_name
-
+            for i, shape in shapes_to_process:
                 id.active_shape_key_index = i
                 
                 if normalize_shapekey:
@@ -1117,6 +1119,7 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
 
                 shape_ob = put_in_object(id, baked_shape, quiet=True)
 
+                # Preserving basis normals
                 if preserve_basis_normals:
                     prev_index = id.active_shape_key_index
                     id.active_shape_key_index = 0

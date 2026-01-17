@@ -83,22 +83,29 @@ class DmxWriteFlexControllers(bpy.types.Operator):
             if not ob.data.shape_keys:
                 continue
             
-            in_specific_mode = ob.vs.flex_controller_mode == 'SPECIFIC'
             normalize = ob.data.vs.normalize_shapekeys
-            corrective_separator = getCorrectiveShapeSeparator()
-            
-            for shape in ob.data.shape_keys.key_blocks[1:]:
-                if not in_specific_mode and (corrective_separator in shape.name or shape.name in shapes):
+
+            if ob.vs.flex_controller_mode == 'BUILDER':
+                if flexcontrollers is None:
                     continue
                 
-                fc = None
-                if in_specific_mode and flexcontrollers is not None:
-                    fc = next((f for f in flexcontrollers if f[0] == shape.name), None)
-                    if fc is None:
+                for fc in flexcontrollers:
+                    shape_name = fc[0]
+                    shape = ob.data.shape_keys.key_blocks.get(shape_name)
+
+                    if shape is None:
                         continue
-                
-                createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc, use_slider_range=in_specific_mode, normalize_shapekeys=normalize)
-                shapes.add(shape.name)
+
+                    createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc, use_slider_range=True, normalize_shapekeys=normalize)
+                    shapes.add(shape.name)
+            else:
+                corrective_separator = getCorrectiveShapeSeparator()
+                for shape in ob.data.shape_keys.key_blocks[1:]:
+                    if corrective_separator in shape.name or shape.name in shapes:
+                        continue
+                    
+                    createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=None, use_slider_range=False, normalize_shapekeys=normalize)
+                    shapes.add(shape.name)
 
         for vca in id.vs.vertex_animations:
             createController(id.name, vca.name, ["{}-{}".format(vca.name,i) for i in range(vca.end - vca.start)])

@@ -1,30 +1,25 @@
 import bpy, math
-from .common import KITSUNE_PT_CustomToolPanel
+from .common import KITSUNE_SecondaryPanel
 from bpy.types import Context, Panel, UILayout, Operator
 
 from ..core.commonutils import (
-    draw_title_box_layout, draw_wrapped_texts, draw_listing_layout
+    draw_title_box_layout, draw_wrapped_texts
 )
 
-class DEVELOPER_PT_PANEL(KITSUNE_PT_CustomToolPanel, Panel):
+class DEVELOPER_PT_PANEL(KITSUNE_SecondaryPanel, Panel):
     bl_label : str = 'Developer Tools'
     bl_order : int = 1000
     bl_options : set = {'DEFAULT_CLOSED'}
 
-
     def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        bx = draw_title_box_layout(l,text='Developer Only Options', icon='OPTIONS')
+        layout = self.layout
+        box = layout.box()
         
-        maincol = bx.column()
-        draw_wrapped_texts(maincol,'This is intended for me (Kitsune), Do not use any of the tools here for regular projects', alert=True)
+        maincol = box.column()
+        maincol.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
+        maincol.prop(context.scene.vs,"enable_gui_console")
         
-        boolsection = draw_title_box_layout(maincol,text='Bool Parameters')
-        boolsection.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
-        boolsection.prop(context.scene.vs,"enable_gui_console")
-        
-        operatorsection = draw_title_box_layout(maincol,text='Operators')
-        operatorsection.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
+        maincol.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
  
 class DEVELOPER_OT_ImportLegacyData(Operator):
     bl_idname : str = "smd.importlegacydata"

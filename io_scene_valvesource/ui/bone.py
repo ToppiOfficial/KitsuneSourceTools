@@ -14,14 +14,14 @@ from ..core.armatureutils import(
 )
 
 from ..utils import get_id
-from .common import ToolsCategoryPanel
+from .common import KITSUNE_PT_ToolsPanel
 
-class TOOLS_PT_Bone(ToolsCategoryPanel):
+class TOOLS_PT_Bone(KITSUNE_PT_ToolsPanel):
     bl_label: str = "Bone Tools"
 
     def draw(self, context: Context) -> None:
         layout = self.layout
-        bx = draw_title_box_layout(layout, TOOLS_PT_Bone.bl_label, icon='BONE_DATA')
+        bx = layout.box()
         
         armature = get_armature(context.object)
         
@@ -183,7 +183,7 @@ class TOOLS_OT_CopyTargetRotation(Operator):
                         editbone.length = reference_bone.length
 
                 except Exception as e:
-                    print(f'Failed to re-orient bone: {e}')
+                    self.report({'ERROR'}, f'Failed to re-orient bone: {e}')
                     error += 1
                     continue
 
@@ -440,7 +440,7 @@ class TOOLS_OT_SubdivideBone(Operator):
                                 try:
                                     setattr(new_con, prop, val)
                                 except Exception as e:
-                                    print(f"Failed to set {prop} on constraint '{new_con.name}' for bone '{pb.name}': {e}")
+                                    self.report({'ERROR'}, f"Failed to set {prop} on constraint '{new_con.name}' for bone '{pb.name}': {e}")
 
         return {'FINISHED'}
 
@@ -526,7 +526,7 @@ class TOOLS_OT_MergeBones(Operator):
             )
             centralize_bone_pairs(arm, merged_pairs)
         else:
-            bones_to_remove, vgroups_processed = merge_bones(
+            bones_to_remove, _, vgroups_processed = merge_bones(
                 arm, context.active_bone, sel_bones,
                 keep_bone=keep_bone,
                 visible_mesh_only=vs_sce.visible_mesh_only,
@@ -545,7 +545,7 @@ class TOOLS_OT_MergeBones(Operator):
         keep_bone = vs_sce.merge_bone_options_parent in ['KEEP_BONE', 'KEEP_BOTH']
         keep_weight = vs_sce.merge_bone_options_parent == 'KEEP_BOTH'
         
-        bones_to_remove, vgroups_processed = merge_bones(
+        bones_to_remove, _, vgroups_processed = merge_bones(
             arm, None, sel_bones,
             keep_bone=keep_bone,
             visible_mesh_only=vs_sce.visible_mesh_only,
@@ -589,11 +589,11 @@ class TOOLS_OT_AssignBoneRotExportOffset(Operator):
     
     def draw(self, context):
         layout = self.layout
-        draw_wrapped_texts(layout,text=self.bl_description)
-        layout.separator()
         layout.label(text='Y to...')
         row = layout.row(align=True)
         row.prop(self,'export_rot_target',expand=True)
+        layout.separator()
+        draw_wrapped_texts(layout,text=self.bl_description)
     
     def execute(self, context : Context) -> set:
         selected_bones = None

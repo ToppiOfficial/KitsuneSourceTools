@@ -1,8 +1,5 @@
-import urllib.request
-import urllib.parse
-import json
-import time
-import re
+import urllib.request, urllib.parse
+import json, time, re
 from typing import Union, List
 
 def translate_string(text: Union[str, List[str]], source_lang: str = 'auto', delay: float = 0.15) -> Union[str, List[str]]:

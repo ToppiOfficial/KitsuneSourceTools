@@ -20,7 +20,6 @@
 
 import bpy
 from .utils import *
-from .core.commonutils import draw_wrapped_texts, draw_toggleable_layout
 from .export_smd import SmdExporter, SMD_OT_Compile
 from .flex import *
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
@@ -125,10 +124,7 @@ class SMD_PT_Scene(bpy.types.Panel):
         
         col = l.column(align=True)
         row = col.row(align=True)
-        
-        exportablehelp_section = draw_toggleable_layout(l, context.scene.vs, 'show_exportable_help', f'Show Help', '', icon='HELP', toggle_scale_y=0.65)
-        if scene.vs.show_exportable_help:
-            self.draw_urls(layout=exportablehelp_section)
+        self.draw_urls(layout=l)
         
     @staticmethod
     def draw_urls(layout : UILayout):
@@ -139,9 +135,6 @@ class SMD_PT_Scene(bpy.types.Panel):
         
         op2 = row.operator("wm.url_open", text=get_id("exportpanel_steam",True), icon='INTERNET')
         op2.url = "http://steamcommunity.com/groups/BlenderSourceTools"
-        
-        op3 = layout.operator("wm.url_open", text='Vertex Animations Help', icon='INTERNET')
-        op3.url = "http://developer.valvesoftware.com/wiki/Vertex_animation"
         
 class SMD_MT_ConfigureScene(bpy.types.Menu):
     bl_label = get_id("exporter_report_menu")
@@ -311,10 +304,6 @@ class SMD_PT_Object_Config(bpy.types.Panel):
         
         col = row.column(align=True)
         col.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
-        prefabhelpsection = draw_toggleable_layout(col,context.scene.vs,'show_prefab_help','Read Me','', toggle_scale_y=0.65)
-        if prefabhelpsection is not None:
-            draw_wrapped_texts(prefabhelpsection,'Writing to QC or QCI will always overwrite the entire file. VMDL and VMDL_Prefab support both appending and updating existing data without affecting unrelated content. However, it’s still recommended to store export data in a separate prefab file for safety', max_chars=45, icon='WARNING_LARGE',boxed=False)
-        
         col = row.column(align=True)
         col.operator(SMD_OT_AddPrefab.bl_idname, icon="ADD", text='')
         col.operator(SMD_OT_RemovePrefab.bl_idname, icon="REMOVE", text='')
@@ -387,7 +376,7 @@ class SMD_OT_AddPrefab(bpy.types.Operator):
     bl_idname = "smd.add_prefab"
     bl_label = "Add Prefab"
 
-    def execute(self, context):
+    def execute(self, context) -> set:
         context.scene.vs.smd_prefabs.add()
         return {'FINISHED'}
 
@@ -399,7 +388,7 @@ class SMD_OT_RemovePrefab(bpy.types.Operator):
     def poll(cls, context):
         return len(context.scene.vs.smd_prefabs) > 0 and context.scene.vs.smd_prefabs_index >= 0
     
-    def execute(self, context):
+    def execute(self, context) -> set:
         context.scene.vs.smd_prefabs.remove(context.scene.vs.smd_prefabs_index)
         context.scene.vs.smd_prefabs_index = min(max(0, context.scene.vs.smd_prefabs_index - 1), 
                                                  len(context.scene.vs.smd_prefabs) - 1)

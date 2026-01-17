@@ -257,14 +257,9 @@ def reevaluate_bone_parented_empty_matrix(
     
     return fixed_count
     
-def apply_object_transforms(
-    obj: bpy.types.Object,
-    location: bool = True,
-    rotation: bool = True,
-    scale: bool = True,
-    include_children: bool = True,
-    fix_bone_parented: bool = True,
-) -> tuple[int, int]:
+def apply_object_transforms(obj: bpy.types.Object, location: bool = True, rotation: bool = True, 
+                            scale: bool = True, include_children: bool = True, 
+                            fix_bone_parented: bool = True) -> tuple[int, int]:
     """
     Apply transforms to an object and optionally its children.
     Automatically excludes bone-parented objects (except ARMATURE/MESH) when fix_bone_parented=True.
@@ -325,3 +320,32 @@ def apply_object_transforms(
             )
     
     return len(objects_to_transform), fixed_count
+
+def get_bugged_transform_objects(filter_func: Callable[[bpy.types.Object], bool]) -> list[str]:
+    """Helper function to find objects with a world-space matrix bug."""
+    bugged = []
+    for obj in bpy.data.objects:
+        if not filter_func(obj):
+            continue
+
+        if not obj.parent or obj.parent.type != 'ARMATURE' or obj.parent_type != 'BONE':
+            continue
+
+        armature = obj.parent
+        bone_name = obj.parent_bone
+
+        if not bone_name or bone_name not in armature.pose.bones:
+            continue
+
+        pose_bone = armature.pose.bones[bone_name]
+        bone_tip_matrix = armature.matrix_world @ pose_bone.matrix @ mathutils.Matrix.Translation(
+            (0, pose_bone.length, 0))
+
+        local_matrix = bone_tip_matrix.inverted() @ obj.matrix_world
+        local_location = local_matrix.to_translation()
+
+        if local_location.length > 0.001 and (
+                abs(obj.location.x) < 0.001 and abs(obj.location.y) < 0.001 and abs(obj.location.z) < 0.001):
+            bugged.append(obj.name)
+
+    return bugged

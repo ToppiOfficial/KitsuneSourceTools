@@ -11,11 +11,8 @@ from bpy.props import (
     IntProperty
 )
 
-from .common import ToolsCategoryPanel, ShowConsole
-
-from ..core.commonutils import (
-    draw_title_box_layout, draw_wrapped_texts, draw_toggleable_layout
-)
+from .common import KITSUNE_PT_ToolsPanel, ShowConsole
+from ..core.commonutils import draw_title_box_layout, draw_wrapped_texts
 
 class TEXTURECONVERSION_UL_ItemList(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname) -> None: 
@@ -102,7 +99,6 @@ class From_PBR_Conversion:
         
         if not item.normal_map or item.normal_map == "":
             item.normal_map = "flat_normal"
-            item.normal_map_type = "DEF"
         
         if not item.roughness_map or item.roughness_map == "":
             item.roughness_map = "flat_rmao"
@@ -282,10 +278,15 @@ class From_PBR_Conversion:
         
         if item.emissive_map and item.emissive_map != "":
             print(f"  Loading emissive: {item.emissive_map} (channel: {item.emissive_map_ch})")
-            maps['emissive'] = self._load_and_prep_channel(
-                item.emissive_map, item.emissive_map_ch, 
-                diffuse_height, diffuse_width, False
-            )
+            if item.emissive_map_ch == 'COLOR':
+                emissive_data = self._load_image_data(item.emissive_map)
+                if emissive_data is not None:
+                    maps['emissive'] = self._resize_image(emissive_data, diffuse_height, diffuse_width)
+            else:
+                maps['emissive'] = self._load_and_prep_channel(
+                    item.emissive_map, item.emissive_map_ch, 
+                    diffuse_height, diffuse_width, False
+                )
         
         print("  All maps loaded successfully")
         return maps
@@ -311,28 +312,26 @@ class From_PBR_Conversion:
         mrao[:, :, 2] = ao
         return mrao
     
-    def create_pbr_normal_map(self, normal, normal_type, enforce_white_b):
+    def create_pbr_normal_map(self, normal, normal_map_preprocess):
+        print(f"  Normal preprocess flags: {normal_map_preprocess}")
+        print(f"  Type of normal_map_preprocess: {type(normal_map_preprocess)}")
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
-        if normal_type == 'DEF':
-            result[:, :, :3] = normal[:, :, :3]
-        elif normal_type == 'RED':
-            result[:, :, 2] = normal[:, :, 0]
-            result[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
-            result[:, :, 1] = normal[:, :, 1]
-        elif normal_type == 'YELLOW':
-            result[:, :, 0] = normal[:, :, 0]
-            result[:, :, 1] = 1.0 - normal[:, :, 1]
-            result[:, :, 2] = normal[:, :, 2]
-        elif normal_type == 'OPENGL':
-            result[:, :, 0] = normal[:, :, 0]
-            result[:, :, 1] = 1.0 - normal[:, :, 1]
-            result[:, :, 2] = normal[:, :, 2]
-            
-        if enforce_white_b:
-            result[:, :, 2] = 1.0
+        processed_normal_rgb = normal[:, :, :3].copy()
+
+        if 'RED' in normal_map_preprocess:
+            processed_normal_rgb[:, :, 2] = normal[:, :, 0]
+            processed_normal_rgb[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
+            processed_normal_rgb[:, :, 1] = normal[:, :, 1]
+
+        if 'INVERT_G' in normal_map_preprocess:
+            processed_normal_rgb[:, :, 1] = 1.0 - processed_normal_rgb[:, :, 1]
+
+        if 'FORCE_WHITE_B' in normal_map_preprocess:
+            processed_normal_rgb[:, :, 2] = 1.0
         
+        result[:, :, :3] = processed_normal_rgb
         result[:, :, 3] = 1.0
         return result
     
@@ -393,26 +392,27 @@ class From_PBR_Conversion:
 
         return result
     
-    def create_normal_map(self, normal, metal_uninverted, metal, roughness, normal_type, 
-                         enforce_white_b, is_npr, adjust_albedo, albedo_factor, diffuse_orig):
+    def create_normal_map(self, normal, metal_uninverted, metal, roughness, 
+                         normal_map_preprocess, is_npr, adjust_albedo, albedo_factor, diffuse_orig):
+        print(f"  Normal preprocess flags: {normal_map_preprocess}")
+        
         height, width = normal.shape[:2]
         result = np.ones((height, width, 4), dtype=np.float32)
 
-        if normal_type == 'DEF':
-            result[:, :, :3] = normal[:, :, :3]
-        elif normal_type == 'RED':
-            result[:, :, 2] = normal[:, :, 0]
-            result[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
-            result[:, :, 1] = normal[:, :, 1]
-        elif normal_type == 'YELLOW':
-            result = self.img_proc.invert(normal)
-        elif normal_type == 'OPENGL':
-            result[:, :, 0] = normal[:, :, 0]
-            result[:, :, 1] = 1.0 - normal[:, :, 1]
-            result[:, :, 2] = normal[:, :, 2]
-            
-        if enforce_white_b:
-            result[:, :, 2] = 1.0
+        processed_normal_rgb = normal[:, :, :3].copy()
+
+        if 'RED' in normal_map_preprocess:
+            processed_normal_rgb[:, :, 2] = normal[:, :, 0]
+            processed_normal_rgb[:, :, 0] = normal[:, :, 3] if normal.shape[2] > 3 else 0.5
+            processed_normal_rgb[:, :, 1] = normal[:, :, 1]
+
+        if 'INVERT_G' in normal_map_preprocess:
+            processed_normal_rgb[:, :, 1] = 1.0 - processed_normal_rgb[:, :, 1]
+
+        if 'FORCE_WHITE_B' in normal_map_preprocess:
+            processed_normal_rgb[:, :, 2] = 1.0
+        
+        result[:, :, :3] = processed_normal_rgb
 
         rough_inverted = 1.0 - roughness
         rough_rgba = np.stack([rough_inverted]*3 + [np.ones_like(rough_inverted)], axis=2)
@@ -486,14 +486,17 @@ class From_PBR_Conversion:
         self.save_tga(mrao_map, mrao_path)
         
         print("  Creating normal map...")
-        normal_map = self.create_pbr_normal_map(maps['normal'], item.normal_map_type, item.enforce_white_b_ch_normal)
+        normal_map = self.create_pbr_normal_map(maps['normal'], item.normal_map_preprocess)
         normal_path = os.path.join(export_dir, f"{base_name}_normal.tga")
         print(f"  Saving: {normal_path}")
         self.save_tga(normal_map, normal_path)
         
         if 'emissive' in maps:
             print("  Creating emissive map...")
-            emissive_map = self.create_pbr_emissive_map(maps['emissive'])
+            if item.emissive_map_ch == "COLOR":
+                emissive_map = maps['emissive']
+            else:
+                emissive_map = self.create_pbr_emissive_map(maps['emissive'])
             emissive_path = os.path.join(export_dir, f"{base_name}_emissive.tga")
             print(f"  Saving: {emissive_path}")
             self.save_tga(emissive_map, emissive_path)
@@ -524,8 +527,7 @@ class From_PBR_Conversion:
         metal_uninverted = 1.0 - maps['metal_normal'] if item.invert_metal_map else maps['metal_normal']
         
         normal_map = self.create_normal_map(
-            maps['normal_sized'], metal_uninverted, maps['metal_normal'], maps['roughness_normal'],
-            item.normal_map_type, item.enforce_white_b_ch_normal, item.is_npr,
+            maps['normal_sized'], metal_uninverted, maps['metal_normal'], maps['roughness_normal'], item.normal_map_preprocess, item.is_npr,
             item.adjust_for_albedoboost, item.albedoboost_factor, maps['diffuse']
         )
         normal_path = os.path.join(export_dir, f"{base_name}_n.tga")
@@ -534,7 +536,10 @@ class From_PBR_Conversion:
         
         if 'emissive' in maps:
             print("  Creating emissive map...")
-            emissive_map = self.create_emissive_map(maps['diffuse'], maps['emissive'])
+            if item.emissive_map_ch == "COLOR":
+                emissive_map = maps['emissive']
+            else:
+                emissive_map = self.create_emissive_map(maps['diffuse'], maps['emissive'])
             emissive_path = os.path.join(export_dir, f"{base_name}_em.tga")
             print(f"  Saving: {emissive_path}")
             self.save_tga(emissive_map, emissive_path)
@@ -689,7 +694,7 @@ class TEXTURECONVERSION_OT_ConvertAllItems(Operator, ShowConsole):
     def poll(cls, context):
         return len(context.scene.vs.texture_conversion_items) > 0
     
-    def execute(self, context):
+    def execute(self, context) -> set:
         bpy.ops.textureconvert.process_item('EXEC_DEFAULT', process_all=True)
         return {'FINISHED'}
 
@@ -737,7 +742,7 @@ class TEXTURECONVERSION_OT_Convert_Legacy_PBR_Items(Operator):
         self.report({'INFO'}, f"Converted {converted_count} items")
         return {'FINISHED'}
 
-class TEXTURECONVERSION_PT_Panel(ToolsCategoryPanel):
+class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolsPanel):
     bl_label = 'Texture Conversion'
     
     def draw(self, context : Context) -> None:
@@ -809,10 +814,10 @@ class TEXTURECONVERSION_PT_Panel(ToolsCategoryPanel):
         box = layout.box()
         col = box.column(align=True)
         col.label(text="Normal Map")
-        row = col.split(align=True, factor=0.8)
-        row.prop_search(item, 'normal_map', bpy.data, 'images', text='')
-        row.prop(item, 'normal_map_type', text='')
-        col.prop(item, 'enforce_white_b_ch_normal')
+        col.prop_search(item, 'normal_map', bpy.data, 'images', text='')
+        
+        col.label(text="Preprocessing Options")
+        col.prop(item, 'normal_map_preprocess', expand=True)
         
         box = layout.box()
         col = box.column(align=True)
@@ -889,10 +894,8 @@ class TEXTURECONVERSION_PT_Panel(ToolsCategoryPanel):
                 'These maps can be used with PBR shaders that expect this texture layout.'
             ]
         
-        helpsection = draw_toggleable_layout(layout,context.scene.vs,'show_pbrphong_help','Show Help','', icon='HELP')
-        if helpsection is not None:
-            if vs.texture_conversion_mode == 'PHONG':
-                draw_wrapped_texts(helpsection,title='A good initial VMT phong setting', text=messages, boxed=False)
-                draw_wrapped_texts(helpsection,text="The conversion may or may not be accurate!", alert=True, boxed=False)
-            else:
-                draw_wrapped_texts(helpsection,title='PBR Format', text=messages, boxed=False)
+        if vs.texture_conversion_mode == 'PHONG':
+            draw_wrapped_texts(layout,title='A good initial VMT phong setting', text=messages, boxed=False)
+            draw_wrapped_texts(layout,text="The conversion may or may not be accurate!", alert=True, boxed=False)
+        else:
+            draw_wrapped_texts(layout,title='PBR Format', text=messages, boxed=False)

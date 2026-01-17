@@ -1,11 +1,11 @@
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
-from bpy.types import UILayout, Context, Operator, Object
+from bpy.types import Context, Operator, Object
 from typing import Set
 
 from ..core.commonutils import (
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
-    get_armature, get_armature_meshes, preserve_context_mode, draw_listing_layout,
+    get_armature, get_armature_meshes, preserve_context_mode,
     get_selected_bones, unselect_all, has_selected_bones
 )
 
@@ -20,14 +20,14 @@ from ..core.armatureutils import (
 )
 
 from ..utils import get_id
-from .common import ToolsCategoryPanel
+from .common import KITSUNE_PT_ToolsPanel, ShowConsole
 
-class TOOLS_PT_Armature(ToolsCategoryPanel):
+class TOOLS_PT_Armature(KITSUNE_PT_ToolsPanel):
     bl_label : str = "Armature Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_Armature.bl_label, icon='ARMATURE_DATA')
+        layout = self.layout
+        bx = layout.box()
         
         if is_armature(context.object) or is_mesh(context.object): pass
         else:
@@ -40,16 +40,16 @@ class TOOLS_PT_Armature(ToolsCategoryPanel):
         
         row = col.row(align=True)
         row.scale_y = 1.5
-        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT',text='Entire Armature').selected_only = False
+        row.operator(TOOLS_OT_Apply_Current_Pose_As_RestPose.bl_idname,icon='POSE_HLT',text='Entire Armature').selected_only = False
         
         op_col = row.column(align=True)
         op_col.enabled = has_selected_bones(context.object) and in_pose
-        op_col.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='POSE_HLT', text='Selected Bones').selected_only = True
+        op_col.operator(TOOLS_OT_Apply_Current_Pose_As_RestPose.bl_idname,icon='POSE_HLT', text='Selected Bones').selected_only = True
         
         row = col.row(align=True)
         row.scale_y = 1
         row.enabled = in_pose
-        row.operator(TOOLS_OT_ApplyCurrentPoseAsRestPose.bl_idname,icon='SHAPEKEY_DATA',text='Apply Pose as Shapekey').as_shapekey = True
+        row.operator(TOOLS_OT_Apply_Current_Pose_As_Shapekey.bl_idname,icon='SHAPEKEY_DATA')
         
         col = bx.column()
         col.label(text='Multi-Armature Tools')
@@ -60,16 +60,69 @@ class TOOLS_PT_Armature(ToolsCategoryPanel):
         col = bx.column(align=True)
         col.operator(TOOLS_OT_CopyVisPosture.bl_idname,icon='POSE_HLT',text=f'{TOOLS_OT_CopyVisPosture.bl_label} (LOCATION)').copy_type = 'ORIGIN'
         col.operator(TOOLS_OT_CopyVisPosture.bl_idname,icon='POSE_HLT',text=f'{TOOLS_OT_CopyVisPosture.bl_label} (ROTATION)').copy_type = 'ANGLES'
-           
-class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
+ 
+# ------------------------------------------------------------------
+#
+#   Applying current pose
+#
+# ------------------------------------------------------------------
+ 
+class Apply_Pose_Base:
+    def execute(self, context : Context) -> Set:
+        
+        has_shapekey_prop = hasattr(self, 'as_shapekey')
+        
+        with preserve_context_mode(None, 'OBJECT'):
+            armatures : Set[Object | None] = {get_armature(o) for o in context.selected_objects}
+            
+            success_count = 0
+            
+            for armature in armatures:
+                if has_shapekey_prop: success = apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip())
+                else:
+                    if self.selected_only:
+                        selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
+                        
+                        for posebone in armature.pose.bones:
+                            if posebone.name in {pb.name for pb in selected_bones}: continue
+                            posebone.matrix_basis.identity()
+                    
+                    success = apply_current_pose_as_restpose(armature=armature)
+                    
+                if success: success_count += 1
+                
+        if success_count > 0:
+            if len(armatures) == 1: message = 'Applied as Rest Pose'
+            else: message = f'Applied {len(armatures)} Armatures as Rest Pose'
+
+            if not has_shapekey_prop: bpy.ops.object.mode_set(mode='OBJECT')
+            
+            self.report({'INFO'}, message)
+            return {'FINISHED'}
+
+        else:
+            return {'CANCELLED'}
+
+class TOOLS_OT_Apply_Current_Pose_As_RestPose(Apply_Pose_Base, Operator):
     bl_idname : str = "kitsunetools.apply_pose_as_restpose"
     bl_label : str = "Apply Pose As Restpose"
     bl_options : Set = {'REGISTER', 'UNDO'}
     
     selected_only : BoolProperty(name='Selected Only', default=False)
     
-    as_shapekey : BoolProperty(name='Apply As Shapekey', default=False)
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object)
     
+    def draw(self, context):
+        layout = self.layout
+
+class TOOLS_OT_Apply_Current_Pose_As_Shapekey(Apply_Pose_Base, Operator):
+    bl_idname : str = "kitsunetools.apply_pose_as_shapekey"
+    bl_label : str = "Apply Pose As Shapekey"
+    bl_options : Set = {'REGISTER', 'UNDO'}
+    
+    as_shapekey : BoolProperty(default=True) # this should always be True
     shapekey_name : StringProperty(name='Shapekey Name')
     
     @classmethod
@@ -77,53 +130,14 @@ class TOOLS_OT_ApplyCurrentPoseAsRestPose(Operator):
         return bool(is_armature(context.object) and context.mode in {'POSE', 'OBJECT'})
     
     def invoke(self, context, event):
-        if self.as_shapekey:
-            return context.window_manager.invoke_props_dialog(self, width=150)
-        else:
-            return self.execute(context)
+        return context.window_manager.invoke_props_dialog(self, width=150)
         
     def draw(self, context):
         layout = self.layout
         layout.prop(self, 'shapekey_name')
-        layout.prop(self, 'add_active_shapekey')
-    
-    def execute(self, context : Context) -> Set:
-        with preserve_context_mode(None, 'OBJECT'):
-            armatures : Set[Object | None] = {get_armature(o) for o in context.selected_objects}
-            
-            success_count = 0
-            error_logs = []
-            
-            for armature in armatures:
-                if self.as_shapekey:
-                    success, error_logs = apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip())
 
-                else:
-                    if self.selected_only:
-                        selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
-                        for posebone in armature.pose.bones:
-                            if posebone.name in {pb.name for pb in selected_bones}: continue
-                            posebone.matrix_basis.identity()
-                    
-                    success, error_logs = apply_current_pose_as_restpose(armature=armature)
-                    
-                if success: success_count += 1
-                
-                if len(error_logs) > 0:
-                    for log in error_logs:
-                        self.report({'ERROR'}, log)
-                
-        if success_count > 0:
-            if len(armatures) == 1:
-                self.report({'INFO'}, 'Applied as Rest Pose')
-            else:
-                self.report({'INFO'}, f'Applied {len(armatures)} Armatures as Rest Pose')
-            
-            if not self.as_shapekey:
-                bpy.ops.object.mode_set(mode='OBJECT')
-                    
-        return {'FINISHED'} if success else {'CANCELLED'}
-    
+# ------------------------------------------------------------------
+
 class TOOLS_OT_CleanUnWeightedBones(Operator):
     bl_idname: str = 'kitsunetools.clean_unweighted_bones'
     bl_label: str = 'Clean Unweighted Bones'
@@ -188,9 +202,6 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         col.prop(self, 'preserve_deform_bones')
         col.prop(self, 'respect_mirror')
         col.prop(self, 'remove_unused_bonecollections')
-        
-        col.separator()
-        
         col.prop(self, 'remove_empty_vertex_groups')
         
         subcol = col.column(align=True)
@@ -394,7 +405,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 bones_with_children.add(obj.parent_bone)
         return bones_with_children
     
-class TOOLS_OT_MergeArmatures(Operator):
+class TOOLS_OT_MergeArmatures(Operator, ShowConsole):
     bl_idname : str = "kitsunetools.merge_armatures"
     bl_label : str = "Merge Armatures"
     bl_options : Set = {'REGISTER', 'UNDO'}
@@ -417,48 +428,37 @@ class TOOLS_OT_MergeArmatures(Operator):
         row.prop(self, 'clean_bones')
     
     def execute(self, context : Context) -> Set:
-        currOb : Object | None = context.object
+        active_object = context.object
+        original_active = context.view_layer.objects.active
         
-        if currOb is None: return {'CANCELLED'}
+        if active_object is None: return {'CANCELLED'}
         
-        armatures_to_merge = [ob for ob in context.selected_objects if ob != currOb and is_armature(ob)]
+        armatures_to_merge = [ob for ob in context.selected_objects if ob != active_object and is_armature(ob)]
         
         if not armatures_to_merge:
             self.report({'WARNING'}, "No other armatures selected to merge.")
             return {'CANCELLED'}
         
         success_count = 0
-
-        original_active = context.view_layer.objects.active
         
-        try:
-            for arm in armatures_to_merge:
-                
-                if self.clean_bones:
-                    unselect_all()
-                    context.view_layer.objects.active = arm
-                    arm.select_set(True)
+        with preserve_context_mode(original_active, 'OBJECT'):
+            try:
+                for arm in armatures_to_merge:
                     
-                    bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
-                
-                success, logs = merge_armatures(currOb, arm, match_posture=self.match_posture)
-                if success:
-                    success_count += 1
+                    if self.clean_bones:
+                        unselect_all()
+                        context.view_layer.objects.active = arm
+                        arm.select_set(True)
+                        
+                        bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
                     
-                if logs:
-                    for err in logs:
-                        self.report({'ERROR'}, err)
-            
-        finally:
-            unselect_all()
-            if original_active and original_active.name in bpy.data.objects:
-                context.view_layer.objects.active = original_active
-
-            if success_count > 0:
+                    success = merge_armatures(active_object, arm, match_posture=self.match_posture)
+                    if success:
+                        success_count += 1
+                
+            finally:
                 self.report({'INFO'}, f'Merged {success_count} armatures to active armature')
-            else:
-                self.report({'WARNING'}, 'No armatures were merged.')
-
+                
         return {'FINISHED'}
 
 class TOOLS_OT_CopyVisPosture(Operator):
@@ -476,6 +476,9 @@ class TOOLS_OT_CopyVisPosture(Operator):
         
         obs = {ob for ob in context.selected_objects  if not ob.hide_get() and ob != currob}
         return bool(obs)
+    
+    def draw(self, context : Context) -> None:
+        layout = self.layout
     
     def execute(self, context : Context) -> Set:
         currArm : Object | None = context.object

@@ -1,14 +1,20 @@
 import bpy
+import typing
+from mathutils import Matrix
 from .boneutils import *
 
 from .objectutils import (
-    op_override, apply_armature_to_mesh_without_shape_keys, apply_armature_to_mesh_with_shapekeys,
-    reevaluate_bone_parented_empty_matrix
+    op_override, apply_armature_to_mesh_without_shape_keys,
+    apply_armature_to_mesh_with_shapekeys, reevaluate_bone_parented_empty_matrix
     )
 
 from .commonutils import (
-    get_armature_meshes, unselect_all, hide_objects, preserve_context_mode, unhide_all_objects, is_armature
-    )
+    get_armature_meshes, unselect_all, preserve_context_mode, 
+    unhide_all_objects, is_armature, selfreport, report)
+
+from .meshutils import (
+    get_used_vertexgroups,
+)
 
 from contextlib import contextmanager
 from mathutils import Vector
@@ -142,10 +148,9 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, reset
                     else:
                         pbone.rotation_euler = values["rotation"]
 
-def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> tuple[bool, list[str]]:
-    if armature is None: return False, ['Not an armature']
-    
-    error_logs = []
+@selfreport
+def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:
+    if armature is None: return False
     
     with preserve_armature_state(armature, reset_pose=False):
         try:
@@ -209,7 +214,7 @@ def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> tuple[b
                     pre_transform_snapshot=empty_snapshot
                 )
                 if fixed_count > 0:
-                    print(f"Fixed {fixed_count} empty object(s)")
+                    report('INFO', f"Fixed {fixed_count} empty object(s)")
 
                 bpy.ops.object.select_all(action='DESELECT')
                 for obj in selected_objects:
@@ -219,25 +224,36 @@ def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> tuple[b
                         continue
                 bpy.context.view_layer.objects.active = active_object
 
-            return True, error_logs
+            return True
 
         except Exception as e:
-            error_logs.append('Failed to apply armature pose: {}'.format(str(e)))
-            return False, error_logs
+            report('ERROR', 'Failed to apply armature pose: {}'.format(str(e)))
+            return False
 
         finally:
             bpy.context.view_layer.update()
             bpy.context.view_layer.depsgraph.update()
-            return True, error_logs
+            return True
 
-def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = "") -> tuple[bool, list[str]]:
-    if not is_armature(armature): return False, ['Not an armature']
+@selfreport
+def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = "") -> bool:
+    if not is_armature(armature): return False
     
     meshes = get_armature_meshes(armature)
-    if not meshes: return False, ['No meshes found']
+    if not meshes: return False
     
-    error_logs = []
     success_count = 0
+    posebones = set()
+
+    for pbone in armature.pose.bones:
+        # Subtracting identity from the matrix; a rest bone results in a zero matrix
+        diff_matrix = pbone.matrix_basis - Matrix.Identity(4)
+        
+        # Sum the absolute values of all 16 slots in the 4x4 matrix
+        total_diff = sum(abs(val) for row in diff_matrix for val in row)
+
+        if total_diff > 1e-4:
+            posebones.add(pbone.name)
     
     with preserve_context_mode(armature, 'OBJECT'):
         with unhide_all_objects():
@@ -247,10 +263,11 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name
                 arm_mod = next((mod for mod in mesh.modifiers if mod.type == 'ARMATURE' and mod.object == armature), None)
                 
                 if not arm_mod:
-                    error_logs.append(f"Mesh {mesh.name} has no Armature modifier for {armature.name}")
+                    report('WARNING', "Mesh {mesh.name} has no Armature modifier for {armature.name}")
                     continue
                 
                 original_shapekey_values = {}
+                used_vgroup_names = get_used_vertexgroups(mesh, return_names=True)
                 
                 if mesh.data.shape_keys and mesh.data.shape_keys.key_blocks:
                     for sk in mesh.data.shape_keys.key_blocks:
@@ -264,18 +281,26 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name
                     ret = op_override(bpy.ops.object.modifier_apply_as_shapekey, context_override, keep_modifier=True, modifier=arm_mod.name)
                     
                     if 'FINISHED' in ret:
-                        success_count += 1
                         if mesh.data.shape_keys:
                             new_key = mesh.data.shape_keys.key_blocks[-1]
-                            pose_name = shapekey_name if shapekey_name else 'Pose_Shape'
-                            new_key.name = pose_name
+
+                            if posebones.isdisjoint(used_vgroup_names):
+                                mesh.shape_key_remove(new_key)
+                                
+                                if not len(mesh.data.shape_keys.key_blocks) > 1:
+                                    mesh.shape_key_remove(mesh.data.shape_keys.key_blocks[0])
+                            else:
+                                success_count += 1
+                                pose_name = shapekey_name if shapekey_name else 'Pose_Shape'
+                                new_key.name = pose_name
+                            
                     else:
-                        error_logs.append(f"Failed to apply modifier for {mesh.name}")
+                        report('ERROR', f"Failed to apply modifier for {mesh.name}")
                     
                     mesh.select_set(False)
                     
                 except Exception as e:
-                    error_logs.append(f"Error processing {mesh.name}: {str(e)}")
+                    report('ERROR', f"Error processing {mesh.name}: {str(e)}")
                     mesh.select_set(False)
                     
                 finally:
@@ -283,7 +308,7 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name
                         if sk_name in mesh.data.shape_keys.key_blocks:
                             mesh.data.shape_keys.key_blocks[sk_name].value = sk_value
     
-    return success_count > 0, error_logs
+    return success_count > 0
 
 def copy_target_armature_visualpose(base_armature: bpy.types.Object,
                        target_armature: bpy.types.Object,
@@ -322,54 +347,57 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
     if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE':
         return False, ['Object(s) are not armature(s)']
 
+    print(f"Merging '{target_arm.name}' into '{source_arm.name}'...")
     error_logs = []
 
-    with preserve_armature_state(source_arm, target_arm, reset_pose=True):
+    with preserve_armature_state(source_arm, target_arm, reset_pose=True) and unhide_all_objects():
         try:
             target_meshes = get_armature_meshes(target_arm)
+            print(f"  Found {len(target_meshes)} mesh(es) attached to target armature")
 
             if match_posture:
                 copied_rot = copy_target_armature_visualpose(source_arm, target_arm, 'ANGLES')
                 copied_pos = copy_target_armature_visualpose(source_arm, target_arm, 'ORIGIN')
                 if not copied_rot and not copied_pos:
                     return False, ['Error matching and applying posture for {} armature'.format(target_arm.name)]
-                
-            _, err_logs = apply_current_pose_as_restpose(target_arm)
-            error_logs.extend(err_logs)
-            
-            source_arm_bones = [b.name for b in source_arm.data.bones]
+                print("  Matched target posture to source")
+
+            apply_current_pose_as_restpose(target_arm)
+            print("  Applied pose as rest pose")
+
+            source_bone_names = {b.name for b in source_arm.data.bones}
+            source_export_map = {get_bone_exportname(b): b.name for b in source_arm.data.bones if get_bone_exportname(b)}
 
             bone_name_map = {}
+            renamed_count = 0
             for target_bone in target_arm.data.bones:
                 old_name = target_bone.name
-                if target_bone.name in source_arm_bones:
+
+                if old_name in source_bone_names:
                     target_bone.name += ".temp_merge"
                     bone_name_map[target_bone.name] = old_name
+                    renamed_count += 1
                     continue
 
                 target_export = get_bone_exportname(target_bone)
-                matched_source_name = None
-                for src_name in source_arm_bones:
-                    src_bone = source_arm.data.bones[src_name]
-                    src_export = get_bone_exportname(src_bone)
-                    if src_export == target_export:
-                        matched_source_name = src_bone.name
-                        break
+                matched_source_name = source_export_map.get(target_export)
 
                 if matched_source_name:
-                    new_name = matched_source_name
-                    if new_name in source_arm_bones:
-                        new_name += ".temp_merge"
+                    new_name = matched_source_name + ".temp_merge"
                     target_bone.name = new_name
+                    renamed_count += 1
+                
                 bone_name_map[target_bone.name] = old_name
 
+            if renamed_count > 0:
+                print(f"  Prepared {renamed_count} bone(s) for merging")
+
             stored_parents = {}
-            for ob in bpy.data.objects:
-                if ob.parent == target_arm:
-                    stored_parents[ob.name] = {
-                        'parent_type': ob.parent_type,
-                        'parent_bone': ob.parent_bone
-                    }
+            for ob in target_arm.children:
+                stored_parents[ob.name] = {
+                    'parent_type': ob.parent_type,
+                    'parent_bone': ob.parent_bone
+                }
 
             stored_constraints = []
             for pb in target_arm.pose.bones:
@@ -386,32 +414,34 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 if not ob.select_get():
                     ob.select_set(True)
                 if not ob.visible_get():
-                    hide_objects(ob, False)
-                ob.select_set(True)
+                    ob.select_set(True)
 
             bpy.ops.object.transform_apply(rotation=True, location=True, scale=True)
             unselect_all()
 
-            hide_objects(source_arm, False)
-            hide_objects(target_arm, False)
             source_arm.select_set(True)
             target_arm.select_set(True)
             bpy.context.view_layer.objects.active = source_arm
             bpy.ops.object.join()
+            print("  Joined armatures")
 
             bpy.ops.object.mode_set(mode="EDIT")
 
             bones_to_remove = set()
             for bone in source_arm.data.edit_bones:
                 if ".temp_merge" in bone.name:
-                    orig_name = bone.name.replace(".temp_merge", "")
+                    orig_name = bone.name.removesuffix(".temp_merge")
                     source_bone = source_arm.data.edit_bones.get(orig_name)
                     if source_bone:
                         for child in bone.children:
                             child.parent = source_bone
                     bones_to_remove.add(bone)
+            
             for bone in bones_to_remove:
                 source_arm.data.edit_bones.remove(bone)
+
+            if len(bones_to_remove) > 0:
+                print(f"  Merged {len(bones_to_remove)} duplicate bone(s)")
 
             bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -422,12 +452,14 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 ob.parent = source_arm
                 ob.parent_type = info['parent_type']
                 if info['parent_type'] == 'BONE' and info['parent_bone']:
-                    mapped_bone = bone_name_map.get(info['parent_bone'], info['parent_bone'])
-                    if mapped_bone in source_arm.data.bones:
+                    mapped_bone = bone_name_map.get(info['parent_bone'])
+                    if mapped_bone and mapped_bone in source_arm.data.bones:
                         ob.parent_bone = mapped_bone
 
             for con_info in stored_constraints:
-                owner_name = bone_name_map.get(con_info['owner'], con_info['owner'])
+                owner_name = bone_name_map.get(con_info['owner'])
+                if not owner_name:
+                    continue
                 owner_bone = source_arm.pose.bones.get(owner_name)
                 if not owner_bone:
                     continue
@@ -436,8 +468,8 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                     continue
                 con.target = source_arm
                 if con_info['subtarget']:
-                    mapped_subtarget = bone_name_map.get(con_info['subtarget'], con_info['subtarget'])
-                    if mapped_subtarget in source_arm.data.bones:
+                    mapped_subtarget = bone_name_map.get(con_info['subtarget'])
+                    if mapped_subtarget and mapped_subtarget in source_arm.data.bones:
                         con.subtarget = mapped_subtarget
 
             for ob in target_meshes:
@@ -446,28 +478,117 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                         mod.object = source_arm
                 ob.parent = source_arm
 
+            vg_cleaned = 0
             for mesh in target_meshes:
                 if mesh.vertex_groups:
                     for vg in mesh.vertex_groups:
-                        vg.name = vg.name.replace(".temp_merge", "")
-                        
+                        if ".temp_merge" in vg.name:
+                            vg.name = vg.name.removesuffix(".temp_merge")
+                            vg_cleaned += 1
+            
+            if vg_cleaned > 0:
+                print(f"  Merged {vg_cleaned} vertex group(s)")
+
+            print(f"Successfully merged '{target_arm.name}' into '{source_arm.name}'")
             return True, error_logs
 
         except Exception as e:
-            return False, ["- merge_armatures failed: {}".format(str(e))]
+            error_msg = f"Merge failed: {str(e)}"
+            print(error_msg)
+            return False, [error_msg]
 
         finally:
             bpy.context.view_layer.update()
             bpy.context.view_layer.depsgraph.update()
 
-def merge_bones(armature: bpy.types.Object,
-    source,
-    target,
-    keep_bone=False,
-    visible_mesh_only=False,
-    keep_original_weight=False,
-    centralize_bone=False
-):
+def merge_bones(armature: bpy.types.Object, source: typing.Optional[bpy.types.Bone], 
+                target: typing.Union[bpy.types.Bone, typing.Iterable[bpy.types.Bone]], 
+                keep_bone: bool = False,  visible_mesh_only: bool = False, 
+                keep_original_weight: bool = False,  centralize_bone: bool = False) -> tuple[set[str], list[tuple[str, str]], set[str]]:
+    """
+    Merges bones by transferring vertex weights, constraints, and reparenting children.
+
+    This function can operate on a single target bone or an iterable of target bones.
+    It's recursive when handling an iterable of targets to correctly determine the
+    parent for merging in sequence.
+
+    Args:
+        armature: The armature object.
+        source: The bone to merge into. If None, it's determined from the target's parent.
+        target: A single bone or an iterable of bones to be merged.
+        keep_bone: If True, the target bone is not removed after merging.
+        visible_mesh_only: If True, only visible meshes are considered for weight merging.
+        keep_original_weight: If True, weights are copied, not moved. Implies keep_bone=True.
+        centralize_bone: If True, prepares data for bone centralization.
+
+    Returns:
+        A tuple containing:
+        - A set of names of bones that were removed.
+        - A list of (source, target) name pairs for centralization.
+        - A set of names of vertex groups that were processed.
+    """
+    def _find_valid_parent(bone: bpy.types.Bone, bones_to_remove: set[str]) -> typing.Optional[bpy.types.Bone]:
+        """
+        Finds the first parent of a bone that is not in the set of bones to be removed.
+        """
+        parent = bone.parent
+        while parent and parent.name in bones_to_remove:
+            parent = parent.parent
+        return parent
+
+    def _merge_vertex_groups(source_bone: bpy.types.Bone,target_bone: bpy.types.Bone,processed_groups: set[str],):
+        """
+        Merges vertex weights from the target bone's group to the source bone's group
+        on all meshes associated with the armature.
+        """
+        for mesh in get_armature_meshes(armature):
+            if visible_mesh_only and not mesh.visible_get():
+                continue
+
+            vgs = mesh.vertex_groups
+            target_group = vgs.get(target_bone.name)
+            if not target_group:
+                continue
+
+            source_group = vgs.get(source_bone.name)
+            if not source_group:
+                source_group = vgs.new(name=source_bone.name)
+            
+            target_group_index = target_group.index
+
+            # Optimized loop to gather vertex weights
+            weights_to_add = []
+            for v in mesh.data.vertices:
+                for g in v.groups:
+                    if g.group == target_group_index:
+                        weights_to_add.append((v.index, g.weight))
+                        break  # Vertex found in group, move to the next vertex
+
+            if not weights_to_add:
+                if not keep_original_weight:
+                    vgs.remove(target_group)
+                continue
+                
+            for vertex_index, weight in weights_to_add:
+                source_group.add([vertex_index], weight, 'ADD')
+
+            processed_groups.add(target_bone.name)
+
+            if not keep_original_weight:
+                vgs.remove(target_group)
+
+    def _update_constraints(old_target: str, new_target: str):
+        """
+        Updates bone constraints that target `old_target` to point to `new_target`.
+        """
+        if not armature.pose:
+            return
+            
+        for pose_bone in armature.pose.bones:
+            for constraint in pose_bone.constraints:
+                if hasattr(constraint, "subtarget") and constraint.subtarget == old_target:
+                    constraint.subtarget = new_target
+
     bones_to_remove = set()
     merged_pairs = []
     processed_groups = set()
@@ -475,93 +596,100 @@ def merge_bones(armature: bpy.types.Object,
     if not keep_bone:
         keep_original_weight = False
 
-    if isinstance(target, typing.Iterable) and not isinstance(target, str):
+    # Handle multiple targets recursively
+    if isinstance(target, typing.Iterable) and not isinstance(target, (str, bpy.types.Bone)):
         for entry in target:
+            # Determine source for this entry, respecting prior merges in this run
             entry_source = source or _find_valid_parent(entry, bones_to_remove)
-            
             if not entry_source:
                 continue
 
-            result = merge_bones(
+            # Recursive call for each target in the iterable
+            res_rem, res_pairs, res_proc = merge_bones(
                 armature, entry_source, entry, keep_bone,
                 visible_mesh_only, keep_original_weight, centralize_bone
             )
+            bones_to_remove.update(res_rem)
+            merged_pairs.extend(res_pairs)
+            processed_groups.update(res_proc)
+        
+        return bones_to_remove, merged_pairs, processed_groups
 
-            bones_to_remove.update(result[0])
-            if centralize_bone:
-                merged_pairs.extend(result[1])
-                processed_groups.update(result[2])
-            else:
-                processed_groups.update(result[1])
-
-        return (bones_to_remove, merged_pairs, processed_groups) if centralize_bone else (bones_to_remove, processed_groups)
-
+    # Handle a single target
+    # If source is not provided, find the first valid parent that is not scheduled for removal
     if source is None:
         source = _find_valid_parent(target, bones_to_remove)
         if not source:
-            return (bones_to_remove, merged_pairs, processed_groups) if centralize_bone else (bones_to_remove, processed_groups)
+            # Cannot merge if there is no parent to merge into
+            return set(), [], set()
 
-    _merge_vertex_groups(armature, source, target, visible_mesh_only, keep_original_weight, processed_groups)
-    
+    _merge_vertex_groups(source, target, processed_groups)
+
     if not keep_bone:
-        _update_constraints(armature, target.name, source.name)
+        _update_constraints(target.name, source.name)
         bones_to_remove.add(target.name)
 
     if centralize_bone:
         merged_pairs.append((source.name, target.name))
-        return bones_to_remove, merged_pairs, processed_groups
+
+    return bones_to_remove, merged_pairs, processed_groups
+
+def remove_bone(arm: bpy.types.Object, bone: typing.Union[str, typing.Iterable[str]], 
+                source: str | None = None, match_parent_to_head: bool = False,
+                match_parent_to_head_tolerance: float = 3e-5) -> None:
     
-    return bones_to_remove, processed_groups
-
-def _find_valid_parent(bone, bones_to_remove):
-    parent = bone.parent
-    while parent and parent.name in bones_to_remove:
-        parent = parent.parent
-    return parent
-
-def _merge_vertex_groups(armature, source, target, visible_mesh_only, keep_original_weight, processed_groups):
-    for mesh in get_armature_meshes(armature):
-        if visible_mesh_only and not mesh.visible_get():
-            continue
-
-        source_group = mesh.vertex_groups.get(source.name)
-        if not source_group:
-            source_group = mesh.vertex_groups.new(name=source.name)
-
-        target_group = mesh.vertex_groups.get(target.name)
-        if not target_group:
-            continue
-
-        weights = {
-            v.index: target_group.weight(v.index)
-            for v in mesh.data.vertices
-            if target_group.index in [g.group for g in v.groups]
-        }
+    def _find_final_tail(edit_bone, bones_to_remove, tolerance):
+        current = edit_bone
         
-        for vertex_index, weight in weights.items():
-            source_group.add([vertex_index], weight, 'ADD')
+        while current.children:
+            next_child = None
+            for child in current.children:
+                if child.name in bones_to_remove and (child.head - current.tail).length <= tolerance:
+                    next_child = child
+                    break
+            
+            if next_child:
+                current = next_child
+            else:
+                break
+        
+        return current.tail
 
-        processed_groups.add(target.name)
+    def _adjust_parent_tail(edit_bone, tolerance, bones_to_remove):
+        parent = edit_bone.parent
+        parent.use_connect = False
+        
+        if len(parent.children) == 1:
+            tail_position = _find_final_tail(edit_bone, bones_to_remove, tolerance)
+            parent.tail = tail_position
+        elif len(parent.children) > 1:
+            for child in edit_bone.children:
+                if (child.head - edit_bone.tail).length <= tolerance:
+                    tail_position = _find_final_tail(edit_bone, bones_to_remove, tolerance)
+                    parent.tail = tail_position
+                    break
 
-        if not keep_original_weight:
-            mesh.vertex_groups.remove(target_group)
+    def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance, bones_to_remove):
+        edit_bone = arm.data.edit_bones.get(bone_name)
+        if not edit_bone:
+            return
 
-def _update_constraints(armature, old_target, new_target):
-    if not armature.pose:
-        return
-    
-    for pose_bone in armature.pose.bones:
-        for constraint in pose_bone.constraints:
-            if hasattr(constraint, "subtarget") and constraint.subtarget == old_target:
-                constraint.subtarget = new_target
+        edit_bone.use_connect = False
+        
+        for child in edit_bone.children:
+            child.use_connect = False
 
-def remove_bone(
-    arm: bpy.types.Object | None,
-    bone: typing.Union[str, typing.Iterable[str]],
-    source: str | None = None,
-    match_parent_to_head: bool = False,
-    match_parent_to_head_tolerance: float = 3e-5):
-    
+        if match_parent_to_head and edit_bone.parent:
+            _adjust_parent_tail(edit_bone, tolerance, bones_to_remove)
+
+        if source:
+            source_bone = arm.data.edit_bones.get(source)
+            if source_bone:
+                for child in edit_bone.children:
+                    child.parent = source_bone
+
+        arm.data.edit_bones.remove(edit_bone)
+
     if not is_armature(arm):
         return
 
@@ -573,58 +701,6 @@ def remove_bone(
         elif isinstance(bone, typing.Iterable):
             for entry in bone:
                 _remove_single_bone(arm, entry, source, match_parent_to_head, match_parent_to_head_tolerance, bones_to_remove)
-
-def _remove_single_bone(arm, bone_name, source, match_parent_to_head, tolerance, bones_to_remove):
-    edit_bone = arm.data.edit_bones.get(bone_name)
-    if not edit_bone:
-        return
-
-    edit_bone.use_connect = False
-    
-    for child in edit_bone.children:
-        child.use_connect = False
-
-    if match_parent_to_head and edit_bone.parent:
-        _adjust_parent_tail(edit_bone, tolerance, bones_to_remove)
-
-    if source:
-        source_bone = arm.data.edit_bones.get(source)
-        if source_bone:
-            for child in edit_bone.children:
-                child.parent = source_bone
-
-    arm.data.edit_bones.remove(edit_bone)
-
-def _adjust_parent_tail(edit_bone, tolerance, bones_to_remove):
-    parent = edit_bone.parent
-    parent.use_connect = False
-    
-    if len(parent.children) == 1:
-        tail_position = _find_final_tail(edit_bone, bones_to_remove, tolerance)
-        parent.tail = tail_position
-    elif len(parent.children) > 1:
-        for child in edit_bone.children:
-            if (child.head - edit_bone.tail).length <= tolerance:
-                tail_position = _find_final_tail(edit_bone, bones_to_remove, tolerance)
-                parent.tail = tail_position
-                break
-
-def _find_final_tail(edit_bone, bones_to_remove, tolerance):
-    current = edit_bone
-    
-    while current.children:
-        next_child = None
-        for child in current.children:
-            if child.name in bones_to_remove and (child.head - current.tail).length <= tolerance:
-                next_child = child
-                break
-        
-        if next_child:
-            current = next_child
-        else:
-            break
-    
-    return current.tail
 
 def centralize_bone_pairs(arm: bpy.types.Object, pairs: list, min_length: float = 1e-4):
     """
@@ -710,15 +786,16 @@ def assign_bone_headtip_positions(arm, bone_data: list[tuple]):
 
     return rotated_bones
 
+@selfreport
 def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
-               subdivisions: int = 2,
-               falloff: int = 10,
-               smoothness: float = 0.0,
-               min_weight_cap: float = 0.001,
-               weights_only: bool = False,
-               force_locked: bool = False):
+                   subdivisions: int = 2,
+                   falloff: int = 10,
+                   smoothness: float = 0.0,
+                   min_weight_cap: float = 0.001,
+                   weights_only: bool = False,
+                   force_locked: bool = False):
     """
-    Split a bone into multiple segments with automatic weight distribution.
+    Split a bone using Blender's native subdivide with automatic weight distribution.
     
     Args:
         bone: EditBone or list of EditBones to split
@@ -730,28 +807,14 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         force_locked: If True, modify weights even if vertex groups are locked
     """
     
-    def create_bone_chain(bone, head, tail, base_name, subdivisions, collections, eb):
-        bone.tail = head.lerp(tail, 1.0 / subdivisions)
-        bone_chain = [bone]
-        
-        for i in range(2, subdivisions + 1):
-            t_start = (i - 1) / subdivisions
-            t_end = i / subdivisions
-            
-            new_bone = eb.new(name=base_name)
-            new_bone.head = head.lerp(tail, t_start)
-            new_bone.tail = head.lerp(tail, t_end)
-            new_bone.roll = bone.roll
-            new_bone.parent = bone_chain[i - 2]
-            new_bone.use_connect = True
-            
-            bone_chain.append(new_bone)
-            
-            if collections:
-                for col in collections:
-                    col.assign(new_bone)
-        
-        return bone_chain
+    def get_bone_chain(original_bone, eb):
+        chain = []
+        current = original_bone
+        while current:
+            chain.append(current)
+            children = [b for b in eb if b.parent == current and b.use_connect]
+            current = children[0] if children else None
+        return chain
     
     def find_existing_chain(bone, base_name, subdivisions, eb):
         bone_chain = []
@@ -768,29 +831,23 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             if matched_bone:
                 bone_chain.append(matched_bone)
             else:
-                print(f"- Expected bone with '{base_name}' and index {i} not found for weights_only mode")
+                report('WARNING', f"Expected bone with '{base_name}' and index {i} not found for weights_only mode")
                 return None
         
         return bone_chain
     
-    def reparent_children(bone, bone_chain):
-        for child in bone.children:
-            child_connect_state = child.use_connect
-            child.use_connect = False
-            child.parent = bone_chain[-1]
-            child.use_connect = child_connect_state
-    
-    def collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq):
+    def collect_vertex_data(meshes, old_bone_name, force_locked, arm_matrix, bone_head, bone_tail):
         all_vertex_data = []
+        bone_vec = bone_tail - bone_head
+        bone_length_sq = bone_vec.length_squared
         
         for mesh in meshes:
             if old_bone_name not in mesh.vertex_groups:
                 continue
             
             vg_old = mesh.vertex_groups[old_bone_name]
-            
             if not force_locked and vg_old.lock_weight:
-                print(f"- Skipping mesh '{mesh.name}': vertex group '{old_bone_name}' is locked")
+                report('INFO', f"Skipping mesh '{mesh.name}': vertex group '{old_bone_name}' is locked")
                 continue
                 
             mesh_matrix = mesh.matrix_world
@@ -799,13 +856,9 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
                 for group in vert.groups:
                     if group.group == vg_old.index:
                         pos_world = mesh_matrix @ vert.co
+                        vec_to_vert = pos_world - bone_head
                         
-                        vec_to_vert = pos_world - head_world
-                        if bone_length_sq > 0:
-                            t = vec_to_vert.dot(bone_vec) / bone_length_sq
-                        else:
-                            t = 0
-                        
+                        t = vec_to_vert.dot(bone_vec) / bone_length_sq if bone_length_sq > 0 else 0
                         t = max(0.0, min(1.0, t))
                         
                         all_vertex_data.append({
@@ -817,7 +870,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         
         return all_vertex_data
     
-    def create_vertex_group_map(meshes, old_bone_name, bone_chain, force_locked):
+    def create_vertex_groups(meshes, old_bone_name, bone_chain, force_locked):
         mesh_vg_map = {}
         
         for mesh in meshes:
@@ -828,190 +881,170 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             if not force_locked and vg_old.lock_weight:
                 continue
             
-            vg_new_list = []
+            vg_list = []
             for new_bone in bone_chain:
-                if new_bone.name == old_bone_name:
-                    vg_new_list.append(vg_old)
-                elif new_bone.name in mesh.vertex_groups:
-                    vg_new_list.append(mesh.vertex_groups[new_bone.name])
+                if new_bone.name in mesh.vertex_groups:
+                    vg_list.append(mesh.vertex_groups[new_bone.name])
                 else:
-                    vg_new_list.append(mesh.vertex_groups.new(name=new_bone.name))
-            mesh_vg_map[mesh] = vg_new_list
+                    vg_list.append(mesh.vertex_groups.new(name=new_bone.name))
+            
+            mesh_vg_map[mesh] = vg_list
         
         return mesh_vg_map
     
     def apply_smoothing(influences, smooth_amount):
-        smoothed_influences = influences.copy()
+        smoothed = influences.copy()
         
         for _ in range(int(smooth_amount)):
-            temp = [0.0] * len(smoothed_influences)
-            for i in range(len(smoothed_influences)):
-                kernel_sum = smoothed_influences[i]
+            temp = []
+            for i in range(len(smoothed)):
+                kernel_sum = smoothed[i]
                 kernel_count = 1.0
                 
                 if i > 0:
-                    kernel_sum += smoothed_influences[i - 1]
+                    kernel_sum += smoothed[i - 1]
                     kernel_count += 1.0
-                if i < len(smoothed_influences) - 1:
-                    kernel_sum += smoothed_influences[i + 1]
+                if i < len(smoothed) - 1:
+                    kernel_sum += smoothed[i + 1]
                     kernel_count += 1.0
                 
-                temp[i] = kernel_sum / kernel_count
-            smoothed_influences = temp
+                temp.append(kernel_sum / kernel_count)
+            smoothed = temp
         
-        fractional_smooth = smooth_amount - int(smooth_amount)
-        if fractional_smooth > 0.0:
-            temp = [0.0] * len(smoothed_influences)
-            for i in range(len(smoothed_influences)):
-                kernel_sum = smoothed_influences[i]
+        fractional = smooth_amount - int(smooth_amount)
+        if fractional > 0.0:
+            temp = []
+            for i in range(len(smoothed)):
+                kernel_sum = smoothed[i]
                 kernel_count = 1.0
                 
                 if i > 0:
-                    kernel_sum += smoothed_influences[i - 1]
+                    kernel_sum += smoothed[i - 1]
                     kernel_count += 1.0
-                if i < len(smoothed_influences) - 1:
-                    kernel_sum += smoothed_influences[i + 1]
+                if i < len(smoothed) - 1:
+                    kernel_sum += smoothed[i + 1]
                     kernel_count += 1.0
                 
-                temp[i] = kernel_sum / kernel_count
+                temp.append(kernel_sum / kernel_count)
             
-            for i in range(len(smoothed_influences)):
-                smoothed_influences[i] = smoothed_influences[i] * (1.0 - fractional_smooth) + temp[i] * fractional_smooth
+            smoothed = [s * (1.0 - fractional) + t * fractional for s, t in zip(smoothed, temp)]
         
-        return smoothed_influences
+        return smoothed
     
-    def calculate_weight_distribution(all_vertex_data, mesh_vg_map, subdivisions, falloff_power, smooth_amount, min_weight):
-        vertex_weights_to_apply = {}
+    def distribute_weights(all_vertex_data, mesh_vg_map, num_bones, falloff_power, smooth_amount, min_weight):
+        vertex_weights = {}
         vertices_to_clear = set()
         
         for data in all_vertex_data:
-            t = max(0.0, min(1.0, data['t']))
+            t = data['t']
             mesh = data['mesh']
             vert_index = data['vert_index']
             weight = data['weight']
-
             vg_list = mesh_vg_map[mesh]
-            segment_centers = [(i + 0.5) / subdivisions for i in range(subdivisions)]
-
-            influences = []
-            for center in segment_centers:
-                dist = abs(t - center)
-                influences.append((1.0 - dist) ** falloff_power if dist < 1.0 else 0.0)
-
+            
+            segment_centers = [(i + 0.5) / num_bones for i in range(num_bones)]
+            influences = [(1.0 - abs(t - center)) ** falloff_power if abs(t - center) < 1.0 else 0.0 
+                         for center in segment_centers]
+            
             if smooth_amount > 0.0:
                 influences = apply_smoothing(influences, smooth_amount)
-
+            
             total = sum(influences)
             if total == 0.0:
                 continue
-
-            normalized_weights = [inf / total for inf in influences]
-            filtered_weights = [w if w * weight >= min_weight else 0.0 for w in normalized_weights]
-
-            total_filtered = sum(filtered_weights)
+            
+            normalized = [inf / total for inf in influences]
+            filtered = [w if w * weight >= min_weight else 0.0 for w in normalized]
+            
+            total_filtered = sum(filtered)
             if total_filtered > 0.0:
-                filtered_weights = [w / total_filtered for w in filtered_weights]
-
+                filtered = [w / total_filtered for w in filtered]
+            
             vertices_to_clear.add((mesh, vert_index, vg_list[0]))
             
-            for i, w_norm in enumerate(filtered_weights):
+            if (mesh, vert_index) not in vertex_weights:
+                vertex_weights[(mesh, vert_index)] = []
+            
+            for i, w_norm in enumerate(filtered):
                 final_w = weight * w_norm
                 if final_w >= min_weight:
-                    if (mesh, vert_index) not in vertex_weights_to_apply:
-                        vertex_weights_to_apply[(mesh, vert_index)] = []
-                    vertex_weights_to_apply[(mesh, vert_index)].append((vg_list[i], final_w))
+                    vertex_weights[(mesh, vert_index)].append((vg_list[i], final_w))
         
-        return vertex_weights_to_apply, vertices_to_clear
+        return vertex_weights, vertices_to_clear
     
-    def apply_weights(vertex_weights_to_apply, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked):
+    def apply_weights(vertex_weights, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked):
         for mesh, vert_index, vg in vertices_to_clear:
             vg.remove([vert_index])
         
-        for (mesh, vert_index), new_weights in vertex_weights_to_apply.items():
-            for vg, final_w in new_weights:
+        for (mesh, vert_index), weights in vertex_weights.items():
+            for vg, final_w in weights:
                 vg.add([vert_index], final_w, 'REPLACE')
         
-        bone_names_in_chain = {b.name for b in bone_chain}
+        bone_names = {b.name for b in bone_chain}
         for mesh in meshes:
-            if old_bone_name in mesh.vertex_groups and old_bone_name not in bone_names_in_chain:
+            if old_bone_name in mesh.vertex_groups and old_bone_name not in bone_names:
                 vg_old = mesh.vertex_groups[old_bone_name]
                 if force_locked or not vg_old.lock_weight:
                     mesh.vertex_groups.remove(vg_old)
     
     if bpy.context.object.mode != 'EDIT':
         return
-
+    
     subdivisions = max(2, subdivisions)
-    min_weight = min_weight_cap
-    falloff_power = falloff
-    smooth_amount = max(0.0, smoothness)
-
-    if isinstance(bone, bpy.types.EditBone):
-        arm = get_armature(bone)
-        if not arm:
-            return
-        meshes = get_armature_meshes(arm, visible_only=bpy.context.scene.vs.visible_mesh_only)
-        if not meshes:
-            return
+    
+    if isinstance(bone, list):
+        for b in bone:
+            subdivide_bone(b, subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)
+        return
+    
+    arm = get_armature(bone)
+    if not arm:
+        return
+    
+    meshes = get_armature_meshes(arm, visible_only=bpy.context.scene.vs.visible_mesh_only)
+    if not meshes:
+        return
+    
+    armature_mirror_x = arm.data.use_mirror_x
+    pose_mirror_x = arm.pose.use_mirror_x
+    
+    try:
+        arm.data.use_mirror_x = False
+        arm.pose.use_mirror_x = False
         
-        armature_mirror_x_state = arm.data.use_mirror_x
-        armature_mirror_x_pose_state = arm.pose.use_mirror_x
+        old_bone_name = bone.name
+        bone_head = arm.matrix_world @ bone.head.copy()
+        bone_tail = arm.matrix_world @ bone.tail.copy()
+        eb = arm.data.edit_bones
         
-        try:
-            arm.data.use_mirror_x = False
-            arm.pose.use_mirror_x = False
-            
-            head, tail = bone.head.copy(), bone.tail.copy()
-            collections = bone.collections
-            base_name = bone.name
-            old_bone_name = bone.name
-            
-            eb = arm.data.edit_bones
-            
-            if weights_only:
-                bone_chain = find_existing_chain(bone, base_name, subdivisions, eb)
-                if not bone_chain:
-                    return
-            else:
-                
-                bone_use_connect_state = bone.use_connect
-                try:
-                    bone.use_connect = False
-                    bone_chain = create_bone_chain(bone, head, tail, base_name, subdivisions, collections, eb)
-                    reparent_children(bone, bone_chain)
-                    
-                except Exception as e:
-                    print("- Failed to create subdivision or re-parenting : {}.".format(e))
-                    pass
-                finally:
-                    bone.use_connect = bone_use_connect_state
-            
-            arm_matrix = arm.matrix_world
-            head_world = arm_matrix @ head
-            tail_world = arm_matrix @ tail
-            bone_vec = tail_world - head_world
-            bone_length_sq = bone_vec.length_squared
-            
-            all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, head_world, tail_world, bone_vec, bone_length_sq)
-            mesh_vg_map = create_vertex_group_map(meshes, old_bone_name, bone_chain, force_locked)
-            vertex_weights_to_apply, vertices_to_clear = calculate_weight_distribution(all_vertex_data, mesh_vg_map, subdivisions, falloff_power, smooth_amount, min_weight)
-            apply_weights(vertex_weights_to_apply, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked)
-        
-        except Exception as e:
-            print("- Failed to subdivide bone '{}' : {}".format(bone.name, e))
-            pass
-        
-        finally:
-            arm.data.use_mirror_x = armature_mirror_x_state
-            arm.pose.use_mirror_x = armature_mirror_x_pose_state
-            
-
-    elif isinstance(bone, list):
-        if len(bone) == 1:
-            subdivide_bone(bone[0], subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)
+        if weights_only:
+            bone_chain = find_existing_chain(bone, old_bone_name, subdivisions, eb)
+            if not bone_chain:
+                return
         else:
-            for b in bone:
-                subdivide_bone(b, subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)
+            eb.active = bone
+            bpy.ops.armature.select_all(action='DESELECT')
+            bone.select = True
+            bone.select_head = True
+            bone.select_tail = True
+            
+            bpy.ops.armature.subdivide(number_cuts=subdivisions - 1)
+            bone_chain = get_bone_chain(bone, eb)
+        
+        if len(bone_chain) != subdivisions:
+            report('WARNING', f"Expected {subdivisions} bones but got {len(bone_chain)}")
+        
+        all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, arm.matrix_world, bone_head, bone_tail)
+        mesh_vg_map = create_vertex_groups(meshes, old_bone_name, bone_chain, force_locked)
+        vertex_weights, vertices_to_clear = distribute_weights(all_vertex_data, mesh_vg_map, len(bone_chain), falloff, smoothness, min_weight_cap)
+        apply_weights(vertex_weights, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked)   
+        
+    except Exception as e:
+        report('ERROR', f"Failed to subdivide bone '{bone.name}': {e}")
+    
+    finally:
+        arm.data.use_mirror_x = armature_mirror_x
+        arm.pose.use_mirror_x = pose_mirror_x
                 
 def remove_empty_bonecollections(armature: bpy.types.Object) -> tuple[bool, int]:
     "Remove empty bone collections from armature"

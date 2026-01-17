@@ -4,19 +4,19 @@ from bpy.types import UILayout, Context, Object, Operator, Event
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy_extras import anim_utils
 
-from .common import ToolsCategoryPanel
+from .common import KITSUNE_PT_ToolsPanel
 from ..core.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, is_armature,
     sanitize_string
 )
 from ..utils import get_id
 
-class TOOLS_PT_Animation(ToolsCategoryPanel):
+class TOOLS_PT_Animation(KITSUNE_PT_ToolsPanel):
     bl_label : str = "Animation Tools"
     
     def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        bx : UILayout = draw_title_box_layout(l, TOOLS_PT_Animation.bl_label, icon='ACTION')
+        layout = self.layout
+        bx = layout.box()
         
         ob : Object | None = context.object
         if is_armature(ob): pass

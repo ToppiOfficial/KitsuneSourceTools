@@ -1,9 +1,7 @@
-import os
-import json
+import bpy, os, json
 from typing import Set, Any
 
-import bpy
-from bpy.types import Context, Object, Operator, UILayout, UIList, Event, Constraint, BoneCollection
+from bpy.types import Context, Object, Operator, UILayout, UIList, Event, BoneCollection
 from bpy.props import EnumProperty, IntProperty, StringProperty, BoolProperty
 from mathutils import Vector
 
@@ -13,28 +11,23 @@ from ..core.armatureutils import (
     get_armature,
     get_canonical_bonename,
     apply_current_pose_as_restpose,
-    remove_bone, merge_bones
-)
+    remove_bone, merge_bones)
+
 from ..core.boneutils import get_armature, get_canonical_bonename
-from ..core.commonutils import (
-    draw_title_box_layout,
-    draw_wrapped_texts,
-    is_armature, draw_toggleable_layout,
-    get_selected_bones
-)
+from ..core.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature
 
 from ..core.meshutils import get_armature
 from ..flex import get_id
 from ..utils import print
 
-from .common import ToolsCategoryPanel
+from .common import KITSUNE_PT_ToolsPanel
 
-class HUMANOIDARMATUREMAP_PT_Panel(ToolsCategoryPanel):
+class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
     bl_label : str = 'Humanoid Armature Mapper'
 
     def draw(self, context : Context) -> None:
-        l : UILayout = self.layout
-        bx : UILayout = draw_title_box_layout(l, HUMANOIDARMATUREMAP_PT_Panel.bl_label, icon='ARMATURE_DATA')
+        layout = self.layout
+        bx = layout.box()
 
         ob : Object | None = context.object
         if is_armature(ob): pass
@@ -50,13 +43,24 @@ class HUMANOIDARMATUREMAP_PT_Panel(ToolsCategoryPanel):
             self.draw_write_mode(context, bx)
         else:
             self.draw_read_mode(context, bx)
+            
+            message = [
+                'This will rename bones to a standardized format.',
+                'Bone map includes:\n',
+                '- Core: Hips, Chest, Head\n',
+                '- Arms: Shoulder, UpperArm, ForeArm, Wrist\n',
+                '- Legs: Thigh, Knee, Ankle, Toe\n',
+                '- Fingers: Index/Middle/Ring/LittleFinger1-3_L/R\n',
+                '- Thumbs: Thumb0-2_L/R\n',
+                '\nEnable "Remove Intermediate Bones" to merge bones between mapped limbs.'
+            ]
+            
+            draw_wrapped_texts(bx,message,max_chars=40, icon='HELP',boxed=False)
 
     def draw_write_mode(self, context : Context, layout : UILayout) -> None:
         col = layout.column(align=False)
         
-        armaturemappersection = draw_toggleable_layout(col, context.scene.vs, 'show_armaturemapper_help', f'Show Help', '')
-        if armaturemappersection is not None:
-            draw_wrapped_texts(armaturemappersection,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP',boxed=False)
+        draw_wrapped_texts(col,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP',boxed=False)
             
         col = layout.column()
         col.operator(HUMANOIDARMATUREMAP_OT_LoadPreset.bl_idname)
@@ -149,21 +153,6 @@ class HUMANOIDARMATUREMAP_PT_Panel(ToolsCategoryPanel):
 
     def draw_read_mode(self, context : Context, layout : UILayout) -> None:
         col = layout.column(align=False)
-        
-        message = [
-            'This will rename bones to a standardized format.',
-            'Bone map includes:\n',
-            '- Core: Hips, Chest, Head\n',
-            '- Arms: Shoulder, UpperArm, ForeArm, Wrist\n',
-            '- Legs: Thigh, Knee, Ankle, Toe\n',
-            '- Fingers: Index/Middle/Ring/LittleFinger1-3_L/R\n',
-            '- Thumbs: Thumb0-2_L/R\n',
-            '\nEnable "Remove Intermediate Bones" to merge bones between mapped limbs.'
-        ]
-        
-        armaturemappersection = draw_toggleable_layout(col, context.scene.vs, 'show_armaturemapper_help', f'Show Help', '')
-        if armaturemappersection is not None:
-            draw_wrapped_texts(armaturemappersection,message,max_chars=40, icon='HELP',boxed=False)
         
         bone_assignments = self.get_bone_assignments(context)
         duplicates = {bone: labels for bone, labels in bone_assignments.items() if len(labels) > 1}
@@ -801,7 +790,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             arm.display_type = 'WIRE'
             arm.data.show_axes = True
             
-            _, _ = apply_current_pose_as_restpose(arm)
+            apply_current_pose_as_restpose(arm)
 
             default_collection = self._ensure_default_collection(arm)
             self._prepare_pose_bones(arm, default_collection)

@@ -2,27 +2,18 @@ import bpy
 from bpy.types import Operator, Context, Event, UILayout
 from bpy.props import BoolProperty, StringProperty, EnumProperty
 
-from ..core.networkutils import (
-    translate_string
-)
+from ..core.networkutils import translate_string
+from ..core.commonutils import draw_wrapped_texts, draw_title_box_layout, get_all_child_objects, get_armature_meshes
+from ..core.objectutils import apply_object_transforms
+from .common import KITSUNE_PT_ToolsPanel, ShowConsole
 
-from ..core.commonutils import (
-    draw_wrapped_texts, draw_title_box_layout, get_all_child_objects, get_armature_meshes, draw_toggleable_layout
-)
-
-from ..core.objectutils import (
-    apply_object_transforms
-)
-
-from .common import ToolsCategoryPanel, ShowConsole
-
-class OBJECT_PT_Translate_Panel(ToolsCategoryPanel):
+class OBJECT_PT_Translate_Panel(KITSUNE_PT_ToolsPanel):
     bl_label : str = "Object Tools"
     
     def draw(self, context : Context) -> None:
         layout : UILayout = self.layout
         
-        bx = draw_title_box_layout(layout,text='Object Tools',icon='OBJECT_DATA')
+        bx = layout.box()
         
         if context.active_object: pass
         else:
@@ -300,7 +291,7 @@ class OBJECT_OT_Translate_Object(Operator, ShowConsole):
         
         layout.prop(self, "source_lang")
     
-    def execute(self, context):
+    def execute(self, context) -> set:
         bpy.ops.objectdata.translate_object(
             'EXEC_DEFAULT',
             translate_types=self.translate_types,
