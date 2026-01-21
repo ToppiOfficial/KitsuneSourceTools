@@ -103,6 +103,10 @@ class TextureConversionItem(PropertyGroup):
     metal_map_ch: EnumProperty(name='Channel', items=image_channels)
     invert_metal_map : BoolProperty(name='Invert Metal Map', default=False)
     metal_diffuse_mix : FloatProperty(name='Metal to Diffuse Mix', min=0.0,max=1.0,default=1.0)
+    phong_boost_influence : FloatProperty(name='Phong Boost Influence', min=0.0, max=1.0, default=0.3,
+        description="How much the metal map is screen influences the normal map's alpha channel. Used for specularity in Phong")
+    phong_exponent_influence : FloatProperty(name='Phong Exponent Influence', min=0.0, max=1.0, default=0.25,
+        description="How much the metal map is screen added influences the exponent map's red channel (glossiness)")
     
     roughness_map: StringProperty(name='Roughness Map')
     roughness_map_ch: EnumProperty(name='Channel', items=image_channels)
@@ -543,6 +547,7 @@ _classes = (
     bone.TOOLS_OT_FlipBone,
     bone.TOOLS_OT_CreateCenterBone,
     bone.TOOLS_OT_SplitActiveWeightLinear,
+    bone.TOOLS_OT_align_bone_to_axis,
 
     mesh.TOOLS_PT_Mesh,
     mesh.TOOLS_OT_CleanShapeKeys,

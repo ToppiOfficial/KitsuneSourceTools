@@ -65,6 +65,18 @@ class TOOLS_PT_Bone(KITSUNE_PT_ToolsPanel):
         copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Active').copy_source = 'ACTIVE'
         copy_row.operator(TOOLS_OT_CopyTargetRotation.bl_idname, text='Copy Parent').copy_source = 'PARENT'
         
+        align_box.separator(factor=0.5)
+        
+        align_box.label(text='Point to Axis:')
+        copy_row = align_box.row(align=True)
+        copy_row.scale_y = 1.3
+        copy_row.operator(TOOLS_OT_align_bone_to_axis.bl_idname, text='X').axis = 'X'
+        copy_row.operator(TOOLS_OT_align_bone_to_axis.bl_idname, text='Y').axis = 'Y'
+        copy_row.operator(TOOLS_OT_align_bone_to_axis.bl_idname, text='Z').axis = 'Z'
+        copy_row.operator(TOOLS_OT_align_bone_to_axis.bl_idname, text='-X').axis = '-X'
+        copy_row.operator(TOOLS_OT_align_bone_to_axis.bl_idname, text='-Y').axis = '-Y'
+        copy_row.operator(TOOLS_OT_align_bone_to_axis.bl_idname, text='-Z').axis = '-Z'
+        
         main_col.separator()
         
         # Bone Modifiers Section
@@ -233,7 +245,7 @@ class TOOLS_OT_ReAlignBones(Operator):
         
     def draw(self, context : Context) -> None:
         layout = self.layout
-        layout.prop(self, "alignment_mode",emboss=False)
+        layout.prop(self, "alignment_mode")
         row = layout.row(align=True)
         row.prop_enum(self, "include_axes", 'X')
         row.prop_enum(self, "include_axes", 'Y')
@@ -996,3 +1008,61 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
 
         self.report({'INFO'}, f"Split {active_name} between {bone1_name} and {bone2_name}")
         return {'FINISHED'} 
+    
+class TOOLS_OT_align_bone_to_axis(Operator):
+    bl_idname: str = 'kitsunetools.align_bone_to_axis'
+    bl_label: str = 'Align Bone to Axis'
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    
+    axis: EnumProperty(name='Axis',
+                        items=[
+                            ('X', 'X', ''),
+                            ('Y', 'Y', ''),
+                            ('Z', 'Z', ''),
+                            ('-X', '-X', ''),
+                            ('-Y', '-Y', ''),
+                            ('-Z', '-Z', '')],
+                        default='X')
+    
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        return bool(is_armature(context.object) and context.object.mode in ['EDIT', 'POSE', 'WEIGHT_PAINT'])
+    
+    def draw(self, context):
+        layout = self.layout
+        #layout.prop(self, 'Axis', expand=True)
+    
+    def execute(self, context) -> set:
+        active_armature = get_armature(context.object)
+        with preserve_context_mode(active_armature, 'EDIT'):
+            
+            processed_bone = 0
+            selected_bones : bpy.types.EditBone = get_selected_bones(active_armature, 'EDITBONE', 'TO_FIRST')
+            
+            for bone in selected_bones:
+                try:
+                    bone_length = bone.length
+                    
+                    match self.axis:
+                        case 'X':
+                            axis_vector = Vector((1, 0, 0))
+                        case 'Y':
+                            axis_vector = Vector((0, 1, 0))
+                        case 'Z':
+                            axis_vector = Vector((0, 0, 1))
+                        case '-X':
+                            axis_vector = Vector((-1, 0, 0))
+                        case '-Y':
+                            axis_vector = Vector((0, -1, 0))
+                        case '-Z':
+                            axis_vector = Vector((0, 0, -1))
+                    
+                    bone.tail = bone.head + (axis_vector * bone_length)
+                    bone.length = bone_length
+                    processed_bone += 1
+                except Exception as e:
+                    pass
+                
+        
+        self.report({'INFO'}, f'Aligned {processed_bone} bones to {self.axis} axis')
+        return {'FINISHED'}

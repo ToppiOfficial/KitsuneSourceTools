@@ -19,10 +19,12 @@ from .meshutils import (
 from contextlib import contextmanager
 from mathutils import Vector
 
-filter_exclude_vertexgroup_names = [ "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
-                         'Left shoulder', 'Left arm', 'Left elbow', 'Left wrist', 'Left leg', 'Left knee', 'Left ankle',
-                         'Right shoulder', 'Right arm', 'Right elbow', 'Right wrist', 'Right leg', 'Right knee', 'Right ankle',
-                         'Left eye', 'Right eye']
+filter_exclude_vertexgroup_names = [
+    "Hips", 'Lower Spine', 'Spine', 'Lower Chest', 'Chest', 'Neck', 'Head',
+    'Left shoulder', 'Left arm', 'Left elbow', 'Left wrist', 'Left leg', 'Left knee', 'Left ankle',
+    'Right shoulder', 'Right arm', 'Right elbow', 'Right wrist', 'Right leg', 'Right knee', 'Right ankle',
+    'Left eye', 'Right eye'
+]
 
 @contextmanager
 def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, reset_action=True):
@@ -40,113 +42,127 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, reset
         - Deleted bones or bone collections are skipped.
         - Renamed bones are NOT restored (they are treated as new bones).
     """
-    states = {}
-    armature_names = []
-
-    for armature in armatures:
-        if armature.type != 'ARMATURE':
-            raise TypeError(f"{armature.name} is not an armature")
-
-        armature_names.append(armature.name)
-
-        state = {
-            "pose_position": getattr(armature.data, "pose_position", "POSE"),
-            "edit_mirror_x": getattr(armature.data, "use_mirror_x", False),
-            "pose_mirror_x": getattr(armature.pose, "use_mirror_x", False),
-            "action": armature.animation_data.action if armature.animation_data else None,
-            "bones": {},
-            "bone_collections": {},
-            "pose_bones": {},
-            "pose_was_reset": bool(reset_pose),
-        }
-
-        for bone in armature.data.bones:
-            state["bones"][bone.name] = bone.hide
-            bone.hide = False
-
-        for bcoll in getattr(armature.data, "collections", []):
-            state["bone_collections"][bcoll.name] = {
-                "is_visible": getattr(bcoll, "is_visible", True),
-                "is_solo": getattr(bcoll, "is_solo", False),
-            }
-            bcoll.is_visible = True
-            bcoll.is_solo = False
-
-        if reset_pose:
-            for pbone in armature.pose.bones:
-                pb_state = {
-                    "location": pbone.location.copy(),
-                    "scale": pbone.scale.copy(),
-                    "rotation_mode": pbone.rotation_mode,
-                }
-                if pbone.rotation_mode == 'QUATERNION':
-                    pb_state["rotation"] = pbone.rotation_quaternion.copy()
-                elif pbone.rotation_mode == 'AXIS_ANGLE':
-                    pb_state["rotation"] = pbone.rotation_axis_angle[:]
-                else:
-                    pb_state["rotation"] = pbone.rotation_euler.copy()
-
-                state["pose_bones"][pbone.name] = pb_state
-
-            for pbone in armature.pose.bones:
-                pbone.matrix_basis.identity()
-
-        if hasattr(armature.data, "use_mirror_x"):
-            armature.data.use_mirror_x = False
-        if hasattr(armature.pose, "use_mirror_x"):
-            armature.pose.use_mirror_x = False
-        if armature.animation_data and reset_action:
-            armature.animation_data.action = None
-
-        states[armature.name] = state
+    ctx = bpy.context
+    undo_enabled = ctx.preferences.edit.use_global_undo
+    ctx.preferences.edit.use_global_undo = False
 
     try:
-        yield armatures
-    finally:
-        for armature_name in armature_names:
-            if armature_name not in bpy.data.objects:
-                continue 
-            armature = bpy.data.objects[armature_name]
-            state = states.get(armature.name, {})
+        states = {}
+        armature_names = []
 
-            if "pose_position" in state:
-                armature.data.pose_position = state["pose_position"]
-            if "edit_mirror_x" in state and hasattr(armature.data, "use_mirror_x"):
-                armature.data.use_mirror_x = state["edit_mirror_x"]
-            if "pose_mirror_x" in state and hasattr(armature.pose, "use_mirror_x"):
-                armature.pose.use_mirror_x = state["pose_mirror_x"]
+        for armature in armatures:
+            if armature.type != 'ARMATURE':
+                raise TypeError(f"{armature.name} is not an armature")
 
-            if reset_action and state.get("action"):
-                if armature.animation_data is None:
-                    armature.animation_data_create()
-                armature.animation_data.action = state["action"]
+            armature_names.append(armature.name)
 
-            for bone_name, hidden in state.get("bones", {}).items():
-                bone = armature.data.bones.get(bone_name)
-                if bone:
-                    bone.hide = hidden
+            state = {
+                "pose_position": getattr(armature.data, "pose_position", "POSE"),
+                "edit_mirror_x": getattr(armature.data, "use_mirror_x", False),
+                "pose_mirror_x": getattr(armature.pose, "use_mirror_x", False),
+                "action": armature.animation_data.action if armature.animation_data else None,
+                "bones": {},
+                "bone_collections": {},
+                "pose_bones": {},
+                "pose_was_reset": bool(reset_pose),
+            }
 
-            for bcoll_name, values in state.get("bone_collections", {}).items():
-                bcoll = next((c for c in armature.data.collections if c.name == bcoll_name), None)
-                if not bcoll:
-                    continue
-                bcoll.is_visible = values.get("is_visible", True)
-                bcoll.is_solo = values.get("is_solo", False)
+            for bone in armature.data.bones:
+                state["bones"][bone.name] = bone.hide
+                bone.hide = False
 
-            if state.get("pose_was_reset", False):
-                for name, values in state.get("pose_bones", {}).items():
-                    pbone = armature.pose.bones.get(name)
-                    if not pbone:
-                        continue
-                    pbone.location = values["location"]
-                    pbone.scale = values["scale"]
-                    pbone.rotation_mode = values["rotation_mode"]
+            for bcoll in getattr(armature.data, "collections", []):
+                state["bone_collections"][bcoll.name] = {
+                    "is_visible": getattr(bcoll, "is_visible", True),
+                    "is_solo": getattr(bcoll, "is_solo", False),
+                }
+                bcoll.is_visible = True
+                bcoll.is_solo = False
+
+            if reset_pose:
+                for pbone in armature.pose.bones:
+                    pb_state = {
+                        "location": pbone.location.copy(),
+                        "scale": pbone.scale.copy(),
+                        "rotation_mode": pbone.rotation_mode,
+                    }
                     if pbone.rotation_mode == 'QUATERNION':
-                        pbone.rotation_quaternion = values["rotation"]
+                        pb_state["rotation"] = pbone.rotation_quaternion.copy()
                     elif pbone.rotation_mode == 'AXIS_ANGLE':
-                        pbone.rotation_axis_angle = values["rotation"]
+                        pb_state["rotation"] = pbone.rotation_axis_angle[:]
                     else:
-                        pbone.rotation_euler = values["rotation"]
+                        pb_state["rotation"] = pbone.rotation_euler.copy()
+
+                    state["pose_bones"][pbone.name] = pb_state
+
+                for pbone in armature.pose.bones:
+                    pbone.matrix_basis.identity()
+
+            if hasattr(armature.data, "use_mirror_x"):
+                armature.data.use_mirror_x = False
+            if hasattr(armature.pose, "use_mirror_x"):
+                armature.pose.use_mirror_x = False
+            if armature.animation_data and reset_action:
+                armature.animation_data.action = None
+
+            states[armature.name] = state
+
+        ctx.preferences.edit.use_global_undo = undo_enabled
+
+        try:
+            yield armatures
+        finally:
+            ctx.preferences.edit.use_global_undo = False
+
+            for armature_name in armature_names:
+                if armature_name not in bpy.data.objects:
+                    continue 
+                armature = bpy.data.objects[armature_name]
+                state = states.get(armature.name, {})
+
+                if "pose_position" in state:
+                    armature.data.pose_position = state["pose_position"]
+                if "edit_mirror_x" in state and hasattr(armature.data, "use_mirror_x"):
+                    armature.data.use_mirror_x = state["edit_mirror_x"]
+                if "pose_mirror_x" in state and hasattr(armature.pose, "use_mirror_x"):
+                    armature.pose.use_mirror_x = state["pose_mirror_x"]
+
+                if reset_action and state.get("action"):
+                    if armature.animation_data is None:
+                        armature.animation_data_create()
+                    armature.animation_data.action = state["action"]
+
+                for bone_name, hidden in state.get("bones", {}).items():
+                    bone = armature.data.bones.get(bone_name)
+                    if bone:
+                        bone.hide = hidden
+
+                for bcoll_name, values in state.get("bone_collections", {}).items():
+                    bcoll = next((c for c in armature.data.collections if c.name == bcoll_name), None)
+                    if not bcoll:
+                        continue
+                    bcoll.is_visible = values.get("is_visible", True)
+                    bcoll.is_solo = values.get("is_solo", False)
+
+                if state.get("pose_was_reset", False):
+                    for name, values in state.get("pose_bones", {}).items():
+                        pbone = armature.pose.bones.get(name)
+                        if not pbone:
+                            continue
+                        pbone.location = values["location"]
+                        pbone.scale = values["scale"]
+                        pbone.rotation_mode = values["rotation_mode"]
+                        if pbone.rotation_mode == 'QUATERNION':
+                            pbone.rotation_quaternion = values["rotation"]
+                        elif pbone.rotation_mode == 'AXIS_ANGLE':
+                            pbone.rotation_axis_angle = values["rotation"]
+                        else:
+                            pbone.rotation_euler = values["rotation"]
+
+            ctx.preferences.edit.use_global_undo = undo_enabled
+    except:
+        ctx.preferences.edit.use_global_undo = undo_enabled
+        raise
 
 @selfreport
 def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:

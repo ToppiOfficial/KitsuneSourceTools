@@ -1,6 +1,7 @@
 import numpy as np
 from PIL import Image, ImageOps, ImageChops, ImageEnhance
 
+# Honestly this class is getting a bit out of hand, but it works for now.
 class ImageProcessor:
     _LUMA_COEFFS = np.array([0.299, 0.587, 0.114], dtype=np.float32)
 

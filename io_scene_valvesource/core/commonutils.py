@@ -38,163 +38,187 @@ def unhide_all_objects():
         - Only restores objects/collections that were hidden before.
         - Deleted objects/collections are skipped safely.
     """
-    view_layer = bpy.context.view_layer
+    ctx = bpy.context
+    view_layer = ctx.view_layer
     root_layer_coll = view_layer.layer_collection
 
-    original_visibility = {}
-    original_obj_visibility = {}
-
-    def store_layer_collection_visibility(layer_coll, vis):
-        vis[layer_coll] = {
-            "exclude": layer_coll.exclude,
-            "hide_viewport": layer_coll.hide_viewport,
-        }
-        for child in layer_coll.children:
-            store_layer_collection_visibility(child, vis)
-
-    def restore_layer_collection_visibility(vis):
-        for layer_coll, state in vis.items():
-            if layer_coll:
-                layer_coll.exclude = state["exclude"]
-                layer_coll.hide_viewport = state["hide_viewport"]
-
-    def unhide_all_layer_collections(layer_coll):
-        layer_coll.exclude = False
-        layer_coll.hide_viewport = False
-        for child in layer_coll.children:
-            unhide_all_layer_collections(child)
-
-    # Save + unhide
-    store_layer_collection_visibility(root_layer_coll, original_visibility)
-
-    for obj in bpy.data.objects:
-        original_obj_visibility[obj.name] = {
-            "hide": obj.hide_get(),
-            "hide_viewport": obj.hide_viewport,
-        }
-        obj.hide_set(False)
-        obj.hide_viewport = False
-
-    unhide_all_layer_collections(root_layer_coll)
+    undo_enabled = ctx.preferences.edit.use_global_undo
+    ctx.preferences.edit.use_global_undo = False
 
     try:
-        yield
-        
-    finally:
-        # Restore
-        restore_layer_collection_visibility(original_visibility)
-        for name, state in original_obj_visibility.items():
-            if name not in bpy.data.objects:
-                continue
-            obj = bpy.data.objects[name]
-            obj.hide_set(state["hide"])
-            obj.hide_viewport = state["hide_viewport"]
+        original_visibility = {}
+        original_obj_visibility = {}
+
+        def store_layer_collection_visibility(layer_coll, vis):
+            vis[layer_coll] = {
+                "exclude": layer_coll.exclude,
+                "hide_viewport": layer_coll.hide_viewport,
+            }
+            for child in layer_coll.children:
+                store_layer_collection_visibility(child, vis)
+
+        def restore_layer_collection_visibility(vis):
+            for layer_coll, state in vis.items():
+                if layer_coll:
+                    layer_coll.exclude = state["exclude"]
+                    layer_coll.hide_viewport = state["hide_viewport"]
+
+        def unhide_all_layer_collections(layer_coll):
+            layer_coll.exclude = False
+            layer_coll.hide_viewport = False
+            for child in layer_coll.children:
+                unhide_all_layer_collections(child)
+
+        store_layer_collection_visibility(root_layer_coll, original_visibility)
+
+        for obj in bpy.data.objects:
+            original_obj_visibility[obj.name] = {
+                "hide": obj.hide_get(),
+                "hide_viewport": obj.hide_viewport,
+            }
+            obj.hide_set(False)
+            obj.hide_viewport = False
+
+        unhide_all_layer_collections(root_layer_coll)
+
+        ctx.preferences.edit.use_global_undo = undo_enabled
+
+        try:
+            yield
+        finally:
+            ctx.preferences.edit.use_global_undo = False
+            
+            restore_layer_collection_visibility(original_visibility)
+            for name, state in original_obj_visibility.items():
+                if name not in bpy.data.objects:
+                    continue
+                obj = bpy.data.objects[name]
+                obj.hide_set(state["hide"])
+                obj.hide_viewport = state["hide_viewport"]
+            
+            ctx.preferences.edit.use_global_undo = undo_enabled
+    except:
+        ctx.preferences.edit.use_global_undo = undo_enabled
+        raise
 
 @contextmanager
 def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
     ctx = bpy.context
     view_layer = ctx.view_layer
     
-    prev_selected = list(view_layer.objects.selected)
-    prev_active = view_layer.objects.active
-    prev_mode = ctx.mode
-
-    target_obj = obj or prev_active
-    prev_vgroup_index = None
-    prev_bone_name = None
-    prev_bone_mode = None
-    prev_bone_selected = None
-
-    if target_obj:
-        if target_obj.type == "MESH":
-            prev_vgroup_index = target_obj.vertex_groups.active_index
-        elif target_obj.type == "ARMATURE":
-            data = target_obj.data
-            if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
-                prev_bone_name = data.edit_bones.active.name
-                prev_bone_mode = "EDIT"
-                prev_bone_selected = data.edit_bones.active.select
-            elif prev_mode == "POSE" and data.bones.active:
-                prev_bone_name = data.bones.active.name
-                prev_bone_mode = "POSE"
-                prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
-
-    if target_obj and target_obj.name in bpy.data.objects:
-        try:
-            bpy.ops.object.mode_set(mode="OBJECT")
-        except RuntimeError:
-            pass
-
-        view_layer.objects.active = target_obj
-        target_obj.select_set(True)
-
-        try:
-            bpy.ops.object.mode_set(mode=mode)
-        except RuntimeError:
-            pass
-
+    undo_enabled = ctx.preferences.edit.use_global_undo
+    ctx.preferences.edit.use_global_undo = False
+    
     try:
-        if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
-            yield target_obj.data.edit_bones
-        elif mode == "POSE" and target_obj and target_obj.type == "ARMATURE":
-            yield target_obj.pose.bones
-        else:
-            yield target_obj
-    finally:
-        try:
-            bpy.ops.object.mode_set(mode="OBJECT")
-        except RuntimeError:
-            pass
+        prev_selected = list(view_layer.objects.selected)
+        prev_active = view_layer.objects.active
+        prev_mode = ctx.mode
 
-        bpy.ops.object.select_all(action="DESELECT")
-        for sel in prev_selected:
+        target_obj = obj or prev_active
+        prev_vgroup_index = None
+        prev_bone_name = None
+        prev_bone_mode = None
+        prev_bone_selected = None
+
+        if target_obj:
+            if target_obj.type == "MESH":
+                prev_vgroup_index = target_obj.vertex_groups.active_index
+            elif target_obj.type == "ARMATURE":
+                data = target_obj.data
+                if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
+                    prev_bone_name = data.edit_bones.active.name
+                    prev_bone_mode = "EDIT"
+                    prev_bone_selected = data.edit_bones.active.select
+                elif prev_mode == "POSE" and data.bones.active:
+                    prev_bone_name = data.bones.active.name
+                    prev_bone_mode = "POSE"
+                    prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
+
+        if target_obj and target_obj.name in bpy.data.objects:
             try:
-                if sel and sel.name in bpy.data.objects:
-                    sel.select_set(True)
-            except ReferenceError:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except RuntimeError:
                 pass
 
-        if prev_active:
+            view_layer.objects.active = target_obj
+            target_obj.select_set(True)
+
             try:
-                if prev_active.name in bpy.data.objects:
-                    view_layer.objects.active = prev_active
-            except ReferenceError:
+                bpy.ops.object.mode_set(mode=mode)
+            except RuntimeError:
                 pass
 
-        mapped_mode : str = MODE_MAP.get(prev_mode, "OBJECT")
+        ctx.preferences.edit.use_global_undo = undo_enabled
+
         try:
-            bpy.ops.object.mode_set(mode=mapped_mode)
-        except RuntimeError:
-            if prev_active:
+            if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
+                yield target_obj.data.edit_bones
+            elif mode == "POSE" and target_obj and target_obj.type == "ARMATURE":
+                yield target_obj.pose.bones
+            else:
+                yield target_obj
+        finally:
+            ctx.preferences.edit.use_global_undo = False
+            
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except RuntimeError:
+                pass
+
+            bpy.ops.object.select_all(action="DESELECT")
+            for sel in prev_selected:
                 try:
-                    if prev_active.type == "ARMATURE":
-                        bpy.ops.object.mode_set(mode="POSE")
-                    elif prev_active.type == "MESH":
-                        bpy.ops.object.mode_set(mode="OBJECT")
+                    if sel and sel.name in bpy.data.objects:
+                        sel.select_set(True)
                 except ReferenceError:
                     pass
 
-        if prev_active:
+            if prev_active:
+                try:
+                    if prev_active.name in bpy.data.objects:
+                        view_layer.objects.active = prev_active
+                except ReferenceError:
+                    pass
+
+            mapped_mode : str = MODE_MAP.get(prev_mode, "OBJECT")
             try:
-                if prev_active.type == "MESH" and prev_vgroup_index is not None:
-                    if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
-                        prev_active.vertex_groups.active_index = prev_vgroup_index
+                bpy.ops.object.mode_set(mode=mapped_mode)
+            except RuntimeError:
+                if prev_active:
+                    try:
+                        if prev_active.type == "ARMATURE":
+                            bpy.ops.object.mode_set(mode="POSE")
+                        elif prev_active.type == "MESH":
+                            bpy.ops.object.mode_set(mode="OBJECT")
+                    except ReferenceError:
+                        pass
 
-                elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
-                    data = prev_active.data
+            if prev_active:
+                try:
+                    if prev_active.type == "MESH" and prev_vgroup_index is not None:
+                        if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
+                            prev_active.vertex_groups.active_index = prev_vgroup_index
 
-                    if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
-                        edit_bone = data.edit_bones.get(prev_bone_name)
-                        if edit_bone:
-                            data.edit_bones.active = edit_bone
-                            edit_bone.select = prev_bone_selected
-                    elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
-                        bone = data.bones.get(prev_bone_name)
-                        if bone:
-                            data.bones.active = bone
-                            bone.select = prev_bone_selected
-            except ReferenceError:
-                pass
+                    elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
+                        data = prev_active.data
+
+                        if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
+                            edit_bone = data.edit_bones.get(prev_bone_name)
+                            if edit_bone:
+                                data.edit_bones.active = edit_bone
+                                edit_bone.select = prev_bone_selected
+                        elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
+                            bone = data.bones.get(prev_bone_name)
+                            if bone:
+                                data.bones.active = bone
+                                bone.select = prev_bone_selected
+                except ReferenceError:
+                    pass
+            
+            ctx.preferences.edit.use_global_undo = undo_enabled
+    except:
+        ctx.preferences.edit.use_global_undo = undo_enabled
+        raise
 
 # ------------------------------------------------
 #

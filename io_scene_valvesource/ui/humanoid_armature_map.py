@@ -400,20 +400,22 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             self.report({"ERROR"}, f"Failed to load JSON: {e}")
             return {"CANCELLED"}
 
-        bone_elements = {entry["BoneName"]: entry for entry in data}
-
         arm = get_armature(context.object)
-        if arm is None:
-            self.report({"ERROR"}, "No valid armature selected")
-            return {"CANCELLED"}
+        
+        with preserve_context_mode(arm, 'OBJECT'):
+            bone_elements = {entry["BoneName"]: entry for entry in data}
+            if arm is None:
+                self.report({"ERROR"}, "No valid armature selected")
+                return {"CANCELLED"}
 
-        old_to_new = self._remap_humanoid_bones(arm)
-        if not old_to_new:
-            self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
-            return {'CANCELLED'}
+            old_to_new = self._remap_humanoid_bones(arm)
+            if not old_to_new:
+                self.report({'WARNING'}, 'Misconfiguration of Bone Remaps!')
+                return {'CANCELLED'}
 
-        self._setup_armature(arm, bone_elements)
-        self.report({"INFO"}, "Armature converted successfully.")
+            self._setup_armature(arm, bone_elements)
+            self.report({"INFO"}, "Armature converted successfully.")
+            
         return {"FINISHED"}
     
     def _apply_temp_renames_to_mapped_bones(self, arm: Object, vs_arm, bones, bone_elements: dict) -> dict:

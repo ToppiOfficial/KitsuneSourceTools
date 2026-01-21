@@ -335,7 +335,7 @@ class From_PBR_Conversion:
         result[:, :, 3] = 1.0
         return result
     
-    def create_exponent_map(self, roughness, metal, color_alpha_mode):
+    def create_exponent_map(self, roughness, metal, color_alpha_mode, phong_exponent_influence):
         height, width = roughness.shape
         exponent = np.ones((height, width, 4))
         
@@ -346,6 +346,12 @@ class From_PBR_Conversion:
             brightness=-100
         )[:, :, 0]
         
+        if phong_exponent_influence > 0:
+            base_img = np.stack([exponent_red, exponent_red, exponent_red], axis=-1)
+            blend_img = np.stack([metal, metal, metal], axis=-1)
+            screen_result = self.img_proc.screen(base_img, blend_img, opacity=phong_exponent_influence)
+            exponent_red = screen_result[:, :, 0]
+            
         exponent[:, :, 0] = exponent_red
         exponent[:, :, 1] = metal * 0.5
         exponent[:, :, 2] = 0.0
@@ -393,7 +399,8 @@ class From_PBR_Conversion:
         return result
     
     def create_normal_map(self, normal, metal_uninverted, metal, roughness, 
-                         normal_map_preprocess, is_npr, adjust_albedo, albedo_factor, diffuse_orig):
+                         normal_map_preprocess, is_npr, adjust_albedo, albedo_factor, diffuse_orig,
+                         phong_boost_influence):
         print(f"  Normal preprocess flags: {normal_map_preprocess}")
         
         height, width = normal.shape[:2]
@@ -436,6 +443,12 @@ class From_PBR_Conversion:
             luminance_reducer = 1.0 - (masked_grayscale * albedo_factor)
             luminance_reducer = np.clip(luminance_reducer, 0.0, 1.0)
             alpha_channel = alpha_channel * luminance_reducer
+        
+        if phong_boost_influence > 0:
+            base_img = np.stack([alpha_channel, alpha_channel, alpha_channel], axis=-1)
+            blend_img = np.stack([metal, metal, metal], axis=-1)
+            screen_result = self.img_proc.screen(base_img, blend_img, opacity=phong_boost_influence)
+            alpha_channel = screen_result[:, :, 0]
 
         result[:, :, 3] = alpha_channel
         return result
@@ -507,7 +520,7 @@ class From_PBR_Conversion:
         print(f"\nProcessing Phong conversion for '{item.name}'")
         
         print("  Creating exponent map...")
-        exponent_map = self.create_exponent_map(maps['roughness'], maps['metal'], item.color_alpha_mode)
+        exponent_map = self.create_exponent_map(maps['roughness'], maps['metal'], item.color_alpha_mode, item.phong_exponent_influence)
         exp_path = os.path.join(export_dir, f"{base_name}_e.tga")
         print(f"  Saving: {exp_path}")
         self.save_tga(exponent_map, exp_path)
@@ -528,7 +541,7 @@ class From_PBR_Conversion:
         
         normal_map = self.create_normal_map(
             maps['normal_sized'], metal_uninverted, maps['metal_normal'], maps['roughness_normal'], item.normal_map_preprocess, item.is_npr,
-            item.adjust_for_albedoboost, item.albedoboost_factor, maps['diffuse']
+            item.adjust_for_albedoboost, item.albedoboost_factor, maps['diffuse'], item.phong_boost_influence
         )
         normal_path = os.path.join(export_dir, f"{base_name}_n.tga")
         print(f"  Saving: {normal_path}")
@@ -834,6 +847,10 @@ class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolsPanel):
         row.prop_search(item, 'metal_map', bpy.data, 'images', text='')
         row.prop(item, 'metal_map_ch', text='')
         col.prop(item, 'invert_metal_map')
+
+        if vs.texture_conversion_mode == 'PHONG':
+            col.prop(item, 'phong_boost_influence', slider=True)
+            col.prop(item, 'phong_exponent_influence', slider=True)
         
         if item.color_alpha_mode == 'RGB_ALPHA':
             col.prop(item, 'metal_diffuse_mix', slider=True)
@@ -844,7 +861,7 @@ class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolsPanel):
         row = col.split(align=True, factor=0.8)
         row.prop_search(item, 'ambientocclu_map', bpy.data, 'images', text='')
         row.prop(item, 'ambientocclu_map_ch', text='')
-        col.prop(item, 'ambientocclu_strength', slider=True)
+        if vs.texture_conversion_mode == 'PHONG': col.prop(item, 'ambientocclu_strength', slider=True)
         col.prop(item, 'invert_ambientocclu_map')
         
         box = layout.box()
@@ -865,37 +882,8 @@ class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolsPanel):
         
         if vs.texture_conversion_mode == 'PHONG':
             box.prop(item, 'is_npr')
-            
-        box.prop(item, 'color_alpha_mode')
+            box.prop(item, 'color_alpha_mode')
     
     def draw_help_section(self, context, layout):
-        vs = context.scene.vs
-        
-        if vs.texture_conversion_mode == 'PHONG':
-            messages = [
-                'Use the following Phong settings for a balanced starting point:',
-                '   - $phongboost 5',
-                '   - $phongalbedotint 1',
-                '   - $phongfresnelranges "[0.5 1 2]"',
-                '   - $phongalbedoboost 55 (if applicable and not using the $color2 method)\n',
-                'When applying a metal map to the color alpha channel, include:',
-                '   - $color2 "[.18 .18 .18]"',
-                '   - $blendtintbybasealpha 1\n',
-                'However, avoid using $color2 and $blendtintbybasealpha together with $phongalbedoboost, as they can visually conflict.\n',
-                'If using envmap:',
-                '$envmaptint "[.12 .12 .12]"'
-            ]
-        else:
-            messages = [
-                'PBR outputs simple texture maps:',
-                '   - _color: Diffuse with alpha channel preserved',
-                '   - _mrao: Metal (R), Roughness (G), AO (B)',
-                '   - _normal: Normal map with format conversion\n',
-                'These maps can be used with PBR shaders that expect this texture layout.'
-            ]
-        
-        if vs.texture_conversion_mode == 'PHONG':
-            draw_wrapped_texts(layout,title='A good initial VMT phong setting', text=messages, boxed=False)
-            draw_wrapped_texts(layout,text="The conversion may or may not be accurate!", alert=True, boxed=False)
-        else:
-            draw_wrapped_texts(layout,title='PBR Format', text=messages, boxed=False)
+        op2 = layout.operator("wm.url_open", text='Sample VMT', icon='INTERNET')
+        op2.url = "https://github.com/ToppiOfficial/Source-Engine-Model-Prefabs/blob/main/l4d2_pseudopbr_patch/patch_pseudopbr_new.vmt"

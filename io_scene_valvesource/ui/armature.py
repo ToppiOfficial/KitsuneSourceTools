@@ -1,4 +1,4 @@
-import bpy
+import bpy, re
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
 from bpy.types import Context, Operator, Object
 from typing import Set
@@ -214,6 +214,13 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
             row = box.row()
             row.alert = True
             row.label(text='WARNING: May break rigs with IK/constraints!', icon='ERROR')
+            
+    def is_excluded_bone(self, bone_name) -> bool:
+        if bone_name in filter_exclude_vertexgroup_names:
+            return True
+        
+        twist_pattern = re.compile(r'.+ twist( \d+)?$', re.IGNORECASE)
+        return bool(twist_pattern.match(bone_name))
 
     def execute(self, context: Context) -> Set:
         armatures: Set[Object | None] = {get_armature(ob) for ob in context.selected_objects}
@@ -261,7 +268,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                     ):
                         continue
                     
-                    if b.name not in filter_exclude_vertexgroup_names:
+                    if not self.is_excluded_bone(b.name):
                         bones_to_remove.add(b.name)
 
                 if bones_to_remove:
