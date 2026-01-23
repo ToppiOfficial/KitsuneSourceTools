@@ -12,6 +12,7 @@ def download_pillow_wheels():
         ("cp311", "macosx_11_0_arm64"),
         ("cp311", "macosx_10_10_x86_64"),
         ("cp311", "manylinux_2_28_x86_64"),
+        ("cp311", "manylinux_2_27_x86_64"),
     ]
     
     print("Fetching Pillow releases from PyPI...")
