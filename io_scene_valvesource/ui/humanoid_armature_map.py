@@ -1132,11 +1132,10 @@ class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
             return {'CANCELLED'}
 
         if not self.filepath.lower().endswith(".json"):
-            self.report({'ERROR'}, "File must have a .json extension")
-            return {'CANCELLED'}
+            self.filepath += ".json"
 
         ob : Object | None = context.object
-        items = ob.vs.armature_map_bonecollections
+        items = ob.vs.humanoid_armature_map_bonecollections
         skipped_count = 0
 
         # Build item_map with original collection index
