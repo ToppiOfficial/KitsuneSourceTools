@@ -5,7 +5,7 @@ from bpy.types import Context, Object, Operator, UILayout, UIList, Event, BoneCo
 from bpy.props import EnumProperty, IntProperty, StringProperty, BoolProperty
 from mathutils import Vector
 
-from ..core.armatureutils import (
+from ..kitsunetools.armatureutils import (
     preserve_context_mode,
     assign_bone_headtip_positions,
     get_armature,
@@ -13,10 +13,10 @@ from ..core.armatureutils import (
     apply_current_pose_as_restpose,
     remove_bone, merge_bones)
 
-from ..core.boneutils import get_armature, get_canonical_bonename
-from ..core.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature
+from ..kitsunetools.boneutils import get_armature, get_canonical_bonename
+from ..kitsunetools.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature
 
-from ..core.meshutils import get_armature
+from ..kitsunetools.meshutils import get_armature
 from ..flex import get_id
 from ..utils import print
 
@@ -464,7 +464,6 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         if not self._validate_humanoid_hierarchy(vs_arm, bones):
             return False
 
-        # Need to load bone_elements early for conflict detection
         try:
             with open(self.filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -770,7 +769,6 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         return old_to_new
     
     def _get_actual_bone_name(self, bone_name: str) -> str:
-        """Convert a potentially mapped bone name to its actual current name"""
         if not bone_name:
             return bone_name
         
@@ -920,11 +918,8 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
     def _create_single_twist_bone(self, arm: Object, bone, bone_name: str, base_head, total_vec) -> None:
         mid_point = base_head + total_vec * 0.5
-        twist_name = f"{bone_name} twist 1"
         
-        twistbone = arm.data.edit_bones.get(twist_name)
-        if not twistbone:
-            twistbone = arm.data.edit_bones.new(twist_name)
+        twistbone = arm.data.edit_bones.new(bone_name)
         
         twistbone.head = mid_point
         twistbone.tail = base_head + total_vec
@@ -942,10 +937,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             twist_head = base_head + total_vec * factor_start
             twist_tail = base_head + total_vec * factor_end
 
-            twist_name = f"{bone_name} twist {i+1}"
-            twistbone = arm.data.edit_bones.get(twist_name)
-            if not twistbone:
-                twistbone = arm.data.edit_bones.new(twist_name)
+            twistbone = arm.data.edit_bones.new(bone_name)
             
             twistbone.head = twist_head
             twistbone.tail = twist_tail
@@ -986,10 +978,16 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         if twist_count == 0:
             return
 
-        twist_bones = [
-            arm.pose.bones.get(f"{bone_name} twist {i+1}")
-            for i in range(twist_count)
-        ]
+        twist_bones = []
+        for i in range(twist_count):
+            if i == 0:
+                potential_name = f"{bone_name}.001"
+            else:
+                potential_name = f"{bone_name}.{str(i+1).zfill(3)}"
+            
+            twist_pb = arm.pose.bones.get(potential_name)
+            if twist_pb:
+                twist_bones.append(twist_pb)
 
         for idx, pbtwist in enumerate(twist_bones):
             if not pbtwist:
@@ -997,6 +995,9 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
             if 'BONE_EXROTATION' in self.load_options:
                 self._apply_export_rotation(pbtwist, bone_data)
+
+            if 'EXPORT_NAME' in self.load_options:
+                pbtwist.bone.vs.export_name = f"{bone_name} twist {idx+1}"
 
             if twist_target == pbtwist.parent.name:
                 pbtwist.rotation_mode = 'XYZ'
@@ -1007,11 +1008,9 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             if twist_collection is None:
                 twist_collection = arm.data.collections.new("Twist")
             
-            # Remove from all other collections first.
             for c in pbtwist.bone.collections:
                 c.unassign(pbtwist.bone)
             
-            # Add to the twist collection.
             twist_collection.assign(pbtwist.bone)
 
     def _add_twist_constraint(self, arm: Object, pbtwist, bone_name: str, twist_target: str, idx: int, twist_count: int) -> None:

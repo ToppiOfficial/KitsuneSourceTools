@@ -40,8 +40,7 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
 
     for b in ordered_bones:
         b_side = get_bone_side(b)
-        is_jigglebone = getattr(b.vs, "bone_is_jigglebone", False)
-        raw_name = b.name if is_jigglebone else (b.vs.export_name.strip() or b.name)
+        raw_name = b.vs.export_name.strip() or b.name
         raw_name = raw_name.replace("*", b_side)
 
         shortcut_pattern = re.compile(r"!(\w+)")

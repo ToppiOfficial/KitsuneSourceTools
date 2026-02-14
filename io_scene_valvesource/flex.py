@@ -21,7 +21,7 @@
 import bpy, re
 from . import datamodel, utils
 from .utils import get_id, getCorrectiveShapeSeparator
-from .core.meshutils import get_flexcontrollers
+from .kitsunetools.meshutils import get_flexcontrollers
 
 class DmxWriteFlexControllers(bpy.types.Operator):
     bl_idname = "export_scene.dmx_flex_controller"
@@ -56,49 +56,56 @@ class DmxWriteFlexControllers(bpy.types.Operator):
 
         def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, use_slider_range=False, normalize_shapekeys=False):
             
-            DmeCombinationInputControl = dm.add_element(name, "DmeCombinationInputControl", id=namespace + name + "inputcontrol")
+            if flexcontroller is not None:
+                shapekey_name, eyelid, stereo, raw_delta_name, controller_name = flexcontroller
+                raw_control_names = [raw_delta_name] if raw_delta_name else []
+            else:
+                controller_name = name
+                eyelid = False
+                stereo = False
+                raw_control_names = deltas
+            
+            DmeCombinationInputControl = dm.add_element(controller_name, "DmeCombinationInputControl", id=namespace + controller_name + "inputcontrol")
             controls.append(DmeCombinationInputControl)
             
-            if flexcontroller is not None:
-                _, eyelid, stereo, raw_delta_name = flexcontroller
-                DmeCombinationInputControl["rawControlNames"] = datamodel.make_array([raw_delta_name], str)
-                DmeCombinationInputControl["stereo"] = bool(stereo)
-                DmeCombinationInputControl["eyelid"] = bool(eyelid)
-            else:
-                DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(deltas, str)
-                DmeCombinationInputControl["eyelid"] = False
-                DmeCombinationInputControl["stereo"] = False
+            DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(raw_control_names, str)
+            DmeCombinationInputControl["stereo"] = bool(stereo)
+            DmeCombinationInputControl["eyelid"] = bool(eyelid)
             
             if normalize_shapekeys and use_slider_range:
-                DmeCombinationInputControl["flexMax"] = 1.0
-                DmeCombinationInputControl["flexMin"] = -1.0 if shape_key is not None and shape_key.slider_min != 0.0 else 0.0
+                flex_max = 1.0
+                flex_min = -1.0 if shape_key is not None and shape_key.slider_min != 0.0 else 0.0
             elif shape_key is not None and use_slider_range:
-                DmeCombinationInputControl["flexMin"] = round(float(shape_key.slider_min), 2)
-                DmeCombinationInputControl["flexMax"] = round(float(shape_key.slider_max), 2)
+                flex_min = round(float(shape_key.slider_min), 2)
+                flex_max = round(float(shape_key.slider_max), 2)
             else:
-                DmeCombinationInputControl["flexMin"] = 0.0
-                DmeCombinationInputControl["flexMax"] = 1.0
+                flex_min = 0.0
+                flex_max = 1.0
+            
+            DmeCombinationInputControl["flexMin"] = flex_min
+            DmeCombinationInputControl["flexMax"] = flex_max
 
         for ob in objects:
-            if not ob.data.shape_keys:
-                continue
-            
-            normalize = ob.data.vs.normalize_shapekeys
+            normalize = ob.data.vs.normalize_shapekeys if ob.data.shape_keys else False
 
             if ob.vs.flex_controller_mode == 'BUILDER':
                 if flexcontrollers is None:
                     continue
                 
                 for fc in flexcontrollers:
-                    shape_name = fc[0]
-                    shape = ob.data.shape_keys.key_blocks.get(shape_name)
+                    shapekey_name = fc[0]
+                    shape = None
+                    
+                    if shapekey_name and ob.data.shape_keys:
+                        shape = ob.data.shape_keys.key_blocks.get(shapekey_name)
 
-                    if shape is None:
-                        continue
-
-                    createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=fc, use_slider_range=True, normalize_shapekeys=normalize)
-                    shapes.add(shape.name)
+                    createController(ob.name, fc[4], [], shape_key=shape, flexcontroller=fc, use_slider_range=True, normalize_shapekeys=normalize)
+                    if shape:
+                        shapes.add(shape.name)
             else:
+                if not ob.data.shape_keys:
+                    continue
+                    
                 corrective_separator = getCorrectiveShapeSeparator()
                 for shape in ob.data.shape_keys.key_blocks[1:]:
                     if corrective_separator in shape.name or shape.name in shapes:

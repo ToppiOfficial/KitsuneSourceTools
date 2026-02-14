@@ -10,7 +10,7 @@ from .objectutils import (
 
 from .commonutils import (
     get_armature_meshes, unselect_all, preserve_context_mode, 
-    unhide_all_objects, is_armature, selfreport, report)
+    unhide_all_objects, is_armature, selfreport, report, sort_bone_by_hierarchy)
 
 from .meshutils import (
     get_used_vertexgroups,
@@ -165,7 +165,7 @@ def preserve_armature_state(*armatures: bpy.types.Object, reset_pose=True, reset
         raise
 
 @selfreport
-def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:
+def apply_current_pose_as_restpose(armature: bpy.types.Object | None):
     if armature is None: return False
     
     with preserve_armature_state(armature, reset_pose=False):
@@ -240,23 +240,19 @@ def apply_current_pose_as_restpose(armature: bpy.types.Object | None) -> bool:
                         continue
                 bpy.context.view_layer.objects.active = active_object
 
-            return True
-
         except Exception as e:
             report('ERROR', 'Failed to apply armature pose: {}'.format(str(e)))
-            return False
 
         finally:
             bpy.context.view_layer.update()
             bpy.context.view_layer.depsgraph.update()
-            return True
 
 @selfreport
-def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = "") -> bool:
-    if not is_armature(armature): return False
+def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name : str = ""):
+    if not is_armature(armature): return
     
     meshes = get_armature_meshes(armature)
-    if not meshes: return False
+    if not meshes: return
     
     success_count = 0
     posebones = set()
@@ -312,7 +308,7 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name
                             
                     else:
                         report('ERROR', f"Failed to apply modifier for {mesh.name}")
-                    
+
                     mesh.select_set(False)
                     
                 except Exception as e:
@@ -323,48 +319,81 @@ def apply_current_pose_shapekey(armature: bpy.types.Object | None, shapekey_name
                     for sk_name, sk_value in original_shapekey_values.items():
                         if sk_name in mesh.data.shape_keys.key_blocks:
                             mesh.data.shape_keys.key_blocks[sk_name].value = sk_value
-    
-    return success_count > 0
 
-def copy_target_armature_visualpose(base_armature: bpy.types.Object,
-                       target_armature: bpy.types.Object,
-                       copy_type='ANGLES') -> bool:
+def copy_target_armature_visualpose(base_armature: bpy.types.Object,target_armature: bpy.types.Object,copy_type='ANGLES'):
     
     if not is_armature(base_armature) or not is_armature(target_armature):
-        return False
+        return
     
     base_bones = {get_bone_exportname(b, for_write=True): b for b in base_armature.data.bones}
     base_bones.update({b.name: b for b in base_armature.data.bones})
-    target_bones = list(target_armature.data.bones)
+    
+    target_bones = sort_bone_by_hierarchy(target_armature.data.bones)
+
+    # Based on copy_attributes.py from Blender Foundation
+    # SPDX-License-Identifier: GPL-3.0-or-later
+    def getmat(bone, active, ignoreparent):
+        """Helper function for visual transform copy, gets the active transform in bone space"""
+        obj_bone = bone.id_data
+        obj_active = active.id_data
+        data_bone = obj_bone.data.bones[bone.name]
+        
+        active_to_selected = obj_bone.matrix_world.inverted() @ obj_active.matrix_world
+        active_matrix = active_to_selected @ active.matrix
+        otherloc = active_matrix
+        bonemat_local = data_bone.matrix_local.copy()
+        
+        if data_bone.parent:
+            parentposemat = obj_bone.pose.bones[data_bone.parent.name].matrix.copy()
+            parentbonemat = data_bone.parent.matrix_local.copy()
+        else:
+            parentposemat = parentbonemat = Matrix()
+            
+        if parentbonemat == parentposemat or ignoreparent:
+            newmat = bonemat_local.inverted() @ otherloc
+        else:
+            bonemat = parentbonemat.inverted() @ bonemat_local
+            newmat = bonemat.inverted() @ parentposemat.inverted() @ otherloc
+        return newmat
+
+    def rotcopy(item, mat):
+        """Copy rotation to item from matrix mat depending on item.rotation_mode"""
+        if item.rotation_mode == 'QUATERNION':
+            item.rotation_quaternion = mat.to_3x3().to_quaternion()
+        elif item.rotation_mode == 'AXIS_ANGLE':
+            rot = mat.to_3x3().to_quaternion().to_axis_angle()
+            axis_angle = rot[1], rot[0][0], rot[0][1], rot[0][2]
+            item.rotation_axis_angle = axis_angle
+        else:
+            item.rotation_euler = mat.to_3x3().to_euler(item.rotation_mode)
 
     with preserve_context_mode(base_armature, "POSE"):
         with preserve_armature_state(base_armature, target_armature, reset_pose=False, reset_action=False):
-            bpy.ops.pose.select_all(action='DESELECT')
             
-            copy_op = bpy.ops.pose.copy_pose_vis_loc if copy_type == 'ORIGIN' else bpy.ops.pose.copy_pose_vis_rot
-
-            for b in target_bones:
-                export_name = get_bone_exportname(b, for_write=True)
-                target_bone = base_bones.get(export_name) or base_bones.get(b.name)
-                if not target_bone:
+            for target_data_bone in target_bones:
+                export_name = get_bone_exportname(target_data_bone, for_write=True)
+                base_data_bone = base_bones.get(export_name) or base_bones.get(target_data_bone.name)
+                if not base_data_bone:
                     continue
 
-                base_armature.data.bones.active = target_bone
-                b.select = target_bone.select = True
-                copy_op()
-                b.select = target_bone.select = False
+                target_pose_bone = target_armature.pose.bones[target_data_bone.name]
+                base_pose_bone = base_armature.pose.bones[base_data_bone.name]
+                
+                if copy_type == 'ORIGIN':
+                    mat = getmat(target_pose_bone, base_pose_bone, False)
+                    target_pose_bone.location = mat.to_translation()
+                else:
+                    ignoreparent = not target_data_bone.use_inherit_rotation
+                    mat = getmat(target_pose_bone, base_pose_bone, ignoreparent)
+                    rotcopy(target_pose_bone, mat)
+                
+                bpy.context.view_layer.update()
 
-    return True
-
-def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True) -> tuple[bool, list[str]]:
-    if not source_arm or not target_arm:
-        return False, ['No Objects']
-
-    if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE':
-        return False, ['Object(s) are not armature(s)']
+def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True):
+    if not source_arm or not target_arm: return
+    if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE': return
 
     print(f"Merging '{target_arm.name}' into '{source_arm.name}'...")
-    error_logs = []
 
     with preserve_armature_state(source_arm, target_arm, reset_pose=True) and unhide_all_objects():
         try:
@@ -372,10 +401,13 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
             print(f"  Found {len(target_meshes)} mesh(es) attached to target armature")
 
             if match_posture:
-                copied_rot = copy_target_armature_visualpose(source_arm, target_arm, 'ANGLES')
-                copied_pos = copy_target_armature_visualpose(source_arm, target_arm, 'ORIGIN')
-                if not copied_rot and not copied_pos:
-                    return False, ['Error matching and applying posture for {} armature'.format(target_arm.name)]
+                try:
+                    copy_target_armature_visualpose(source_arm, target_arm, 'ANGLES')
+                    copy_target_armature_visualpose(source_arm, target_arm, 'ORIGIN')
+                except Exception as e:
+                    print('Error matching and applying posture for {} armature: {}'.format(target_arm.name, str(e)))
+                    return
+                
                 print("  Matched target posture to source")
 
             apply_current_pose_as_restpose(target_arm)
@@ -506,12 +538,12 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 print(f"  Merged {vg_cleaned} vertex group(s)")
 
             print(f"Successfully merged '{target_arm.name}' into '{source_arm.name}'")
-            return True, error_logs
+            return
 
         except Exception as e:
             error_msg = f"Merge failed: {str(e)}"
             print(error_msg)
-            return False, [error_msg]
+            return
 
         finally:
             bpy.context.view_layer.update()
@@ -803,13 +835,15 @@ def assign_bone_headtip_positions(arm, bone_data: list[tuple]):
     return rotated_bones
 
 @selfreport
-def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
+@selfreport
+def subdivide_bone(bone: typing.Union[str, list],
+                   armature : bpy.types.Object,
                    subdivisions: int = 2,
                    falloff: int = 10,
                    smoothness: float = 0.0,
-                   min_weight_cap: float = 0.001,
                    weights_only: bool = False,
-                   force_locked: bool = False):
+                   force_locked: bool = False,
+                   skip_original_bone: bool = True):
     """
     Split a bone using Blender's native subdivide with automatic weight distribution.
     
@@ -818,9 +852,9 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         subdivisions: Number of segments to split the bone into (minimum 2)
         falloff: Power factor for weight falloff curve (higher = sharper transitions)
         smoothness: Weight smoothing amount (0 = no smoothing, higher = smoother transitions)
-        min_weight_cap: Minimum weight threshold below which weights are discarded
         weights_only: If True, only redistribute weights without creating new bones
         force_locked: If True, modify weights even if vertex groups are locked
+        skip_original_bone: If True (default), start from .001 in weights_only mode, leaving original bone weights intact
     """
     
     def get_bone_chain(original_bone, eb):
@@ -832,25 +866,17 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             current = children[0] if children else None
         return chain
     
-    def find_existing_chain(bone, base_name, subdivisions, eb):
-        bone_chain = []
-        
+    def generate_bone_names(base_name, subdivisions, weights_only, skip_original_bone):
+        names = []
         for i in range(1, subdivisions + 1):
-            target_index = str(i)
-            matched_bone = None
-
-            for b in eb.values():
-                if base_name in b.name and target_index in b.name:
-                    matched_bone = b
-                    break
-
-            if matched_bone:
-                bone_chain.append(matched_bone)
+            if weights_only and skip_original_bone:
+                names.append(f"{base_name}.{i:03d}")
             else:
-                report('WARNING', f"Expected bone with '{base_name}' and index {i} not found for weights_only mode")
-                return None
-        
-        return bone_chain
+                if i == 1:
+                    names.append(base_name)
+                else:
+                    names.append(f"{base_name}.{i:03d}")
+        return names
     
     def collect_vertex_data(meshes, old_bone_name, force_locked, arm_matrix, bone_head, bone_tail):
         all_vertex_data = []
@@ -886,7 +912,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         
         return all_vertex_data
     
-    def create_vertex_groups(meshes, old_bone_name, bone_chain, force_locked):
+    def create_vertex_groups(meshes, old_bone_name, bone_names, force_locked, weights_only):
         mesh_vg_map = {}
         
         for mesh in meshes:
@@ -898,11 +924,26 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
                 continue
             
             vg_list = []
-            for new_bone in bone_chain:
-                if new_bone.name in mesh.vertex_groups:
-                    vg_list.append(mesh.vertex_groups[new_bone.name])
+            for bone_name in bone_names:
+                if bone_name in mesh.vertex_groups:
+                    existing_vg = mesh.vertex_groups[bone_name]
+                    
+                    if weights_only and bone_name != old_bone_name:
+                        has_weights = False
+                        for vert in mesh.data.vertices:
+                            for group in vert.groups:
+                                if group.group == existing_vg.index and group.weight > 0:
+                                    has_weights = True
+                                    break
+                            if has_weights:
+                                break
+                        
+                        if has_weights:
+                            report('WARNING', f"Vertex group '{bone_name}' in mesh '{mesh.name}' already has weights (weights_only mode)")
+                    
+                    vg_list.append(existing_vg)
                 else:
-                    vg_list.append(mesh.vertex_groups.new(name=new_bone.name))
+                    vg_list.append(mesh.vertex_groups.new(name=bone_name))
             
             mesh_vg_map[mesh] = vg_list
         
@@ -947,7 +988,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
         
         return smoothed
     
-    def distribute_weights(all_vertex_data, mesh_vg_map, num_bones, falloff_power, smooth_amount, min_weight):
+    def distribute_weights(all_vertex_data, mesh_vg_map, num_bones, falloff_power, smooth_amount):
         vertex_weights = {}
         vertices_to_clear = set()
         
@@ -970,7 +1011,7 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
                 continue
             
             normalized = [inf / total for inf in influences]
-            filtered = [w if w * weight >= min_weight else 0.0 for w in normalized]
+            filtered = [w if w * weight >= 0.0001 else 0.0 for w in normalized]
             
             total_filtered = sum(filtered)
             if total_filtered > 0.0:
@@ -983,12 +1024,12 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             
             for i, w_norm in enumerate(filtered):
                 final_w = weight * w_norm
-                if final_w >= min_weight:
+                if final_w >= 0.0001:
                     vertex_weights[(mesh, vert_index)].append((vg_list[i], final_w))
         
         return vertex_weights, vertices_to_clear
     
-    def apply_weights(vertex_weights, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked):
+    def apply_weights(vertex_weights, vertices_to_clear, meshes, old_bone_name, bone_names, force_locked):
         for mesh, vert_index, vg in vertices_to_clear:
             vg.remove([vert_index])
         
@@ -996,71 +1037,107 @@ def subdivide_bone(bone: typing.Union[bpy.types.EditBone, list],
             for vg, final_w in weights:
                 vg.add([vert_index], final_w, 'REPLACE')
         
-        bone_names = {b.name for b in bone_chain}
+        bone_names_set = set(bone_names)
         for mesh in meshes:
-            if old_bone_name in mesh.vertex_groups and old_bone_name not in bone_names:
+            if old_bone_name in mesh.vertex_groups and old_bone_name not in bone_names_set:
                 vg_old = mesh.vertex_groups[old_bone_name]
                 if force_locked or not vg_old.lock_weight:
                     mesh.vertex_groups.remove(vg_old)
     
+    def copy_bone_props(arm, original_name, new_bone_names):
+        original_bone_data = arm.data.bones.get(original_name)
+        if original_bone_data and hasattr(original_bone_data, 'vs'):
+            original_props = original_bone_data.vs
+            
+            for new_name in new_bone_names:
+                new_bone_data = arm.data.bones.get(new_name)
+                if new_bone_data and hasattr(new_bone_data, 'vs'):
+                    new_props = new_bone_data.vs
+                    new_props.ignore_rotation_offset = original_props.ignore_rotation_offset
+                    new_props.export_rotation_offset_x = original_props.export_rotation_offset_x
+                    new_props.export_rotation_offset_y = original_props.export_rotation_offset_y
+                    new_props.export_rotation_offset_z = original_props.export_rotation_offset_z
+                    new_props.ignore_location_offset = original_props.ignore_location_offset
+                    new_props.export_location_offset_x = original_props.export_location_offset_x
+                    new_props.export_location_offset_y = original_props.export_location_offset_y
+                    new_props.export_location_offset_z = original_props.export_location_offset_z
+    
+    if armature is None: return None
+
     if bpy.context.object.mode != 'EDIT':
         return
     
     subdivisions = max(2, subdivisions)
     
     if isinstance(bone, list):
+        props_to_copy = []
+        
         for b in bone:
-            subdivide_bone(b, subdivisions, falloff, smoothness, min_weight_cap, weights_only, force_locked)
-        return
-    
-    arm = get_armature(bone)
-    if not arm:
-        return
-    
-    meshes = get_armature_meshes(arm, visible_only=bpy.context.scene.vs.visible_mesh_only)
-    if not meshes:
-        return
-    
-    armature_mirror_x = arm.data.use_mirror_x
-    pose_mirror_x = arm.pose.use_mirror_x
-    
-    try:
-        arm.data.use_mirror_x = False
-        arm.pose.use_mirror_x = False
+            result = subdivide_bone(b, armature, subdivisions, falloff, smoothness, weights_only, force_locked, skip_original_bone)
+            if result:
+                props_to_copy.append(result)
         
-        old_bone_name = bone.name
-        bone_head = arm.matrix_world @ bone.head.copy()
-        bone_tail = arm.matrix_world @ bone.tail.copy()
-        eb = arm.data.edit_bones
+        if props_to_copy and not weights_only:
+            arm = get_armature(bone[0])
+            if arm:
+                bpy.ops.object.mode_set(mode='OBJECT')
+                for original_name, new_names in props_to_copy:
+                    copy_bone_props(arm, original_name, new_names)
+                bpy.ops.object.mode_set(mode='EDIT')
         
-        if weights_only:
-            bone_chain = find_existing_chain(bone, old_bone_name, subdivisions, eb)
-            if not bone_chain:
-                return
-        else:
-            eb.active = bone
-            bpy.ops.armature.select_all(action='DESELECT')
-            bone.select = True
-            bone.select_head = True
-            bone.select_tail = True
+        return
+
+    bone = armature.data.edit_bones.get(bone)
+
+    if bone is None: return None
+    
+    with preserve_armature_state(armature, reset_pose=True):
+        meshes = get_armature_meshes(armature, visible_only=bpy.context.scene.vs.visible_mesh_only)
+        if not meshes:
+            return
+        try:
+            old_bone_name = bone.name
+            bone_head = armature.matrix_world @ bone.head.copy()
+            bone_tail = armature.matrix_world @ bone.tail.copy()
+            eb = armature.data.edit_bones
             
-            bpy.ops.armature.subdivide(number_cuts=subdivisions - 1)
-            bone_chain = get_bone_chain(bone, eb)
+            if weights_only:
+                bone_chain = None
+                bone_names = generate_bone_names(old_bone_name, subdivisions, weights_only, skip_original_bone)
+            else:
+                eb.active = bone
+                bpy.ops.armature.select_all(action='DESELECT')
+                bone.select = True
+                bone.select_head = True
+                bone.select_tail = True
+                
+                bpy.ops.armature.subdivide(number_cuts=subdivisions - 1)
+                bone_chain = get_bone_chain(bone, eb)
+                
+                if len(bone_chain) != subdivisions:
+                    report('WARNING', f"Expected {subdivisions} bones but got {len(bone_chain)}")
+                
+                bone_names = [b.name for b in bone_chain]
+            
+            all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, armature.matrix_world, bone_head, bone_tail)
+            mesh_vg_map = create_vertex_groups(meshes, old_bone_name, bone_names, force_locked, weights_only)
+            vertex_weights, vertices_to_clear = distribute_weights(all_vertex_data, mesh_vg_map, subdivisions, falloff, smoothness)
+            apply_weights(vertex_weights, vertices_to_clear, meshes, old_bone_name, bone_names, force_locked)
+            
+        except Exception as e:
+            report('ERROR', f"Failed to subdivide bone '{bone.name}': {e}")
+            return None
+
+        if not weights_only and bone_chain:
+            new_bone_names = [b.name for b in bone_chain]
+            
+            bpy.ops.object.mode_set(mode='OBJECT')
+            copy_bone_props(armature, old_bone_name, new_bone_names)
+            bpy.ops.object.mode_set(mode='EDIT')
+            
+            return (old_bone_name, new_bone_names)
         
-        if len(bone_chain) != subdivisions:
-            report('WARNING', f"Expected {subdivisions} bones but got {len(bone_chain)}")
-        
-        all_vertex_data = collect_vertex_data(meshes, old_bone_name, force_locked, arm.matrix_world, bone_head, bone_tail)
-        mesh_vg_map = create_vertex_groups(meshes, old_bone_name, bone_chain, force_locked)
-        vertex_weights, vertices_to_clear = distribute_weights(all_vertex_data, mesh_vg_map, len(bone_chain), falloff, smoothness, min_weight_cap)
-        apply_weights(vertex_weights, vertices_to_clear, meshes, old_bone_name, bone_chain, force_locked)   
-        
-    except Exception as e:
-        report('ERROR', f"Failed to subdivide bone '{bone.name}': {e}")
-    
-    finally:
-        arm.data.use_mirror_x = armature_mirror_x
-        arm.pose.use_mirror_x = pose_mirror_x
+        return None
                 
 def remove_empty_bonecollections(armature: bpy.types.Object) -> tuple[bool, int]:
     "Remove empty bone collections from armature"

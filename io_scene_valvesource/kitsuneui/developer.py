@@ -2,7 +2,7 @@ import bpy, math
 from .common import KITSUNE_SecondaryPanel
 from bpy.types import Context, Panel, UILayout, Operator
 
-from ..core.commonutils import (
+from ..kitsunetools.commonutils import (
     draw_title_box_layout, draw_wrapped_texts
 )
 

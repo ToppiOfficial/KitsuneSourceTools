@@ -26,7 +26,7 @@ from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, C
 
 from bpy.types import UILayout, Context
 
-from .core.commonutils import sanitize_string
+from .kitsunetools.commonutils import sanitize_string
 
 vca_icon = 'EDITMODE_HLT'
 
@@ -149,16 +149,12 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         enabled = not (is_collection and obj.vs.mute)
         
         col = layout.column()
-        
         split1 = self._draw_header_row(col, obj, item, enabled, index)
-        
-        if obj.vs.show_items:
-            self._draw_expanded_content(col, obj, is_collection, enabled, index, item)
         
         if enabled:
             self._draw_stats_row(split1, obj)
     
-    def _draw_header_row(self, col : UILayout, obj : bpy.types.Object, item, enabled,index):
+    def _draw_header_row(self, col : UILayout, obj : bpy.types.Object, item, enabled, index):
         row = col.row(align=True)
         
         export_icon = 'CHECKBOX_HLT' if obj.vs.export and enabled else 'CHECKBOX_DEHLT'
@@ -167,47 +163,9 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         
         split1 = row.split(factor=0.8)
         split1.alert = not enabled
-        toggle_icon = 'TRIA_DOWN' if obj.vs.show_items else 'TRIA_RIGHT'
-        op = split1.operator(SMD_OT_ShowExportCollection.bl_idname, icon=toggle_icon, text=sanitize_string(item.name), emboss=False)
-        op.index = index
+        split1.label(text=sanitize_string(item.name))
         
         return split1
-    
-    def _draw_expanded_content(self, col : UILayout, obj, is_collection, enabled,index,item):
-        row = col.row(align=True)
-        if is_collection:
-            row.prop(obj.vs, 'mute',toggle=True)
-        
-        if is_collection and obj.vs.mute:
-            pass
-        else: col.prop(obj.vs, 'subdir')
-        
-        if is_collection:
-            if enabled:
-                self._draw_collection_content(col, obj, row)
-        elif obj.type == 'ARMATURE':
-            self._draw_armature_content(col, obj,index)
-    
-    def _draw_collection_content(self, col : UILayout, obj, row):
-        row.prop(obj.vs, 'automerge',toggle=True)
-        
-        col.label(text='Exportable Objects')
-        col.template_list("SMD_UL_GroupItems",obj.name,obj,"objects",obj.vs,"selected_item",rows=2,maxrows=10)
-    
-    def _draw_armature_content(self, col : UILayout, obj,index):
-        col.row().prop(obj.data.vs, "action_selection", expand=True)
-        
-        if obj.data.vs.action_selection != 'CURRENT':
-            is_slot_filter = obj.data.vs.action_selection == 'FILTERED' and State.useActionSlots
-            filter_label = get_id("slot_filter") if is_slot_filter else get_id("action_filter")
-            col.prop(obj.vs, "action_filter", text=filter_label)
-        
-        if State.exportFormat == ExportFormat.SMD:
-            col.prop(obj.data.vs, "implicit_zero_bone")
-            col.prop(obj.data.vs, "legacy_rotation")
-        
-        if obj.animation_data and not State.useActionSlots:
-            col.template_ID(obj.animation_data, "action", new="action.new")
     
     def _draw_stats_row(self, split1 : UILayout, obj):
         row = split1.row(align=True)
@@ -283,30 +241,193 @@ class SMD_UL_GroupItems(bpy.types.UIList):
         return cache.filter, cache.order if self.use_filter_sort_alpha else []
 
 class SMD_PT_Object_Config(bpy.types.Panel):
-    bl_label = get_id('exportables_title')
+	bl_label = get_id('exportables_title')
+	bl_space_type = "PROPERTIES"
+	bl_region_type = "WINDOW"
+	bl_context = "scene"
+	bl_options = {'DEFAULT_CLOSED'}
+	
+	def draw(self,context):
+		l = self.layout
+		scene = context.scene
+		
+		l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
+				
+		active_exportable = get_active_exportable(context)
+		if not active_exportable:
+			return
+
+		item = active_exportable.item
+
+class ExportableConfigurationPanel(bpy.types.Panel):
+	bl_space_type = "PROPERTIES"
+	bl_region_type = "WINDOW"
+	bl_context = "scene"
+	bl_parent_id = "SMD_PT_Object_Config"
+	bl_options = {'DEFAULT_CLOSED'}
+	vs_icon = ""
+
+	@classmethod
+	def get_item(cls, context):
+		active_exportable = get_active_exportable(context)
+		if not active_exportable:
+			return
+
+		return active_exportable.item
+
+	@classmethod
+	def poll(cls, context):
+		return (cls.get_item(context) is not None)
+
+	@classmethod
+	def is_collection(cls, item):
+		return isinstance(item, bpy.types.Collection)
+
+	@classmethod
+	def get_active_object(cls, context):
+		item = cls.get_item(context)
+		
+		if not cls.is_collection(item):
+			return item
+		
+		ob = context.active_object
+		if ob and ob.name in item.objects:
+			return ob
+
+	@classmethod
+	def unpack_collection(cls, context):
+		item = cls.get_item(context)
+		return [ob for ob in item.objects if ob.session_uid in State.exportableObjects] if cls.is_collection(item) else [item]
+
+	def draw_header(self, context):
+		if self.vs_icon:
+			self.layout.label(icon=self.vs_icon)	
+
+
+class SMD_PT_Group(ExportableConfigurationPanel):
+	bl_label = get_id("exportables_group_props")
+	bl_options = set() # override
+	vs_icon = 'GROUP'
+
+	@classmethod
+	def poll(cls, context):
+		item = cls.get_item(context)
+		return item and cls.is_collection(item)
+
+	def draw(self, context):
+		item = self.get_item(context)
+		if not item.vs.mute:				
+			self.layout.template_list("SMD_UL_GroupItems",item.name,item,"objects",item.vs,"selected_item",columns=2,rows=2,maxrows=10)
+		
+		r = self.layout.row()
+		r.alignment = 'CENTER'
+		r.prop(item.vs,"mute")
+		if item.vs.mute:
+			return
+		elif State.exportFormat == ExportFormat.DMX:
+			r.prop(item.vs,"automerge")
+
+
+class SMD_PT_Prefabs(bpy.types.Panel):
+    bl_label = "Source Engine Prefabs"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "scene"
     bl_options = {'DEFAULT_CLOSED'}
-    
-    def draw(self,context):
+
+    def draw(self, context):
         l = self.layout
         scene = context.scene
-        
-        l.label(text='Exportable Objects', icon='EXPORT')
-        l.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
-            
-        l.separator(type='LINE')
-        
-        l.label(text='Prefabs', icon='FILE_TEXT')
-        
+
         row = l.row()
-        
         col = row.column(align=True)
         col.template_list("SMD_UL_Prefabs", "", scene.vs, "smd_prefabs", scene.vs, "smd_prefabs_index")
+        
         col = row.column(align=True)
         col.operator(SMD_OT_AddPrefab.bl_idname, icon="ADD", text='')
         col.operator(SMD_OT_RemovePrefab.bl_idname, icon="REMOVE", text='')
+        col.separator()
+        col.operator(SMD_OT_MovePrefabUp.bl_idname, icon="TRIA_UP", text='')
+        col.operator(SMD_OT_MovePrefabDown.bl_idname, icon="TRIA_DOWN", text='')
+
+        if scene.vs.smd_prefabs_index >= 0 and scene.vs.smd_prefabs_index < len(scene.vs.smd_prefabs):
+            active_prefab = scene.vs.smd_prefabs[scene.vs.smd_prefabs_index]
+            row = l.row()
+            if not active_prefab.filepath:
+                row.alert = True
+            row.prop(active_prefab, "filepath", text="Prefab File", icon='FILE')
+
+
+class SMD_UL_Prefabs(bpy.types.UIList):
+    bl_idname = "SMD_UL_Prefabs"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row : UILayout = layout.row(align=True)
+        
+        if item.filepath:
+            import os
+            display_name = os.path.basename(item.filepath)
+        else:
+            display_name = f"Prefab {index + 1}"
+        row.label(text=display_name, icon='FILE')
+
+
+class SMD_OT_AddPrefab(bpy.types.Operator):
+    bl_idname = "smd.add_prefab"
+    bl_label = "Add Prefab"
+
+    def execute(self, context) -> set:
+        context.scene.vs.smd_prefabs.add()
+        return {'FINISHED'}
+
+
+class SMD_OT_RemovePrefab(bpy.types.Operator):
+    bl_idname = "smd.remove_prefab"
+    bl_label = "Remove Prefab"
+
+    @classmethod
+    def poll(cls, context):
+        return len(context.scene.vs.smd_prefabs) > 0 and context.scene.vs.smd_prefabs_index >= 0
+    
+    def execute(self, context) -> set:
+        context.scene.vs.smd_prefabs.remove(context.scene.vs.smd_prefabs_index)
+        context.scene.vs.smd_prefabs_index = min(max(0, context.scene.vs.smd_prefabs_index - 1), 
+                                                 len(context.scene.vs.smd_prefabs) - 1)
+        return {'FINISHED'}
+
+
+class SMD_OT_MovePrefabUp(bpy.types.Operator):
+    bl_idname = "smd.move_prefab_up"
+    bl_label = "Move Prefab Up"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.vs.smd_prefabs_index > 0
+
+    def execute(self, context) -> set:
+        prefabs = context.scene.vs.smd_prefabs
+        index = context.scene.vs.smd_prefabs_index
+        prefabs.move(index, index - 1)
+        context.scene.vs.smd_prefabs_index = index - 1
+        return {'FINISHED'}
+
+
+class SMD_OT_MovePrefabDown(bpy.types.Operator):
+    bl_idname = "smd.move_prefab_down"
+    bl_label = "Move Prefab Down"
+
+    @classmethod
+    def poll(cls, context):
+        prefabs = context.scene.vs.smd_prefabs
+        return context.scene.vs.smd_prefabs_index < len(prefabs) - 1
+
+    def execute(self, context) -> set:
+        prefabs = context.scene.vs.smd_prefabs
+        index = context.scene.vs.smd_prefabs_index
+        prefabs.move(index, index + 1)
+        context.scene.vs.smd_prefabs_index = index + 1
+        return {'FINISHED'}
+
 
 class SMD_PT_Scene_QC_Complie(bpy.types.Panel):
     bl_label = get_id("qc_title")
@@ -371,36 +492,3 @@ class SMD_PT_Scene_QC_Complie(bpy.types.Panel):
         filesRow.prop(scene.vs,"qc_path") # can't add this until the above test completes!
         
         l.operator(SMD_OT_LaunchHLMV.bl_idname,icon='PREFERENCES',text=get_id("launch_hlmv",True))
-
-class SMD_OT_AddPrefab(bpy.types.Operator):
-    bl_idname = "smd.add_prefab"
-    bl_label = "Add Prefab"
-
-    def execute(self, context) -> set:
-        context.scene.vs.smd_prefabs.add()
-        return {'FINISHED'}
-
-class SMD_OT_RemovePrefab(bpy.types.Operator):
-    bl_idname = "smd.remove_prefab"
-    bl_label = "Remove Prefab"
-
-    @classmethod
-    def poll(cls, context):
-        return len(context.scene.vs.smd_prefabs) > 0 and context.scene.vs.smd_prefabs_index >= 0
-    
-    def execute(self, context) -> set:
-        context.scene.vs.smd_prefabs.remove(context.scene.vs.smd_prefabs_index)
-        context.scene.vs.smd_prefabs_index = min(max(0, context.scene.vs.smd_prefabs_index - 1), 
-                                                 len(context.scene.vs.smd_prefabs) - 1)
-        return {'FINISHED'}
-
-class SMD_UL_Prefabs(bpy.types.UIList):
-    bl_idname = "SMD_UL_Prefabs"
-
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        row : UILayout = layout.row(align=True)
-
-        if not item.filepath:
-            row.alert = True
-        
-        row.prop(item, "filepath", text="", emboss = False, icon='FILE', placeholder='qci or vmdl_prefab')  

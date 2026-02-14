@@ -3,8 +3,8 @@ from bpy.types import UILayout, Context, Object, Operator, Mesh
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty, IntProperty
 
 from .common import KITSUNE_PT_ToolsPanel
-from ..core.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature, is_mesh
-from ..core.meshutils import clean_unused_shapekeys, remove_unused_vertexgroups
+from ..kitsunetools.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature, is_mesh, unhide_all_objects
+from ..kitsunetools.meshutils import clean_unused_shapekeys, remove_unused_vertexgroups
 from ..utils import hasShapes, get_id, image_channels
 
 class TOOLS_PT_Mesh(KITSUNE_PT_ToolsPanel):
@@ -36,6 +36,7 @@ class TOOLS_PT_Mesh(KITSUNE_PT_ToolsPanel):
         col = box1.column(align=True)
         col.label(text='Modifiers')
         col.operator(TOOLS_OT_AddToonEdgeLine.bl_idname, icon='MOD_SOLIDIFY')
+        col.operator(TOOLS_OT_transfer_topology_shapekeys.bl_idname, icon='MOD_DATA_TRANSFER')
         
 class TOOLS_OT_CleanShapeKeys(Operator):
     bl_idname : str = 'kitsunetools.clean_shape_keys'
@@ -726,3 +727,91 @@ class TOOLS_OT_Select_Faces_by_ImageMask(Operator, faces_by_imagemask):
         
         self.report({'INFO'}, f"Selected {faces_selected_total} faces.")
         return {'FINISHED'}
+    
+
+class TOOLS_OT_transfer_topology_shapekeys(bpy.types.Operator):
+    bl_idname = "kitsunetools.transfer_topology_shapekeys"
+    bl_label = "Transfer Topology Shape Keys"
+    bl_description = "Transfer vertex positions from selected objects to active object as shape keys"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and 
+                context.active_object.type == 'MESH' and
+                len(context.selected_objects) > 1)
+    
+    def check_topology_match(self, mesh1, mesh2):
+        if len(mesh1.vertices) != len(mesh2.vertices):
+            return False
+        if len(mesh1.edges) != len(mesh2.edges):
+            return False
+        if len(mesh1.polygons) != len(mesh2.polygons):
+            return False
+        return True
+    
+    def extract_shape_name(self, source_name, active_name):
+        min_len = min(len(source_name), len(active_name))
+        
+        for i in range(min_len):
+            if source_name[i] != active_name[i]:
+                suffix = source_name[i:]
+                return suffix if suffix else source_name
+        
+        if len(source_name) > len(active_name):
+            return source_name[min_len:]
+        
+        return source_name
+    
+    def execute(self, context):
+        active_obj = context.active_object
+        selected_objects = [obj for obj in context.selected_objects if obj != active_obj and obj.type == 'MESH']
+        
+        if not selected_objects:
+            self.report({'WARNING'}, "No other mesh objects selected")
+            return {'CANCELLED'}
+        
+        active_mesh = active_obj.data
+        
+        if not active_mesh.shape_keys:
+            basis = active_obj.shape_key_add(name="Basis", from_mix=False)
+            basis.interpolation = 'KEY_LINEAR'
+        
+        transferred_count = 0
+        skipped_count = 0
+        skipped_names = []
+        
+        for source_obj in selected_objects:
+            source_mesh = source_obj.data
+            
+            if not self.check_topology_match(active_mesh, source_mesh):
+                skipped_names.append(source_obj.name)
+                skipped_count += 1
+                continue
+            
+            shape_key_name = self.extract_shape_name(source_obj.name, active_obj.name)
+            counter = 1
+            original_name = shape_key_name
+            while shape_key_name in active_mesh.shape_keys.key_blocks:
+                shape_key_name = f"{original_name}.{counter:03d}"
+                counter += 1
+            
+            new_shape_key = active_obj.shape_key_add(name=shape_key_name, from_mix=False)
+            new_shape_key.interpolation = 'KEY_LINEAR'
+            new_shape_key.value = 0.0
+            
+            for i, vert in enumerate(source_mesh.vertices):
+                new_shape_key.data[i].co = vert.co
+            
+            transferred_count += 1
+        
+        if skipped_count > 0:
+            skipped_list = ", ".join(skipped_names)
+            self.report({'WARNING'}, f"Topology mismatch - skipped: {skipped_list}")
+        
+        if transferred_count > 0:
+            self.report({'INFO'}, f"Transferred {transferred_count} shape key(s)")
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "No shape keys transferred")
+            return {'CANCELLED'}

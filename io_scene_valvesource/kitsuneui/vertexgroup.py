@@ -4,13 +4,13 @@ from bpy.types import UILayout, Context, Object, Operator, PoseBone
 from typing import Set
 
 from .common import KITSUNE_PT_ToolsPanel
-from ..core.commonutils import (
+from ..kitsunetools.commonutils import (
     draw_title_box_layout, draw_wrapped_texts,
     is_armature, is_mesh, get_armature, get_armature_meshes,
     get_selected_bones, preserve_context_mode)
 
-from ..core.armatureutils import preserve_armature_state
-from ..core.meshutils import reapply_vertexgroup_as_curve
+from ..kitsunetools.armatureutils import preserve_armature_state
+from ..kitsunetools.meshutils import reapply_vertexgroup_as_curve
 from ..utils import get_id
 
 from .bone import TOOLS_OT_SubdivideBone
@@ -69,6 +69,7 @@ class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolsPanel):
         if(is_mesh(ob) and ob.mode == 'OBJECT'):
             col = bx.column(align=True)
             draw_multi_ob_weightmode(col)
+
 
 class TOOLS_OT_WeightMath(Operator):
     bl_idname : str = "kitsunetools.weight_math"
@@ -156,7 +157,8 @@ class TOOLS_OT_WeightMath(Operator):
                 vg_active.add([v.index], new_w, 'REPLACE')
 
         return {'FINISHED'}
-    
+
+
 class TOOLS_OT_SwapVertexGroups(Operator):
     bl_idname : str = 'kitsunetools.swap_vertex_group'
     bl_label : str = 'Swap Vertex Group'
@@ -214,6 +216,7 @@ class TOOLS_OT_SwapVertexGroups(Operator):
         self.report({'INFO'}, f"{currBone.name} and {otherBone.name} vertex froup swapped")
         return {'FINISHED'}
     
+
 class TOOLS_OT_curve_ramp_weights(Operator):
     bl_idname : str = 'kitsunetools.curve_ramp_weights'
     bl_label : str = 'Curve Ramp Bone Weights'
@@ -326,8 +329,9 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         self.report({'INFO'}, f'Processed {len(selected_bones)} Bones')
         return {'FINISHED'}
 
-class TOOLS_OT_multi_weight_paint_start(bpy.types.Operator):
-    bl_idname = "tools.multi_weight_paint_start"
+
+class TOOLS_OT_multi_weight_paint_start(Operator):
+    bl_idname = "kitsunetools.multi_weight_paint_start"
     bl_label = "Start Multi-Object Weight Paint"
     bl_description = "Prepare selected meshes for multi-object weight painting"
     bl_options = {'REGISTER', 'UNDO'}
@@ -420,8 +424,9 @@ class TOOLS_OT_multi_weight_paint_start(bpy.types.Operator):
         self.report({'INFO'}, f"Combined {len(original_meshes)} meshes for weight painting")
         return {'FINISHED'}
 
-class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
-    bl_idname = "tools.multi_weight_paint_finish"
+
+class TOOLS_OT_multi_weight_paint_finish(Operator):
+    bl_idname = "kitsunetools.multi_weight_paint_finish"
     bl_label = "Finish Multi-Object Weight Paint"
     bl_description = "Transfer weights back to original meshes and cleanup"
     bl_options = {'REGISTER', 'UNDO'}
@@ -541,8 +546,9 @@ class TOOLS_OT_multi_weight_paint_finish(bpy.types.Operator):
         self.report({'INFO'}, f"Weight transfer completed for {len(original_meshes)} meshes")
         return {'FINISHED'}
 
-class TOOLS_OT_multi_weight_paint_cancel(bpy.types.Operator):
-    bl_idname = "tools.multi_weight_paint_cancel"
+
+class TOOLS_OT_multi_weight_paint_cancel(Operator):
+    bl_idname = "kitsunetools.multi_weight_paint_cancel"
     bl_label = "Cancel Multi-Object Weight Paint"
     bl_description = "Discard changes and cleanup"
     bl_options = {'REGISTER', 'UNDO'}

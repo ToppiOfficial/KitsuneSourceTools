@@ -1046,7 +1046,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                     elif next_line.strip() and not next_line.startswith('//'):
                         break
                 
-                created, skipped, bones = import_hitboxes_from_content(''.join(hitbox_lines), qc.a, bpy.context)
+                created, skipped, bones = import_hitboxes_from_content(''.join(hitbox_lines), qc.a, bpy.context, self.createCollections)
                 if created > 0:
                     self.imported_hitboxes += created
                     print(f"- Imported {created} hitbox(es) from QC")

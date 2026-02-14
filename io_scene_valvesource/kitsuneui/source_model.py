@@ -4,19 +4,19 @@ from typing import Set, Any
 from bpy import props
 from bpy.types import Context, Object, Operator, Panel, UILayout, Event
 from ..keyvalue3 import KVBool, KVNode, KVVector3, KVParser
-from ..ui.common import KITSUNE_SecondaryPanel
+from .common import KITSUNE_SecondaryPanel
 
 from ..utils import hitbox_group, import_hitboxes_from_content
 
-from ..core.commonutils import (
+from ..kitsunetools.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, is_armature, sanitize_string,
     update_vmdl_container, is_empty, get_selected_bones, preserve_context_mode,
     get_armature, get_hitboxes, get_jigglebones, get_dmxattachments)
 
 from ..utils import get_filepath, get_smd_prefab_enum, get_id, State, Compiler, import_jigglebones_from_content
-from ..core.boneutils import get_bone_exportname
-from ..core.armatureutils import copy_target_armature_visualpose, sort_bone_by_hierarchy, get_bone_matrix, get_relative_target_matrix
-from ..core.objectutils import reevaluate_bone_parented_empty_matrix
+from ..kitsunetools.boneutils import get_bone_exportname
+from ..kitsunetools.armatureutils import copy_target_armature_visualpose, sort_bone_by_hierarchy, get_bone_matrix, get_relative_target_matrix
+from ..kitsunetools.objectutils import reevaluate_bone_parented_empty_matrix
 
 def draw_export_buttons(layout: UILayout, operator: str, scale_y: float = 1.2, 
                         clipboard_text: str = 'Write to Clipboard',
@@ -130,8 +130,9 @@ class PrefabImport():
         finally:
             return content if content else None
 
-class VALVEMODEL_PT_tools_panel(KITSUNE_SecondaryPanel, Panel):
-    bl_label = 'ValveModel Tools'
+
+class SMD_PT_Tools_Panel(KITSUNE_SecondaryPanel, Panel):
+    bl_label = 'Source Model Tools'
     
     def draw(self, context):
         layout = self.layout
@@ -144,9 +145,9 @@ class VALVEMODEL_PT_tools_panel(KITSUNE_SecondaryPanel, Panel):
         title = draw_title_box_layout(layout, text=f'Active Armature: {active_armature.name}', icon='ARMATURE_DATA')
         
         
-class VALVEMODEL_PT_animation(KITSUNE_SecondaryPanel, Panel):
+class SMD_PT_Animation_Tools(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Animation'
-    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_parent_id = 'SMD_PT_Tools_Panel'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -172,12 +173,12 @@ class VALVEMODEL_PT_animation(KITSUNE_SecondaryPanel, Panel):
         box1 = box.box()
         
         box1.label(text='Source 1')
-        box1.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname, icon='ACTION_TWEAK')
+        box1.operator(SMD_OT_Make_Proportion_Animation.bl_idname, icon='ACTION_TWEAK')
         
         box1 = box.box()
         box1.label(text='Source 2')
         
-        draw_export_buttons(box1,VALVEMODEL_OT_ExportConstraintProportion.bl_idname,scale_y=1.25,
+        draw_export_buttons(box1,SMD_OT_Export_Constrainted_Proportions.bl_idname,scale_y=1.25,
             clipboard_icon='CONSTRAINT_BONE',file_icon='CONSTRAINT_BONE')
         
         draw_wrapped_texts(box1,
@@ -185,9 +186,9 @@ class VALVEMODEL_PT_animation(KITSUNE_SecondaryPanel, Panel):
             max_chars=40, boxed=False)
        
         
-class VALVEMODEL_PT_attachments(KITSUNE_SecondaryPanel, Panel):
+class SMD_PT_Attachments(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Attachments'
-    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_parent_id = 'SMD_PT_Tools_Panel'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -208,13 +209,20 @@ class VALVEMODEL_PT_attachments(KITSUNE_SecondaryPanel, Panel):
             return
         
         box = layout.box()
+        box.label(text='Write & Load')
+        
+        col = box.column(align=True)
+        col.scale_y = 1.25
+        draw_export_buttons(col, SMD_OT_Export_Attachments.bl_idname)
+        
+        box = layout.box()
         box.label(text='Attachment Tools')
-        box.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
+        box.operator(SMD_OT_Fix_Attachments.bl_idname, icon='OPTIONS')
         
         
-class VALVEMODEL_PT_all_attachments(KITSUNE_SecondaryPanel, Panel):
+class SMD_PT_All_Attachments(KITSUNE_SecondaryPanel, Panel):
     bl_label = ''
-    bl_parent_id = 'VALVEMODEL_PT_attachments'
+    bl_parent_id = 'SMD_PT_Attachments'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -247,10 +255,157 @@ class VALVEMODEL_PT_all_attachments(KITSUNE_SecondaryPanel, Panel):
         else:
             col.label(text='No Attachments', icon='INFO')
         
+
+class SMD_OT_Export_Attachments(Operator, PrefabExport):
+    bl_idname: str = "smd.export_attachments"
+    bl_label: str = "Export Attachments"
+    bl_description = "Export attachments to QC/QCI or VMDL format"
+    bl_options: Set = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context: Context) -> bool:
+        armature = get_armature(context.object)
+        if not armature:
+            return False
+        attachments = get_dmxattachments(armature)
+        return len(attachments) > 0
+    
+    def execute(self, context: Context) -> set:
+        armature = get_armature(context.object)
+        attachments = get_dmxattachments(armature)
         
-class VALVEMODEL_PT_hitboxes(KITSUNE_SecondaryPanel, Panel):
+        if not attachments:
+            self.report({'WARNING'}, "No attachments found")
+            return {'CANCELLED'}
+        
+        export_path = self.get_export_path(context)
+        
+        if export_path is None and not self.to_clipboard:
+            return {'CANCELLED'}
+        
+        fmt = None
+        if not self.to_clipboard:
+            export_path, filename, ext = get_filepath(export_path)
+            if not filename or not ext:
+                self.report({'ERROR'}, "Invalid export path: must include filename and extension")
+                return {'CANCELLED'}
+            
+            ext_lower = ext.lower()
+            if ext_lower in {'.qc', '.qci'}:
+                fmt = 'QC'
+            elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
+                fmt = 'VMDL'
+            else:
+                self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
+                return {'CANCELLED'}
+        
+        with preserve_context_mode(armature, 'OBJECT'):
+            compiled = self._export_attachments(fmt, armature, attachments, export_path)
+        
+        if not self.write_output(compiled, export_path):
+            return {'CANCELLED'}
+        
+        return {'FINISHED'}
+    
+    def _export_attachments(self, fmt, armature, attachments, export_path):
+        if self.to_clipboard:
+            if State.compiler == Compiler.MODELDOC:
+                return self._export_vmdl(armature, attachments, export_path)
+            else:
+                return self._export_qc(armature, attachments)
+        else:
+            if fmt == 'QC':
+                return self._export_qc(armature, attachments)
+            elif fmt == 'VMDL':
+                return self._export_vmdl(armature, attachments, export_path)
+            else:
+                return None
+    
+    def _export_qc(self, armature, attachments):
+        lines = []
+        
+        for empty in attachments:
+            if not empty.parent_bone:
+                continue
+            
+            bone = armature.data.bones.get(empty.parent_bone)
+            if not bone:
+                continue
+            
+            bone_name = get_bone_exportname(bone)
+            pose_bone = armature.pose.bones.get(empty.parent_bone)
+            
+            if pose_bone:
+                empty_matrix = empty.matrix_world
+                pmat = get_bone_matrix(pose_bone, rest_space=True)
+                relMat = pmat.inverted() @ empty_matrix
+                
+                position = relMat.to_translation()
+                quat = relMat.to_quaternion()
+                rotation = quat.to_euler('XYZ')
+                
+                rot_x = math.degrees(rotation.x)
+                rot_y = math.degrees(rotation.y)
+                rot_z = math.degrees(rotation.z)
+                
+                line = f'$attachment "{empty.name}" "{bone_name}" {position.x:.2f} {position.y:.2f} {position.z:.2f} rotate {rot_y:.0f} {rot_z:.0f} {rot_x:.0f}'
+                lines.append(line)
+        
+        return '\n'.join(lines)
+    
+    def _export_vmdl(self, armature, attachments, export_path):
+        attachment_nodes = []
+        
+        for empty in attachments:
+            if not empty.parent_bone:
+                continue
+            
+            bone = armature.data.bones.get(empty.parent_bone)
+            if not bone:
+                continue
+            
+            bone_name = get_bone_exportname(bone)
+            pose_bone = armature.pose.bones.get(empty.parent_bone)
+            
+            if pose_bone:
+                pmat = get_bone_matrix(pose_bone, rest_space=True)
+                empty_matrix = empty.matrix_world
+                relMat = pmat.inverted() @ empty_matrix
+                
+                position = relMat.translation
+                rotation = relMat.to_euler('YZX')
+                
+                attachment_node = KVNode(
+                    _class="Attachment",
+                    name=empty.name,
+                    parent_bone=bone_name,
+                    relative_origin=KVVector3(position.x, position.y, position.z),
+                    relative_angles=KVVector3(
+                        math.degrees(rotation.y),
+                        math.degrees(rotation.z),
+                        math.degrees(rotation.x)
+                    ),
+                    weight=1.0,
+                    ignore_rotation=KVBool(False)
+                )
+                attachment_nodes.append(attachment_node)
+        
+        kv_doc = update_vmdl_container(
+            container_class="ScratchArea" if self.to_clipboard else "AttachmentList",
+            nodes=attachment_nodes,
+            export_path=export_path,
+            to_clipboard=self.to_clipboard
+        )
+        
+        if kv_doc is False:
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValue3')
+            return None
+        
+        return kv_doc.to_text()
+
+class SMD_PT_Hitboxes(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Hitboxes'
-    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_parent_id = 'SMD_PT_Tools_Panel'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -275,17 +430,17 @@ class VALVEMODEL_PT_hitboxes(KITSUNE_SecondaryPanel, Panel):
         
         col = box.column(align=True)
         col.scale_y = 1.25
-        draw_export_buttons(col,VALVEMODEL_OT_ExportHitBox.bl_idname)
-        col.operator(VALVEMODEL_OT_ImportHitBox.bl_idname, icon='IMPORT')
+        draw_export_buttons(col,SMD_OT_Export_Hitboxes.bl_idname)
+        col.operator(SMD_OT_Import_Hitboxes.bl_idname, icon='IMPORT')
         
         col = box.column(align=True)
-        col.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
-        col.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        col.operator(SMD_OT_Create_Hitbox.bl_idname, icon='CUBE')
+        col.operator(SMD_OT_Fix_Hitboxes.bl_idname, icon='OPTIONS')
         
 
-class VALVEMODEL_PT_all_hitbox(KITSUNE_SecondaryPanel, Panel):
+class SMD_PT_All_Hitboxes(KITSUNE_SecondaryPanel, Panel):
     bl_label = ''
-    bl_parent_id = 'VALVEMODEL_PT_hitboxes'
+    bl_parent_id = 'SMD_PT_Hitboxes'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -322,9 +477,9 @@ class VALVEMODEL_PT_all_hitbox(KITSUNE_SecondaryPanel, Panel):
             col.label(text='No Hitboxes', icon='INFO')
 
 
-class VALVEMODEL_PT_jigglebones(KITSUNE_SecondaryPanel, Panel):
+class SMD_PT_Jigglebones(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Jigglebones'
-    bl_parent_id = 'VALVEMODEL_PT_tools_panel'
+    bl_parent_id = 'SMD_PT_Tools_Panel'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -348,13 +503,13 @@ class VALVEMODEL_PT_jigglebones(KITSUNE_SecondaryPanel, Panel):
         
         col = box.column(align=True)
         col.scale_y = 1.25
-        self._draw_export_buttons(col, VALVEMODEL_OT_ExportJiggleBone.bl_idname)
-        col.operator(VALVEMODEL_OT_ImportJigglebones.bl_idname, icon='IMPORT')
+        self._draw_export_buttons(col, SMD_OT_Export_Jigglebones.bl_idname)
+        col.operator(SMD_OT_Import_Jigglebones.bl_idname, icon='IMPORT')
         
         box = layout.box()
         box.label(text='Jigglebone Properties')
         if bone and bone.select:
-            box.operator(VALVEMODEL_OT_CopyJiggleBoneProperties.bl_idname, icon='COPYDOWN')
+            box.operator(SMD_OT_Copy_Jigglebone_Properties.bl_idname, icon='COPYDOWN')
             self.draw_jigglebone_properties(box, bone)
         else:
             box = box.box()
@@ -547,21 +702,21 @@ class VALVEMODEL_PT_jigglebones(KITSUNE_SecondaryPanel, Panel):
         
         layout.label(text='Write & Load')
         
-        self._draw_export_buttons(layout,VALVEMODEL_OT_ExportHitBox.bl_idname,scale_y=self.write_load_button_scale)
+        self._draw_export_buttons(layout,SMD_OT_Export_Hitboxes.bl_idname,scale_y=self.write_load_button_scale)
         
         col = layout.column()
         col.scale_y = self.write_load_button_scale
-        col.operator(VALVEMODEL_OT_ImportHitBox.bl_idname, icon='IMPORT')
+        col.operator(SMD_OT_Import_Hitboxes.bl_idname, icon='IMPORT')
         
         layout.label(text='Hitbox Tools')
-        layout.operator(VALVEMODEL_OT_AddHitbox.bl_idname, icon='CUBE')
-        layout.operator(VALVEMODEL_OT_FixHitBox.bl_idname, icon='OPTIONS')
+        layout.operator(SMD_OT_Create_Hitbox.bl_idname, icon='CUBE')
+        layout.operator(SMD_OT_Fix_Hitboxes.bl_idname, icon='OPTIONS')
     
     def draw_attachment(self,context: Context, layout: UILayout) -> None:
         ob = get_armature(context.object)
         
         layout.label(text='Attachment Tools')
-        layout.operator(VALVEMODEL_OT_FixAttachment.bl_idname, icon='OPTIONS')
+        layout.operator(SMD_OT_Fix_Attachments.bl_idname, icon='OPTIONS')
     
     def draw_animation(self, context: Context, layout: UILayout) -> None:
         ob = get_armature(context.object)
@@ -569,9 +724,9 @@ class VALVEMODEL_PT_jigglebones(KITSUNE_SecondaryPanel, Panel):
         if not self._validate_object_type(layout, ob, 'armature'):
             return
         
-        layout.operator(VALVEMODEL_OT_CreateProportionActions.bl_idname, icon='ACTION_TWEAK')
+        layout.operator(SMD_OT_Make_Proportion_Animation.bl_idname, icon='ACTION_TWEAK')
         
-        bx = draw_title_box_layout(layout, VALVEMODEL_OT_ExportConstraintProportion.bl_label)
+        bx = draw_title_box_layout(layout, SMD_OT_Export_Constrainted_Proportions.bl_label)
         draw_wrapped_texts(
             bx,
             'Constraint Proportion exports Orient and Point constraints of bones with a valid export name',
@@ -580,16 +735,16 @@ class VALVEMODEL_PT_jigglebones(KITSUNE_SecondaryPanel, Panel):
         
         self._draw_export_buttons(
             bx,
-            VALVEMODEL_OT_ExportConstraintProportion.bl_idname,
+            SMD_OT_Export_Constrainted_Proportions.bl_idname,
             scale_y=1.25,
             clipboard_icon='CONSTRAINT_BONE',
             file_icon='CONSTRAINT_BONE'
         )
       
     
-class VALVEMODEL_PT_all_jigglebones(KITSUNE_SecondaryPanel, Panel):
+class SMD_PT_All_Jigglebones(KITSUNE_SecondaryPanel, Panel):
     bl_label = ''
-    bl_parent_id = 'VALVEMODEL_PT_jigglebones'
+    bl_parent_id = 'SMD_PT_Jigglebones'
     bl_options = {'DEFAULT_CLOSED'}
     
     @classmethod
@@ -630,7 +785,7 @@ class VALVEMODEL_PT_all_jigglebones(KITSUNE_SecondaryPanel, Panel):
             col.label(text='No Jigglebones', icon='INFO')
     
     
-class VALVEMODEL_OT_FixAttachment(Operator):
+class SMD_OT_Fix_Attachments(Operator):
     bl_idname: str = "smd.fix_attachments"
     bl_label: str = "Fix Attachment Matrix"
     bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
@@ -652,7 +807,8 @@ class VALVEMODEL_OT_FixAttachment(Operator):
         
         return {'FINISHED'}
 
-class VALVEMODEL_OT_ImportJigglebones(Operator, PrefabImport):
+
+class SMD_OT_Import_Jigglebones(Operator, PrefabImport):
     bl_idname : str = "smd.import_jigglebones"
     bl_label : str = "Import Jigglebones"
     bl_options: Set = {'REGISTER', 'UNDO'}
@@ -857,7 +1013,8 @@ class VALVEMODEL_OT_ImportJigglebones(Operator, PrefabImport):
 
         return imported_count
 
-class VALVEMODEL_OT_ExportJiggleBone(Operator, PrefabExport):
+
+class SMD_OT_Export_Jigglebones(Operator, PrefabExport):
     bl_idname : str = "smd.write_jigglebone"
     bl_label : str = "Write Jigglebones"
 
@@ -1059,7 +1216,8 @@ class VALVEMODEL_OT_ExportJiggleBone(Operator, PrefabExport):
 
         return kv_doc.to_text()
 
-class VALVEMODEL_OT_CreateProportionActions(Operator):
+
+class SMD_OT_Make_Proportion_Animation(Operator):
     bl_idname : str = 'smd.create_proportion_actions'
     bl_label : str = 'Create Delta Proportion Pose'
     bl_options : Set = {'REGISTER', 'UNDO'}
@@ -1138,13 +1296,17 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
             arm.animation_data.action = action
             arm.animation_data.action_slot = slot_ref
 
-            success = copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
-            if success:
+            try:
+                copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
                 for pbone in arm.pose.bones:
                     if not self.KeepNonCopiedKeyframes or pbone.name in matched_bones:
                         pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
                         pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
                         pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
+
+            except Exception as e:
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}
 
             context.view_layer.update()
 
@@ -1152,15 +1314,19 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
                 self._clear_keyframes_for_bones(action, layer, strip, slot_prop, matched_bones)
 
             arm.animation_data.action_slot = slot_prop
-            success1 = copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
-            success2 = copy_target_armature_visualpose(currArm, arm, copy_type='ORIGIN')
 
-            if success1 and success2:
+            try:
+                copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
+                copy_target_armature_visualpose(currArm, arm, copy_type='ORIGIN')
+
                 for pbone in arm.pose.bones:
                     if not self.KeepNonCopiedKeyframes or pbone.name in matched_bones:
                         pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
                         pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
                         pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
+            except Exception as e:
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}    
 
             arm.animation_data.action_slot = slot_ref
             context.view_layer.update()
@@ -1206,7 +1372,8 @@ class VALVEMODEL_OT_CreateProportionActions(Operator):
         
         return matched_bones
 
-class VALVEMODEL_OT_ExportConstraintProportion(Operator, PrefabExport):
+
+class SMD_OT_Export_Constrainted_Proportions(Operator, PrefabExport):
     bl_idname : str = "smd.encode_exportname_as_constraint_proportion"
     bl_label : str = "Write Constraint Proportions (Source 2)"
 
@@ -1326,7 +1493,8 @@ class VALVEMODEL_OT_ExportConstraintProportion(Operator, PrefabExport):
 
         return kv_doc.to_text()
 
-class VALVEMODEL_OT_ExportHitBox(Operator, PrefabExport):
+
+class SMD_OT_Export_Hitboxes(Operator, PrefabExport):
     bl_idname : str = "smd.export_hitboxes"
     bl_label : str = "Export Source Hitboxes"
     bl_description = "Export empty cubes as Source Engine hitbox format"
@@ -1503,7 +1671,8 @@ class VALVEMODEL_OT_ExportHitBox(Operator, PrefabExport):
 
         return {'FINISHED'}
 
-class VALVEMODEL_OT_ImportHitBox(Operator, PrefabImport):
+
+class SMD_OT_Import_Hitboxes(Operator, PrefabImport):
     bl_idname: str = "smd.import_hitboxes"
     bl_label: str = "Import Source Hitboxes"
     bl_description: str = "Import Source Engine hitbox format from QC/QCI file"
@@ -1547,7 +1716,8 @@ class VALVEMODEL_OT_ImportHitBox(Operator, PrefabImport):
         
         return {'FINISHED'}
 
-class VALVEMODEL_OT_FixHitBox(Operator):
+
+class SMD_OT_Fix_Hitboxes(Operator):
     bl_idname: str = "smd.fix_hitboxes"
     bl_label: str = "Fix Source Hitboxes Empties Matrix"
     bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
@@ -1566,8 +1736,9 @@ class VALVEMODEL_OT_FixHitBox(Operator):
         
         self.report({'INFO'}, f'Fixed {fixed_count} hitbox(es)')
         return {'FINISHED'}
-    
-class VALVEMODEL_OT_AddHitbox(Operator):
+
+
+class SMD_OT_Create_Hitbox(Operator):
     bl_idname : str = "smd.add_hitboxes"
     bl_label : str = "Add Source Hitboxes"
     bl_description = "Add empty cubes as Source Engine hitbox format"
@@ -1629,7 +1800,8 @@ class VALVEMODEL_OT_AddHitbox(Operator):
         self.report({'INFO'}, f'Created {created_count} hitbox(es)')
         return {'FINISHED'}
 
-class VALVEMODEL_OT_CopyJiggleBoneProperties(Operator):
+
+class SMD_OT_Copy_Jigglebone_Properties(Operator):
     bl_idname: str = "smd.copy_jiggleboneproperties"
     bl_label: str = "Copy Jigglebone Properties"
     bl_options: Set = {'REGISTER', 'UNDO'}

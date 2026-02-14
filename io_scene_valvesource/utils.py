@@ -222,22 +222,6 @@ class State(metaclass=_StateMeta):
             # Export list refresh
             if time.time() - State.last_export_refresh > 0.25:
                 State.update_scene(scene)
-            
-            # Sync active shape key to DME flex controllers
-            obj = bpy.context.active_object
-            if obj is None: return
-            if obj.vs.sync_active_shapekey_to_dme:
-                from .core.commonutils import is_mesh
-                
-                if is_mesh(obj) and hasShapes(obj):
-                    active_key = obj.data.shape_keys.key_blocks[obj.active_shape_key_index] # type: ignore
-                    
-                    for i, flex in enumerate(obj.vs.dme_flexcontrollers):
-                        if flex.shapekey == active_key.name:
-                            obj.vs.dme_flexcontrollers_index = i
-                            return
-                    
-                    obj.vs.dme_flexcontrollers_index = -1
 
     @staticmethod
     @persistent
@@ -617,7 +601,7 @@ def hasShapes(id, valid_only = True):
         return _test(id)
 
 def countShapes(*objects):
-    from .core.meshutils import get_flexcontrollers
+    from .kitsunetools.meshutils import get_flexcontrollers
     
     num_shapes = 0
     num_correctives = 0
@@ -634,7 +618,7 @@ def countShapes(*objects):
     for ob in [o for o in flattened_objects if o.vs.export and hasShapes(o)]:
         if ob.vs.flex_controller_mode == 'BUILDER':
             flex_controllers = get_flexcontrollers(ob)
-            unique_names = set(fc[0] for fc in flex_controllers)
+            unique_names = set(fc[4] for fc in flex_controllers)
             num_shapes += len(unique_names)
         else:
             if ob.data.shape_keys:
@@ -1006,12 +990,12 @@ def parse_hitbox_line(line: str):
         'max': mathutils.Vector((max_x, max_y, max_z))
     }
 
-def import_hitboxes_from_content(content: str, armature : bpy.types.Object, context : bpy.types.Context):
+def import_hitboxes_from_content(content: str, armature : bpy.types.Object, context : bpy.types.Context, create_collection: bool = False):
     """
     Import hitboxes from text content containing $hbox lines.
     Returns (created_count, skipped_count, skipped_bones list)
     """
-    from .core.boneutils import get_bone_exportname, get_bone_matrix
+    from .kitsunetools.boneutils import get_bone_exportname, get_bone_matrix
     
     hitboxes = []
     for line in content.split('\n'):
@@ -1026,6 +1010,17 @@ def import_hitboxes_from_content(content: str, armature : bpy.types.Object, cont
     created_count = 0
     skipped_count = 0
     skipped_bones = []
+
+    hitbox_collection = None
+    if create_collection:
+        collection_name = f"{armature.name}_hitboxes"
+        hitbox_collection = bpy.data.collections.get(collection_name)
+        if not hitbox_collection:
+            hitbox_collection = bpy.data.collections.new(collection_name)
+            if armature.users_collection:
+                armature.users_collection[0].children.link(hitbox_collection)
+            else:
+                context.scene.collection.children.link(hitbox_collection)
     
     previous_mode = armature.mode
     if previous_mode != 'OBJECT':
@@ -1053,8 +1048,13 @@ def import_hitboxes_from_content(content: str, armature : bpy.types.Object, cont
         
         bpy.ops.object.empty_add(type='CUBE', location=(0, 0, 0))
         empty = context.active_object
-        empty.name = f"hbox_{bone.name}"
+        empty.name = f"{armature.name}_hbox_{bone.name}"
         
+        if hitbox_collection:
+            for coll in empty.users_collection:
+                coll.objects.unlink(empty)
+            hitbox_collection.objects.link(empty)
+
         empty.parent = armature
         empty.parent_type = 'BONE'
         empty.parent_bone = bone.name
@@ -1101,7 +1101,7 @@ def import_jigglebones_from_content(content: str, armature: bpy.types.Object) ->
     Import jigglebones from text content containing $jigglebone definitions.
     Returns (imported_count, missing_bones_list)
     """
-    from .core.boneutils import get_bone_exportname
+    from .kitsunetools.boneutils import get_bone_exportname
     
     imported_count = 0
     missing_bones = []

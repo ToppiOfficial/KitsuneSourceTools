@@ -4,12 +4,12 @@ from bpy.types import Context, Operator, Object, Event
 from typing import Set
 from mathutils import Vector
 
-from ..core.commonutils import(
+from ..kitsunetools.commonutils import(
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
     get_armature, get_selected_bones, preserve_context_mode, get_armature_meshes
 )
 
-from ..core.armatureutils import(
+from ..kitsunetools.armatureutils import(
     subdivide_bone, remove_bone, merge_bones, centralize_bone_pairs
 )
 
@@ -332,15 +332,6 @@ class TOOLS_OT_SubdivideBone(Operator):
         description='Number of segments to split the bone into'
     )
 
-    minweight : FloatProperty(
-        name='Min Weight', 
-        min=0.0001,
-        max=0.01, 
-        default=0.001, 
-        precision=4,
-        description='Minimum weight threshold below which weights are discarded'
-    )
-
     falloff : IntProperty(
         name='Falloff', 
         min=5, 
@@ -362,6 +353,11 @@ class TOOLS_OT_SubdivideBone(Operator):
         name='Weights Only',
         default=False,
         description='Only redistribute weights without creating new bones'
+    )
+
+    skip_original_bone : BoolProperty(
+        name='Skip Original Bone',
+        default=True,
     )
     
     @classmethod
@@ -397,12 +393,15 @@ class TOOLS_OT_SubdivideBone(Operator):
         col.label(text="Constraints:")
         col.prop(self, 'minweight')
 
+        layout.separator()
+        if self.weights_only:
+            col = layout.column(align=True)
+            col.prop(self, 'skip_original_bone')
+
     def execute(self, context : Context) -> Set:
         arm = get_armature(context.object)
         
         if arm is None: return {'CANCELLED'}
-        
-        constraint_data = []
         
         with preserve_context_mode(context.object, 'OBJECT'):
             context.view_layer.objects.active = arm
@@ -412,47 +411,11 @@ class TOOLS_OT_SubdivideBone(Operator):
             
             if bones is None or boneNames is None:
                 return {'CANCELLED'}
-
-            if not self.weights_only:
-                for bone in bones:
-                    for con in bone.constraints:
-                        data = {
-                            'original_bone': bone.name,
-                            'type': con.type,
-                            'name': con.name,
-                            'properties': {}
-                        }
-                        for prop in con.bl_rna.properties:
-                            if prop.is_readonly or prop.identifier in {'rna_type', 'name', 'type'}:
-                                continue
-                            try:
-                                val = getattr(con, prop.identifier)
-                                data['properties'][prop.identifier] = val
-                            except Exception as e:
-                                print(f"Error getting property {prop.identifier}: {e}")
-                        constraint_data.append(data)
             
             bpy.ops.object.mode_set(mode='EDIT')
-            bones = [arm.data.edit_bones.get(b) for b in boneNames]
-            subdivide_bone(bones, self.subdivisions, weights_only=self.weights_only,min_weight_cap=self.minweight,
-                       falloff=self.falloff, smoothness=self.smoothness)
-            
-            if not self.weights_only:
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-                for data in constraint_data:
-                    base_name = data['original_bone']
-
-                    for pb in arm.pose.bones:
-                        if pb.name.startswith(base_name):
-                            new_con = pb.constraints.new(type=data['type'])
-                            new_con.name = data['name']
-
-                            for prop, val in data['properties'].items():
-                                try:
-                                    setattr(new_con, prop, val)
-                                except Exception as e:
-                                    self.report({'ERROR'}, f"Failed to set {prop} on constraint '{new_con.name}' for bone '{pb.name}': {e}")
+            bones = boneNames
+            subdivide_bone(bones, arm, self.subdivisions, weights_only=self.weights_only,
+                       falloff=self.falloff, smoothness=self.smoothness, skip_original_bone=self.skip_original_bone)
 
         return {'FINISHED'}
 
@@ -604,8 +567,6 @@ class TOOLS_OT_AssignBoneRotExportOffset(Operator):
         layout.label(text='Y to...')
         row = layout.row(align=True)
         row.prop(self,'export_rot_target',expand=True)
-        layout.separator()
-        draw_wrapped_texts(layout,text=self.bl_description)
     
     def execute(self, context : Context) -> set:
         selected_bones = None

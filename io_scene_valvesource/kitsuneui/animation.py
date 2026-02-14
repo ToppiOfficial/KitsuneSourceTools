@@ -5,7 +5,7 @@ from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy_extras import anim_utils
 
 from .common import KITSUNE_PT_ToolsPanel
-from ..core.commonutils import (
+from ..kitsunetools.commonutils import (
     draw_title_box_layout, draw_wrapped_texts, is_armature,
     sanitize_string
 )
@@ -28,6 +28,8 @@ class TOOLS_PT_Animation(KITSUNE_PT_ToolsPanel):
         col.operator(TOOLS_OT_merge_animation_slots.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_merge_two_actions.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_convert_rotation_keyframes.bl_idname, icon='ACTION_SLOT')
+        col.operator(TOOLS_OT_propagate_pose_offset.bl_idname, icon='ACTION_SLOT')
+        col.operator(TOOLS_OT_copy_bone_keyframes.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_delete_action_slot.bl_idname, icon='TRASH')
         
 class TOOLS_OT_merge_animation_slots(Operator):
@@ -642,3 +644,377 @@ class TOOLS_OT_delete_action_slot(Operator):
         
         self.report({'INFO'}, f"Deleted slot '{slot_name}' from action '{action.name}'")
         return {'FINISHED'}
+    
+class TOOLS_OT_propagate_pose_offset(Operator):
+    bl_idname : str = 'kitsunetools.propagate_pose_offset'
+    bl_label : str = 'Propagate Pose Offset to Keyframes'
+    bl_description : str = 'Apply current pose offset to all keyframes in the action slot'
+    bl_options : set = {'REGISTER', 'UNDO'}
+
+    action_name: StringProperty(
+        name="Action",
+        description="Action containing the slot"
+    )
+    slot_name: StringProperty(
+        name="Slot",
+        description="Action slot to modify"
+    )
+    selected_bones_only: BoolProperty(
+        name="Selected Bones Only",
+        description="Only apply offset to selected bones",
+        default=True
+    )
+
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        obj = context.object
+        return bool(obj and is_armature(obj) and 
+                context.selected_pose_bones and
+                obj.animation_data and 
+                obj.animation_data.action)
+
+    def invoke(self, context : Context, event : Event) -> set:
+        obj = context.object
+        if obj.animation_data and obj.animation_data.action:
+            action = obj.animation_data.action
+            self.action_name = action.name
+            if action.slots:
+                self.slot_name = action.slots[0].name_display
+        
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def draw(self, context : Context) -> None:
+        layout = self.layout
+        
+        box = layout.box()
+        box.label(text="Source:", icon='ACTION')
+        box.prop_search(self, "action_name", bpy.data, "actions", text="Action")
+        
+        act = bpy.data.actions.get(self.action_name)
+        if act and act.slots:
+            box.prop_search(self, "slot_name", act, "slots", text="Slot")
+        else:
+            box.label(text="No slots available", icon='ERROR')
+        
+        layout.separator()
+        box = layout.box()
+        box.label(text="Options:", icon='PREFERENCES')
+        box.prop(self, "selected_bones_only")
+
+    def execute(self, context : Context) -> set:
+        from mathutils import Matrix, Vector, Euler, Quaternion
+        
+        obj = context.object
+        current_frame = context.scene.frame_current
+        
+        action = bpy.data.actions.get(self.action_name)
+        if not action:
+            self.report({'ERROR'}, "Action not found")
+            return {'CANCELLED'}
+
+        slot = next((s for s in action.slots if s.name_display == self.slot_name), None)
+        if not slot:
+            self.report({'ERROR'}, "Slot not found")
+            return {'CANCELLED'}
+
+        channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+        if not channelbag:
+            self.report({'ERROR'}, "No animation data in slot")
+            return {'CANCELLED'}
+
+        bones_to_process = context.selected_pose_bones if self.selected_bones_only else obj.pose.bones
+        
+        if not bones_to_process:
+            self.report({'WARNING'}, "No bones to process")
+            return {'CANCELLED'}
+
+        modified_bones = 0
+        
+        for pose_bone in bones_to_process:
+            bone_path = f'pose.bones["{pose_bone.name}"]'
+            
+            offset_location = None
+            offset_rotation = None
+            offset_scale = None
+            
+            loc_fcurves = [fc for fc in channelbag.fcurves 
+                          if fc.data_path == f'{bone_path}.location']
+            rot_euler_fcurves = [fc for fc in channelbag.fcurves 
+                                if fc.data_path == f'{bone_path}.rotation_euler']
+            rot_quat_fcurves = [fc for fc in channelbag.fcurves 
+                               if fc.data_path == f'{bone_path}.rotation_quaternion']
+            scale_fcurves = [fc for fc in channelbag.fcurves 
+                            if fc.data_path == f'{bone_path}.scale']
+            
+            if loc_fcurves:
+                current_loc = Vector(pose_bone.location)
+                keyframed_loc = Vector([0, 0, 0])
+                for fc in loc_fcurves:
+                    keyframed_loc[fc.array_index] = fc.evaluate(current_frame)
+                offset_location = current_loc - keyframed_loc
+            
+            if rot_euler_fcurves:
+                current_rot = pose_bone.rotation_euler.copy()
+                keyframed_rot = Euler([0, 0, 0], pose_bone.rotation_mode)
+                for fc in rot_euler_fcurves:
+                    keyframed_rot[fc.array_index] = fc.evaluate(current_frame)
+                offset_rotation = current_rot.to_matrix() @ keyframed_rot.to_matrix().inverted()
+            
+            elif rot_quat_fcurves:
+                current_rot = pose_bone.rotation_quaternion.copy()
+                keyframed_rot = Quaternion([1, 0, 0, 0])
+                for fc in rot_quat_fcurves:
+                    keyframed_rot[fc.array_index] = fc.evaluate(current_frame)
+                offset_rotation = current_rot.to_matrix() @ keyframed_rot.to_matrix().inverted()
+            
+            if scale_fcurves:
+                current_scale = Vector(pose_bone.scale)
+                keyframed_scale = Vector([1, 1, 1])
+                for fc in scale_fcurves:
+                    keyframed_scale[fc.array_index] = fc.evaluate(current_frame)
+                offset_scale = Vector([current_scale[i] / keyframed_scale[i] if keyframed_scale[i] != 0 else 1 
+                                      for i in range(3)])
+            
+            if not any([offset_location, offset_rotation, offset_scale]):
+                continue
+            
+            if offset_location:
+                for fc in loc_fcurves:
+                    for kp in fc.keyframe_points:
+                        kp.co.y += offset_location[fc.array_index]
+            
+            if offset_rotation:
+                if rot_euler_fcurves:
+                    frames = set()
+                    for fc in rot_euler_fcurves:
+                        for kp in fc.keyframe_points:
+                            frames.add(kp.co.x)
+                    
+                    for frame in frames:
+                        old_euler = Euler([0, 0, 0], pose_bone.rotation_mode)
+                        for fc in rot_euler_fcurves:
+                            for kp in fc.keyframe_points:
+                                if abs(kp.co.x - frame) < 0.001:
+                                    old_euler[fc.array_index] = kp.co.y
+                                    break
+                        
+                        new_matrix = offset_rotation @ old_euler.to_matrix()
+                        new_euler = new_matrix.to_euler(pose_bone.rotation_mode)
+                        
+                        for fc in rot_euler_fcurves:
+                            for kp in fc.keyframe_points:
+                                if abs(kp.co.x - frame) < 0.001:
+                                    kp.co.y = new_euler[fc.array_index]
+                                    break
+                
+                elif rot_quat_fcurves:
+                    frames = set()
+                    for fc in rot_quat_fcurves:
+                        for kp in fc.keyframe_points:
+                            frames.add(kp.co.x)
+                    
+                    for frame in frames:
+                        old_quat = Quaternion([1, 0, 0, 0])
+                        for fc in rot_quat_fcurves:
+                            for kp in fc.keyframe_points:
+                                if abs(kp.co.x - frame) < 0.001:
+                                    old_quat[fc.array_index] = kp.co.y
+                                    break
+                        
+                        new_matrix = offset_rotation @ old_quat.to_matrix()
+                        new_quat = new_matrix.to_quaternion()
+                        
+                        for fc in rot_quat_fcurves:
+                            for kp in fc.keyframe_points:
+                                if abs(kp.co.x - frame) < 0.001:
+                                    kp.co.y = new_quat[fc.array_index]
+                                    break
+            
+            if offset_scale:
+                for fc in scale_fcurves:
+                    for kp in fc.keyframe_points:
+                        kp.co.y *= offset_scale[fc.array_index]
+            
+            modified_bones += 1
+        
+        if modified_bones > 0:
+            self.report({'INFO'}, f"Applied pose offset to {modified_bones} bone(s)")
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "No keyframes found for selected bones")
+            return {'CANCELLED'}
+        
+class TOOLS_OT_copy_bone_keyframes(Operator):
+    bl_idname : str = 'kitsunetools.copy_bone_keyframes'
+    bl_label : str = 'Copy Bone Keyframes'
+    bl_description : str = 'Copy keyframes from one bone to another (source bone name from action data)'
+    bl_options : set = {'REGISTER', 'UNDO'}
+
+    action_name: StringProperty(
+        name="Action",
+        description="Action containing the keyframes"
+    )
+    slot_name: StringProperty(
+        name="Slot",
+        description="Action slot to copy from"
+    )
+    source_bone_name: StringProperty(
+        name="Source Bone Name",
+        description="Exact name of the bone to copy keyframes from (as it appears in action data)"
+    )
+    copy_location: BoolProperty(
+        name="Copy Location",
+        description="Copy location keyframes",
+        default=True
+    )
+    copy_rotation: BoolProperty(
+        name="Copy Rotation",
+        description="Copy rotation keyframes",
+        default=True
+    )
+    copy_scale: BoolProperty(
+        name="Copy Scale",
+        description="Copy scale keyframes",
+        default=True
+    )
+    replace_existing: BoolProperty(
+        name="Replace Existing",
+        description="Replace existing keyframes on target bone",
+        default=False
+    )
+
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        obj = context.object
+        if not (obj and is_armature(obj) and context.selected_pose_bones):
+            return False
+        if len(context.selected_pose_bones) != 1:
+            return False
+        if not (obj.animation_data and obj.animation_data.action):
+            return False
+        action = obj.animation_data.action
+        if not action.slots:
+            return False
+        return True
+
+    def invoke(self, context : Context, event : Event) -> set:
+        obj = context.object
+        action = obj.animation_data.action
+        
+        self.action_name = action.name
+        
+        if hasattr(obj.animation_data, 'action_slot') and obj.animation_data.action_slot:
+            self.slot_name = obj.animation_data.action_slot.name_display
+        elif action.slots:
+            self.slot_name = action.slots[0].name_display
+        
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def draw(self, context : Context) -> None:
+        layout = self.layout
+        
+        obj = context.object
+        target_bone = context.selected_pose_bones[0]
+        
+        box = layout.box()
+        box.label(text="Source:", icon='ACTION')
+        
+        row = box.row()
+        row.enabled = False
+        row.prop_search(self, "action_name", bpy.data, "actions", text="Action")
+        
+        act = bpy.data.actions.get(self.action_name)
+        if act and act.slots:
+            row = box.row()
+            row.enabled = False
+            row.prop_search(self, "slot_name", act, "slots", text="Slot")
+        
+        box.separator()
+        box.prop(self, "source_bone_name", icon='BONE_DATA')
+        
+        layout.separator()
+        box = layout.box()
+        box.label(text="Copy Options:", icon='PREFERENCES')
+        row = box.row()
+        row.prop(self, "copy_location")
+        row.prop(self, "copy_rotation")
+        row.prop(self, "copy_scale")
+        box.prop(self, "replace_existing")
+        
+        layout.separator()
+        info_box = layout.box()
+        info_box.label(text=f"Target: {target_bone.name}", icon='BONE_DATA')
+
+    def execute(self, context : Context) -> set:
+        obj = context.object
+        target_bone = context.selected_pose_bones[0]
+        
+        if not self.source_bone_name:
+            self.report({'ERROR'}, "Source bone name not specified")
+            return {'CANCELLED'}
+        
+        action = bpy.data.actions.get(self.action_name)
+        if not action:
+            self.report({'ERROR'}, "Action not found")
+            return {'CANCELLED'}
+
+        slot = next((s for s in action.slots if s.name_display == self.slot_name), None)
+        if not slot:
+            self.report({'ERROR'}, "Slot not found")
+            return {'CANCELLED'}
+
+        channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+        if not channelbag:
+            self.report({'ERROR'}, "No animation data in slot")
+            return {'CANCELLED'}
+
+        source_path = f'pose.bones["{self.source_bone_name}"]'
+        target_path = f'pose.bones["{target_bone.name}"]'
+        
+        source_fcurves = [fc for fc in channelbag.fcurves if fc.data_path.startswith(source_path)]
+        
+        if not source_fcurves:
+            self.report({'ERROR'}, f"No keyframes found for bone '{self.source_bone_name}'")
+            return {'CANCELLED'}
+        
+        properties_to_copy = []
+        if self.copy_location:
+            properties_to_copy.append('location')
+        if self.copy_rotation:
+            properties_to_copy.extend(['rotation_euler', 'rotation_quaternion'])
+        if self.copy_scale:
+            properties_to_copy.append('scale')
+        
+        copied_count = 0
+        
+        for source_fc in source_fcurves:
+            prop_name = source_fc.data_path.split('.')[-1]
+            
+            if prop_name not in properties_to_copy:
+                continue
+            
+            target_data_path = f'{target_path}.{prop_name}'
+            
+            if self.replace_existing:
+                existing_fc = next((fc for fc in channelbag.fcurves 
+                                  if fc.data_path == target_data_path and 
+                                  fc.array_index == source_fc.array_index), None)
+                if existing_fc:
+                    channelbag.fcurves.remove(existing_fc)
+            
+            new_fc = channelbag.fcurves.new(
+                data_path=target_data_path,
+                index=source_fc.array_index
+            )
+            
+            for kp in source_fc.keyframe_points:
+                new_fc.keyframe_points.insert(frame=kp.co.x, value=kp.co.y, options={'FAST'})
+            
+            copied_count += 1
+        
+        if copied_count > 0:
+            self.report({'INFO'}, f"Copied {copied_count} fcurve(s) from '{self.source_bone_name}' to '{target_bone.name}'")
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "No keyframes matched the selected copy options")
+            return {'CANCELLED'}

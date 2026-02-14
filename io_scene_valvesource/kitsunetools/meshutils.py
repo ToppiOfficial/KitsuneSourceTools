@@ -155,33 +155,54 @@ def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, c
     limit_vertexgroup_influence(ob, deform_bone_names, limit=vgroup_limit)
     normalize_vertexgroup_weights(ob, deform_bone_names)
     
-def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str]]:
-    """Return list of (shapekey, eyelid, stereo, raw_delta) from object,
-    only including valid shapekeys on the object, excluding the Basis."""
+def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str, str]]:
+    """Return list of (shapekey, eyelid, stereo, raw_delta, controller_name) from object,
+    only including entries with a valid controller name. Shapekey is optional."""
     
     if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
         return []
 
     valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
     
-    used_names = {}
+    result = []
+    
+    for fc in ob.vs.dme_flexcontrollers:
+        controller_name = fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else ""
+        
+        if not controller_name:
+            if not fc.shapekey or fc.shapekey not in valid_keys:
+                continue
+            controller_name = fc.shapekey
+        
+        shapekey = fc.shapekey if fc.shapekey and fc.shapekey in valid_keys else ""
+        delta_name = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else shapekey
+        
+        result.append((shapekey, fc.eyelid, fc.stereo, delta_name, controller_name))
+    
+    return result
+
+def get_delta_shapekeys(ob : bpy.types.Object) -> list[tuple[str, str]]:
+    """Return list of unique (delta_name, shapekey) from object,
+    only including valid shapekeys on the object, excluding the Basis.
+    Ensures no duplicate delta names."""
+    
+    if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
+        return []
+
+    valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
+    
+    seen_deltas = set()
     result = []
     
     for fc in ob.vs.dme_flexcontrollers:
         if fc.shapekey not in valid_keys:
             continue
         
-        raw_delta = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+        delta_name = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
         
-        if raw_delta in used_names:
-            base_name = raw_delta
-            counter = used_names[raw_delta]
-            used_names[raw_delta] += 1
-            raw_delta = f"{base_name}.{counter:03d}"
-        else:
-            used_names[raw_delta] = 1
-        
-        result.append((fc.shapekey, fc.eyelid, fc.stereo, raw_delta))
+        if delta_name not in seen_deltas:
+            seen_deltas.add(delta_name)
+            result.append((delta_name, fc.shapekey))
     
     return result
     

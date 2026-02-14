@@ -28,11 +28,11 @@ from bpy.props import CollectionProperty, StringProperty, BoolProperty
 
 from .utils import *
 from . import datamodel, ordered_set, flex
-from .core.boneutils import get_bone_exportname, get_bone_matrix
-from .core.objectutils import apply_modifier
-from .core.meshutils import normalize_object_vertexgroups, get_flexcontrollers
-from .core.commonutils import sanitize_string
-from .ui.common import ShowConsole
+from .kitsunetools.boneutils import get_bone_exportname, get_bone_matrix
+from .kitsunetools.objectutils import apply_modifier
+from .kitsunetools.meshutils import normalize_object_vertexgroups, get_flexcontrollers, get_delta_shapekeys
+from .kitsunetools.commonutils import sanitize_string
+from .kitsuneui.common import ShowConsole
 
 class SMD_OT_Compile(bpy.types.Operator, Logger):
     bl_idname = "smd.compile_qc"
@@ -1091,14 +1091,14 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
 
             shapes_to_process = []
             if id.vs.flex_controller_mode == 'BUILDER':
-                valid_controllers = {fc[0]: fc[3] for fc in get_flexcontrollers(id)}
+                delta_shapekeys = get_delta_shapekeys(id)
                 
-                for shape_name, new_name in valid_controllers.items():
+                for delta_name, shape_name in delta_shapekeys:
                     shape_index = id.data.shape_keys.key_blocks.find(shape_name)
                     if shape_index != -1:
                         shape = id.data.shape_keys.key_blocks[shape_index]
-                        if new_name != shape.name:
-                            shape.name = new_name
+                        if delta_name != shape.name:
+                            shape.name = delta_name
                         shapes_to_process.append((shape_index, shape))
             else:
                 shapes_to_process = list(enumerate(id.data.shape_keys.key_blocks))[1:]
@@ -2048,7 +2048,12 @@ skeleton
                 
                 for shape_name,shape in bake.shapes.items():
                     wrinkle_scale = 0
-                    corrective = getCorrectiveShapeSeparator() in shape_name
+
+                    if ob.vs.flex_controller_modes != 'BUILDER':
+                        corrective = getCorrectiveShapeSeparator() in shape_name
+                    else:
+                        corrective = None
+
                     if corrective:
                         # drivers always override shape name to avoid name truncation issues
                         corrective_targets_driver = ordered_set.OrderedSet(flex.getCorrectiveShapeKeyDrivers(bake.src.data.shape_keys.key_blocks[shape_name]) or [])

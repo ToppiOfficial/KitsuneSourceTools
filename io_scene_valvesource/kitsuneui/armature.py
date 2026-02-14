@@ -3,17 +3,17 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
 from bpy.types import Context, Operator, Object
 from typing import Set
 
-from ..core.commonutils import (
+from ..kitsunetools.commonutils import (
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
     get_armature, get_armature_meshes, preserve_context_mode,
     get_selected_bones, unselect_all, has_selected_bones
 )
 
-from ..core.meshutils import (
+from ..kitsunetools.meshutils import (
     remove_unused_vertexgroups
 )
 
-from ..core.armatureutils import (
+from ..kitsunetools.armatureutils import (
     apply_current_pose_as_restpose, remove_bone, filter_exclude_vertexgroup_names,
     merge_armatures, copy_target_armature_visualpose, remove_empty_bonecollections,
     apply_current_pose_shapekey
@@ -69,33 +69,37 @@ class TOOLS_PT_Armature(KITSUNE_PT_ToolsPanel):
  
 class Apply_Pose_Base:
     def execute(self, context : Context) -> Set:
-        
-        has_shapekey_prop = hasattr(self, 'as_shapekey')
+        as_shapekey = hasattr(self, 'as_shapekey')
         
         with preserve_context_mode(None, 'OBJECT'):
             armatures : Set[Object | None] = {get_armature(o) for o in context.selected_objects}
-            
             success_count = 0
             
             for armature in armatures:
-                if has_shapekey_prop: success = apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip())
-                else:
-                    if self.selected_only:
-                        selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
+                try:
+                    if as_shapekey:
+                        apply_current_pose_shapekey(armature=armature, shapekey_name=self.shapekey_name.strip())
+                    else:
+                        if self.selected_only:
+                            selected_bones = get_selected_bones(armature=armature, bone_type='POSEBONE')
+                            
+                            for posebone in armature.pose.bones:
+                                if posebone.name in {pb.name for pb in selected_bones}: continue
+                                posebone.matrix_basis.identity()
                         
-                        for posebone in armature.pose.bones:
-                            if posebone.name in {pb.name for pb in selected_bones}: continue
-                            posebone.matrix_basis.identity()
-                    
-                    success = apply_current_pose_as_restpose(armature=armature)
-                    
-                if success: success_count += 1
-                
+                        apply_current_pose_as_restpose(armature=armature)
+
+                    success_count += 1
+
+                except Exception as e:
+                    self.report({'ERROR'}, f"Failed to apply pose: {str(e)}")
+                    continue
+
         if success_count > 0:
             if len(armatures) == 1: message = 'Applied as Rest Pose'
             else: message = f'Applied {len(armatures)} Armatures as Rest Pose'
 
-            if not has_shapekey_prop: bpy.ops.object.mode_set(mode='OBJECT')
+            if not as_shapekey: bpy.ops.object.mode_set(mode='OBJECT')
             
             self.report({'INFO'}, message)
             return {'FINISHED'}
@@ -452,16 +456,19 @@ class TOOLS_OT_MergeArmatures(Operator, ShowConsole):
             try:
                 for arm in armatures_to_merge:
                     
-                    if self.clean_bones:
-                        unselect_all()
-                        context.view_layer.objects.active = arm
-                        arm.select_set(True)
-                        
-                        bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
+                    try:
+                        if self.clean_bones:
+                            unselect_all()
+                            context.view_layer.objects.active = arm
+                            arm.select_set(True)
+                            
+                            bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
                     
-                    success = merge_armatures(active_object, arm, match_posture=self.match_posture)
-                    if success:
+                        merge_armatures(active_object, arm, match_posture=self.match_posture)
                         success_count += 1
+                    except Exception as e:
+                        self.report({'ERROR'}, f"Failed to merge '{arm.name}': {str(e)}")
+                        continue
                 
             finally:
                 self.report({'INFO'}, f'Merged {success_count} armatures to active armature')
@@ -499,12 +506,6 @@ class TOOLS_OT_CopyVisPosture(Operator):
             if not all([currArm.data.bones, otherArm.data.bones]):
                 continue
             
-            success = copy_target_armature_visualpose(
-                base_armature=currArm,
-                target_armature=otherArm,
-                copy_type=self.copy_type,
-            )
-            
-            if success: copiedcount += 1
+            copy_target_armature_visualpose(base_armature=currArm,target_armature=otherArm,copy_type=self.copy_type,)
         
         return {'FINISHED'} if copiedcount > 0 else {'CANCELLED'}

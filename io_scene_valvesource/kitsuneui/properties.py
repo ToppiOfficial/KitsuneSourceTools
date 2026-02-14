@@ -7,11 +7,12 @@ from bpy.types import (
 )
 
 from .common import KITSUNE_SecondaryPanel
-from ..core.boneutils import get_bone_exportname
-from ..core.commonutils import (
+from ..kitsunetools.boneutils import get_bone_exportname
+from ..kitsunetools.commonutils import (
     is_armature, is_mesh, is_empty, is_curve, draw_wrapped_texts,
     draw_title_box_layout, get_valid_vertexanimation_object,
-    is_mesh_compatible, get_object_path, get_collection_parent
+    is_mesh_compatible, get_object_path, get_collection_parent,
+    get_armature
 )
 
 from ..utils import (
@@ -156,7 +157,7 @@ for map_name in vertex_float_maps:
     bpy.utils.register_class(RemoveVertexFloatMap)
 
 
-class KITSUNE_PT_active_object_properties(KITSUNE_SecondaryPanel, Panel):
+class KITSUNE_PT_object_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = get_id("panel_context_properties")
     
     def draw(self, context) -> None:
@@ -182,26 +183,54 @@ class KITSUNE_PT_active_object_properties(KITSUNE_SecondaryPanel, Panel):
         if parent_collection:
             col.prop(parent_collection.vs, 'mute', text="Supress collection '{}'".format(parent_collection.name))
 
+        if parent_collection and not parent_collection.vs.mute:
+            col.column().prop(parent_collection.vs,"subdir",icon='FILE_FOLDER')
+        else:
+            col.column().prop(active_object.vs,"subdir",icon='FILE_FOLDER')
 
-class KITSUNE_PT_object_properties(KITSUNE_SecondaryPanel, Panel):
+
+class KITSUNE_PT_armature_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Armature Properties'
-    bl_parent_id = 'KITSUNE_PT_active_object_properties'
+    bl_parent_id = 'KITSUNE_PT_object_properties'
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         layout = self.layout
+
+        active_object = get_armature(context.object)
+
+        if active_object is not None:
+            self.bl_label = 'Armature Properties ({})'.format(active_object.name)
+        else:
+            self.bl_label = 'Armature Properties'
+
         layout.label(text='', icon='ARMATURE_DATA')
     
     def draw(self, context):
         layout = self.layout
-        active_object = context.object
+        active_object = get_armature(context.object)
         
         if not is_armature(active_object):
             draw_wrapped_texts(layout, get_id("panel_select_armature"), alert=True, icon='ERROR')
             return
-        
+
         box = layout.box()
-        
+        col = box.column()
+        col.row().prop(active_object.data.vs, "action_selection", expand=True)
+        if active_object.data.vs.action_selection != 'CURRENT':
+            is_slot_filter = active_object.data.vs.action_selection == 'FILTERED' and State.useActionSlots
+            col.prop(active_object.vs, "action_filter", text=get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
+
+        if active_object.animation_data and not State.useActionSlots:
+            col.template_ID(active_object.animation_data, "action", new="action.new")
+
+        box = layout.box()
+        col = box.column()
+        col.enabled = bool(State.exportFormat == ExportFormat.SMD)
+        col.prop(active_object.data.vs,"implicit_zero_bone")
+        col.prop(active_object.data.vs,"legacy_rotation")
+
+        box = layout.box()
         col = box.column(align=True)
         col.prop(active_object.data.vs, "ignore_bone_exportnames")
         col.label(text='Direction Naming:')
@@ -215,11 +244,19 @@ class KITSUNE_PT_object_properties(KITSUNE_SecondaryPanel, Panel):
     
 class KITSUNE_PT_bone_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Bone Properties'
-    bl_parent_id = 'KITSUNE_PT_active_object_properties'
+    bl_parent_id = 'KITSUNE_PT_object_properties'
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         layout = self.layout
+
+        active_bone = context.active_bone
+        
+        if active_bone is not None:
+            self.bl_label = 'Bone Properties ({})'.format(active_bone.name)
+        else:
+            self.bl_label = 'Bone Properties'
+
         layout.label(text='', icon='BONE_DATA')
         
     def draw(self, context):
@@ -242,8 +279,6 @@ class KITSUNE_PT_bone_properties(KITSUNE_SecondaryPanel, Panel):
             active_bone_vs = active_bone.bone.vs
         else:
             active_bone_vs = active_bone.vs
-        
-        col.enabled = not active_bone_vs.bone_is_jigglebone
         
         active_bone_exportname = get_bone_exportname(active_bone)
         col.prop(active_bone.vs, 'export_name', placeholder=active_bone_exportname, text='')
@@ -276,11 +311,19 @@ class KITSUNE_PT_bone_properties(KITSUNE_SecondaryPanel, Panel):
       
 class KITSUNE_PT_mesh_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Mesh Properties'
-    bl_parent_id = 'KITSUNE_PT_active_object_properties'
+    bl_parent_id = 'KITSUNE_PT_object_properties'
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         layout = self.layout
+
+        active_object = context.object
+
+        if is_mesh_compatible(active_object):
+            self.bl_label = 'Mesh Properties ({})'.format(active_object.name)
+        else:
+            self.bl_label = 'Mesh Properties'
+
         layout.label(text='', icon='MESH_DATA')
         
     def draw(self, context):
@@ -366,7 +409,7 @@ class KITSUNE_PT_shapekey_properties(KITSUNE_SecondaryPanel, Panel):
             col = box.column()
             row = col.row()
             first_col = row.column()
-            first_col.template_list("DME_UL_FlexControllers","",active_object.vs,"dme_flexcontrollers", active_object.vs,"dme_flexcontrollers_index")
+            first_col.template_list("SMD_UL_FlexControllers","",active_object.vs,"dme_flexcontrollers", active_object.vs,"dme_flexcontrollers_index")
             
             if len(active_object.vs.dme_flexcontrollers) > 0 and active_object.vs.dme_flexcontrollers_index != -1:
                 
@@ -374,16 +417,21 @@ class KITSUNE_PT_shapekey_properties(KITSUNE_SecondaryPanel, Panel):
                 box_col = box.column(align=True)
                 
                 item = active_object.vs.dme_flexcontrollers[active_object.vs.dme_flexcontrollers_index]
-                
+
                 prop_col = box_col.split(factor=0.33, align=True)
                 prop_col.alignment = 'RIGHT'
-                prop_col.label(text='Shapekey')
-                prop_col.prop_search(item,'shapekey',active_object.data.shape_keys,'key_blocks',text='')
-                
+                prop_col.label(text='Controller Name')
+                prop_col.prop(item,'controller_name',text='')
+
                 prop_col = box_col.split(factor=0.33, align=True)
                 prop_col.alignment = 'RIGHT'
                 prop_col.label(text='Delta Name')
                 prop_col.prop(item,'raw_delta_name',text='')
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Shapekey')
+                prop_col.prop_search(item,'shapekey',active_object.data.shape_keys,'key_blocks',text='')
                 
                 prop_col = box_col.split(factor=0.33, align=True)
                 prop_col.alignment = 'RIGHT'
@@ -397,23 +445,22 @@ class KITSUNE_PT_shapekey_properties(KITSUNE_SecondaryPanel, Panel):
                 
                 box_row = box.row(align=True)
                 
-                preview_op = box_row.operator(DME_OT_PreviewFlexController.bl_idname, text="Preview (Reset)", icon='HIDE_OFF')
+                preview_op = box_row.operator(SMD_OT_PreviewFlexController.bl_idname, text="Preview (Reset)", icon='HIDE_OFF')
                 preview_op.reset_others = True
 
-                preview_op = box_row.operator(DME_OT_PreviewFlexController.bl_idname, text="Preview (Additive)", icon='ADD')
+                preview_op = box_row.operator(SMD_OT_PreviewFlexController.bl_idname, text="Preview (Additive)", icon='ADD')
                 preview_op.reset_others = False
                 
                 box_row.operator("object.shape_key_clear", icon='X', text="")
             
             second_col = row.column(align=True)
-            second_col.operator(DME_OT_AddFlexController.bl_idname, icon='ADD',text='')
-            second_col.operator(DME_OT_RemoveFlexController.bl_idname, icon='REMOVE',text='')   
-            second_col.prop(active_object.vs, 'sync_active_shapekey_to_dme', icon='UV_SYNC_SELECT',text='')   
+            second_col.operator(SMD_OT_AddFlexController.bl_idname, icon='ADD',text='')
+            second_col.operator(SMD_OT_RemoveFlexController.bl_idname, icon='REMOVE',text='')   
             
             second_col.separator()
             
             second_col.alert = True
-            second_col.operator(DME_OT_ClearFlexControllers.bl_idname, icon='TRASH',text='')   
+            second_col.operator(SMD_OT_ClearFlexControllers.bl_idname, icon='TRASH',text='')   
             
             insertStereoSplitUi(col)
             
@@ -549,11 +596,25 @@ class KITSUNE_PT_vertex_animations(KITSUNE_SecondaryPanel, Panel):
 
 class KITSUNE_PT_material_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Material Properties'
-    bl_parent_id = 'KITSUNE_PT_active_object_properties'
+    bl_parent_id = 'KITSUNE_PT_object_properties'
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         layout = self.layout
+
+        active_object = context.object
+        
+        if is_mesh(active_object):
+            active_material = active_object.active_material
+
+            if active_material is not None:
+                self.bl_label = 'Material Properties ({})'.format(active_material.name)
+            else:
+                self.bl_label = 'Material Properties'
+        else:
+            self.bl_label = 'Material Properties'
+
+
         layout.label(text='', icon='MATERIAL_DATA')
         
     def draw(self, context):
@@ -590,11 +651,19 @@ class KITSUNE_PT_material_properties(KITSUNE_SecondaryPanel, Panel):
 
 class KITSUNE_PT_empty_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Empty Properties'
-    bl_parent_id = 'KITSUNE_PT_active_object_properties'
+    bl_parent_id = 'KITSUNE_PT_object_properties'
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         layout = self.layout
+
+        active_object = context.object
+
+        if is_empty(active_object):
+            self.bl_label = 'Empty Properties ({})'.format(active_object.name)       
+        else:
+            self.bl_label = 'Empty Properties'
+
         layout.label(text='', icon='EMPTY_DATA')
         
     def draw(self, context):
@@ -619,11 +688,19 @@ class KITSUNE_PT_empty_properties(KITSUNE_SecondaryPanel, Panel):
 
 class KITSUNE_PT_curve_properties(KITSUNE_SecondaryPanel, Panel):
     bl_label = 'Curve Properties'
-    bl_parent_id = 'KITSUNE_PT_active_object_properties'
+    bl_parent_id = 'KITSUNE_PT_object_properties'
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw_header(self, context):
         layout = self.layout
+
+        active_object = context.object
+
+        if is_curve(active_object):
+            self.bl_label = 'Curve Properties ({})'.format(active_object.name)       
+        else:
+            self.bl_label = 'Curve Properties'
+
         layout.label(text='', icon='CURVE_DATA')
         
     def draw(self, context):
@@ -642,40 +719,12 @@ class KITSUNE_PT_curve_properties(KITSUNE_SecondaryPanel, Panel):
         done.add(context.object.data)
 
    
-class DME_UL_FlexControllers(UIList):
+class SMD_UL_FlexControllers(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:
         
         ob : Object | None = context.object
         
-        has_duplicate_shapekey = False
-        shapekey_count = sum(1 for fc in ob.vs.dme_flexcontrollers if fc.shapekey == item.shapekey)
-        has_duplicate_shapekey = shapekey_count > 1
-        
         valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
-        
-        used_names = {}
-        has_duplicate_raw = False
-        actual_export_name = None
-        
-        for fc in ob.vs.dme_flexcontrollers:
-            if fc.shapekey not in valid_keys:
-                continue
-            
-            raw_delta = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
-            
-            if fc == item:
-                if raw_delta in used_names:
-                    has_duplicate_raw = True
-                    base_name = raw_delta
-                    counter = used_names[raw_delta]
-                    actual_export_name = f"{base_name}.{counter:03d}"
-                else:
-                    actual_export_name = raw_delta
-            
-            if raw_delta in used_names:
-                used_names[raw_delta] += 1
-            else:
-                used_names[raw_delta] = 1
         
         invalid_shapekey = item.shapekey is None or item.shapekey not in ob.data.shape_keys.key_blocks
         
@@ -684,28 +733,33 @@ class DME_UL_FlexControllers(UIList):
             if item.shapekey == ob.data.shape_keys.key_blocks[0].name:
                 is_basis = True
 
+        controller_name = item.controller_name.strip() if item.controller_name and item.controller_name.strip() else item.shapekey if item.shapekey else "Null Flexcontroller"
+        
+        has_duplicate_controller = sum(1 for fc in ob.vs.dme_flexcontrollers 
+                                       if (fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else fc.shapekey) == controller_name) > 1
+
         split = layout.split(factor=0.6, align=True)
         
         name_row = split.row(align=True)
-        if has_duplicate_shapekey or not item.shapekey or is_basis:
+        if has_duplicate_controller or not item.shapekey or is_basis:
             name_row.alert = True
-        name_row.label(text=item.shapekey if item.shapekey else "Null Flexcontroller", icon='SHAPEKEY_DATA')
+
+        name_row.label(text=controller_name, icon='SHAPEKEY_DATA')
         
         info_row = split.row(align=True)
         info_row.alignment = 'RIGHT'
         
         if len(item.raw_delta_name.strip()) > 0 and item.shapekey in ob.data.shape_keys.key_blocks:
-            if has_duplicate_raw:
-                info_row.alert = True
-            info_row.label(text=actual_export_name if actual_export_name else item.raw_delta_name)
+            info_row.label(text=item.raw_delta_name)
             
         if item.stereo:
                 info_row.label(text="", icon='MOD_MIRROR')
                 
         if item.eyelid:
                 info_row.label(text="", icon='HIDE_OFF')
-                
-class DME_OT_AddFlexController(Operator):
+
+
+class SMD_OT_AddFlexController(Operator):
     bl_idname : str = "dme.add_flexcontroller"
     bl_label : str = "Add Flex Controller"
     bl_options : set = {'INTERNAL', 'UNDO'}  
@@ -718,14 +772,15 @@ class DME_OT_AddFlexController(Operator):
         
         if hasattr(ob.data, 'shape_keys') and ob.active_shape_key_index is not None and ob.active_shape_key_index > 0:
             new_item.shapekey = ob.data.shape_keys.key_blocks[ob.active_shape_key_index].name
-            new_item.raw_delta_name = new_item.shapekey.replace("_", "")
+            new_item.raw_delta_name = new_item.shapekey
         else:
             new_item.shapekey = ""
         
         return {'FINISHED'}
 
-class DME_OT_RemoveFlexController(Operator):
-    bl_idname : str = "dme.remove_flexcontroller"
+
+class SMD_OT_RemoveFlexController(Operator):
+    bl_idname : str = "smd.remove_flexcontroller"
     bl_label : str = "Remove Flex Controller"
     bl_options : set = {'INTERNAL', 'UNDO'}
     
@@ -739,7 +794,8 @@ class DME_OT_RemoveFlexController(Operator):
                                                  len(context.object.vs.dme_flexcontrollers) - 1)
         return {'FINISHED'}
 
-class DME_OT_PreviewFlexController(Operator):
+
+class SMD_OT_PreviewFlexController(Operator):
     bl_idname: str = "dme.preview_flexcontroller"
     bl_label: str = "Preview Flex Controller"
     bl_options: set = {'INTERNAL', 'UNDO'}
@@ -777,7 +833,8 @@ class DME_OT_PreviewFlexController(Operator):
         
         return {'FINISHED'}
 
-class DME_OT_ClearFlexControllers(Operator):
+
+class SMD_OT_ClearFlexControllers(Operator):
     bl_idname: str = "dme.clear_flexcontrollers"
     bl_label: str = "Clear All Flex Controllers"
     bl_options: set = {'INTERNAL', 'UNDO'}
@@ -794,6 +851,7 @@ class DME_OT_ClearFlexControllers(Operator):
         context.object.vs.dme_flexcontrollers_index = 0
         return {'FINISHED'}
 
+
 class SMD_OT_AddVertexMapRemap(Operator):
     bl_idname : str = "smd.add_vertex_map_remap"
     bl_label : str = "Apply Remap Range"
@@ -809,6 +867,7 @@ class SMD_OT_AddVertexMapRemap(Operator):
             group.max = 1.0
         return {'FINISHED'}
 
+
 class SMD_UL_VertexAnimationItem(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         r = layout.row()
@@ -820,6 +879,7 @@ class SMD_UL_VertexAnimationItem(bpy.types.UIList):
         r.prop(item,"start",text="")
         r.prop(item,"end",text="")
         r.prop(item,"export_sequence",text="",icon='ACTION')
+
 
 class SMD_OT_AddVertexAnimation(bpy.types.Operator):
     bl_idname = "smd.vertexanim_add"
@@ -834,6 +894,7 @@ class SMD_OT_AddVertexAnimation(bpy.types.Operator):
         item.vs.vertex_animations.add()
         item.vs.active_vertex_animation = len(item.vs.vertex_animations) - 1
         return {'FINISHED'}
+
 
 class SMD_OT_RemoveVertexAnimation(bpy.types.Operator):
     bl_idname = "smd.vertexanim_remove"
@@ -852,7 +913,8 @@ class SMD_OT_RemoveVertexAnimation(bpy.types.Operator):
                 0, min(self.vertexindex, len(item.vs.vertex_animations) - 1)
             )
         return {'FINISHED'}
-        
+
+
 class SMD_OT_PreviewVertexAnimation(bpy.types.Operator):
     bl_idname = "smd.vertexanim_preview"
     bl_label = get_id("vca_preview")
@@ -881,6 +943,7 @@ class SMD_OT_PreviewVertexAnimation(bpy.types.Operator):
         bpy.ops.screen.animation_play()
 
         return {'FINISHED'}
+
 
 class SMD_OT_GenerateVertexAnimationQCSnippet(bpy.types.Operator):
     bl_idname = "smd.vertexanim_generate_qc"
