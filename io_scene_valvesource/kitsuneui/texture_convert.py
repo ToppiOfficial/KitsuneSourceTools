@@ -2,7 +2,7 @@ import bpy
 from bpy.types import UIList, Operator, Context, UILayout
 from bpy.props import IntProperty
 
-from .common import KITSUNE_PT_ToolsPanel, ShowConsole
+from .common import KITSUNE_PT_ToolSubPanel, ShowConsole
 from ..kitsunetools.commonutils import draw_title_box_layout
 from ..kitsunetools.shader_maps_conversion.conversion_strategies import Texture_Convert
 
@@ -147,7 +147,7 @@ class TEXTURECONVERSION_OT_ConvertAllItems(Operator, ShowConsole):
         bpy.ops.textureconvert.process_item('EXEC_DEFAULT', process_all=True)
         return {'FINISHED'}
 
-class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolsPanel):
+class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolSubPanel):
     bl_label = 'Texture Conversion'
     
     def draw(self, context : Context) -> None:

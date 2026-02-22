@@ -4,10 +4,10 @@ from bpy.props import BoolProperty
 
 from ..kitsunetools.commonutils import draw_wrapped_texts, draw_title_box_layout
 from ..kitsunetools.objectutils import apply_object_transforms
-from .common import KITSUNE_PT_ToolsPanel
+from .common import KITSUNE_PT_ToolSubPanel
 
-class OBJECT_PT_ObjectData_Panel(KITSUNE_PT_ToolsPanel):
-    bl_label : str = "Object Tools"
+class OBJECT_PT_ObjectData_Panel(KITSUNE_PT_ToolSubPanel):
+    bl_label = "Object Tools"
     
     def draw(self, context : Context) -> None:
         layout : UILayout = self.layout
@@ -23,10 +23,10 @@ class OBJECT_PT_ObjectData_Panel(KITSUNE_PT_ToolsPanel):
         transformbox.operator(OBJECT_OT_Apply_Transform.bl_idname)
         
 class OBJECT_OT_Apply_Transform(Operator):
-    bl_idname : str = "objectdata.apply_transform"
-    bl_label : str = "Apply Transform"
-    bl_description : str = "Apply transforms to object and optionally its children"
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = "objectdata.apply_transform"
+    bl_label = "Apply Transform"
+    bl_description = "Apply transforms to object and optionally its children"
+    bl_options = {'REGISTER', 'UNDO'}
     
     location: BoolProperty(
         name="Location",

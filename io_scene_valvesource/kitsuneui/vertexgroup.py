@@ -1,9 +1,8 @@
 import bpy, bmesh
 from bpy.props import FloatProperty, BoolProperty, StringProperty
 from bpy.types import UILayout, Context, Object, Operator, PoseBone
-from typing import Set
 
-from .common import KITSUNE_PT_ToolsPanel
+from .common import KITSUNE_PT_ToolSubPanel
 from ..kitsunetools.commonutils import (
     draw_title_box_layout, draw_wrapped_texts,
     is_armature, is_mesh, get_armature, get_armature_meshes,
@@ -15,8 +14,8 @@ from ..utils import get_id
 
 from .bone import TOOLS_OT_SubdivideBone
 
-class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolsPanel):
-    bl_label : str = "Vertex Group Tools"
+class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolSubPanel):
+    bl_label = "Vertex Group Tools"
     
     def draw(self, context : Context) -> None:
         layout = self.layout
@@ -24,7 +23,7 @@ class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolsPanel):
         
         vgroup_mode = False
         
-        ob : Object | None = context.object
+        ob  = context.active_object
         if (is_mesh(ob) and ob.mode == 'WEIGHT_PAINT') or (is_armature(ob) and ob.mode == 'POSE'): vgroup_mode = True
         else:
             draw_wrapped_texts(bx,get_id("panel_select_mesh_vgroup"),max_chars=40 , icon='HELP')
@@ -49,7 +48,7 @@ class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolsPanel):
             col.operator(TOOLS_OT_SwapVertexGroups.bl_idname,icon='AREA_SWAP')
             col.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label + " (Weights Only)").weights_only = True
             
-            if context.object.mode == 'WEIGHT_PAINT':
+            if context.active_object.mode == 'WEIGHT_PAINT':
                 col = bx.column(align=True)
                 tool_settings = context.tool_settings
                 brush = tool_settings.weight_paint.brush
@@ -72,9 +71,9 @@ class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolsPanel):
 
 
 class TOOLS_OT_WeightMath(Operator):
-    bl_idname : str = "kitsunetools.weight_math"
-    bl_label : str = "Weight Math"
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = "kitsunetools.weight_math"
+    bl_label = "Weight Math"
+    bl_options = {'REGISTER', 'UNDO'}
 
     operation: bpy.props.EnumProperty(
         name="Operation",
@@ -96,9 +95,9 @@ class TOOLS_OT_WeightMath(Operator):
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         
-        arm = get_armature(context.object)
+        arm = get_armature(context.active_object)
         meshes = get_armature_meshes(arm, visible_only=getattr(context.scene.vs, 'visible_mesh_only', False))
         
         if not meshes:
@@ -160,12 +159,12 @@ class TOOLS_OT_WeightMath(Operator):
 
 
 class TOOLS_OT_SwapVertexGroups(Operator):
-    bl_idname : str = 'kitsunetools.swap_vertex_group'
-    bl_label : str = 'Swap Vertex Group'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.swap_vertex_group'
+    bl_label = 'Swap Vertex Group'
+    bl_options = {'REGISTER', 'UNDO'}
     
-    def execute(self,context : Context) -> Set:
-        arm = get_armature(context.object)
+    def execute(self,context : Context) -> set:
+        arm = get_armature(context.active_object)
         currBone = arm.data.bones.active
         bones = get_selected_bones(arm, sort_type=None, exclude_active= True)
         
@@ -218,9 +217,9 @@ class TOOLS_OT_SwapVertexGroups(Operator):
     
 
 class TOOLS_OT_curve_ramp_weights(Operator):
-    bl_idname : str = 'kitsunetools.curve_ramp_weights'
-    bl_label : str = 'Curve Ramp Bone Weights'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.curve_ramp_weights'
+    bl_label = 'Curve Ramp Bone Weights'
+    bl_options = {'REGISTER', 'UNDO'}
     
     min_weight_mask: FloatProperty(name="Min Weight Mask", default=0.001, min=0.001, max=0.9, precision=4)
     max_weight_mask: FloatProperty(name="Max Weight Mask", default=1.0, min=0.01, max=1.0, precision=4)
@@ -255,7 +254,7 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         col.separator()
         col.label(text="Target Vertex Group:")
         
-        armature = get_armature(context.object)
+        armature = get_armature(context.active_object)
         if armature:
             col.prop_search(
                 self,
@@ -268,7 +267,7 @@ class TOOLS_OT_curve_ramp_weights(Operator):
             col.prop_search(
                 self,
                 "vertex_group_target",
-                context.object,
+                context.active_object,
                 "vertex_groups",
                 text=""
             )
@@ -287,8 +286,8 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         row.operator("brush.curve_preset", icon='LINCURVE', text="").shape = 'LINE'
         row.operator("brush.curve_preset", icon='NOCURVE', text="").shape = 'MAX'
     
-    def execute(self, context : Context) -> Set:
-        arm_obj = get_armature(context.object)
+    def execute(self, context : Context) -> set:
+        arm_obj = get_armature(context.active_object)
             
         if arm_obj is None:
             return {'CANCELLED'}
@@ -296,7 +295,7 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         if arm_obj.select_get():
             selected_bones : list[PoseBone | None] = get_selected_bones(arm_obj, bone_type='POSEBONE', sort_type='TO_FIRST') # type: ignore
         else:
-            selected_bones : list[PoseBone | None] = [arm_obj.pose.bones.get(context.object.vertex_groups.active.name)]
+            selected_bones : list[PoseBone | None] = [arm_obj.pose.bones.get(context.active_object.vertex_groups.active.name)]
             
         if not selected_bones:
             self.report({'ERROR'}, "No bones selected.")
@@ -306,7 +305,7 @@ class TOOLS_OT_curve_ramp_weights(Operator):
         arm_obj.data.pose_position = 'REST'
         bpy.context.view_layer.update()
         
-        with preserve_context_mode(context.object,'WEIGHT_PAINT'), preserve_armature_state(arm_obj):
+        with preserve_context_mode(context.active_object,'WEIGHT_PAINT'), preserve_armature_state(arm_obj):
             for bone in selected_bones:
                 target_vg = self.vertex_group_target if self.vertex_group_target else None
                 curve = context.tool_settings.weight_paint.brush.curve

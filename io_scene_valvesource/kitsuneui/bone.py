@@ -1,7 +1,6 @@
 import bpy, math
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
 from bpy.types import Context, Operator, Object, Event
-from typing import Set
 from mathutils import Vector
 
 from ..kitsunetools.commonutils import(
@@ -14,16 +13,16 @@ from ..kitsunetools.armatureutils import(
 )
 
 from ..utils import get_id
-from .common import KITSUNE_PT_ToolsPanel
+from .common import KITSUNE_PT_ToolSubPanel
 
-class TOOLS_PT_Bone(KITSUNE_PT_ToolsPanel):
-    bl_label: str = "Bone Tools"
+class TOOLS_PT_Bone(KITSUNE_PT_ToolSubPanel):
+    bl_label= "Bone Tools"
 
     def draw(self, context: Context) -> None:
         layout = self.layout
         bx = layout.box()
         
-        armature = get_armature(context.object)
+        armature = get_armature(context.active_object)
         
         if not (is_armature(armature) or is_mesh(armature)):
             draw_wrapped_texts(bx, get_id("panel_select_armature"), max_chars=40, icon='HELP')
@@ -87,9 +86,9 @@ class TOOLS_PT_Bone(KITSUNE_PT_ToolsPanel):
         mod_box.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname, icon='SPLIT_VERTICAL')
         
 class TOOLS_OT_CopyTargetRotation(Operator):
-    bl_idname : str = "kitsunetools.copy_target_bone_rotation"
-    bl_label : str = "Copy Parent/Active Rotation"
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = "kitsunetools.copy_target_bone_rotation"
+    bl_label = "Copy Parent/Active Rotation"
+    bl_options = {'REGISTER', 'UNDO'}
 
     copy_source: EnumProperty(
         name="Copy From",
@@ -139,60 +138,80 @@ class TOOLS_OT_CopyTargetRotation(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return bool((is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
+        return bool((is_armature(context.active_object) or is_mesh(context.active_object)) and context.active_object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         error = 0
-        with preserve_context_mode(context.object, 'OBJECT'):
+        with preserve_context_mode(context.active_object, 'OBJECT'):
             bones = {}
             for ob in context.selected_objects:
                 if not ob.visible_get() or ob.type != 'ARMATURE': continue
                 for b in get_selected_bones(ob, sort_type='TO_FIRST', bone_type='BONE'):
                     bones[b.name] = ob
 
+            reference_edit_bone = None
+            if self.copy_source == 'ACTIVE':
+                active_arm = context.active_object
+                if active_arm and active_arm.type == 'ARMATURE':
+                    bpy.context.view_layer.objects.active = active_arm
+                    bpy.ops.object.mode_set(mode='EDIT')
+                    active_bone = context.active_bone
+                    if active_bone:
+                        reference_edit_bone = {
+                            'head': active_arm.matrix_world @ active_bone.head.copy(),
+                            'tail': active_arm.matrix_world @ active_bone.tail.copy(),
+                            'roll': active_bone.roll,
+                            'length': active_bone.length,
+                        }
+
             for bone_name, armature in bones.items():
                 try:
                     bpy.context.view_layer.objects.active = armature
                     bpy.ops.object.mode_set(mode='EDIT')
-                    active_bone = context.active_bone
-                    
-                    editbone = armature.data.edit_bones.get(bone_name)
-                    if self.copy_source == 'PARENT':
-                        reference_bone = editbone.parent
-                    else: 
-                        reference_bone = active_bone if active_bone else None
 
-                    if not reference_bone:
-                        continue
+                    editbone = armature.data.edit_bones.get(bone_name)
+
+                    if self.copy_source == 'PARENT':
+                        ref = editbone.parent
+                        if not ref:
+                            continue
+                        ref_data = {
+                            'head': armature.matrix_world @ ref.head.copy(),
+                            'tail': armature.matrix_world @ ref.tail.copy(),
+                            'roll': ref.roll,
+                            'length': ref.length,
+                        }
+                    else:
+                        if not reference_edit_bone:
+                            continue
+                        ref_data = reference_edit_bone
 
                     editbone.use_connect = False
 
-                    ref_head_world = armature.matrix_world @ reference_bone.head
-                    ref_tail_world = armature.matrix_world @ reference_bone.tail
-
+                    ref_head_world = ref_data['head']
+                    ref_tail_world = ref_data['tail']
                     ref_direction = (ref_tail_world - ref_head_world).normalized()
 
                     original_head_world = armature.matrix_world @ editbone.head
-                    new_head_local = armature.matrix_world.inverted() @ original_head_world
-                    editbone.head = new_head_local
+                    editbone.head = armature.matrix_world.inverted() @ original_head_world
 
                     original_length = (editbone.tail - editbone.head).length
                     current_direction = (editbone.tail - editbone.head).normalized()
 
                     if 'X' not in self.include_axes:
-                        ref_direction.x = current_direction.x 
+                        ref_direction.x = current_direction.x
                     if 'Y' not in self.include_axes:
-                        ref_direction.y = current_direction.y 
+                        ref_direction.y = current_direction.y
                     if 'Z' not in self.include_axes:
-                        ref_direction.z = current_direction.z 
+                        ref_direction.z = current_direction.z
 
                     ref_direction.normalize()
                     editbone.tail = editbone.head + (ref_direction * original_length)
 
                     if self.include_roll:
-                        editbone.roll = reference_bone.roll
+                        editbone.roll = ref_data['roll']
                     if self.include_scale:
-                        editbone.length = reference_bone.length
+                        editbone.length = ref_data['length']
 
                 except Exception as e:
                     self.report({'ERROR'}, f'Failed to re-orient bone: {e}')
@@ -207,9 +226,9 @@ class TOOLS_OT_CopyTargetRotation(Operator):
         return {"FINISHED"}
 
 class TOOLS_OT_ReAlignBones(Operator):
-    bl_idname : str = 'kitsunetools.realign_bone'
-    bl_label : str = 'ReAlign Bones'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.realign_bone'
+    bl_label = 'ReAlign Bones'
+    bl_options = {'REGISTER', 'UNDO'}
     
     alignment_mode: EnumProperty(
         name="Alignment Mode",
@@ -241,7 +260,7 @@ class TOOLS_OT_ReAlignBones(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return bool((is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
+        return bool((is_armature(context.active_object) or is_mesh(context.active_object)) and context.active_object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
         
     def draw(self, context : Context) -> None:
         layout = self.layout
@@ -291,8 +310,8 @@ class TOOLS_OT_ReAlignBones(Operator):
                 else:
                     bone.roll = original_bone_roll
 
-    def execute(self, context : Context) -> Set:
-        armature = get_armature(context.object)
+    def execute(self, context : Context) -> set:
+        armature = get_armature(context.active_object)
 
         if not armature:
             self.report({'WARNING'}, "No armature selected")
@@ -320,9 +339,9 @@ class TOOLS_OT_ReAlignBones(Operator):
         return context.window_manager.invoke_props_dialog(self)
     
 class TOOLS_OT_SubdivideBone(Operator):
-    bl_idname : str = 'kitsunetools.subdivide_bone'
-    bl_label : str = 'Subdivide Bone'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.subdivide_bone'
+    bl_label = 'Subdivide Bone'
+    bl_options = {'REGISTER', 'UNDO'}
     
     subdivisions: IntProperty(
         name='Subdivisions', 
@@ -362,15 +381,15 @@ class TOOLS_OT_SubdivideBone(Operator):
     
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return bool((is_armature(context.object) or is_mesh(context.object)) and context.object.mode in ["EDIT", "POSE", "WEIGHT_PAINT"])
+        return bool((is_armature(context.active_object) or is_mesh(context.active_object)) and context.active_object.mode in ["EDIT", "POSE", "WEIGHT_PAINT"])
     
-    def invoke(self, context : Context, event : Event) -> Set:
-        ob : Object | None = context.object
+    def invoke(self, context : Context, event : Event) -> set:
+        ob  = context.active_object
         if ob.mode in ['POSE', 'WEIGHT_PAINT']:
-            if any([b for b in get_armature(context.object).data.bones if b.select]):
+            if any([b for b in get_armature(context.active_object).data.bones if b.select]):
                 return context.window_manager.invoke_props_dialog(self)
         elif ob.mode == 'EDIT':
-            if any([b for b in get_armature(context.object).data.edit_bones if b.select]):
+            if any([b for b in get_armature(context.active_object).data.edit_bones if b.select]):
                 return context.window_manager.invoke_props_dialog(self)
         return {'CANCELLED'}
 
@@ -398,12 +417,12 @@ class TOOLS_OT_SubdivideBone(Operator):
             col = layout.column(align=True)
             col.prop(self, 'skip_original_bone')
 
-    def execute(self, context : Context) -> Set:
-        arm = get_armature(context.object)
+    def execute(self, context : Context) -> set:
+        arm = get_armature(context.active_object)
         
         if arm is None: return {'CANCELLED'}
         
-        with preserve_context_mode(context.object, 'OBJECT'):
+        with preserve_context_mode(context.active_object, 'OBJECT'):
             context.view_layer.objects.active = arm
             
             bones = get_selected_bones(arm, bone_type='POSEBONE')
@@ -420,9 +439,9 @@ class TOOLS_OT_SubdivideBone(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_MergeBones(Operator):
-    bl_idname: str = 'kitsunetools.merge_bones'
-    bl_label: str = 'Merge Bones'
-    bl_options: Set = {'REGISTER', 'UNDO'}
+    bl_idname= 'kitsunetools.merge_bones'
+    bl_label= 'Merge Bones'
+    bl_options = {'REGISTER', 'UNDO'}
     
     mode: EnumProperty(items=[
         ('TO_PARENT', 'To Parent', ''),
@@ -431,7 +450,7 @@ class TOOLS_OT_MergeBones(Operator):
     
     @classmethod
     def poll(cls, context: Context) -> bool:
-        ob: Object | None = context.object
+        ob = context.active_object
         arm = ob if is_armature(ob) else get_armature(ob) if is_mesh(ob) else None
         
         if arm is None or arm.mode not in ['WEIGHT_PAINT', 'POSE', 'EDIT']:
@@ -440,9 +459,9 @@ class TOOLS_OT_MergeBones(Operator):
         bones = (arm.data.edit_bones if arm.mode == 'EDIT' else arm.data.bones)
         return any(b.select and not b.hide for b in bones)
     
-    def execute(self, context: Context) -> Set:
+    def execute(self, context: Context) -> set:
         if context.mode == 'PAINT_WEIGHT':
-            armatures = {get_armature(context.object)}
+            armatures = {get_armature(context.active_object)}
         else:
             armatures = {get_armature(ob) for ob in context.selected_objects if get_armature(ob)}
             
@@ -529,94 +548,19 @@ class TOOLS_OT_MergeBones(Operator):
         )
         
         return bones_to_remove, vgroups_processed
-    
-class TOOLS_OT_AssignBoneRotExportOffset(Operator):
-    bl_idname : str = 'kitsunetools.assign_bone_rot_export_offset'
-    bl_label : str = 'Assign Bone Target Forward'
-    bl_options: Set = {'REGISTER', 'UNDO'}
-    bl_description = "Target Bone Forward: Sets the bone's forward direction for export. Blender bones use Y-forward by default in edit mode (check with 'normal' gizmo). This property specifies which axis will be forward in the target engine/application. Example: Setting 'X-forward' rotates the bone +90° around Z on export, converting Y-forward → X-forward. Rotation order on export: Z→Y→X (translation: X→Y→Z)"
-    
-    export_rot_target : EnumProperty(
-        name='Rotation Target',
-        description="Target Bone Forward (Assuming the bone is currently on Blender's Y-forward format)",
-        items=[
-            ('X', '+X', ''),
-            ('Y', '+Y', ''),
-            ('Z', '+Z', ''),
-            ('X_INVERT', '-X', ''),
-            ('Y_INVERT', '-Y', ''),
-            ('Z_INVERT', '-Z', ''),
-        ], default='X'
-    )
-    
-    only_active_bone : BoolProperty(
-        name='Only Active Bone',
-        default=False
-    )
-    
-    @classmethod
-    def poll(cls, context : Context) -> bool:
-        if not is_armature(context.object): return False
-        return bool(context.mode not in ['EDIT', 'EDIT_ARMATURE'])
-    
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=300)
-    
-    def draw(self, context):
-        layout = self.layout
-        layout.label(text='Y to...')
-        row = layout.row(align=True)
-        row.prop(self,'export_rot_target',expand=True)
-    
-    def execute(self, context : Context) -> set:
-        selected_bones = None
-        
-        if self.only_active_bone:
-            selected_bones = [context.object.data.bones.active]
-        else:
-            selected_bones = get_selected_bones(context.object, bone_type='BONE')
-            
-        if not selected_bones: 
-            self.report({'ERROR'}, 'No active or selected bones')
-            return {'CANCELLED'}
-        
-        for bone in selected_bones:
-            vsprops = bone.vs
-            
-            if vsprops:
-                
-                setattr(bone.vs,'export_rotation_offset_x',0)
-                setattr(bone.vs,'export_rotation_offset_y',0)
-                setattr(bone.vs,'export_rotation_offset_z',0)
-                
-                match self.export_rot_target:
-                    case 'X':
-                        setattr(bone.vs,'export_rotation_offset_z',math.radians(90))
-                    case 'Z':
-                        setattr(bone.vs,'export_rotation_offset_x',math.radians(-90))
-                    case 'X_INVERT':
-                        setattr(bone.vs,'export_rotation_offset_z',math.radians(-90))
-                    case 'Y_INVERT':
-                        setattr(bone.vs,'export_rotation_offset_y',math.radians(180))
-                    case 'Z_INVERT':
-                        setattr(bone.vs,'export_rotation_offset_x',math.radians(-90))
-                    case _:
-                        pass
-                    
-        return {'FINISHED'}
   
 class TOOLS_OT_FlipBone(Operator):
-    bl_idname: str = 'kitsunetools.flip_bone'
-    bl_label: str = 'Flip Bone'
-    bl_options: Set = {'REGISTER', 'UNDO'}
-    bl_description: str = 'Flip the selected bone(s) by swapping their head and tail positions'
+    bl_idname= 'kitsunetools.flip_bone'
+    bl_label= 'Flip Bone'
+    bl_options: set = {'REGISTER', 'UNDO'}
+    bl_description= 'Flip the selected bone(s) by swapping their head and tail positions'
     
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool(context.mode in {'POSE', 'EDIT_ARMATURE'})
     
     def execute(self, context : Context) -> set:
-        armature = context.object
+        armature = context.active_object
         flipped_count = 0
         
         with preserve_context_mode(armature, 'EDIT'):
@@ -637,9 +581,9 @@ class TOOLS_OT_FlipBone(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_CreateCenterBone(Operator):
-    bl_idname: str = 'kitsunetools.create_centerbone'
-    bl_label: str = 'Create Center Bone'
-    bl_options: Set = {'REGISTER', 'UNDO'}
+    bl_idname= 'kitsunetools.create_centerbone'
+    bl_label= 'Create Center Bone'
+    bl_options: set = {'REGISTER', 'UNDO'}
     
     parent_choice: EnumProperty(
         name="Parent Bone",
@@ -684,7 +628,7 @@ class TOOLS_OT_CreateCenterBone(Operator):
         return bool(context.mode in {'POSE', 'EDIT_ARMATURE'})
     
     def invoke(self, context: Context, event : Event) -> set:
-        armature = get_armature(context.object)
+        armature = get_armature(context.active_object)
         
         if context.mode == 'EDIT_ARMATURE':
             selected_bones = [b for b in armature.data.edit_bones if b.select]
@@ -783,7 +727,7 @@ class TOOLS_OT_CreateCenterBone(Operator):
         return None
     
     def execute(self, context : Context) -> set:
-        armature = get_armature(context.object)
+        armature = get_armature(context.active_object)
         
         with preserve_context_mode(armature, 'EDIT') as edit_bones:
             selected_bones = get_selected_bones(armature, bone_type='EDITBONE')
@@ -844,9 +788,9 @@ class TOOLS_OT_CreateCenterBone(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_SplitActiveWeightLinear(Operator):
-    bl_idname : str = 'kitsunetools.split_active_weights_linear'
-    bl_label : str = 'Split Active Weights Linearly'
-    bl_options : Set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.split_active_weights_linear'
+    bl_label = 'Split Active Weights Linearly'
+    bl_options = {'REGISTER', 'UNDO'}
 
     smoothness: FloatProperty(
         name="Smoothness",
@@ -857,7 +801,7 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        ob : Object | None = context.object
+        ob  = context.active_object
         if ob is None: return False
         if ob.mode not in ['WEIGHT_PAINT', 'POSE']: return False
         
@@ -888,8 +832,8 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
             return 0.0
         return self.clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
 
-    def execute(self, context : Context) -> Set:
-        arm = get_armature(context.object)
+    def execute(self, context : Context) -> set:
+        arm = get_armature(context.active_object)
         
         bones = get_selected_bones(arm,sort_type=None,bone_type='BONE',exclude_active=True)
         active_bone = arm.data.bones.active
@@ -971,9 +915,9 @@ class TOOLS_OT_SplitActiveWeightLinear(Operator):
         return {'FINISHED'} 
     
 class TOOLS_OT_align_bone_to_axis(Operator):
-    bl_idname: str = 'kitsunetools.align_bone_to_axis'
-    bl_label: str = 'Align Bone to Axis'
-    bl_options: Set = {'REGISTER', 'UNDO'}
+    bl_idname= 'kitsunetools.align_bone_to_axis'
+    bl_label= 'Align Bone to Axis'
+    bl_options: set = {'REGISTER', 'UNDO'}
     
     axis: EnumProperty(name='Axis',
                         items=[
@@ -987,14 +931,14 @@ class TOOLS_OT_align_bone_to_axis(Operator):
     
     @classmethod
     def poll(cls, context: Context) -> bool:
-        return bool(is_armature(context.object) and context.object.mode in ['EDIT', 'POSE', 'WEIGHT_PAINT'])
+        return bool(is_armature(context.active_object) and context.active_object.mode in ['EDIT', 'POSE', 'WEIGHT_PAINT'])
     
     def draw(self, context):
         layout = self.layout
         #layout.prop(self, 'Axis', expand=True)
     
     def execute(self, context) -> set:
-        active_armature = get_armature(context.object)
+        active_armature = get_armature(context.active_object)
         with preserve_context_mode(active_armature, 'EDIT'):
             
             processed_bone = 0

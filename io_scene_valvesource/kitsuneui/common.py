@@ -1,21 +1,24 @@
 import bpy, sys, blf, gpu, traceback, time, io
-from typing import Literal, Set
 from bpy.types import Panel
 from gpu_extras.batch import batch_for_shader
-    
-class KITSUNE_SecondaryPanel():
-    bl_label : str = 'sample_toolpanel'
-    bl_category : str = 'KitsuneSrcTool'
-    bl_region_type : Literal[str] = 'UI'
-    bl_space_type : Literal[str] = 'VIEW_3D'
 
 class KITSUNE_PT_ToolsPanel(Panel):
-    "Sub panel for the sub panel 'TOOLS_PT_PANEL'"
-    bl_label : str = "Tools"
-    bl_category : str = 'KitsuneSrcTool'
-    bl_region_type : Literal[str] = 'UI'
-    bl_space_type : Literal[str] = 'VIEW_3D'
-    bl_options : Set = {'DEFAULT_CLOSED'}
+    bl_label = "Tools"
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    def draw(self, context):
+        layout = self.layout
+
+class KITSUNE_PT_ToolSubPanel(Panel):
+    bl_label = "Toolssub"
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_parent_id = 'KITSUNE_PT_ToolsPanel'
     
     def draw(self, context):
         layout = self.layout

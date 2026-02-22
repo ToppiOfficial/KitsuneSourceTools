@@ -1,15 +1,15 @@
 import bpy, math
-from .common import KITSUNE_SecondaryPanel
+from .common import KITSUNE_PT_ToolSubPanel
 from bpy.types import Context, Panel, UILayout, Operator
 
-from ..kitsunetools.commonutils import (
-    draw_title_box_layout, draw_wrapped_texts
+from ..kitsunetools.armatureutils import (
+    reevaluate_bone_parented_empty_matrix
 )
 
-class DEVELOPER_PT_PANEL(KITSUNE_SecondaryPanel, Panel):
-    bl_label : str = 'Developer Tools'
-    bl_order : int = 1000
-    bl_options : set = {'DEFAULT_CLOSED'}
+class DEVELOPER_PT_PANEL(KITSUNE_PT_ToolSubPanel, Panel):
+    bl_label = 'Developer Tools'
+    bl_order = 1000
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context : Context) -> None:
         layout = self.layout
@@ -20,12 +20,14 @@ class DEVELOPER_PT_PANEL(KITSUNE_SecondaryPanel, Panel):
         maincol.prop(context.scene.vs,"enable_gui_console")
         
         maincol.operator(DEVELOPER_OT_ImportLegacyData.bl_idname, icon='MOD_DATA_TRANSFER')
+        maincol.operator(SMD_OT_Fix_Hitboxes.bl_idname)
+        maincol.operator(SMD_OT_Fix_Attachments.bl_idname)
  
 class DEVELOPER_OT_ImportLegacyData(Operator):
-    bl_idname : str = "smd.importlegacydata"
-    bl_label : str = "Import FubukiTek Data"
-    bl_description : str = "Import all plugin properties of the name 'FubukiTek' of the current blend file to KitsuneSourceTool properties"
-    bl_options : set = {'REGISTER','UNDO'}
+    bl_idname = "smd.importlegacydata"
+    bl_label = "Import FubukiTek Data"
+    bl_description = "Import all plugin properties of the name 'FubukiTek' of the current blend file to KitsuneSourceTool properties"
+    bl_options = {'REGISTER','UNDO'}
 
     @classmethod
     def poll(cls, context : Context) -> bool:
@@ -170,4 +172,48 @@ class DEVELOPER_OT_ImportLegacyData(Operator):
                     vs_bone.jiggle_forward_constraint_max = abs(fb_bone.jigglebone.forward_constraint.max)
                     vs_bone.jiggle_forward_friction = fb_bone.jigglebone.forward_friction.val
 
+        return {'FINISHED'}
+    
+
+class SMD_OT_Fix_Hitboxes(Operator):
+    bl_idname= "smd.fix_hitboxes"
+    bl_label= "Fix Source Hitboxes Empties Matrix"
+    bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
+    bl_options: set = {'INTERNAL', 'UNDO'}
+    
+    def execute(self, context: Context) -> set:
+        def is_hitbox(obj):
+            return (obj.empty_display_type == 'CUBE' and 
+                    obj.vs.smd_hitbox_group)
+        
+        fixed_count = 0
+        fixed_count = reevaluate_bone_parented_empty_matrix(
+            filter_func=is_hitbox,
+            preserve_rotation=False
+        )
+        
+        self.report({'INFO'}, f'Fixed {fixed_count} hitbox(es)')
+        return {'FINISHED'}
+
+
+class SMD_OT_Fix_Attachments(Operator):
+    bl_idname= "smd.fix_attachments"
+    bl_label= "Fix Attachment Matrix"
+    bl_description = "Fixes the Location and Rotation offset due to Blender's weird occurence that the empty is still relative to the world rather than the bone's tip."
+    bl_options: set = {'INTERNAL', 'UNDO'}
+    
+    def execute(self, context: Context) -> set:
+        def is_attachment(obj):
+            return obj.vs.dmx_attachment
+        
+        fixed_count = reevaluate_bone_parented_empty_matrix(
+            filter_func=is_attachment,
+            preserve_rotation=True
+        )
+        
+        if fixed_count > 0:
+            self.report({'INFO'}, f'Fixed {fixed_count} attachment(s)')
+        else:
+            self.report({'INFO'}, 'No attachments needed fixing')
+        
         return {'FINISHED'}

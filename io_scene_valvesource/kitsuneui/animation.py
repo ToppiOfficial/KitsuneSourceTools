@@ -1,24 +1,25 @@
 
 import bpy
-from bpy.types import UILayout, Context, Object, Operator, Event
+from bpy.types import UILayout, Context, Operator, Event
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy_extras import anim_utils
 
-from .common import KITSUNE_PT_ToolsPanel
+from .common import KITSUNE_PT_ToolSubPanel
 from ..kitsunetools.commonutils import (
-    draw_title_box_layout, draw_wrapped_texts, is_armature,
-    sanitize_string
-)
+    draw_wrapped_texts, is_armature, sanitize_string
+    )
+from ..kitsunetools.armatureutils import copy_target_armature_visualpose
+from ..kitsunetools.boneutils import get_bone_exportname
 from ..utils import get_id
 
-class TOOLS_PT_Animation(KITSUNE_PT_ToolsPanel):
-    bl_label : str = "Animation Tools"
+class TOOLS_PT_Animation(KITSUNE_PT_ToolSubPanel):
+    bl_label = "Animation Tools"
     
     def draw(self, context : Context) -> None:
         layout = self.layout
         bx = layout.box()
         
-        ob : Object | None = context.object
+        ob  = context.active_object
         if is_armature(ob): pass
         else:
             draw_wrapped_texts(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
@@ -33,9 +34,9 @@ class TOOLS_PT_Animation(KITSUNE_PT_ToolsPanel):
         col.operator(TOOLS_OT_delete_action_slot.bl_idname, icon='TRASH')
         
 class TOOLS_OT_merge_animation_slots(Operator):
-    bl_idname : str = 'kitsunetools.merged_animations'
-    bl_label : str = 'Merge Slotted Animations'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.merged_animations'
+    bl_label = 'Merge Slotted Animations'
+    bl_options = {'REGISTER', 'UNDO'}
 
     action_1: StringProperty(
         name="First Action",
@@ -219,10 +220,10 @@ class TOOLS_OT_merge_animation_slots(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_convert_rotation_keyframes(Operator):
-    bl_idname : str = 'kitsunetools.convert_rotation_keyframes'
-    bl_label : str = 'Convert Rotation Keyframes'
-    bl_description : str = 'Convert rotation keyframes between Euler and Quaternion in an action slot'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.convert_rotation_keyframes'
+    bl_label = 'Convert Rotation Keyframes'
+    bl_description = 'Convert rotation keyframes between Euler and Quaternion in an action slot'
+    bl_options = {'REGISTER', 'UNDO'}
 
     action_name: StringProperty(
         name="Action",
@@ -370,9 +371,9 @@ class TOOLS_OT_convert_rotation_keyframes(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_merge_two_actions(Operator):
-    bl_idname : str = 'kitsunetools.merge_two_actions'
-    bl_label : str = 'Merge Two Actions'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.merge_two_actions'
+    bl_label = 'Merge Two Actions'
+    bl_options = {'REGISTER', 'UNDO'}
 
     action_1: StringProperty(
         name="First Action",
@@ -586,10 +587,10 @@ class TOOLS_OT_merge_two_actions(Operator):
                 target_fcurve.keyframe_points.insert(frame=frame, value=value, options={'FAST'})
                 
 class TOOLS_OT_delete_action_slot(Operator):
-    bl_idname : str = 'kitsunetools.delete_action_slot'
-    bl_label : str = 'Delete Action Slot'
-    bl_description : str = 'Delete a slot from the current object\'s action'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.delete_action_slot'
+    bl_label = 'Delete Action Slot'
+    bl_description = 'Delete a slot from the current object\'s action'
+    bl_options = {'REGISTER', 'UNDO'}
 
     slot_name: StringProperty(
         name="Slot to Delete",
@@ -598,13 +599,13 @@ class TOOLS_OT_delete_action_slot(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        obj = context.object
+        obj = context.active_object
         if not obj or not obj.animation_data or not obj.animation_data.action:
             return False
         return len(obj.animation_data.action.slots) > 0
 
     def invoke(self, context : Context, event : Event) -> set:
-        obj = context.object
+        obj = context.active_object
         action = obj.animation_data.action
         
         if action and action.slots:
@@ -614,7 +615,7 @@ class TOOLS_OT_delete_action_slot(Operator):
 
     def draw(self, context : Context) -> None:
         layout = self.layout
-        obj = context.object
+        obj = context.active_object
         action = obj.animation_data.action
         
         box = layout.box()
@@ -624,7 +625,7 @@ class TOOLS_OT_delete_action_slot(Operator):
         row.prop_search(self, "slot_name", action, "slots", text="Slot")
 
     def execute(self, context : Context) -> set:
-        obj = context.object
+        obj = context.active_object
         action = obj.animation_data.action
         
         if not action:
@@ -646,10 +647,10 @@ class TOOLS_OT_delete_action_slot(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_propagate_pose_offset(Operator):
-    bl_idname : str = 'kitsunetools.propagate_pose_offset'
-    bl_label : str = 'Propagate Pose Offset to Keyframes'
-    bl_description : str = 'Apply current pose offset to all keyframes in the action slot'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.propagate_pose_offset'
+    bl_label = 'Propagate Pose Offset to Keyframes'
+    bl_description = 'Apply current pose offset to all keyframes in the action slot'
+    bl_options = {'REGISTER', 'UNDO'}
 
     action_name: StringProperty(
         name="Action",
@@ -667,14 +668,14 @@ class TOOLS_OT_propagate_pose_offset(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        obj = context.object
+        obj = context.active_object
         return bool(obj and is_armature(obj) and 
                 context.selected_pose_bones and
                 obj.animation_data and 
                 obj.animation_data.action)
 
     def invoke(self, context : Context, event : Event) -> set:
-        obj = context.object
+        obj = context.active_object
         if obj.animation_data and obj.animation_data.action:
             action = obj.animation_data.action
             self.action_name = action.name
@@ -704,7 +705,7 @@ class TOOLS_OT_propagate_pose_offset(Operator):
     def execute(self, context : Context) -> set:
         from mathutils import Matrix, Vector, Euler, Quaternion
         
-        obj = context.object
+        obj = context.active_object
         current_frame = context.scene.frame_current
         
         action = bpy.data.actions.get(self.action_name)
@@ -845,10 +846,10 @@ class TOOLS_OT_propagate_pose_offset(Operator):
             return {'CANCELLED'}
         
 class TOOLS_OT_copy_bone_keyframes(Operator):
-    bl_idname : str = 'kitsunetools.copy_bone_keyframes'
-    bl_label : str = 'Copy Bone Keyframes'
-    bl_description : str = 'Copy keyframes from one bone to another (source bone name from action data)'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.copy_bone_keyframes'
+    bl_label = 'Copy Bone Keyframes'
+    bl_description = 'Copy keyframes from one bone to another (source bone name from action data)'
+    bl_options = {'REGISTER', 'UNDO'}
 
     action_name: StringProperty(
         name="Action",
@@ -885,7 +886,7 @@ class TOOLS_OT_copy_bone_keyframes(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        obj = context.object
+        obj = context.active_object
         if not (obj and is_armature(obj) and context.selected_pose_bones):
             return False
         if len(context.selected_pose_bones) != 1:
@@ -898,7 +899,7 @@ class TOOLS_OT_copy_bone_keyframes(Operator):
         return True
 
     def invoke(self, context : Context, event : Event) -> set:
-        obj = context.object
+        obj = context.active_object
         action = obj.animation_data.action
         
         self.action_name = action.name
@@ -913,7 +914,7 @@ class TOOLS_OT_copy_bone_keyframes(Operator):
     def draw(self, context : Context) -> None:
         layout = self.layout
         
-        obj = context.object
+        obj = context.active_object
         target_bone = context.selected_pose_bones[0]
         
         box = layout.box()
@@ -946,7 +947,7 @@ class TOOLS_OT_copy_bone_keyframes(Operator):
         info_box.label(text=f"Target: {target_bone.name}", icon='BONE_DATA')
 
     def execute(self, context : Context) -> set:
-        obj = context.object
+        obj = context.active_object
         target_bone = context.selected_pose_bones[0]
         
         if not self.source_bone_name:
@@ -1018,3 +1019,158 @@ class TOOLS_OT_copy_bone_keyframes(Operator):
         else:
             self.report({'WARNING'}, "No keyframes matched the selected copy options")
             return {'CANCELLED'}
+        
+class TOOLS_OT_Make_Proportion_Animation(Operator):
+    bl_idname = 'tools.create_proportion_actions'
+    bl_label = 'Create Delta Proportion Pose'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    ProportionName: StringProperty(name='Proportion Slot Name', default='proportion')
+    ReferenceName: StringProperty(name='Reference Slot Name', default='reference')
+    KeepNonCopiedKeyframes: BoolProperty(
+        name='Keep Non-Copied Keyframes',
+        description='Preserve existing keyframes for bones that do not match between armatures',
+        default=True
+    )
+
+    @classmethod
+    def poll(cls, context : Context) -> bool:
+        ob  = context.active_object
+        return bool(
+            context.mode == 'OBJECT'
+            and is_armature(ob)
+            and {o for o in context.selected_objects if o != context.active_object}
+        )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context : Context) -> set:
+        currArm : bpy.types.Object | None = context.active_object
+        if currArm is None: return {'CANCELLED'}
+        
+        otherArms = {o for o in context.selected_objects if o.type == 'ARMATURE'}
+        otherArms.discard(currArm)
+
+        if not self.ReferenceName.strip() or not self.ProportionName.strip():
+            return {'CANCELLED'}
+
+        last_pose_state = currArm.data.pose_position
+        currArm.data.pose_position = 'REST'
+        context.scene.frame_set(0)
+        context.view_layer.update()
+
+        for arm in otherArms:
+            if arm.animation_data is None:
+                arm.animation_data_create()
+
+            action_name = "proportion-delta"
+            action = bpy.data.actions.get(action_name)
+            if action is None:
+                action = bpy.data.actions.new(action_name)
+            action.use_fake_user = True
+
+            if not self.KeepNonCopiedKeyframes:
+                actionslots = list(action.slots)
+                for slot in actionslots:
+                    action.slots.remove(slot)
+
+            for pb in arm.pose.bones:
+                pb.matrix_basis.identity()
+
+            slot_ref = self._get_or_create_slot(action, self.ReferenceName)
+            slot_prop = self._get_or_create_slot(action, self.ProportionName)
+
+            if len(action.layers) == 0:
+                layer = action.layers.new("BaseLayer")
+            else:
+                layer = action.layers[0]
+
+            if len(layer.strips) == 0:
+                strip = layer.strips.new(type='KEYFRAME')
+            else:
+                strip = layer.strips[0]
+
+            matched_bones = self._get_matching_bones(currArm, arm)
+
+            if self.KeepNonCopiedKeyframes:
+                self._clear_keyframes_for_bones(action, layer, strip, slot_ref, matched_bones)
+
+            arm.animation_data.action = action
+            arm.animation_data.action_slot = slot_ref
+
+            try:
+                copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
+                for pbone in arm.pose.bones:
+                    if not self.KeepNonCopiedKeyframes or pbone.name in matched_bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
+
+            except Exception as e:
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}
+
+            context.view_layer.update()
+
+            if self.KeepNonCopiedKeyframes:
+                self._clear_keyframes_for_bones(action, layer, strip, slot_prop, matched_bones)
+
+            arm.animation_data.action_slot = slot_prop
+
+            try:
+                copy_target_armature_visualpose(currArm, arm, copy_type='ANGLES')
+                copy_target_armature_visualpose(currArm, arm, copy_type='ORIGIN')
+
+                for pbone in arm.pose.bones:
+                    if not self.KeepNonCopiedKeyframes or pbone.name in matched_bones:
+                        pbone.keyframe_insert(data_path="location", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_quaternion", group=pbone.name) # type: ignore
+                        pbone.keyframe_insert(data_path="rotation_euler", group=pbone.name) # type: ignore
+            except Exception as e:
+                self.report({'ERROR'}, str(e))
+                return {'CANCELLED'}    
+
+            arm.animation_data.action_slot = slot_ref
+            context.view_layer.update()
+                
+        currArm.data.pose_position = last_pose_state
+        return {'FINISHED'}
+
+    def _get_or_create_slot(self, action: bpy.types.Action, slot_name: str) -> bpy.types.ActionSlot:
+        """Gets existing slot or creates new one with given name"""
+        for slot in action.slots:
+            if slot.name_display == slot_name:
+                return slot
+        return action.slots.new(id_type='OBJECT', name=slot_name)
+
+    def _clear_keyframes_for_bones(self, action: bpy.types.Action, layer: bpy.types.ActionLayer, 
+                                   strip: bpy.types.ActionStrip, slot: bpy.types.ActionSlot, 
+                                   bone_names: set[str]) -> None:
+        """Removes keyframes only for specified bones in the given slot"""
+        channelbag = strip.channelbag(slot)
+        if not channelbag:
+            return
+        
+        fcurves_to_remove = []
+        for fcurve in channelbag.fcurves:
+            for bone_name in bone_names:
+                if f'pose.bones["{bone_name}"]' in fcurve.data_path:
+                    fcurves_to_remove.append(fcurve)
+                    break
+        
+        for fcurve in fcurves_to_remove:
+            channelbag.fcurves.remove(fcurve)
+
+    def _get_matching_bones(self, source_arm: bpy.types.Object, target_arm: bpy.types.Object) -> set[str]:
+        """Returns set of bone names that exist in both armatures or match via export names"""
+        matched_bones = set()
+        source_bones = {get_bone_exportname(b, for_write=True): b.name for b in source_arm.data.bones}
+        source_bones.update({b.name: b.name for b in source_arm.data.bones})
+        
+        for target_bone in target_arm.data.bones:
+            target_export = get_bone_exportname(target_bone, for_write=True)
+            if target_bone.name in source_bones or target_export in source_bones:
+                matched_bones.add(target_bone.name)
+        
+        return matched_bones

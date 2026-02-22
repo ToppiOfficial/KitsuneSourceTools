@@ -268,10 +268,6 @@ _data = {
     'exportmenu_selected': {
         'en': "Selected objects ({0} files)",
     },
-    'exportables_group_props': {
-        'ja': "グループのプロパティ",
-        'en': "Group Properties",
-    },
     'qc_no_enginepath': {
         'ja': "エンジンのパスはありません",
         'en': "No Engine Path provided",
@@ -705,10 +701,6 @@ _data = {
     'gen_drivers_tip': {
         'en': "Adds Blender animation drivers to corrective Source engine shapes",
     },
-    'qc_path': {
-        'ja': "QCのパス",
-        'en': "QC Path",
-    },
     'engine_path': {
         'ja': "エンジンのパス",
         'en': "Engine Path",
@@ -772,9 +764,6 @@ _data = {
     },
     'qc_compileall_tip': {
         'en': "Compile all QC files whenever anything is exported",
-    },
-    'qc_path_tip': {
-        'en': "This scene's QC file(s); Unix wildcards supported",
     },
     'qc_nogamepath': {
         'en': "No Game Path and invalid VPROJECT",
@@ -870,9 +859,6 @@ _data = {
     'panel_context_object': {
         'en': "Object Properties",
     },
-    'panel_context_properties': {
-        'en': "Object Properties",
-    },
     'panel_context_material': {
         'en': "Materials Properties",
     },
@@ -890,6 +876,9 @@ _data = {
     },
     'panel_select_object': {
         'en': "Select an object",
+    },
+    'panel_select_group': {
+        'en': "Select a collection",
     },
     'panel_select_armature': {
         'en': "Select an armature",

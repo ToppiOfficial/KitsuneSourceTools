@@ -491,7 +491,7 @@ def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bp
                 return o
 
     else:
-        ctx_obj = bpy.context.object
+        ctx_obj = bpy.context.active_object
         if ctx_obj:
             return get_armature(ctx_obj)
         return None
@@ -598,7 +598,7 @@ def get_jigglebones(ob : bpy.types.Object | None) -> list[bpy.types.Bone | None]
     
     return [b for b in armature.data.bones if b.vs.bone_is_jigglebone]
 
-def get_dmxattachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
+def get_attachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
     armature = None
     if ob is None:
         armature = get_armature()

@@ -2,19 +2,19 @@ import bpy, bmesh, mathutils
 from bpy.types import UILayout, Context, Object, Operator, Mesh
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty, IntProperty
 
-from .common import KITSUNE_PT_ToolsPanel
+from .common import KITSUNE_PT_ToolSubPanel
 from ..kitsunetools.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature, is_mesh, unhide_all_objects
 from ..kitsunetools.meshutils import clean_unused_shapekeys, remove_unused_vertexgroups
 from ..utils import hasShapes, get_id, image_channels
 
-class TOOLS_PT_Mesh(KITSUNE_PT_ToolsPanel):
-    bl_label : str = "Mesh Tools"
+class TOOLS_PT_Mesh(KITSUNE_PT_ToolSubPanel):
+    bl_label = "Mesh Tools"
     
     def draw(self, context : Context) -> None:
         layout = self.layout
         box = layout.box()
         
-        if is_mesh(context.object) or is_armature(context.object): pass
+        if is_mesh(context.active_object) or is_armature(context.active_object): pass
         else:
             draw_wrapped_texts(box,get_id("panel_select_mesh"),max_chars=40 , icon='HELP')
             return
@@ -37,15 +37,16 @@ class TOOLS_PT_Mesh(KITSUNE_PT_ToolsPanel):
         col.label(text='Modifiers')
         col.operator(TOOLS_OT_AddToonEdgeLine.bl_idname, icon='MOD_SOLIDIFY')
         col.operator(TOOLS_OT_transfer_topology_shapekeys.bl_idname, icon='MOD_DATA_TRANSFER')
+        col.operator(TOOLS_OT_unlock_all_vertexgroups.bl_idname, icon='UNLOCKED')
         
 class TOOLS_OT_CleanShapeKeys(Operator):
-    bl_idname : str = 'kitsunetools.clean_shape_keys'
-    bl_label : str = 'Clean Shape Keys'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.clean_shape_keys'
+    bl_label = 'Clean Shape Keys'
+    bl_options = {'REGISTER', 'UNDO'}
     
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return bool(is_mesh(context.object) and hasShapes(context.object, valid_only=True))
+        return bool(is_mesh(context.active_object) and hasShapes(context.active_object, valid_only=True))
     
     def execute(self, context : Context) -> set:
         objects = context.selected_objects
@@ -74,9 +75,9 @@ class TOOLS_OT_CleanShapeKeys(Operator):
         return {'FINISHED'}
     
 class TOOLS_OT_SelectShapekeyVets(Operator):
-    bl_idname : str = 'kitsunetools.select_shapekey_vertices'
-    bl_label : str = 'Select Shapekey Vertices'
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = 'kitsunetools.select_shapekey_vertices'
+    bl_label = 'Select Shapekey Vertices'
+    bl_options = {'REGISTER', 'UNDO'}
 
     select_type: EnumProperty(
         name="Selection Type",
@@ -104,7 +105,7 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        ob : Object | None = context.object
+        ob  = context.active_object
         return bool(is_mesh(ob) and ob.data.shape_keys and ob.mode == 'EDIT')
 
     def execute(self, context : Context) -> set:
@@ -138,9 +139,9 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
-    bl_idname : str = "kitsunetools.remove_unused_vertexgroups"
-    bl_label : str = "Clean Unused Vertex Groups"
-    bl_options : set = {'REGISTER', 'UNDO'}
+    bl_idname = "kitsunetools.remove_unused_vertexgroups"
+    bl_label = "Clean Unused Vertex Groups"
+    bl_options = {'REGISTER', 'UNDO'}
     
     respect_mirror : BoolProperty(name='Respect Mirror', default=True)
     weight_threshold : FloatProperty(name='Weight Threshold', default=0.001,min=0.0001,max=0.1,precision=4)
@@ -173,8 +174,8 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         return {'FINISHED'}
 
 class TOOLS_OT_AddToonEdgeLine(Operator):
-    bl_idname: str = "kitsunetools.add_toon_edgeline"
-    bl_label: str = "Add Black Toon Edgeline"
+    bl_idname= "kitsunetools.add_toon_edgeline"
+    bl_label= "Add Black Toon Edgeline"
     bl_options: set = {"REGISTER", "UNDO"}
 
     per_material_edgeline: BoolProperty(
@@ -467,8 +468,8 @@ class faces_by_imagemask():
     
     
 class TOOLS_OT_Delete_Faces_by_ImageMask(Operator, faces_by_imagemask):
-    bl_idname: str = "kitsunetools.delete_face_by_image_mask"
-    bl_label: str = "Delete Face by Image Mask"
+    bl_idname= "kitsunetools.delete_face_by_image_mask"
+    bl_label= "Delete Face by Image Mask"
     bl_options: set = {"REGISTER", "UNDO"}
     
     material_name : StringProperty(
@@ -482,7 +483,7 @@ class TOOLS_OT_Delete_Faces_by_ImageMask(Operator, faces_by_imagemask):
     @classmethod
     def poll(cls, context):
         if bpy.data.images is None: return False
-        return context.mode in ['OBJECT', 'EDIT_MESH'] and is_mesh(context.object) and hasattr(context.object.data, 'uv_layers')
+        return context.mode in ['OBJECT', 'EDIT_MESH'] and is_mesh(context.active_object) and hasattr(context.active_object.data, 'uv_layers')
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=400)
@@ -495,8 +496,8 @@ class TOOLS_OT_Delete_Faces_by_ImageMask(Operator, faces_by_imagemask):
         
         col.prop_search(self, "image_mask", bpy.data, "images")
 
-        if context.object and context.object.data and hasattr(context.object.data, 'materials'):
-             col.prop_search(self, "material_name", context.object.data, "materials")
+        if context.active_object and context.active_object.data and hasattr(context.active_object.data, 'materials'):
+             col.prop_search(self, "material_name", context.active_object.data, "materials")
         
         col.prop(self, "image_channel")
         col.prop(self, "invert_image_mask")
@@ -620,8 +621,8 @@ class TOOLS_OT_Delete_Faces_by_ImageMask(Operator, faces_by_imagemask):
 
 
 class TOOLS_OT_Select_Faces_by_ImageMask(Operator, faces_by_imagemask):
-    bl_idname: str = "kitsunetools.select_faces_by_image_mask"
-    bl_label: str = "Select Faces by Image Mask"
+    bl_idname= "kitsunetools.select_faces_by_image_mask"
+    bl_label= "Select Faces by Image Mask"
     bl_options: set = {"REGISTER", "UNDO"}
 
     min_white_threshold: IntProperty(
@@ -634,7 +635,7 @@ class TOOLS_OT_Select_Faces_by_ImageMask(Operator, faces_by_imagemask):
     
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH' and is_mesh(context.object) and hasattr(context.object.data, 'uv_layers')
+        return context.mode == 'EDIT_MESH' and is_mesh(context.active_object) and hasattr(context.active_object.data, 'uv_layers')
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=400)
@@ -815,3 +816,29 @@ class TOOLS_OT_transfer_topology_shapekeys(bpy.types.Operator):
         else:
             self.report({'WARNING'}, "No shape keys transferred")
             return {'CANCELLED'}
+        
+class TOOLS_OT_unlock_all_vertexgroups(bpy.types.Operator):
+    bl_idname = "kitsunetools.unlock_all_vertexgroups"
+    bl_label = "Unlock All Vertex Groups"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and 
+                context.active_object.type == 'MESH')
+    
+    def execute(self, context):
+        selected_objects = [obj for obj in context.selected_objects if obj.type == 'MESH']
+
+        unlocked_count = 0
+
+        for mesh in selected_objects:
+            vgroups = mesh.vertex_groups
+            for vgroup in vgroups:
+
+                if vgroup.lock_weight:
+                    vgroup.lock_weight = False
+                    unlocked_count += 1
+                
+        self.report({'INFO'}, f"Unlocked {unlocked_count} vertex group(s)")
+        return {'FINISHED'}

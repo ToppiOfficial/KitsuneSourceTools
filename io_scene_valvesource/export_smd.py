@@ -24,117 +24,16 @@ from bpy.app.translations import pgettext
 from mathutils import Vector, Matrix
 from math import *
 from bpy.types import Collection
-from bpy.props import CollectionProperty, StringProperty, BoolProperty
 
 from .utils import *
+from .keyvalue3 import *
 from . import datamodel, ordered_set, flex
 from .kitsunetools.boneutils import get_bone_exportname, get_bone_matrix
 from .kitsunetools.objectutils import apply_modifier
-from .kitsunetools.meshutils import normalize_object_vertexgroups, get_flexcontrollers, get_delta_shapekeys
-from .kitsunetools.commonutils import sanitize_string
+from .kitsunetools.meshutils import normalize_object_vertexgroups, get_delta_shapekeys
+from .kitsunetools.commonutils import sanitize_string, get_armature, get_attachments, update_vmdl_container
+from .kitsunetools.armatureutils import sort_bone_by_hierarchy
 from .kitsuneui.common import ShowConsole
-
-class SMD_OT_Compile(bpy.types.Operator, Logger):
-    bl_idname = "smd.compile_qc"
-    bl_label = get_id("qc_compile_title")
-    bl_description = get_id("qc_compile_tip")
-
-    files : CollectionProperty(type=bpy.types.OperatorFileListElement)
-    directory : StringProperty(maxlen=1024, default="", subtype='FILE_PATH')
-
-    filepath : StringProperty(name="File path", maxlen=1024, default="", subtype='FILE_PATH')
-    
-    filter_folder : BoolProperty(default=True, options={'HIDDEN'})
-    filter_glob : StringProperty(default="*.qc;*.qci", options={'HIDDEN'})
-    
-    def __init__(self, *args, **kwargs):
-        bpy.types.Operator.__init__(self, *args, **kwargs)
-        Logger.__init__(self)
-    
-    @classmethod
-    def poll(cls,context):
-        return State.gamePath is not None and State.compiler == Compiler.STUDIOMDL
-
-    def invoke(self,context, event) -> set:
-        bpy.context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-    def execute(self,context) -> set:
-        multi_files = len([file for file in self.properties.files if file.name]) > 0
-        if not multi_files and not (self.properties.filepath == "*" or os.path.isfile(self.properties.filepath)):
-            self.report({'ERROR'},"No QC files selected for compile.")
-            return {'CANCELLED'}
-
-        num = self.compileQCs([os.path.join(self.properties.directory,file.name) for file in self.properties.files] if multi_files else self.properties.filepath)
-        #if num > 1:
-        #	bpy.context.window_manager.progress_begin(0,1)
-        self.errorReport(get_id("qc_compile_complete",True).format(num,State.engineBranchTitle))
-        bpy.context.window_manager.progress_end()
-        return {'FINISHED'}
-    
-    @classmethod
-    def getQCs(cls, path : str | None = None) -> list:
-        import glob
-        ext = ".qc"
-        out = []
-        internal = False
-        if not path:
-            path = bpy.path.abspath(bpy.context.scene.vs.qc_path)
-            internal = True
-        for result in glob.glob(path):
-            if result.endswith(ext):
-                out.append(result)
-
-        if not internal and not len(out) and not path.endswith(ext):
-            out = cls.getQCs(path + ext)
-        return out
-    
-    def compileQCs(self,path=None):
-        scene = bpy.context.scene
-        print("\n")
-
-        studiomdl_path = os.path.join(bpy.path.abspath(scene.vs.engine_path),"studiomdl.exe")
-
-        if path == "*":
-            paths = SMD_OT_Compile.getQCs()
-        elif isinstance(path,str):
-            paths = [os.path.realpath(bpy.path.abspath(path))]
-        elif path is not None and hasattr(path,"__getitem__"):
-            paths = path
-        else:
-            paths = SMD_OT_Compile.getQCs()
-        num_good_compiles = 0
-        num_qcs = len(paths)
-        if num_qcs == 0:
-            self.error(get_id("qc_compile_err_nofiles"))
-        elif not os.path.exists(studiomdl_path):
-            self.error(get_id("qc_compile_err_compiler", True).format(studiomdl_path) )
-        else:
-            i = 0
-            for qc in paths:
-                bpy.context.window_manager.progress_update((i+1) / (num_qcs+1))
-                # save any version of the file currently open in Blender
-                qc_mangled = qc.lower().replace('\\','/')
-                for candidate_area in bpy.context.screen.areas:
-                    if candidate_area.type == 'TEXT_EDITOR' and candidate_area.spaces[0].text and candidate_area.spaces[0].text.filepath.lower().replace('\\','/') == qc_mangled:
-                        oldType = bpy.context.area.type
-                        bpy.context.area.type = 'TEXT_EDITOR'
-                        bpy.context.area.spaces[0].text = candidate_area.spaces[0].text
-                        ops.text.save()
-                        bpy.context.area.type = oldType
-                        break #what a farce!
-                
-                assert(State.gamePath != None)
-                print( "Running studiomdl for \"{}\"...\n".format(os.path.basename(qc)) )
-                studiomdl = subprocess.Popen([studiomdl_path, "-nop4", "-game", State.gamePath, qc])
-                studiomdl.communicate()
-
-                if studiomdl.returncode == 0:
-                    num_good_compiles += 1
-                else:
-                    self.error(get_id("qc_compile_err_unknown", True).format(os.path.basename(qc)))
-                i+=1
-        return num_good_compiles
 
 class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
     bl_idname = "export_scene.smd"
@@ -157,16 +56,33 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
         ops.wm.call_menu(name="SMD_MT_ExportChoice")
         return {'PASS_THROUGH'}
     
-    def enable_collection_recursively(self, layer_col: bpy.types.LayerCollection):
+    def unhide_all(self, layer_col: bpy.types.LayerCollection):
         if layer_col is None:
             return
 
-        if layer_col.exclude: 
+        if layer_col.exclude:
             layer_col.exclude = False
             print(f"- Un-Excluding {layer_col.name}")
 
+        if layer_col.hide_viewport:
+            layer_col.hide_viewport = False
+            print(f"- Un-Hiding (layer) {layer_col.name}")
+
+        if layer_col.collection.hide_viewport:
+            layer_col.collection.hide_viewport = False
+            print(f"- Un-Hiding (collection) {layer_col.name}")
+
+        for obj in layer_col.collection.objects:
+            if obj.hide_viewport:
+                obj.hide_viewport = False
+                print(f"  - Un-Hiding (viewport) {obj.name}")
+
+            if obj.hide_get():
+                obj.hide_set(False)
+                print(f"  - Un-Hiding (outliner) {obj.name}")
+
         for child in layer_col.children:
-            self.enable_collection_recursively(child)
+            self.unhide_all(child)
             
     def execute(self, context):
         #bpy.context.window_manager.progress_begin(0,1)
@@ -220,14 +136,9 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                 context.scene.frame_set(context.scene.rigidbody_world.point_cache.frame_start)
             
             # lots of operators only work on visible objects
-            for ob in context.scene.objects:
-                ob.hide_viewport = False
             # ensure that objects in all collections are accessible to operators
-            context.view_layer.layer_collection.exclude = False
-            
-            print('\nPreProcess: Making Every Viewlayer Collection Accessible')
             for view_layer in bpy.context.scene.view_layers:
-                self.enable_collection_recursively(view_layer.layer_collection)
+                self.unhide_all(view_layer.layer_collection)
             
             self.files_exported = self.attemptedExports = 0
             
@@ -250,16 +161,6 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
                     else: self.exportId(context, collection)
             
             num_good_compiles = None
-
-            if self.attemptedExports == 0:
-                self.report({'ERROR'},get_id("exporter_err_noexportables"))
-            elif context.scene.vs.qc_compile and context.scene.vs.qc_path:
-                # ...and compile the QC
-                if not SMD_OT_Compile.poll(context):
-                    print("Skipping QC compile step: context incorrect\n")
-                else:
-                    num_good_compiles = SMD_OT_Compile.compileQCs(self) # hack, use self as the logger
-                    print("\n")
             
             if num_good_compiles != None:
                 self.errorReport(get_id("exporter_report_qc", True).format(
@@ -2348,10 +2249,6 @@ skeleton
                 makeChannel(bone)
             num_frames = int(anim_len + 1)
             bench.report("Animation setup")
-            prev_pos = {}
-            prev_rot = {}
-            skipped_pos = {}
-            skipped_rot = {}
 
             two_percent = num_frames / 50
             print("Frames: ",debug_only=True,newline=False)
@@ -2378,35 +2275,12 @@ skeleton
                         for j in range(3): pos[j] *= armature_scale[j]
                     
                     rot = relMat.to_quaternion()
-                    rot_vec = Vector(rot.to_euler())
 
-                    if not prev_pos.get(bone) or pos - prev_pos[bone] > epsilon:
-                        skip_time = skipped_pos.get(bone)
-                        if skip_time != None:
-                            channel[0]["times"].append(skip_time)
-                            channel[0]["values"].append(channel[0]["values"][-1])
-                            del skipped_pos[bone]
+                    channel[0]["times"].append(keyframe_time)
+                    channel[0]["values"].append(datamodel.Vector3(pos))
 
-                        channel[0]["times"].append(keyframe_time)
-                        channel[0]["values"].append(datamodel.Vector3(pos))
-                    else:
-                        skipped_pos[bone] = keyframe_time
-
-                    
-                    if not prev_rot.get(bone) or rot_vec - prev_rot[bone] > epsilon:
-                        skip_time = skipped_rot.get(bone)
-                        if skip_time != None:
-                            channel[1]["times"].append(skip_time)
-                            channel[1]["values"].append(channel[1]["values"][-1])
-                            del skipped_rot[bone]
-
-                        channel[1]["times"].append(keyframe_time)
-                        channel[1]["values"].append(getDatamodelQuat(rot))
-                    else:
-                        skipped_rot[bone] = keyframe_time
-
-                    prev_pos[bone] = pos
-                    prev_rot[bone] = rot_vec
+                    channel[1]["times"].append(keyframe_time)
+                    channel[1]["values"].append(getDatamodelQuat(rot))
                     
                 if two_percent and frame % two_percent:
                     print(".",debug_only=True,newline=False)
@@ -2429,3 +2303,380 @@ skeleton
             print("- DMX export took",bench.total(),"\n")
         
         return written
+
+class PrefabExporter(bpy.types.Operator):
+    bl_idname = "smd.export_prefab"
+    bl_label = "Export Prefab"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    export_type: bpy.props.EnumProperty(
+        items=[
+            ('JIGGLEBONES', "Jigglebones", ""),
+            ('ATTACHMENTS', "Attachments", ""),
+            ('HITBOXES',    "Hitboxes",    ""),
+        ]
+    )
+
+    to_clipboard: bpy.props.BoolProperty(name='Copy To Clipboard', default=False)
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and get_armature(context.active_object) is not None
+
+    def _get_export_path(self, context):
+        vs = context.active_object.vs
+        return {
+            'JIGGLEBONES': vs.jigglebone_prefabfile,
+            'ATTACHMENTS': vs.attachment_prefabfile,
+            'HITBOXES':    vs.hitbox_prefabfile,
+        }.get(self.export_type, "")
+
+    def _write_output(self, compiled, export_path=None, warnings=None):
+        if not compiled:
+            return False
+
+        if self.to_clipboard:
+            bpy.context.window_manager.clipboard = compiled
+            self.report({'INFO'}, "Data copied to clipboard")
+            return True
+
+        if not export_path:
+            self.report({'ERROR'}, "No export path provided")
+            return False
+
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        with open(export_path, "w", encoding="utf-8") as f:
+            f.write(compiled)
+
+        if warnings:
+            self.report({'WARNING'}, f"Exported with {len(warnings)} warning(s) (see console)")
+            for w in warnings:
+                print(w)
+        else:
+            self.report({'INFO'}, f"Data exported to {export_path}")
+        return True
+
+    def execute(self, context) -> set:
+        arm = get_armature(context.active_object)
+        export_path = None
+        fmt = None
+
+        if not self.to_clipboard:
+            raw_path = self._get_export_path(context)
+            if not raw_path:
+                self.report({'ERROR'}, "No export path set on object")
+                return {'CANCELLED'}
+
+            export_path, filename, ext = get_filepath(raw_path)
+            if not filename or not ext:
+                self.report({'ERROR'}, "Invalid export path: must include filename and extension")
+                return {'CANCELLED'}
+
+            ext_lower = ext.lower()
+            if ext_lower in {'.qc', '.qci'}:
+                fmt = 'QC'
+            elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
+                fmt = 'VMDL'
+            else:
+                self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
+                return {'CANCELLED'}
+
+        warnings = None
+        if self.export_type == 'JIGGLEBONES':
+            compiled = self._run_jigglebones(arm, fmt, export_path)
+        elif self.export_type == 'ATTACHMENTS':
+            compiled = self._run_attachments(arm, fmt, export_path, context)
+        elif self.export_type == 'HITBOXES':
+            compiled, warnings = self._run_hitboxes(arm)
+        else:
+            return {'CANCELLED'}
+
+        if compiled is None:
+            return {'CANCELLED'}
+
+        if not self._write_output(compiled, export_path, warnings):
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+    # ── Jigglebones ───────────────────────────────────────────────────────────
+
+    def _run_jigglebones(self, arm, fmt, export_path):
+        jigglebones = [b for b in arm.data.bones if b.vs.bone_is_jigglebone]
+        if not jigglebones:
+            self.report({'WARNING'}, "No jigglebones found")
+            return None
+
+        collection_groups = {}
+        for bone in jigglebones:
+            group_name = bone.collections[0].name if bone.collections else "Others"
+            collection_groups.setdefault(group_name, []).append(bone)
+
+        if self.to_clipboard:
+            return self._jigglebones_vmdl(collection_groups, None) if State.compiler == Compiler.MODELDOC else self._jigglebones_qc(collection_groups)
+        if fmt == 'QC':
+            return self._jigglebones_qc(collection_groups)
+        if fmt == 'VMDL':
+            return self._jigglebones_vmdl(collection_groups, export_path)
+        return None
+
+    def _jigglebones_qc(self, collection_groups):
+        entries = []
+        for group_name, group_bones in collection_groups.items():
+            entries.append(f"// Jigglebones: {group_name}")
+            entries.append("")
+            for bone in group_bones:
+                d = []
+                d.append(f'$jigglebone "{get_bone_exportname(bone)}"')
+                d.append('{')
+                jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
+
+                if bone.vs.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
+                    d.append('\tis_flexible' if bone.vs.jiggle_flex_type == 'FLEXIBLE' else '\tis_rigid')
+                    d.append('\t{')
+                    d.append(f'\t\tlength {jiggle_length}')
+                    d.append(f'\t\ttip_mass {bone.vs.jiggle_tip_mass}')
+                    if bone.vs.jiggle_flex_type == 'FLEXIBLE':
+                        d.append(f'\t\tyaw_stiffness {bone.vs.jiggle_yaw_stiffness}')
+                        d.append(f'\t\tyaw_damping {bone.vs.jiggle_yaw_damping}')
+                        if bone.vs.jiggle_has_yaw_constraint:
+                            d.append(f'\t\tyaw_constraint {-abs(math.degrees(bone.vs.jiggle_yaw_constraint_min))} {abs(math.degrees(bone.vs.jiggle_yaw_constraint_max))}')
+                            d.append(f'\t\tyaw_friction {bone.vs.jiggle_yaw_friction}')
+                        d.append(f'\t\tpitch_stiffness {bone.vs.jiggle_pitch_stiffness}')
+                        d.append(f'\t\tpitch_damping {bone.vs.jiggle_pitch_damping}')
+                        if bone.vs.jiggle_has_pitch_constraint:
+                            d.append(f'\t\tpitch_constraint {-abs(math.degrees(bone.vs.jiggle_pitch_constraint_min))} {abs(math.degrees(bone.vs.jiggle_pitch_constraint_max))}')
+                            d.append(f'\t\tpitch_friction {bone.vs.jiggle_pitch_friction}')
+                        if bone.vs.jiggle_allow_length_flex:
+                            d.append('\t\tallow_length_flex')
+                            d.append(f'\t\talong_stiffness {bone.vs.jiggle_along_stiffness}')
+                        if bone.vs.jiggle_has_angle_constraint:
+                            d.append(f'\t\tangle_constraint {math.degrees(bone.vs.jiggle_angle_constraint)}')
+                    d.append('\t}')
+
+                if bone.vs.jiggle_base_type == 'BASESPRING':
+                    d.append('\thas_base_spring')
+                    d.append('\t{')
+                    d.append(f'\t\tstiffness {bone.vs.jiggle_base_stiffness}')
+                    d.append(f'\t\tdamping {bone.vs.jiggle_base_damping}')
+                    d.append(f'\t\tbase_mass {bone.vs.jiggle_base_mass}')
+                    if bone.vs.jiggle_has_left_constraint:
+                        d.append(f'\t\tleft_constraint {-abs(bone.vs.jiggle_left_constraint_min)} {abs(bone.vs.jiggle_left_constraint_max)}')
+                        d.append(f'\t\tleft_friction {bone.vs.jiggle_left_friction}')
+                    if bone.vs.jiggle_has_up_constraint:
+                        d.append(f'\t\tup_constraint {-abs(bone.vs.jiggle_up_constraint_min)} {abs(bone.vs.jiggle_up_constraint_max)}')
+                        d.append(f'\t\tup_friction {bone.vs.jiggle_up_friction}')
+                    if bone.vs.jiggle_has_forward_constraint:
+                        d.append(f'\t\tforward_constraint {-abs(bone.vs.jiggle_forward_constraint_min)} {abs(bone.vs.jiggle_forward_constraint_max)}')
+                        d.append(f'\t\tforward_friction {bone.vs.jiggle_forward_friction}')
+                    d.append('\t}')
+                elif bone.vs.jiggle_base_type == 'BOING':
+                    d.append('\tis_boing')
+                    d.append('\t{')
+                    d.append(f'\t\timpact_speed {bone.vs.jiggle_impact_speed}')
+                    d.append(f'\t\timpact_angle {bone.vs.jiggle_impact_angle}')
+                    d.append(f'\t\tdamping_rate {bone.vs.jiggle_damping_rate}')
+                    d.append(f'\t\tfrequency {bone.vs.jiggle_frequency}')
+                    d.append(f'\t\tamplitude {bone.vs.jiggle_amplitude}')
+                    d.append('\t}')
+                d.append('}')
+                d.append('\n')
+                entries.append("\n".join(d))
+        return "\n".join(entries)
+
+    def _jigglebones_vmdl(self, collection_groups, export_path):
+        folder_nodes = []
+        for group_name, group_bones in collection_groups.items():
+            folder = KVNode(_class="Folder", name=sanitize_string(group_name))
+            for bone in group_bones:
+                flex_type = 2 if bone.vs.jiggle_flex_type not in ['FLEXIBLE', 'RIGID'] else (1 if bone.vs.jiggle_flex_type == 'FLEXIBLE' else 0)
+                jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
+                folder.add_child(KVNode(
+                    _class="JiggleBone",
+                    name=f"JiggleBone_{get_bone_exportname(bone)}",
+                    jiggle_root_bone=get_bone_exportname(bone),
+                    jiggle_type=flex_type,
+                    has_yaw_constraint=KVBool(bone.vs.jiggle_has_yaw_constraint),
+                    has_pitch_constraint=KVBool(bone.vs.jiggle_has_pitch_constraint),
+                    has_angle_constraint=KVBool(bone.vs.jiggle_has_angle_constraint),
+                    has_base_spring=KVBool(bone.vs.jiggle_base_type == 'BASESPRING'),
+                    allow_flex_length=KVBool(bone.vs.jiggle_allow_length_flex),
+                    length=jiggle_length,
+                    tip_mass=bone.vs.jiggle_tip_mass,
+                    angle_limit=math.degrees(bone.vs.jiggle_angle_constraint),
+                    min_yaw=math.degrees(bone.vs.jiggle_yaw_constraint_min),
+                    max_yaw=math.degrees(bone.vs.jiggle_yaw_constraint_max),
+                    yaw_friction=bone.vs.jiggle_yaw_friction,
+                    min_pitch=math.degrees(bone.vs.jiggle_pitch_constraint_min),
+                    max_pitch=math.degrees(bone.vs.jiggle_pitch_constraint_max),
+                    pitch_friction=bone.vs.jiggle_pitch_friction,
+                    base_mass=bone.vs.jiggle_base_mass,
+                    base_stiffness=bone.vs.jiggle_base_stiffness,
+                    base_damping=bone.vs.jiggle_base_damping,
+                    base_left_min=bone.vs.jiggle_left_constraint_min,
+                    base_left_max=bone.vs.jiggle_left_constraint_max,
+                    base_left_friction=bone.vs.jiggle_left_friction,
+                    base_up_min=bone.vs.jiggle_up_constraint_min,
+                    base_up_max=bone.vs.jiggle_up_constraint_max,
+                    base_up_friction=bone.vs.jiggle_up_friction,
+                    base_forward_min=bone.vs.jiggle_forward_constraint_min,
+                    base_forward_max=bone.vs.jiggle_forward_constraint_max,
+                    base_forward_friction=bone.vs.jiggle_forward_friction,
+                    yaw_stiffness=bone.vs.jiggle_yaw_stiffness,
+                    yaw_damping=bone.vs.jiggle_yaw_damping,
+                    pitch_stiffness=bone.vs.jiggle_pitch_stiffness,
+                    pitch_damping=bone.vs.jiggle_pitch_damping,
+                    along_stiffness=bone.vs.jiggle_along_stiffness,
+                    along_damping=bone.vs.jiggle_along_damping,
+                ))
+            folder_nodes.append(folder)
+
+        kv_doc = update_vmdl_container(
+            container_class="JiggleBoneList" if not self.to_clipboard else "ScratchArea",
+            nodes=folder_nodes,
+            export_path=export_path,
+            to_clipboard=self.to_clipboard
+        )
+        if kv_doc is False:
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValue3')
+            return None
+        return kv_doc.to_text()
+
+    # ── Attachments ───────────────────────────────────────────────────────────
+
+    def _run_attachments(self, arm, fmt, export_path, context):
+        attachments = get_attachments(arm)
+        if not attachments:
+            self.report({'WARNING'}, "No attachments found")
+            return None
+
+        if self.to_clipboard:
+            return self._attachments_vmdl(arm, attachments, None) if State.compiler == Compiler.MODELDOC else self._attachments_qc(arm, attachments)
+        if fmt == 'QC':
+            return self._attachments_qc(arm, attachments)
+        if fmt == 'VMDL':
+            return self._attachments_vmdl(arm, attachments, export_path)
+        return None
+
+    def _attachments_qc(self, arm, attachments):
+        lines = []
+        for empty in attachments:
+            if not empty.parent_bone:
+                continue
+            bone = arm.data.bones.get(empty.parent_bone)
+            if not bone:
+                continue
+            pose_bone = arm.pose.bones.get(empty.parent_bone)
+            if not pose_bone:
+                continue
+            pmat = get_bone_matrix(pose_bone, rest_space=True)
+            relMat = pmat.inverted() @ empty.matrix_world
+            position = relMat.to_translation()
+            rotation = relMat.to_quaternion().to_euler('XYZ')
+            lines.append(f'$attachment "{empty.name}" "{get_bone_exportname(bone)}" {position.x:.2f} {position.y:.2f} {position.z:.2f} rotate {math.degrees(rotation.y):.0f} {math.degrees(rotation.z):.0f} {math.degrees(rotation.x):.0f}')
+        return '\n'.join(lines)
+
+    def _attachments_vmdl(self, arm, attachments, export_path):
+        nodes = []
+        for empty in attachments:
+            if not empty.parent_bone:
+                continue
+            bone = arm.data.bones.get(empty.parent_bone)
+            if not bone:
+                continue
+            pose_bone = arm.pose.bones.get(empty.parent_bone)
+            if not pose_bone:
+                continue
+            pmat = get_bone_matrix(pose_bone, rest_space=True)
+            relMat = pmat.inverted() @ empty.matrix_world
+            position = relMat.translation
+            rotation = relMat.to_euler('YZX')
+            nodes.append(KVNode(
+                _class="Attachment",
+                name=empty.name,
+                parent_bone=get_bone_exportname(bone),
+                relative_origin=KVVector3(position.x, position.y, position.z),
+                relative_angles=KVVector3(math.degrees(rotation.y), math.degrees(rotation.z), math.degrees(rotation.x)),
+                weight=1.0,
+                ignore_rotation=KVBool(False)
+            ))
+
+        kv_doc = update_vmdl_container(
+            container_class="ScratchArea" if self.to_clipboard else "AttachmentList",
+            nodes=nodes,
+            export_path=export_path,
+            to_clipboard=self.to_clipboard
+        )
+        if kv_doc is False:
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValue3')
+            return None
+        return kv_doc.to_text()
+
+    # ── Hitboxes ──────────────────────────────────────────────────────────────
+
+    def _run_hitboxes(self, arm):
+        hitbox_data = []
+        rotated = []
+
+        for obj in bpy.data.objects:
+            if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
+                continue
+            if not hasattr(obj, 'vs') or not obj.vs.smd_hitbox:
+                continue
+            if not (obj.parent and obj.parent == arm and obj.parent_type == 'BONE' and obj.parent_bone):
+                continue
+
+            rot = obj.rotation_euler
+            if abs(rot.x) > 0.0001 or abs(rot.y) > 0.0001 or abs(rot.z) > 0.0001:
+                rotated.append(obj.name)
+
+            bounds = self._hitbox_bounds(obj, arm)
+            if not bounds:
+                continue
+
+            bone = arm.data.bones.get(obj.parent_bone)
+            if not bone:
+                continue
+
+            hitbox_data.append({
+                'bone':      bone,
+                'bone_name': get_bone_exportname(bone),
+                'group':     getattr(obj.vs, 'smd_hitbox_group', 0),
+                'min':       bounds[0],
+                'max':       bounds[1],
+            })
+
+        if not hitbox_data:
+            self.report({'WARNING'}, "No hitboxes found")
+            return None, None
+
+        sorted_bones = sort_bone_by_hierarchy([hb['bone'] for hb in hitbox_data])
+        bone_to_hb = {hb['bone']: hb for hb in hitbox_data}
+
+        lines = []
+        for bone in sorted_bones:
+            hb = bone_to_hb[bone]
+            lines.append(f'$hbox\t{hb["group"]}\t"{hb["bone_name"]}"\t\t{hb["min"].x:.2f}\t{hb["min"].y:.2f}\t{hb["min"].z:.2f}\t{hb["max"].x:.2f}\t{hb["max"].y:.2f}\t{hb["max"].z:.2f}')
+
+        warnings = [f"{n} has rotation (ignored in Source 1 hitboxes)" for n in rotated] if rotated else None
+        return '\n'.join(lines), warnings
+
+    def _hitbox_bounds(self, obj, arm):
+        half = mathutils.Vector((obj.empty_display_size * obj.scale.x, obj.empty_display_size * obj.scale.y, obj.empty_display_size * obj.scale.z))
+        world_loc = obj.matrix_world.translation
+
+        if obj.parent and obj.parent.type == 'ARMATURE' and obj.parent_bone:
+            pose_bone = arm.pose.bones[obj.parent_bone]
+            base_mat = arm.matrix_world @ pose_bone.bone.matrix_local
+            local_loc = base_mat.inverted() @ world_loc
+            offset = pose_bone.bone.matrix_local.inverted() @ get_bone_matrix(pose_bone, rest_space=True)
+            local_loc = offset.inverted() @ local_loc
+            half = offset.inverted().to_3x3() @ half
+        else:
+            local_loc = obj.location
+
+        c1, c2 = local_loc - half, local_loc + half
+        return (
+            mathutils.Vector((min(c1.x, c2.x), min(c1.y, c2.y), min(c1.z, c2.z))),
+            mathutils.Vector((max(c1.x, c2.x), max(c1.y, c2.y), max(c1.z, c2.z))),
+        )

@@ -19,7 +19,6 @@
 # ##### END GPL LICENSE BLOCK #####
 
 import bpy, math
-from typing import Set
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, FloatProperty, PointerProperty
 
 # Python doesn't reload package sub-modules at the same time as __init__.py!
@@ -40,7 +39,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
 
 from . import datamodel, import_smd, export_smd, flex, GUI
 from .kitsunetools import armatureutils, boneutils, commonutils, meshutils, objectutils
-from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, source_model, texture_convert, animation, vertexgroup, armature, mesh, bone
+from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, texture_convert, animation, vertexgroup, armature, mesh, bone
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -325,8 +324,6 @@ class ValveSource_TextProps(CurveTypeProps,PropertyGroup):
 
 class ValveSource_SceneProps(PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    qc_compile : BoolProperty(name=get_id("qc_compileall"),description=get_id("qc_compileall_tip"),default=False)
-    qc_path : StringProperty(name=get_id("qc_path"),description=get_id("qc_path_tip"),default="//*.qc",subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     engine_path : StringProperty(name=get_id("engine_path"),description=get_id("engine_path_tip"), subtype='DIR_PATH',update=State.onEnginePathChanged)
     
     dmx_encoding : EnumProperty(name=get_id("dmx_encoding"),description=get_id("dmx_encoding_tip"),items=tuple(encodings),default='2')
@@ -373,8 +370,6 @@ class ValveSource_SceneProps(PropertyGroup):
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
     
-    smd_prefabs : CollectionProperty(type=PrefabItem)
-    smd_prefabs_index : IntProperty(default=-1)
     smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
     
     texture_conversion_items : CollectionProperty(type=TextureConversionItem)
@@ -402,8 +397,8 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=FlexControllerItem)
     dme_flexcontrollers_index : IntProperty(default=-1)
     
-    dmx_attachment : BoolProperty(name='DMX Attachment',default=False)
-    smd_hitbox : BoolProperty(name='SMD Hitbox',default=False)    
+    dmx_attachment : BoolProperty(name='Is Attachment',default=False)
+    smd_hitbox : BoolProperty(name='Is Hitbox',default=False)    
     smd_hitbox_group : EnumProperty(name='Hitbox Group',items=hitbox_group,default='0')
     
     humanoid_armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=HumanoidArmatureMap)
@@ -443,6 +438,10 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     armature_map_knee_l: StringProperty(name="Left Knee",)
     armature_map_knee_r: StringProperty(name="Right Knee",)
 
+    jigglebone_prefabfile : StringProperty(name='Jigglebone Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    attachment_prefabfile : StringProperty(name='Attachments Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    hitbox_prefabfile : StringProperty(name='Hitbox Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+
 class ValveSource_ArmatureProps(PropertyGroup):
     implicit_zero_bone : BoolProperty(name=get_id("dummy_bone"),default=True,description=get_id("dummy_bone_tip"))
     arm_modes = (
@@ -480,7 +479,6 @@ _classes = (
     # Simple Item Classes
     FlexControllerItem,
     HumanoidArmatureMap,
-    PrefabItem,
     VertexAnimation,
     TextureConversionItem,
     
@@ -509,35 +507,31 @@ _classes = (
     GUI.SMD_MT_ExportChoice,
     GUI.SMD_PT_Scene,
     GUI.SMD_MT_ConfigureScene,
-    GUI.SMD_UL_ExportItems,
-    GUI.SMD_OT_ShowExportCollection,
-    GUI.SMD_OT_ShowVertexAnimation,
-    GUI.SMD_UL_GroupItems,
-    GUI.SMD_OT_LaunchHLMV,
-    GUI.SMD_PT_Object_Config,
-    GUI.SMD_PT_Group,
-    GUI.SMD_OT_AddPrefab,
-    GUI.SMD_OT_RemovePrefab,
-    GUI.SMD_UL_Prefabs,
-    GUI.SMD_PT_Prefabs,
-    GUI.SMD_OT_MovePrefabUp,
-    GUI.SMD_OT_MovePrefabDown,
-    GUI.SMD_PT_Scene_QC_Complie,
     
-    # Properties Panels
-    properties.KITSUNE_PT_object_properties,
-    properties.KITSUNE_PT_armature_properties,
-    properties.KITSUNE_PT_bone_properties,
-    properties.KITSUNE_PT_mesh_properties,
-    properties.KITSUNE_PT_material_properties,
-    properties.KITSUNE_PT_shapekey_properties,
-    properties.KITSUNE_PT_vertexmap_properties,
-    properties.KITSUNE_PT_vertexfloatmap_properties,
-    properties.KITSUNE_PT_vertex_animations,
-    properties.KITSUNE_PT_empty_properties,
-    properties.KITSUNE_PT_curve_properties,
+    # Properties
+    properties.SMD_UL_ExportItems,
+    properties.SMD_UL_GroupItems,
+    properties.SMD_PT_Properties,
+    properties.SMD_PT_Group,
+    properties.SMD_PT_Armature,
+    properties.SMD_PT_Bone,
+    properties.SMD_PT_Mesh,
+    properties.SMD_PT_Material,
+    properties.SMD_PT_Shapekey,
+    properties.SMD_PT_Vertexmap,
+    properties.SMD_PT_Vertexfloatmap,
+    properties.SMD_PT_Vertexanimations,
+    properties.SMD_PT_Empty,
+    properties.SMD_PT_Curve,
+    properties.SMD_PT_All_Hitboxes,
+    properties.SMD_PT_All_Attachments,
+    properties.SMD_PT_All_Jigglebones,
+    properties.SMD_PT_Jigglebones,
+
+    # GUI - Common
+    common.KITSUNE_PT_ToolsPanel,
     
-    # Mesh Panel Operators
+    # Properties Operators
     properties.SMD_UL_FlexControllers,
     properties.SMD_OT_AddFlexController,
     properties.SMD_OT_RemoveFlexController,
@@ -549,27 +543,9 @@ _classes = (
     properties.SMD_OT_RemoveVertexAnimation,
     properties.SMD_OT_PreviewVertexAnimation,
     properties.SMD_OT_GenerateVertexAnimationQCSnippet,
-
-    # Source Model Tools
-    source_model.SMD_PT_Tools_Panel,
-    source_model.SMD_PT_Animation_Tools,
-    source_model.SMD_PT_Attachments,
-    source_model.SMD_PT_All_Attachments,
-    source_model.SMD_OT_Export_Attachments,
-    source_model.SMD_PT_Hitboxes,
-    source_model.SMD_PT_All_Hitboxes,
-    source_model.SMD_PT_Jigglebones,
-    source_model.SMD_PT_All_Jigglebones,
-    source_model.SMD_OT_Fix_Attachments,
-    source_model.SMD_OT_Export_Jigglebones,
-    source_model.SMD_OT_Import_Jigglebones,
-    source_model.SMD_OT_Copy_Jigglebone_Properties,
-    source_model.SMD_OT_Make_Proportion_Animation,
-    source_model.SMD_OT_Export_Constrainted_Proportions,
-    source_model.SMD_OT_Export_Hitboxes,
-    source_model.SMD_OT_Import_Hitboxes,
-    source_model.SMD_OT_Fix_Hitboxes,
-    source_model.SMD_OT_Create_Hitbox,
+    properties.SMD_OT_CopyBoneExportName,
+    properties.SMD_OT_AssignBoneRotExportOffset,
+    properties.SMD_OT_Copy_Jigglebone_Properties,
     
     # Object Data Tools
     objectdata.OBJECT_PT_ObjectData_Panel,
@@ -589,7 +565,6 @@ _classes = (
     bone.TOOLS_OT_ReAlignBones,
     bone.TOOLS_OT_CopyTargetRotation,
     bone.TOOLS_OT_SubdivideBone,
-    bone.TOOLS_OT_AssignBoneRotExportOffset,
     bone.TOOLS_OT_FlipBone,
     bone.TOOLS_OT_CreateCenterBone,
     bone.TOOLS_OT_SplitActiveWeightLinear,
@@ -604,6 +579,7 @@ _classes = (
     mesh.TOOLS_OT_RemoveUnusedVertexGroups,
     mesh.TOOLS_OT_AddToonEdgeLine,
     mesh.TOOLS_OT_transfer_topology_shapekeys,
+    mesh.TOOLS_OT_unlock_all_vertexgroups,
 
     # Vertex Group Tools
     vertexgroup.TOOLS_PT_VertexGroup,
@@ -644,6 +620,8 @@ _classes = (
     # Developer Tools
     developer.DEVELOPER_PT_PANEL,
     developer.DEVELOPER_OT_ImportLegacyData,
+    developer.SMD_OT_Fix_Attachments,
+    developer.SMD_OT_Fix_Hitboxes,
     
     # Flex and Export/Import
     flex.DmxWriteFlexControllers,
@@ -651,8 +629,8 @@ _classes = (
     flex.RenameShapesToMatchCorrectiveDrivers,
     flex.ActiveDependencyShapes,
     flex.InsertUUID,
-    export_smd.SMD_OT_Compile, 
     export_smd.SmdExporter, 
+    export_smd.PrefabExporter, 
     import_smd.SmdImporter,
 )
 

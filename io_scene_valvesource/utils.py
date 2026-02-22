@@ -25,6 +25,7 @@ from mathutils import Matrix, Vector
 from math import radians, pi, ceil
 from io import TextIOWrapper
 from . import datamodel
+from . import keyvalue3
 
 intsize = struct.calcsize("i")
 floatsize = struct.calcsize("f")
@@ -921,18 +922,6 @@ class SMD_OT_LaunchHLMV(bpy.types.Operator):
             args.extend(["-game",os.path.normpath(bpy.path.abspath(context.scene.vs.game_path))])
         subprocess.Popen(args)
         return {'FINISHED'}
-    
-def enum_shapekey_items(self, context):
-    ob = context.object
-    if not ob or not ob.data.shape_keys:
-        return []
-    return [(sk.name, sk.name, "") for sk in ob.data.shape_keys.key_blocks]
-
-def enum_bones(self,context):
-    ob = context.object
-    if not ob or not ob.data.bones:
-        return[]
-    return [(bone.name, bone.name, "") for bone in ob.data.bones]
 
 def get_filepath(path: str | None):
     if not path or not isinstance(path, str):
@@ -1312,4 +1301,101 @@ def import_jigglebones_from_content(content: str, armature: bpy.types.Object) ->
         if vs_bone.jiggle_length > 0:
             vs_bone.use_bone_length_for_jigglebone_length = False
     
+    return imported_count, missing_bones
+
+def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[int, list[str]]:
+    from .kitsunetools.boneutils import get_bone_exportname
+    import math
+
+    imported_count = 0
+    missing_bones = []
+
+    bone_map = {get_bone_exportname(b): b for b in armature.data.bones}
+
+    def find_jigglebone_nodes(node):
+        found = []
+        if isinstance(node, keyvalue3.KVNode):
+            if node.properties.get('_class') == "JiggleBone":
+                found.append(node)
+            for child in node.children:
+                found.extend(find_jigglebone_nodes(child))
+        elif isinstance(node, dict):
+            for value in node.values():
+                found.extend(find_jigglebone_nodes(value))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                found.extend(find_jigglebone_nodes(item))
+        return found
+
+    jigglebone_nodes = []
+    for root_node in kv_doc.roots.values():
+        jigglebone_nodes.extend(find_jigglebone_nodes(root_node))
+
+    if not jigglebone_nodes:
+        return 0, []
+
+    for jb_node in jigglebone_nodes:
+        props = jb_node.properties
+
+        current_bone_name = props.get('jiggle_root_bone')
+        if not current_bone_name:
+            continue
+
+        blender_bone = bone_map.get(current_bone_name)
+        if not blender_bone:
+            missing_bones.append(current_bone_name)
+            continue
+
+        vs_bone = blender_bone.vs
+        vs_bone.bone_is_jigglebone = True
+        imported_count += 1
+
+        jiggle_type_int = props.get('jiggle_type')
+        if jiggle_type_int == 0:
+            vs_bone.jiggle_flex_type = 'RIGID'
+        elif jiggle_type_int == 1:
+            vs_bone.jiggle_flex_type = 'FLEXIBLE'
+        else:
+            vs_bone.jiggle_flex_type = 'NONE'
+
+        vs_bone.jiggle_has_yaw_constraint = props.get('has_yaw_constraint', False)
+        vs_bone.jiggle_has_pitch_constraint = props.get('has_pitch_constraint', False)
+        vs_bone.jiggle_has_angle_constraint = props.get('has_angle_constraint', False)
+        vs_bone.jiggle_has_base_spring = props.get('has_base_spring', False)
+        vs_bone.jiggle_allow_length_flex = props.get('allow_flex_length', False)
+        vs_bone.jiggle_base_type = 'BASESPRING' if vs_bone.jiggle_has_base_spring else 'NONE'
+
+        vs_bone.jiggle_length = float(props.get('length', 0.0))
+        vs_bone.jiggle_tip_mass = float(props.get('tip_mass', 0.0))
+        vs_bone.use_bone_length_for_jigglebone_length = vs_bone.jiggle_length == 0.0
+
+        vs_bone.jiggle_angle_constraint = math.radians(float(props.get('angle_limit', 0.0)))
+        vs_bone.jiggle_yaw_constraint_min = math.radians(float(props.get('min_yaw', 0.0)))
+        vs_bone.jiggle_yaw_constraint_max = math.radians(float(props.get('max_yaw', 0.0)))
+        vs_bone.jiggle_yaw_friction = float(props.get('yaw_friction', 0.0))
+        vs_bone.jiggle_pitch_constraint_min = math.radians(float(props.get('min_pitch', 0.0)))
+        vs_bone.jiggle_pitch_constraint_max = math.radians(float(props.get('max_pitch', 0.0)))
+        vs_bone.jiggle_pitch_friction = float(props.get('pitch_friction', 0.0))
+
+        vs_bone.jiggle_base_mass = int(float(props.get('base_mass', 0)))
+        vs_bone.jiggle_base_stiffness = float(props.get('base_stiffness', 0.0))
+        vs_bone.jiggle_base_damping = float(props.get('base_damping', 0.0))
+
+        vs_bone.jiggle_left_constraint_min = float(props.get('base_left_min', 0.0))
+        vs_bone.jiggle_left_constraint_max = float(props.get('base_left_max', 0.0))
+        vs_bone.jiggle_left_friction = float(props.get('base_left_friction', 0.0))
+        vs_bone.jiggle_up_constraint_min = float(props.get('base_up_min', 0.0))
+        vs_bone.jiggle_up_constraint_max = float(props.get('base_up_max', 0.0))
+        vs_bone.jiggle_up_friction = float(props.get('base_up_friction', 0.0))
+        vs_bone.jiggle_forward_constraint_min = float(props.get('base_forward_min', 0.0))
+        vs_bone.jiggle_forward_constraint_max = float(props.get('base_forward_max', 0.0))
+        vs_bone.jiggle_forward_friction = float(props.get('base_forward_friction', 0.0))
+
+        vs_bone.jiggle_yaw_stiffness = float(props.get('yaw_stiffness', 0.0))
+        vs_bone.jiggle_yaw_damping = float(props.get('yaw_damping', 0.0))
+        vs_bone.jiggle_pitch_stiffness = float(props.get('pitch_stiffness', 0.0))
+        vs_bone.jiggle_pitch_damping = float(props.get('pitch_damping', 0.0))
+        vs_bone.jiggle_along_stiffness = float(props.get('along_stiffness', 0.0))
+        vs_bone.jiggle_along_damping = float(props.get('along_damping', 0.0))
+
     return imported_count, missing_bones

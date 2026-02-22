@@ -389,7 +389,7 @@ def copy_target_armature_visualpose(base_armature: bpy.types.Object,target_armat
                 
                 bpy.context.view_layer.update()
 
-def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True):
+def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True, anchor_bone: str = ""):
     if not source_arm or not target_arm: return
     if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE': return
 
@@ -415,6 +415,8 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
 
             source_bone_names = {b.name for b in source_arm.data.bones}
             source_export_map = {get_bone_exportname(b): b.name for b in source_arm.data.bones if get_bone_exportname(b)}
+
+            target_root_bones = {b.name for b in target_arm.data.bones if not b.parent}
 
             bone_name_map = {}
             renamed_count = 0
@@ -490,6 +492,22 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
 
             if len(bones_to_remove) > 0:
                 print(f"  Merged {len(bones_to_remove)} duplicate bone(s)")
+
+            if anchor_bone:
+                anchor = source_arm.data.edit_bones.get(anchor_bone)
+                if anchor:
+                    anchored_count = 0
+                    for bone_name in target_root_bones:
+                        resolved_name = next(
+                            (v for k, v in bone_name_map.items() if v == bone_name and k.endswith(".temp_merge")),
+                            bone_name
+                        )
+                        edit_bone = source_arm.data.edit_bones.get(resolved_name) or source_arm.data.edit_bones.get(bone_name)
+                        if edit_bone and edit_bone.parent is None and edit_bone != anchor:
+                            edit_bone.parent = anchor
+                            anchored_count += 1
+                    if anchored_count > 0:
+                        print(f"  Anchored {anchored_count} root bone(s) to '{anchor_bone}'")
 
             bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -1064,7 +1082,7 @@ def subdivide_bone(bone: typing.Union[str, list],
     
     if armature is None: return None
 
-    if bpy.context.object.mode != 'EDIT':
+    if bpy.context.active_object.mode != 'EDIT':
         return
     
     subdivisions = max(2, subdivisions)

@@ -1,5 +1,5 @@
 import bpy, os, json
-from typing import Set, Any
+from typing import Any
 
 from bpy.types import Context, Object, Operator, UILayout, UIList, Event, BoneCollection
 from bpy.props import EnumProperty, IntProperty, StringProperty, BoolProperty
@@ -20,16 +20,16 @@ from ..kitsunetools.meshutils import get_armature
 from ..flex import get_id
 from ..utils import print
 
-from .common import KITSUNE_PT_ToolsPanel
+from .common import KITSUNE_PT_ToolSubPanel
 
-class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
-    bl_label : str = 'Humanoid Armature Mapper'
+class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolSubPanel):
+    bl_label = 'Humanoid Armature Mapper'
 
     def draw(self, context : Context) -> None:
         layout = self.layout
         bx = layout.box()
 
-        ob : Object | None = context.object
+        ob  = context.active_object
         if is_armature(ob): pass
         else:
             draw_wrapped_texts(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
@@ -70,9 +70,9 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
         row.template_list(
             "HUMANOIDARMATUREMAP_UL_ConfigList",
             "",
-            context.object.vs,
+            context.active_object.vs,
             "humanoid_armature_map_bonecollections",
-            context.object.vs,
+            context.active_object.vs,
             "humanoid_armature_map_bonecollections_index",
             rows=3
         )
@@ -82,13 +82,13 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
         split.operator(HUMANOIDARMATUREMAP_OT_AddItem.bl_idname, icon="ADD", text=HUMANOIDARMATUREMAP_OT_AddItem.bl_label).add_type = 'SINGLE'
         split.operator(HUMANOIDARMATUREMAP_OT_AddItem.bl_idname, icon="ADD", text=HUMANOIDARMATUREMAP_OT_AddItem.bl_label + " (Selected Bones)").add_type = 'SELECTED'
 
-        if 0 <= context.object.vs.humanoid_armature_map_bonecollections_index < len(context.object.vs.humanoid_armature_map_bonecollections):
+        if 0 <= context.active_object.vs.humanoid_armature_map_bonecollections_index < len(context.active_object.vs.humanoid_armature_map_bonecollections):
             self.draw_bone_item_properties(context, layout)
 
         layout.operator(HUMANOIDARMATUREMAP_OT_WriteConfig.bl_idname, icon='FILE')
 
     def draw_bone_item_properties(self, context : Context, layout : UILayout) -> None:
-        item = context.object.vs.humanoid_armature_map_bonecollections[context.object.vs.humanoid_armature_map_bonecollections_index]
+        item = context.active_object.vs.humanoid_armature_map_bonecollections[context.active_object.vs.humanoid_armature_map_bonecollections_index]
 
         col = layout.column(align=True)
         col.prop(item, "boneExportName")
@@ -105,7 +105,7 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
 
     def get_bone_assignments(self, context : Context) -> dict:
         assignments = {}
-        vs = context.object.vs
+        vs = context.active_object.vs
         
         bone_props = [
             ('armature_map_head', 'Head'),
@@ -228,9 +228,9 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
         self.draw_bone_pair(col, context, 'Pinky', 'armature_map_pinky_f_l', 'armature_map_pinky_f_r', duplicates)
 
     def draw_bone_prop(self, layout : UILayout, context : Context, prop : str, text : str, duplicates : dict) -> None:
-        bone_name = getattr(context.object.vs, prop, "").strip()
+        bone_name = getattr(context.active_object.vs, prop, "").strip()
         layout.alert = bone_name in duplicates
-        layout.prop_search(context.object.vs, prop, context.object.data, "bones", text=text)
+        layout.prop_search(context.active_object.vs, prop, context.active_object.data, "bones", text=text)
         layout.alert = False
 
     def draw_bone_pair(self, layout : UILayout, context : Context, label : str, prop_l : str, prop_r : str, duplicates : dict = None) -> None:
@@ -241,31 +241,31 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolsPanel):
         row.scale_x = 0.2
         row.label(text=f'{label} L & R')
         
-        bone_l = getattr(context.object.vs, prop_l, "").strip()
-        bone_r = getattr(context.object.vs, prop_r, "").strip()
+        bone_l = getattr(context.active_object.vs, prop_l, "").strip()
+        bone_r = getattr(context.active_object.vs, prop_r, "").strip()
         
         row.alert = bone_l in duplicates
-        row.prop_search(context.object.vs, prop_l, context.object.data, "bones", text="")
+        row.prop_search(context.active_object.vs, prop_l, context.active_object.data, "bones", text="")
         row.alert = bone_r in duplicates
-        row.prop_search(context.object.vs, prop_r, context.object.data, "bones", text="")
+        row.prop_search(context.active_object.vs, prop_r, context.active_object.data, "bones", text="")
         row.alert = False
 
 class HUMANOIDARMATUREMAP_OT_LoadPreset(Operator):
-    bl_idname : str = "humanoidarmaturemap.load_preset"
-    bl_label : str = "Load Preset"
-    bl_options : Set = {"INTERNAL", "REGISTER"}
+    bl_idname = "humanoidarmaturemap.load_preset"
+    bl_label = "Load Preset"
+    bl_options = {"INTERNAL", "REGISTER"}
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return is_armature(context.object)
+        return is_armature(context.active_object)
 
-    def invoke(self, context : Context, event : Event) -> Set:
+    def invoke(self, context : Context, event : Event) -> set:
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         if not self.filepath:
             self.report({'ERROR'}, "No file selected")
             return {'CANCELLED'}
@@ -278,7 +278,7 @@ class HUMANOIDARMATUREMAP_OT_LoadPreset(Operator):
             self.report({'ERROR'}, "File does not exist")
             return {'CANCELLED'}
 
-        ob : Object | None = context.object
+        ob  = context.active_object
 
         with open(self.filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -327,9 +327,9 @@ class HUMANOIDARMATUREMAP_OT_LoadPreset(Operator):
         return {'FINISHED'}
 
 class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
-    bl_idname: str = "humanoidarmaturemap.load_json"
-    bl_label: str = "Load JSON"
-    bl_options: Set = {"REGISTER", "UNDO"}
+    bl_idname= "humanoidarmaturemap.load_json"
+    bl_label= "Load JSON"
+    bl_options: set = {"REGISTER", "UNDO"}
 
     filepath: StringProperty(subtype="FILE_PATH")
 
@@ -384,11 +384,11 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         col.separator()
         col.prop(self, "remove_intermediate_bones")
 
-    def invoke(self, context: Context, event: Event) -> Set:
+    def invoke(self, context: Context, event: Event) -> set:
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
-    def execute(self, context: Context) -> Set:
+    def execute(self, context: Context) -> set:
         if not self.filepath.lower().endswith(".json"):
             self.report({"ERROR"}, "Please select a JSON file")
             return {"CANCELLED"}
@@ -400,7 +400,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             self.report({"ERROR"}, f"Failed to load JSON: {e}")
             return {"CANCELLED"}
 
-        arm = get_armature(context.object)
+        arm = get_armature(context.active_object)
         
         with preserve_context_mode(arm, 'OBJECT'):
             bone_elements = {entry["BoneName"]: entry for entry in data}
@@ -695,7 +695,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
     def _remove_intermediate_limb_bones(self, arm: Object, vs_arm, rename_map: dict) -> None:
         prev_mode = arm.mode
-        if bpy.context.object != arm:
+        if bpy.context.active_object != arm:
             bpy.context.view_layer.objects.active = arm
         bpy.ops.object.mode_set(mode='EDIT')
 
@@ -916,11 +916,19 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         else:
             self._create_multiple_twist_bones(arm, bone, bone_name, base_head, total_vec, twist_count)
 
+    def _get_twist_bone_name(self, bone_name: str, index: int) -> str:
+        if index == 0:
+            return f"{bone_name}.001"
+        return f"{bone_name}.{str(index + 1).zfill(3)}"
+
     def _create_single_twist_bone(self, arm: Object, bone, bone_name: str, base_head, total_vec) -> None:
+        twist_name = self._get_twist_bone_name(bone_name, 0)
+        if arm.data.edit_bones.get(twist_name):
+            return
+
         mid_point = base_head + total_vec * 0.5
-        
+
         twistbone = arm.data.edit_bones.new(bone_name)
-        
         twistbone.head = mid_point
         twistbone.tail = base_head + total_vec
         twistbone.roll = bone.roll
@@ -931,20 +939,21 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         prev_bone = bone
 
         for i in range(twist_count):
+            twist_name = self._get_twist_bone_name(bone_name, i)
+            if arm.data.edit_bones.get(twist_name):
+                prev_bone = arm.data.edit_bones.get(twist_name)
+                continue
+
             factor_start = i * segment_length
             factor_end = (i + 1) * segment_length
 
-            twist_head = base_head + total_vec * factor_start
-            twist_tail = base_head + total_vec * factor_end
-
             twistbone = arm.data.edit_bones.new(bone_name)
-            
-            twistbone.head = twist_head
-            twistbone.tail = twist_tail
+            twistbone.head = base_head + total_vec * factor_start
+            twistbone.tail = base_head + total_vec * factor_end
             twistbone.roll = bone.roll
             twistbone.parent = prev_bone
 
-            prev_bone = bone
+            prev_bone = twistbone  
 
     def _process_bones_object_mode(self, arm: Object, bone_elements: dict) -> None:
         for bone_name, bone_data in bone_elements.items():
@@ -1087,15 +1096,15 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         return new_bone
 
 class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
-    bl_idname : str = "humanoidarmaturemap.write_json"
-    bl_label : str = "Write Json"
-    bl_options : Set = {"INTERNAL", "REGISTER"}
+    bl_idname = "humanoidarmaturemap.write_json"
+    bl_label = "Write Json"
+    bl_options = {"INTERNAL", "REGISTER"}
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
 
     @classmethod
     def poll(cls, context : Context) -> bool:
-        return bool(is_armature(context.object) and len(context.object.vs.humanoid_armature_map_bonecollections) > 0)
+        return bool(is_armature(context.active_object) and len(context.active_object.vs.humanoid_armature_map_bonecollections) > 0)
 
     def sortItemsByBoneHierarchy(self, ob, items):
         """Return a list of items sorted by bone parent hierarchy."""
@@ -1125,7 +1134,7 @@ class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
 
         return sorted_items
 
-    def execute(self, context : Context) -> Set:
+    def execute(self, context : Context) -> set:
         if not self.filepath:
             self.report({'ERROR'}, "No file path set")
             return {'CANCELLED'}
@@ -1133,7 +1142,7 @@ class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
         if not self.filepath.lower().endswith(".json"):
             self.filepath += ".json"
 
-        ob : Object | None = context.object
+        ob  = context.active_object
         items = ob.vs.humanoid_armature_map_bonecollections
         skipped_count = 0
 
@@ -1222,35 +1231,35 @@ class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
         return {'FINISHED'}
 
 
-    def invoke(self, context : Context, event : Event) -> Set:
+    def invoke(self, context : Context, event : Event) -> set:
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
 class HUMANOIDARMATUREMAP_OT_RemoveItem(Operator):
-    bl_idname : str = "humanoidarmaturemap.remove_item"
-    bl_label : str = "Remove Bone"
-    bl_options : Set = {'REGISTER', 'UNDO', 'INTERNAL'}
+    bl_idname = "humanoidarmaturemap.remove_item"
+    bl_label = "Remove Bone"
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     index: IntProperty()
 
-    def execute(self, context : Context) -> Set:
-        coll = context.object.vs.humanoid_armature_map_bonecollections
+    def execute(self, context : Context) -> set:
+        coll = context.active_object.vs.humanoid_armature_map_bonecollections
         if 0 <= self.index < len(coll):
             coll.remove(self.index)
         return {'FINISHED'}
 
 class HUMANOIDARMATUREMAP_OT_AddItem(Operator):
-    bl_idname : str = "humanoidarmaturemap.add_item"
-    bl_label : str = "Add Bone"
-    bl_options : Set = {'REGISTER', 'UNDO', 'INTERNAL'}
+    bl_idname = "humanoidarmaturemap.add_item"
+    bl_label = "Add Bone"
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     add_type: bpy.props.EnumProperty(items=[
         ('SELECTED', 'Selected', 'Add all selected bones'),
         ('SINGLE', 'Single', 'Add an empty item')
     ])
 
-    def execute(self, context : Context) -> Set:
-        ob : Object | None = context.object
+    def execute(self, context : Context) -> set:
+        ob  = context.active_object
         if not ob or ob.type != 'ARMATURE':
             self.report({'ERROR'}, "Active object must be an armature")
             return {'CANCELLED'}
@@ -1286,6 +1295,6 @@ class HUMANOIDARMATUREMAP_UL_ConfigList(UIList):
         if item:
             row = layout.row()
             split = row.split(factor=0.9)
-            split.prop_search(item, "boneExportName", context.object.data, "bones", text="")
+            split.prop_search(item, "boneExportName", context.active_object.data, "bones", text="")
             split.label(text="", )
             row.operator(HUMANOIDARMATUREMAP_OT_RemoveItem.bl_idname, text="", icon="X").index = index

@@ -26,7 +26,7 @@ from mathutils import Quaternion, Euler
 from math import ceil
 from typing import cast
 from .utils import *
-from . import datamodel, ordered_set, flex
+from . import datamodel, ordered_set, flex, keyvalue3
 
 class SmdImporter(bpy.types.Operator, Logger):
     bl_idname = "import_scene.smd"
@@ -42,7 +42,7 @@ class SmdImporter(bpy.types.Operator, Logger):
     files : CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN'})
     directory : StringProperty(maxlen=1024, default="", subtype='FILE_PATH', options={'HIDDEN'})
     filter_folder : BoolProperty(name="Filter Folders", description="", default=True, options={'HIDDEN'})
-    filter_glob : StringProperty(default="*.smd;*.vta;*.dmx;*.qc;*.qci", options={'HIDDEN'})
+    filter_glob : StringProperty(default="*.smd;*.vta;*.dmx;*.qc;*.qci;*.vmdl;*.vmdl_prefab", options={'HIDDEN'})
 
     # Custom properties
     doAnim : BoolProperty(name=get_id("importer_doanims"), default=True)
@@ -74,7 +74,7 @@ class SmdImporter(bpy.types.Operator, Logger):
 
         for filepath in [os.path.join(self.directory,file.name) for file in self.files] if self.files else [self.filepath]:
             filepath_lc = filepath.lower()
-            if filepath_lc.endswith('.qc') or filepath_lc.endswith('.qci'):
+            if filepath_lc.endswith(('.qc', '.qci', '.vmdl', '.vmdl_prefab')):
                 self.num_files_imported = self.readQC(filepath, False, self.properties.doAnim, self.properties.makeCamera, self.properties.rotMode, outer_qc=True)
                 bpy.context.view_layer.objects.active = self.qc.a
             elif filepath_lc.endswith('.smd'):
@@ -955,6 +955,41 @@ class SmdImporter(bpy.types.Operator, Logger):
                 bpy.context.scene.name = filename
         else:
             qc = self.qc
+        
+        filepath_lc = filepath.lower()
+        if filepath_lc.endswith(('.vmdl', '.vmdl_prefab')):
+            print(f"\nJigglebone IMPORTER: now working on {filename}")
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    vmdl_text = f.read()
+            except IOError as e:
+                self.error(f"Could not read file {filepath}: {e}")
+                return 0
+
+            arm = qc.a or self.findArmature()
+            if not arm:
+                self.warning(f"No armature found to apply jigglebones from {filename}.")
+                return 0
+            
+            try:
+                parser = keyvalue3.KVParser(vmdl_text)
+                kv_doc = parser.parse()
+                
+                imported_count, missing_bones = import_jigglebones_from_kv3(kv_doc, arm)
+                
+                if imported_count > 0:
+                    self.imported_jigglebones += imported_count
+                    print(f"- Imported {imported_count} jigglebone(s) from {filename}")
+                else:
+                    print(f"- No jigglebones imported from {filename}.")
+                
+                if missing_bones:
+                    self.warning(f"Could not find bones for {len(missing_bones)} jigglebone(s) in {filename}: {', '.join(missing_bones)}")
+            
+            except Exception as e:
+                self.error(f"Failed to parse or import jigglebones from {filename}: {e}")
+
+            return 1
 
         try:
             with open(filepath, 'r') as f:
