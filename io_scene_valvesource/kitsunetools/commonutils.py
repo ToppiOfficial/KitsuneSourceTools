@@ -53,6 +53,7 @@ def unhide_all_objects():
             vis[layer_coll] = {
                 "exclude": layer_coll.exclude,
                 "hide_viewport": layer_coll.hide_viewport,
+                "collection_hide_viewport": layer_coll.collection.hide_viewport,
             }
             for child in layer_coll.children:
                 store_layer_collection_visibility(child, vis)
@@ -62,10 +63,12 @@ def unhide_all_objects():
                 if layer_coll:
                     layer_coll.exclude = state["exclude"]
                     layer_coll.hide_viewport = state["hide_viewport"]
+                    layer_coll.collection.hide_viewport = state["collection_hide_viewport"]
 
         def unhide_all_layer_collections(layer_coll):
             layer_coll.exclude = False
             layer_coll.hide_viewport = False
+            layer_coll.collection.hide_viewport = False
             for child in layer_coll.children:
                 unhide_all_layer_collections(child)
 
@@ -87,7 +90,7 @@ def unhide_all_objects():
             yield
         finally:
             ctx.preferences.edit.use_global_undo = False
-            
+
             restore_layer_collection_visibility(original_visibility)
             for name, state in original_obj_visibility.items():
                 if name not in bpy.data.objects:
@@ -95,7 +98,7 @@ def unhide_all_objects():
                 obj = bpy.data.objects[name]
                 obj.hide_set(state["hide"])
                 obj.hide_viewport = state["hide_viewport"]
-            
+
             ctx.preferences.edit.use_global_undo = undo_enabled
     except:
         ctx.preferences.edit.use_global_undo = undo_enabled

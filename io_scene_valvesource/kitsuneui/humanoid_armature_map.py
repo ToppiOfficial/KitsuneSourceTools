@@ -43,25 +43,8 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolSubPanel):
             self.draw_write_mode(context, bx)
         else:
             self.draw_read_mode(context, bx)
-            
-            message = [
-                'This will rename bones to a standardized format.',
-                'Bone map includes:\n',
-                '- Core: Hips, Chest, Head\n',
-                '- Arms: Shoulder, UpperArm, ForeArm, Wrist\n',
-                '- Legs: Thigh, Knee, Ankle, Toe\n',
-                '- Fingers: Index/Middle/Ring/LittleFinger1-3_L/R\n',
-                '- Thumbs: Thumb0-2_L/R\n',
-                '\nEnable "Remove Intermediate Bones" to merge bones between mapped limbs.'
-            ]
-            
-            draw_wrapped_texts(bx,message,max_chars=40, icon='HELP',boxed=False)
 
     def draw_write_mode(self, context : Context, layout : UILayout) -> None:
-        col = layout.column(align=False)
-        
-        draw_wrapped_texts(col,"When saving a bone preset, the current Blender bone name becomes the export name, and the target name is the bone that the preset will apply to when loaded. For example, if the bone name is Spine1 and the target name is Waist then Spine1 will be the export name and the JSON will look for the Waist bone on the armature and apply the preset there.  It is recommended to name the target bone based on the 'WRITE' format for Humanoid",max_chars=40 , icon='HELP',boxed=False)
-            
         col = layout.column()
         col.operator(HUMANOIDARMATUREMAP_OT_LoadPreset.bl_idname)
 
@@ -936,12 +919,10 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
     def _create_multiple_twist_bones(self, arm: Object, bone, bone_name: str, base_head, total_vec, twist_count: int) -> None:
         segment_length = 1.0 / twist_count
-        prev_bone = bone
 
         for i in range(twist_count):
             twist_name = self._get_twist_bone_name(bone_name, i)
             if arm.data.edit_bones.get(twist_name):
-                prev_bone = arm.data.edit_bones.get(twist_name)
                 continue
 
             factor_start = i * segment_length
@@ -951,9 +932,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             twistbone.head = base_head + total_vec * factor_start
             twistbone.tail = base_head + total_vec * factor_end
             twistbone.roll = bone.roll
-            twistbone.parent = prev_bone
-
-            prev_bone = twistbone  
+            twistbone.parent = bone
 
     def _process_bones_object_mode(self, arm: Object, bone_elements: dict) -> None:
         for bone_name, bone_data in bone_elements.items():
@@ -1008,7 +987,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             if 'EXPORT_NAME' in self.load_options:
                 pbtwist.bone.vs.export_name = f"{bone_name} twist {idx+1}"
 
-            if twist_target == pbtwist.parent.name:
+            if twist_target == bone_name or twist_target == pbtwist.parent.name:
                 pbtwist.rotation_mode = 'XYZ'
             else:
                 self._add_twist_constraint(arm, pbtwist, bone_name, twist_target, idx, twist_count)
