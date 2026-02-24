@@ -71,19 +71,19 @@ class SMD_MT_ExportChoice(bpy.types.Menu):
             l.separator()
             if is_armature(active):
                 if get_jigglebones(arm) and arm.vs.jigglebone_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Export Jigglebones ({len(get_jigglebones(arm))})", icon='BONE_DATA').export_type = 'JIGGLEBONES'
+                    l.operator(PrefabExporter.bl_idname, text=f"Jigglebones ({len(get_jigglebones(arm))}) \"{arm.name}\"", icon='BONE_DATA').export_type = 'JIGGLEBONES'
                 if get_attachments(arm) and arm.vs.attachment_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Export Attachments ({len(get_attachments(arm))})", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
+                    l.operator(PrefabExporter.bl_idname, text=f"Attachments ({len(get_attachments(arm))}) \"{arm.name}\"", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
                 if get_hitboxes(arm) and arm.vs.hitbox_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Export Hitboxes ({len(get_hitboxes(arm))})", icon='MESH_CUBE').export_type = 'HITBOXES'
+                    l.operator(PrefabExporter.bl_idname, text=f"Hitboxes ({len(get_hitboxes(arm))}) \"{arm.name}\"", icon='MESH_CUBE').export_type = 'HITBOXES'
             else:
                 is_hitbox = active.type == 'EMPTY' and active.empty_display_type == 'CUBE' and getattr(active.vs, 'smd_hitbox', False)
                 is_attachment = active.type == 'EMPTY' and getattr(active.vs, 'dmx_attachment', False)
 
                 if is_hitbox and get_hitboxes(arm) and arm.vs.hitbox_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Export Hitboxes ({len(get_hitboxes(arm))})", icon='MESH_CUBE').export_type = 'HITBOXES'
+                    l.operator(PrefabExporter.bl_idname, text=f"Hitboxes ({len(get_hitboxes(arm))}) \"{arm.name}\"", icon='MESH_CUBE').export_type = 'HITBOXES'
                 if is_attachment and get_attachments(arm) and arm.vs.attachment_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Export Attachments ({len(get_attachments(arm))})", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
+                    l.operator(PrefabExporter.bl_idname, text=f"Attachments ({len(get_attachments(arm))}) \"{arm.name}\"", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
 
 
 class SMD_PT_Scene(bpy.types.Panel):

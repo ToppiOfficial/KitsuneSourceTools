@@ -14,7 +14,7 @@ from ..kitsunetools.armatureutils import (
     remove_bone, merge_bones)
 
 from ..kitsunetools.boneutils import get_armature, get_canonical_bonename
-from ..kitsunetools.commonutils import draw_title_box_layout, draw_wrapped_texts, is_armature
+from ..kitsunetools.commonutils import draw_wrapped_texts, is_armature
 
 from ..kitsunetools.meshutils import get_armature
 from ..flex import get_id

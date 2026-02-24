@@ -83,6 +83,31 @@ def export_active_changed(self, context):
 		item.select_set(True)
 		context.view_layer.objects.active = item
 
+def on_flexcontroller_index_changed(self, context):
+    ob = context.active_object
+    if not ob:
+        return
+    
+    mesh : bpy.types.Object = ob if ob.type == 'MESH' else next(
+        (child for child in ob.children if child.type == 'MESH'), None
+    )
+    if not mesh or not mesh.data.shape_keys:
+        return
+
+    items = ob.vs.dme_flexcontrollers
+    idx = ob.vs.dme_flexcontrollers_index
+    if idx < 0 or idx >= len(items):
+        return
+
+    shapekey_name = items[idx].shapekey
+    if not shapekey_name:
+        return
+
+    key_blocks = mesh.data.shape_keys.key_blocks
+    sk_idx = key_blocks.find(shapekey_name)
+    if sk_idx != -1:
+        mesh.active_shape_key_index = sk_idx
+
 #
 # Property Groups
 #
@@ -226,6 +251,9 @@ class ShapeTypeProps():
                                  items=tuple(list(axes) + [('VGROUP','Vertex Group',get_id("shape_stereo_mode_vgroup"))]), default='X')
     flex_stereo_vg : StringProperty(name=get_id("shape_stereo_vgroup"),description=get_id("shape_stereo_vgroup_tip"))
 
+    bake_shapekey_as_basis_normals : BoolProperty(name=get_id("bake_shapekey_as_basis_normals"),description=get_id("bake_shapekey_as_basis_normals_tip"))
+    normalize_shapekeys : BoolProperty(name='Normalize Shapekeys',description='Normalize shapekeys so their current max value is 1 and min of -1 if applicable else 0',default=True)
+
 class CurveTypeProps():
     faces : EnumProperty(name=get_id("curve_poly_side"),description=get_id("curve_poly_side_tip"),default='FORWARD',items=(
     ('FORWARD', get_id("curve_poly_side_fwd"), ''),
@@ -310,8 +338,7 @@ class ExportableProps():
 
 # Property Classes (using mixins)
 class ValveSource_MeshProps(ShapeTypeProps,PropertyGroup):
-    bake_shapekey_as_basis_normals : BoolProperty(name=get_id("bake_shapekey_as_basis_normals"),description=get_id("bake_shapekey_as_basis_normals_tip"))
-    normalize_shapekeys : BoolProperty(name='Normalize Shapekeys',description='Normalize shapekeys so their current max value is 1 and min of -1 if applicable else 0',default=True)
+    pass
 
 class ValveSource_SurfaceProps(ShapeTypeProps,CurveTypeProps,PropertyGroup):
     pass
@@ -395,7 +422,7 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
     
     dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=FlexControllerItem)
-    dme_flexcontrollers_index : IntProperty(default=-1)
+    dme_flexcontrollers_index : IntProperty(default=-1, update=on_flexcontroller_index_changed)
     
     dmx_attachment : BoolProperty(name='Is Attachment',default=False)
     smd_hitbox : BoolProperty(name='Is Hitbox',default=False)    
@@ -452,7 +479,7 @@ class ValveSource_ArmatureProps(PropertyGroup):
         ('CURRENT',get_id("action_selection_current"),get_id("action_selection_current_tip")),
         ('FILTERED',get_id("action_filter"),get_id("action_selection_filter_tip"))		
     )
-    action_selection : EnumProperty(name=get_id("action_selection_mode"), items=arm_modes,description=get_id("action_selection_mode_tip"),default='CURRENT')
+    action_selection : EnumProperty(name=get_id("action_selection_mode"), items=arm_modes,description=get_id("action_selection_mode_tip"),default='FILTERED')
     legacy_rotation : BoolProperty(name=get_id("bone_rot_legacy"),description=get_id("bone_rot_legacy_tip"),default=False)
 
     ignore_bone_exportnames : BoolProperty(name=get_id("ignore_bone_exportnames"))
@@ -515,6 +542,7 @@ _classes = (
     properties.SMD_PT_Group,
     properties.SMD_PT_Armature,
     properties.SMD_PT_Bone,
+    properties.SMD_PT_BoneData,
     properties.SMD_PT_Mesh,
     properties.SMD_PT_Material,
     properties.SMD_PT_Shapekey,
@@ -597,6 +625,7 @@ _classes = (
     animation.TOOLS_OT_convert_rotation_keyframes,
     animation.TOOLS_OT_propagate_pose_offset,
     animation.TOOLS_OT_copy_bone_keyframes,
+    animation.TOOLS_OT_Make_Proportion_Animation,
     animation.TOOLS_OT_delete_action_slot,
     
     # Humanoid Armature Map

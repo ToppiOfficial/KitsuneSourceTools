@@ -173,9 +173,11 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
         return {'FINISHED'}
 
+EDGELINE_PROP = "edgeline_thickness"
+
 class TOOLS_OT_AddToonEdgeLine(Operator):
-    bl_idname= "kitsunetools.add_toon_edgeline"
-    bl_label= "Add Black Toon Edgeline"
+    bl_idname = "kitsunetools.add_toon_edgeline"
+    bl_label = "Add Black Toon Edgeline"
     bl_options: set = {"REGISTER", "UNDO"}
 
     per_material_edgeline: BoolProperty(
@@ -183,7 +185,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         description="Create separate edgeline materials for each base material, or use a single unified edgeline material",
         default=False,
     )
-    
+
     overwrite_existing_materials: BoolProperty(
         name="Overwrite Existing Materials",
         description="Replace existing edgeline material setup even if edgeline materials already exist",
@@ -195,259 +197,253 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
         description="Calculate vertex weights based on mesh island size",
         default=True,
     )
-    
+
     overwrite_existing_weights: BoolProperty(
         name="Overwrite Existing Weights",
         description="Update vertex group weights even if the vertex group already exists",
-        default=False
+        default=False,
     )
-    
+
     weight_min: FloatProperty(
         name="Min Weight",
-        description="Minimum weight value",
         default=0.3,
         min=0.0,
         max=1.0,
     )
-    
+
     weight_max: FloatProperty(
         name="Max Weight",
-        description="Maximum weight value",
         default=0.8,
         min=0.0,
         max=1.0,
     )
-    
+
     component_size_metric: EnumProperty(
         name="Size Metric",
         description="How to measure component size",
         items=[
-            ('VOLUME', "Volume", "Use bounding box volume"),
-            ('AREA', "Surface Area", "Use total surface area of faces"),
+            ('VOLUME',   "Volume",       "Use bounding box volume"),
+            ('AREA',     "Surface Area", "Use total surface area of faces"),
             ('VERTICES', "Vertex Count", "Use number of vertices"),
         ],
-        default='AREA'
+        default='AREA',
     )
-    
+
     edgeline_thickness: FloatProperty(
         name="Edgeline Thickness",
-        description="Thickness of the toon edgeline (in scene units)",
+        description="Thickness of the toon edgeline (in mm)",
         default=0.15,
         min=0.0,
         precision=4,
         unit='LENGTH',
-        subtype='DISTANCE'
+        subtype='DISTANCE',
     )
+
+    # ------------------------------------------------------------------ #
+    # Poll / Draw
+    # ------------------------------------------------------------------ #
 
     @classmethod
     def poll(cls, context: Context) -> bool:
         return bool(context.mode == 'OBJECT' and {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()})
 
-    def draw(self, context: Context):
+    def draw(self, context: Context) -> None:
         layout = self.layout
-        
         layout.prop(self, "edgeline_thickness")
         layout.prop(self, "per_material_edgeline")
         layout.prop(self, "overwrite_existing_materials")
         layout.prop(self, "use_component_weights")
-        
+
         if self.use_component_weights:
             layout.prop(self, "overwrite_existing_weights")
-            
             row = layout.row(align=True)
             row.prop(self, "weight_min")
             row.prop(self, "weight_max")
-            
             layout.prop(self, "component_size_metric")
 
-    def has_existing_edgeline_setup(self, ob):
-        for slot in ob.material_slots:
-            if slot.material and "edgeline" in slot.material.name.lower():
-                return True
-        return False
+    # ------------------------------------------------------------------ #
+    # Material helpers
+    # ------------------------------------------------------------------ #
 
-    def calculate_component_weights(self, ob):
+    def _has_existing_edgeline(self, ob: Object) -> bool:
+        return any(
+            slot.material and "edgeline" in slot.material.name.lower()
+            for slot in ob.material_slots
+        )
+
+    def _strip_edgeline_slots(self, ob: Object) -> None:
+        for i in range(len(ob.material_slots) - 1, -1, -1):
+            slot = ob.material_slots[i]
+            if slot.material and "edgeline" in slot.material.name.lower():
+                ob.active_material_index = i
+                bpy.ops.object.material_slot_remove()
+        bpy.ops.object.material_slot_remove_unused()
+
+    def _build_edgeline_material(self, name: str) -> bpy.types.Material:
+        mat = bpy.data.materials.get(name)
+        if mat is None:
+            mat = bpy.data.materials.new(name=name)
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            nodes.clear()
+            emission = nodes.new(type="ShaderNodeEmission")
+            emission.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+            emission.inputs["Strength"].default_value = 1.0
+            output = nodes.new(type="ShaderNodeOutputMaterial")
+            mat.node_tree.links.new(emission.outputs["Emission"], output.inputs["Surface"])
+
+        mat.use_backface_culling = True
+        if hasattr(mat, "use_backface_culling_shadow"):
+            mat.use_backface_culling_shadow = True
+        mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
+        mat.vs.do_not_export_faces_vgroup = True
+        return mat
+
+    def _apply_materials(self, ob: Object) -> int:
+        original_count = len(ob.material_slots)
+
+        if self.per_material_edgeline:
+            for slot in ob.material_slots[:original_count]:
+                base_name = slot.material.name if slot.material and not slot.material.name.endswith("_edgeline") else "Material"
+                ob.data.materials.append(self._build_edgeline_material(f"{base_name}_edgeline"))
+        else:
+            edgeline_mat = self._build_edgeline_material("edgeline")
+            for _ in range(original_count):
+                ob.data.materials.append(edgeline_mat)
+
+        return original_count
+
+    # ------------------------------------------------------------------ #
+    # Vertex weight helpers
+    # ------------------------------------------------------------------ #
+
+    def _calculate_component_weights(self, ob: Object) -> list[float]:
         bm = bmesh.new()
         bm.from_mesh(ob.data)
         bm.verts.ensure_lookup_table()
-        
+
         islands = []
         unvisited = set(bm.verts)
-        
+
         while unvisited:
             island = set()
             queue = [unvisited.pop()]
-            
             while queue:
                 v = queue.pop(0)
                 if v in island:
                     continue
                 island.add(v)
-                
                 for edge in v.link_edges:
                     other = edge.other_vert(v)
                     if other in unvisited:
                         unvisited.discard(other)
                         queue.append(other)
-            
             islands.append(island)
-        
-        island_sizes = []
-        for island in islands:
+
+        def island_size(island):
             if self.component_size_metric == 'VERTICES':
-                size = len(island)
-            elif self.component_size_metric == 'AREA':
-                area = 0.0
-                counted_faces = set()
+                return len(island)
+            if self.component_size_metric == 'AREA':
+                counted, area = set(), 0.0
                 for v in island:
-                    for face in v.link_faces:
-                        if face not in counted_faces and all(fv in island for fv in face.verts):
-                            area += face.calc_area()
-                            counted_faces.add(face)
-                size = area
-            else:
-                coords = [v.co for v in island]
-                min_co = mathutils.Vector((min(c.x for c in coords), min(c.y for c in coords), min(c.z for c in coords)))
-                max_co = mathutils.Vector((max(c.x for c in coords), max(c.y for c in coords), max(c.z for c in coords)))
-                bbox_size = max_co - min_co
-                size = bbox_size.x * bbox_size.y * bbox_size.z
-            
-            island_sizes.append(size)
-        
-        min_size = min(island_sizes) if island_sizes else 0
-        max_size = max(island_sizes) if island_sizes else 0
-        size_range = max_size - min_size
-        
-        vertex_weights = [0.0] * len(bm.verts)
-        
-        for island, size in zip(islands, island_sizes):
+                    for f in v.link_faces:
+                        if f not in counted and all(fv in island for fv in f.verts):
+                            area += f.calc_area()
+                            counted.add(f)
+                return area
+            coords = [v.co for v in island]
+            lo = mathutils.Vector((min(c.x for c in coords), min(c.y for c in coords), min(c.z for c in coords)))
+            hi = mathutils.Vector((max(c.x for c in coords), max(c.y for c in coords), max(c.z for c in coords)))
+            d = hi - lo
+            return d.x * d.y * d.z
+
+        sizes = [island_size(isl) for isl in islands]
+        lo, hi = min(sizes), max(sizes)
+        size_range = hi - lo
+
+        weights = [0.0] * len(bm.verts)
+        for island, size in zip(islands, sizes):
             if size_range > 0:
-                normalized = (max_size - size) / size_range
-                weight = self.weight_min + normalized * (self.weight_max - self.weight_min)
+                w = self.weight_min + ((hi - size) / size_range) * (self.weight_max - self.weight_min)
             else:
-                weight = self.weight_max
-            
-            weight = round(weight, 2)
-            
+                w = self.weight_max
+            w = round(w, 2)
             for v in island:
-                vertex_weights[v.index] = weight
-        
+                weights[v.index] = w
+
         bm.free()
-        return vertex_weights
+        return weights
 
-    def create_edgeline_material(self, base_mat_name):
-        edgeline_name = f"{base_mat_name}_edgeline"
-        edgeline_mat = bpy.data.materials.get(edgeline_name)
-        
-        if edgeline_mat is None:
-            edgeline_mat = bpy.data.materials.new(name=edgeline_name)
-            edgeline_mat.use_nodes = True
-            nodes = edgeline_mat.node_tree.nodes
-            nodes.clear()
-            emission_node = nodes.new(type="ShaderNodeEmission")
-            emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
-            emission_node.inputs["Strength"].default_value = 1.0
-            output_node = nodes.new(type="ShaderNodeOutputMaterial")
-            edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
+    # ------------------------------------------------------------------ #
+    # Custom property + driver
+    # ------------------------------------------------------------------ #
 
-        edgeline_mat.use_backface_culling = True
-        if hasattr(edgeline_mat, "use_backface_culling_shadow"):
-            edgeline_mat.use_backface_culling_shadow = True
+    def _setup_edgeline_property(self, ob: Object) -> None:
+        if EDGELINE_PROP not in ob:
+            ob[EDGELINE_PROP] = self.edgeline_thickness
+        ob.id_properties_ui(EDGELINE_PROP).update(
+            min=0.0,
+            soft_max=5.0,
+            description="Toon edgeline thickness (mm)",
+            subtype='DISTANCE',
+        )
 
-        edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
-        edgeline_mat.vs.do_not_export_faces_vgroup = True
-        
-        return edgeline_mat
+    def _setup_edgeline_driver(self, ob: Object, solid, unit_scale: float) -> None:
+        solid.driver_remove("thickness")
+        fcurve = solid.driver_add("thickness")
+        driver = fcurve.driver
+        driver.type = 'SCRIPTED'
+
+        var = driver.variables.new()
+        var.name = "t"
+        var.type = 'SINGLE_PROP'
+        target = var.targets[0]
+        target.id_type = 'OBJECT'
+        target.id = ob
+        target.data_path = f'["{EDGELINE_PROP}"]'
+
+        driver.expression = f'-(t / 1000.0) / {unit_scale}'
+
+    # ------------------------------------------------------------------ #
+    # Execute
+    # ------------------------------------------------------------------ #
 
     def execute(self, context: Context) -> set:
         obs: set[Object] = {ob for ob in context.selected_objects if is_mesh(ob) and not ob.hide_get()}
+        unit_scale = context.scene.unit_settings.scale_length or 1.0
 
         for ob in obs:
-            bpy.context.view_layer.objects.active = ob
+            context.view_layer.objects.active = ob
 
-            scene = context.scene
-            unit_scale = scene.unit_settings.scale_length or 1.0
+            has_edgeline = self._has_existing_edgeline(ob)
 
-            has_edgeline_setup = self.has_existing_edgeline_setup(ob)
-            
-            if has_edgeline_setup and not self.overwrite_existing_materials:
-                pass
+            if not has_edgeline or self.overwrite_existing_materials:
+                self._strip_edgeline_slots(ob)
+                material_offset = self._apply_materials(ob)
             else:
-                for i in range(len(ob.material_slots) - 1, -1, -1):
-                    slot = ob.material_slots[i]
-                    if slot.material and "edgeline" in slot.material.name.lower():
-                        ob.active_material_index = i
-                        bpy.ops.object.material_slot_remove()
-                
-                bpy.ops.object.material_slot_remove_unused()
-                
-                if self.per_material_edgeline:
-                    original_slot_count = len(ob.material_slots)
-                    edgeline_materials = []
-                    
-                    for slot in ob.material_slots:
-                        mat = slot.material
-                        if mat and not mat.name.endswith("_edgeline"):
-                            edgeline_mat = self.create_edgeline_material(mat.name)
-                        else:
-                            edgeline_mat = self.create_edgeline_material("Material")
-                        edgeline_materials.append(edgeline_mat)
-                    
-                    for edgeline_mat in edgeline_materials:
-                        ob.data.materials.append(edgeline_mat)
-                    
-                    material_offset = original_slot_count
-                else:
-                    edgeline_mat = next((mat for mat in bpy.data.materials if mat.name == "edgeline"), None)
-                    
-                    if edgeline_mat is None:
-                        edgeline_mat = bpy.data.materials.new(name="edgeline")
-                        edgeline_mat.use_nodes = True
-                        nodes = edgeline_mat.node_tree.nodes
-                        nodes.clear()
-                        emission_node = nodes.new(type="ShaderNodeEmission")
-                        emission_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
-                        emission_node.inputs["Strength"].default_value = 1.0
-                        output_node = nodes.new(type="ShaderNodeOutputMaterial")
-                        edgeline_mat.node_tree.links.new(emission_node.outputs["Emission"], output_node.inputs["Surface"])
-
-                    edgeline_mat.use_backface_culling = True
-                    if hasattr(edgeline_mat, "use_backface_culling_shadow"):
-                        edgeline_mat.use_backface_culling_shadow = True
-
-                    edgeline_mat.vs.non_exportable_vgroup = 'Edgeline_Thickness'
-                    edgeline_mat.vs.do_not_export_faces_vgroup = True
-
-                    original_slot_count = len(ob.material_slots)
-                    
-                    for _ in range(original_slot_count):
-                        ob.data.materials.append(edgeline_mat)
-                    
-                    material_offset = original_slot_count
+                material_offset = None
 
             solid = ob.modifiers.get("Toon_Edgeline") or ob.modifiers.new(name="Toon_Edgeline", type="SOLIDIFY")
+
             filter_vgroup = ob.vertex_groups.get('Edgeline_Thickness')
-            vgroup_exists = filter_vgroup is not None
-            
+            vgroup_existed = filter_vgroup is not None
             if filter_vgroup is None:
                 filter_vgroup = ob.vertex_groups.new(name='Edgeline_Thickness')
-            
-            solid.use_rim = False
-            solid.thickness = -(self.edgeline_thickness / 1000.0) / unit_scale
-            if not has_edgeline_setup or self.overwrite_existing_materials:
-                solid.material_offset = material_offset
-            solid.use_flip_normals = True
-            solid.vertex_group = filter_vgroup.name
-            solid.invert_vertex_group = True
 
-            should_calculate_weights = (not vgroup_exists) or (vgroup_exists and self.overwrite_existing_weights)
-            
-            if self.use_component_weights and should_calculate_weights:
-                vertex_weights = self.calculate_component_weights(ob)
-                for i, weight in enumerate(vertex_weights):
-                    if weight > 0:
-                        final_weight = round(weight, 2)
-                        filter_vgroup.add([i], final_weight, 'REPLACE')
+            solid.use_rim = False
+            solid.use_flip_normals = True
+            solid.invert_vertex_group = True
+            solid.vertex_group = filter_vgroup.name
+            if material_offset is not None:
+                solid.material_offset = material_offset
+
+            self._setup_edgeline_property(ob)
+            self._setup_edgeline_driver(ob, solid, unit_scale)
+
+            if self.use_component_weights and (not vgroup_existed or self.overwrite_existing_weights):
+                for i, w in enumerate(self._calculate_component_weights(ob)):
+                    if w > 0:
+                        filter_vgroup.add([i], round(w, 2), 'REPLACE')
 
         return {"FINISHED"}
     

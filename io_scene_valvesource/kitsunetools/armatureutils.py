@@ -1157,9 +1157,9 @@ def subdivide_bone(bone: typing.Union[str, list],
         
         return None
                 
-def remove_empty_bonecollections(armature: bpy.types.Object) -> tuple[bool, int]:
+def remove_empty_bonecollections(armature: bpy.types.Object) -> int:
     "Remove empty bone collections from armature"
-    if not is_armature: return False, 0
+    if not is_armature: return False
 
     bonecollections : bpy.types.BoneCollection = armature.data.collections
     if bonecollections is None or len(bonecollections) == 0: return True, 0
@@ -1175,4 +1175,4 @@ def remove_empty_bonecollections(armature: bpy.types.Object) -> tuple[bool, int]
         armature.data.collections.remove(col)
         removed_collection_count += 1
     
-    return True, removed_collection_count
+    return removed_collection_count

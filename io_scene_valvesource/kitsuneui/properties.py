@@ -265,37 +265,18 @@ class Properties_SubPanel(Panel):
     def is_collection(cls, item):
         return isinstance(item, bpy.types.Collection)
 
-    @classmethod
-    def unpack_collection(cls, context):
-        item = cls.get_item(context)
-        return [ob for ob in item.objects if ob.session_uid in State.exportableObjects] if cls.is_collection(item) else [item]
-
-    @classmethod
-    def get_context_object(cls, context):
-        item = cls.get_item(context)
-        if item is None:
-            return context.active_object
-
-        if not cls.is_collection(item):
-            return item
-
-        ob = context.active_object
-        if ob and ob.name in item.objects:
-            return ob
-
-        unpacked = cls.unpack_collection(context)
-        return unpacked[0] if unpacked else None
-
     def draw(self, context):
         layout = self.layout
 
 
 class SMD_PT_Group(Properties_SubPanel):
-    bl_label = "Group"
+    bl_label = ''
     bl_options = set()
 
     def draw_header(self, context):
-        self.layout.label(text='', icon='GROUP')
+        item = self.get_item(context)
+        label = 'Group ({})'.format(item.name) if item else 'Group'
+        self.layout.label(text=label, icon='GROUP')
 
     def draw(self, context):
         layout = self.layout
@@ -321,18 +302,12 @@ class SMD_PT_Group(Properties_SubPanel):
 
 
 class SMD_PT_Armature(Properties_SubPanel):
-    bl_label = 'Armature'
-    
+    bl_label = ''
+
     def draw_header(self, context):
-        layout = self.layout
         active_object = get_armature(context.active_object)
-
-        if active_object is not None:
-            self.bl_label = 'Armature ({})'.format(active_object.name)
-        else:
-            self.bl_label = 'Armature'
-
-        layout.label(text='', icon='ARMATURE_DATA')
+        label = 'Armature ({})'.format(active_object.name) if active_object else 'Armature'
+        self.layout.label(text=label, icon='ARMATURE_DATA')
     
     def draw(self, context):
         layout = self.layout
@@ -377,20 +352,21 @@ class SMD_PT_Armature(Properties_SubPanel):
 
     
 class SMD_PT_Bone(Properties_SubPanel):
-    bl_label = 'Bone'
-    
+    bl_label = ''
+
     def draw_header(self, context):
+        active_bone = context.active_bone
+        label = 'Bone ({})'.format(active_bone.name) if active_bone else 'Bone'
+        self.layout.label(text=label, icon='BONE_DATA')
+        
+    def draw(self, context):
         layout = self.layout
 
-        active_bone = context.active_bone
-        
-        if active_bone is not None:
-            self.bl_label = 'Bone ({})'.format(active_bone.name)
-        else:
-            self.bl_label = 'Bone'
 
-        layout.label(text='', icon='BONE_DATA')
-        
+class SMD_PT_BoneData(Properties_SubPanel):
+    bl_label = 'Bone Data'
+    bl_parent_id = 'SMD_PT_Bone'
+
     def draw(self, context):
         layout = self.layout
         active_object = context.active_object
@@ -442,21 +418,219 @@ class SMD_PT_Bone(Properties_SubPanel):
         
         box.operator(SMD_OT_AssignBoneRotExportOffset.bl_idname)
 
-      
-class SMD_PT_Mesh(Properties_SubPanel):
-    bl_label = 'Mesh'
+
+class SMD_PT_Jigglebones(Properties_SubPanel):
+    bl_label = 'Jigglebones'
+    bl_parent_id = 'SMD_PT_Bone'
+    bl_options = {'DEFAULT_CLOSED'}
     
-    def draw_header(self, context):
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.active_object)
+        
+    def draw(self, context):
         layout = self.layout
-
         active_object = context.active_object
+        active_armature = get_armature(active_object)
 
-        if is_mesh_compatible(active_object):
-            self.bl_label = 'Mesh ({})'.format(active_object.name)
+        bone = active_armature.data.bones.active
+        
+        box = layout.box()
+        box.label(text='Jigglebone Properties')
+        if bone and bone.select:
+            box.operator(SMD_OT_Copy_Jigglebone_Properties.bl_idname, icon='COPYDOWN')
+            self.draw_jigglebone_properties(box, bone)
         else:
-            self.bl_label = 'Mesh'
+            box = box.box()
+            box.label(text='Select a Valid Bone', icon='ERROR')
+        
+    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.25, 
+                            clipboard_text= 'Write to Clipboard',
+                            file_text= 'Write to File',
+                            clipboard_icon= 'FILE_TEXT',
+                            file_icon= 'EXPORT') -> None:
+        """Draw standard export button pair (clipboard/file)."""
+        row = layout.row(align=True)
+        row.scale_y = scale_y
+        row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
+        row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
+        
+    def draw_jigglebone_properties(self, layout: UILayout, bone: bpy.types.Bone) -> None:
+        vs_bone = bone.vs
+        
+        box = layout
+        row = box.row()
+        row.prop(
+            vs_bone, 'bone_is_jigglebone', 
+            toggle=True, 
+            icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW',
+            text=f'{bone.name}',
+            emboss=True
+        )
+        
+        if not vs_bone.bone_is_jigglebone:
+            return
+        
+        box = layout
+        col = box.column(align=False)
+        
+        col.label(text='Jiggle Type:', icon='DRIVER')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_flex_type', text='Flexibility')
+        subcol.prop(vs_bone, 'jiggle_base_type', text='Base Type')
+        
+        col.separator(factor=0.5)
+        
+        self._draw_flexible_rigid_props(col, vs_bone)
+        
+        if vs_bone.jiggle_base_type == 'BASESPRING':
+            self._draw_basespring_props(col, vs_bone)
+        elif vs_bone.jiggle_base_type == 'BOING':
+            self._draw_boing_props(col, vs_bone)
+    
+    def _draw_flexible_rigid_props(self, layout: UILayout, vs_bone) -> None:
+        if vs_bone.jiggle_flex_type not in ['FLEXIBLE', 'RIGID']:
+            return
+        
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Physical Properties:', icon='PHYSICS')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text='Use Bone Length')
+        if not vs_bone.use_bone_length_for_jigglebone_length:
+            subcol.prop(vs_bone, 'jiggle_length', text='Length')
+        subcol.prop(vs_bone, 'jiggle_tip_mass', text='Tip Mass')
+        
+        if vs_bone.jiggle_flex_type == 'FLEXIBLE':
+            col.separator(factor=0.5)
+            col.label(text='Stiffness & Damping:', icon='FORCE_TURBULENCE')
+            
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True, text='Yaw Stiffness')
+            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True, text='Yaw Damping')
+            
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True, text='Pitch Stiffness')
+            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True, text='Pitch Damping')
+            
+            col.separator(factor=0.5)
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True, text='Allow Length Flex')
+            
+            if vs_bone.jiggle_allow_length_flex:
+                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True, text='Along Stiffness')
+                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True, text='Along Damping')
+        
+        layout.separator(factor=0.5)
+        self._draw_angle_constraints(layout, vs_bone)
+    
+    def _draw_angle_constraints(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Angle Constraints:', icon='CON_ROTLIMIT')
+        row = col.row(align=True)
+        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True, text='Angle')
+        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True, text='Yaw')
+        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True, text='Pitch')
+        
+        has_any = any([
+            vs_bone.jiggle_has_angle_constraint,
+            vs_bone.jiggle_has_yaw_constraint,
+            vs_bone.jiggle_has_pitch_constraint])
+        
+        if not has_any:
+            return
+        
+        col.separator(factor=0.3)
+        
+        if vs_bone.jiggle_has_angle_constraint:
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_angle_constraint', text='Angular Constraint')
+            col.separator(factor=0.3)
+        
+        if vs_bone.jiggle_has_yaw_constraint:
+            subcol = col.column(align=False)
+            subcol.label(text='Yaw Limits:', icon='EMPTY_SINGLE_ARROW')
+            row = subcol.row(align=True)
+            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True, text='Min')
+            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text='Max')
+            subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text='Friction')
+            col.separator(factor=0.3)
+        
+        if vs_bone.jiggle_has_pitch_constraint:
+            subcol = col.column(align=False)
+            subcol.label(text='Pitch Limits:', icon='EMPTY_SINGLE_ARROW')
+            row = subcol.row(align=True)
+            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True, text='Min')
+            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True, text='Max')
+            subcol.prop(vs_bone, 'jiggle_pitch_friction', slider=True, text='Friction')
+    
+    def _draw_basespring_props(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Base Spring Properties:', icon='FORCE_HARMONIC')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_base_stiffness', slider=True, text='Stiffness')
+        subcol.prop(vs_bone, 'jiggle_base_damping', slider=True, text='Damping')
+        subcol.prop(vs_bone, 'jiggle_base_mass', slider=True, text='Mass')
+        
+        col.separator(factor=0.5)
+        col.label(text='Side Constraints:', icon='CON_LOCLIMIT')
+        row = col.row(align=True)
+        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True, text='Side')
+        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True, text='Up')
+        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True, text='Forward')
+        
+        has_any = any([
+            vs_bone.jiggle_has_left_constraint,
+            vs_bone.jiggle_has_up_constraint,
+            vs_bone.jiggle_has_forward_constraint
+        ])
+        
+        if not has_any:
+            return
+        
+        col.separator(factor=0.3)
+        
+        constraint_props = [
+            (vs_bone.jiggle_has_left_constraint, 'left', 'Side'),
+            (vs_bone.jiggle_has_up_constraint, 'up', 'Up'),
+            (vs_bone.jiggle_has_forward_constraint, 'forward', 'Forward')
+        ]
+        
+        for has_constraint, direction, label in constraint_props:
+            if has_constraint:
+                subcol = col.column(align=False)
+                subcol.label(text=f'{label} Limits:', icon='EMPTY_SINGLE_ARROW')
+                row = subcol.row(align=True)
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True, text='Min')
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True, text='Max')
+                subcol.prop(vs_bone, f'jiggle_{direction}_friction', slider=True, text='Friction')
+                col.separator(factor=0.3)
+    
+    def _draw_boing_props(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+        
+        col.label(text='Boing Properties:', icon='FORCE_FORCE')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True, text='Impact Speed')
+        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True, text='Impact Angle')
+        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True, text='Damping Rate')
+        subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text='Frequency')
+        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text='Amplitude')
 
-        layout.label(text='', icon='MESH_DATA')
+    
+class SMD_PT_Mesh(Properties_SubPanel):
+    bl_label = ''
+
+    def draw_header(self, context):
+        active_object = context.active_object
+        label = 'Mesh ({})'.format(active_object.name) if is_mesh_compatible(active_object) else 'Mesh'
+        self.layout.label(text=label, icon='MESH_DATA')
         
     def draw(self, context):
         layout = self.layout
@@ -723,25 +897,13 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
 
 
 class SMD_PT_Material(Properties_SubPanel):
-    bl_label = 'Material'
-    
+    bl_label = ''
+
     def draw_header(self, context):
-        layout = self.layout
-
         active_object = context.active_object
-        
-        if is_mesh(active_object):
-            active_material = active_object.active_material
-
-            if active_material is not None:
-                self.bl_label = 'Material ({})'.format(active_material.name)
-            else:
-                self.bl_label = 'Material'
-        else:
-            self.bl_label = 'Material'
-
-
-        layout.label(text='', icon='MATERIAL_DATA')
+        active_material = active_object.active_material if is_mesh(active_object) else None
+        label = 'Material ({})'.format(active_material.name) if active_material else 'Material'
+        self.layout.label(text=label, icon='MATERIAL_DATA')
         
     def draw(self, context):
         layout = self.layout
@@ -774,18 +936,12 @@ class SMD_PT_Material(Properties_SubPanel):
 
 
 class SMD_PT_Empty(Properties_SubPanel):
-    bl_label = 'Empty'
-    
+    bl_label = ''
+
     def draw_header(self, context):
-        layout = self.layout
         active_object = context.active_object
-
-        if is_empty(active_object):
-            self.bl_label = 'Empty ({})'.format(active_object.name)       
-        else:
-            self.bl_label = 'Empty'
-
-        layout.label(text='', icon='EMPTY_DATA')
+        label = 'Empty ({})'.format(active_object.name) if is_empty(active_object) else 'Empty'
+        self.layout.label(text=label, icon='EMPTY_DATA')
         
     def draw(self, context):
         layout = self.layout
@@ -810,19 +966,12 @@ class SMD_PT_Empty(Properties_SubPanel):
 
 
 class SMD_PT_Curve(Properties_SubPanel):
-    bl_label = 'Curve'
-    
+    bl_label = ''
+
     def draw_header(self, context):
-        layout = self.layout
-
         active_object = context.active_object
-
-        if is_curve(active_object):
-            self.bl_label = 'Curve ({})'.format(active_object.name)       
-        else:
-            self.bl_label = 'Curve'
-
-        layout.label(text='', icon='CURVE_DATA')
+        label = 'Curve ({})'.format(active_object.name) if is_curve(active_object) else 'Curve'
+        self.layout.label(text=label, icon='CURVE_DATA')
         
     def draw(self, context):
         layout = self.layout
@@ -1320,215 +1469,6 @@ class SMD_PT_All_Attachments(Properties_SubPanel):
                 row.prop_search(attachment, 'parent_bone', search_data=active_armature.data, search_property='bones', text='')
         else:
             col.label(text='No Attachments', icon='INFO')
-
-
-class SMD_PT_Jigglebones(Properties_SubPanel):
-    bl_label = 'Jigglebones'
-    bl_parent_id = 'SMD_PT_Bone'
-    bl_options = {'DEFAULT_CLOSED'}
-    
-    @classmethod
-    def poll(cls, context):
-        return is_armature(context.active_object)
-    
-    def draw_header(self, context):
-        layout = self.layout
-        layout.label(text='', icon='CONSTRAINT_BONE')
-        
-    def draw(self, context):
-        layout = self.layout
-        active_object = context.active_object
-        active_armature = get_armature(active_object)
-
-        bone = active_armature.data.bones.active
-        
-        box = layout.box()
-        box.label(text='Jigglebone Properties')
-        if bone and bone.select:
-            box.operator(SMD_OT_Copy_Jigglebone_Properties.bl_idname, icon='COPYDOWN')
-            self.draw_jigglebone_properties(box, bone)
-        else:
-            box = box.box()
-            box.label(text='Select a Valid Bone', icon='ERROR')
-        
-    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.25, 
-                            clipboard_text= 'Write to Clipboard',
-                            file_text= 'Write to File',
-                            clipboard_icon= 'FILE_TEXT',
-                            file_icon= 'EXPORT') -> None:
-        """Draw standard export button pair (clipboard/file)."""
-        row = layout.row(align=True)
-        row.scale_y = scale_y
-        row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
-        row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
-        
-    def draw_jigglebone_properties(self, layout: UILayout, bone: bpy.types.Bone) -> None:
-        vs_bone = bone.vs
-        
-        box = layout
-        row = box.row()
-        row.prop(
-            vs_bone, 'bone_is_jigglebone', 
-            toggle=True, 
-            icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW',
-            text=f'{bone.name}',
-            emboss=True
-        )
-        
-        if not vs_bone.bone_is_jigglebone:
-            return
-        
-        box = layout
-        col = box.column(align=False)
-        
-        col.label(text='Jiggle Type:', icon='DRIVER')
-        subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_flex_type', text='Flexibility')
-        subcol.prop(vs_bone, 'jiggle_base_type', text='Base Type')
-        
-        col.separator(factor=0.5)
-        
-        self._draw_flexible_rigid_props(col, vs_bone)
-        
-        if vs_bone.jiggle_base_type == 'BASESPRING':
-            self._draw_basespring_props(col, vs_bone)
-        elif vs_bone.jiggle_base_type == 'BOING':
-            self._draw_boing_props(col, vs_bone)
-    
-    def _draw_flexible_rigid_props(self, layout: UILayout, vs_bone) -> None:
-        if vs_bone.jiggle_flex_type not in ['FLEXIBLE', 'RIGID']:
-            return
-        
-        box = layout.box()
-        col = box.column(align=False)
-        
-        col.label(text='Physical Properties:', icon='PHYSICS')
-        subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text='Use Bone Length')
-        if not vs_bone.use_bone_length_for_jigglebone_length:
-            subcol.prop(vs_bone, 'jiggle_length', text='Length')
-        subcol.prop(vs_bone, 'jiggle_tip_mass', text='Tip Mass')
-        
-        if vs_bone.jiggle_flex_type == 'FLEXIBLE':
-            col.separator(factor=0.5)
-            col.label(text='Stiffness & Damping:', icon='FORCE_TURBULENCE')
-            
-            subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True, text='Yaw Stiffness')
-            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True, text='Yaw Damping')
-            
-            subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True, text='Pitch Stiffness')
-            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True, text='Pitch Damping')
-            
-            col.separator(factor=0.5)
-            subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True, text='Allow Length Flex')
-            
-            if vs_bone.jiggle_allow_length_flex:
-                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True, text='Along Stiffness')
-                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True, text='Along Damping')
-        
-        layout.separator(factor=0.5)
-        self._draw_angle_constraints(layout, vs_bone)
-    
-    def _draw_angle_constraints(self, layout: UILayout, vs_bone) -> None:
-        box = layout.box()
-        col = box.column(align=False)
-        
-        col.label(text='Angle Constraints:', icon='CON_ROTLIMIT')
-        row = col.row(align=True)
-        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True, text='Angle')
-        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True, text='Yaw')
-        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True, text='Pitch')
-        
-        has_any = any([
-            vs_bone.jiggle_has_angle_constraint,
-            vs_bone.jiggle_has_yaw_constraint,
-            vs_bone.jiggle_has_pitch_constraint])
-        
-        if not has_any:
-            return
-        
-        col.separator(factor=0.3)
-        
-        if vs_bone.jiggle_has_angle_constraint:
-            subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_angle_constraint', text='Angular Constraint')
-            col.separator(factor=0.3)
-        
-        if vs_bone.jiggle_has_yaw_constraint:
-            subcol = col.column(align=False)
-            subcol.label(text='Yaw Limits:', icon='EMPTY_SINGLE_ARROW')
-            row = subcol.row(align=True)
-            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True, text='Min')
-            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text='Max')
-            subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text='Friction')
-            col.separator(factor=0.3)
-        
-        if vs_bone.jiggle_has_pitch_constraint:
-            subcol = col.column(align=False)
-            subcol.label(text='Pitch Limits:', icon='EMPTY_SINGLE_ARROW')
-            row = subcol.row(align=True)
-            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True, text='Min')
-            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True, text='Max')
-            subcol.prop(vs_bone, 'jiggle_pitch_friction', slider=True, text='Friction')
-    
-    def _draw_basespring_props(self, layout: UILayout, vs_bone) -> None:
-        box = layout.box()
-        col = box.column(align=False)
-        
-        col.label(text='Base Spring Properties:', icon='FORCE_HARMONIC')
-        subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_base_stiffness', slider=True, text='Stiffness')
-        subcol.prop(vs_bone, 'jiggle_base_damping', slider=True, text='Damping')
-        subcol.prop(vs_bone, 'jiggle_base_mass', slider=True, text='Mass')
-        
-        col.separator(factor=0.5)
-        col.label(text='Side Constraints:', icon='CON_LOCLIMIT')
-        row = col.row(align=True)
-        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True, text='Side')
-        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True, text='Up')
-        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True, text='Forward')
-        
-        has_any = any([
-            vs_bone.jiggle_has_left_constraint,
-            vs_bone.jiggle_has_up_constraint,
-            vs_bone.jiggle_has_forward_constraint
-        ])
-        
-        if not has_any:
-            return
-        
-        col.separator(factor=0.3)
-        
-        constraint_props = [
-            (vs_bone.jiggle_has_left_constraint, 'left', 'Side'),
-            (vs_bone.jiggle_has_up_constraint, 'up', 'Up'),
-            (vs_bone.jiggle_has_forward_constraint, 'forward', 'Forward')
-        ]
-        
-        for has_constraint, direction, label in constraint_props:
-            if has_constraint:
-                subcol = col.column(align=False)
-                subcol.label(text=f'{label} Limits:', icon='EMPTY_SINGLE_ARROW')
-                row = subcol.row(align=True)
-                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True, text='Min')
-                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True, text='Max')
-                subcol.prop(vs_bone, f'jiggle_{direction}_friction', slider=True, text='Friction')
-                col.separator(factor=0.3)
-    
-    def _draw_boing_props(self, layout: UILayout, vs_bone) -> None:
-        box = layout.box()
-        col = box.column(align=False)
-        
-        col.label(text='Boing Properties:', icon='FORCE_FORCE')
-        subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True, text='Impact Speed')
-        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True, text='Impact Angle')
-        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True, text='Damping Rate')
-        subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text='Frequency')
-        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text='Amplitude')
 
 
 class SMD_OT_Copy_Jigglebone_Properties(Operator):

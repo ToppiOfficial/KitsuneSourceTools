@@ -29,12 +29,148 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
     bl_idname = "textureconvert.add_pbr_item"
     bl_label = "Add PBR Item"
     bl_options = {'INTERNAL', 'UNDO'}
-    
-    def execute(self, context : Context) -> set:
-        item = context.scene.vs.texture_conversion_items.add()
-        item.name = f"PBR Item {len(context.scene.vs.texture_conversion_items)}"
-        context.scene.vs.texture_conversion_active_index = len(context.scene.vs.texture_conversion_items) - 1
+
+    def execute(self, context: Context) -> set:
+        items = context.scene.vs.texture_conversion_items
+        item = items.add()
+
+        mat = getattr(getattr(context.active_object, 'active_material', None), 'name', None)
+        item.name = mat if mat else f"PBR Item {len(items)}"
+
+        context.scene.vs.texture_conversion_active_index = len(items) - 1
+        self._try_assign_from_material(context, item)
         return {'FINISHED'}
+
+    # ------------------------------------------------------------------ #
+    # Node traversal
+    # ------------------------------------------------------------------ #
+
+    def _walk_to_image_with_channel(self, node, from_socket, depth=0) -> tuple:
+        """Returns (image, channel, separate_color_node) where channel is 'R','G','B' or None."""
+        if node is None:
+            return None, None, None
+
+        if node.type == 'TEX_IMAGE':
+            return node.image, None, None
+
+        if node.type in {'SEPARATE_COLOR', 'SEPRGB'}:
+            channel_map = {'Red': 'R', 'Green': 'G', 'Blue': 'B'}
+            channel = channel_map.get(from_socket.name)
+            color_socket = node.inputs.get('Color') or node.inputs.get('Image')
+            if color_socket and color_socket.is_linked:
+                image, _, _ = self._walk_to_image_with_channel(
+                    color_socket.links[0].from_node,
+                    color_socket.links[0].from_socket,
+                    depth + 1
+                )
+                return image, channel, node
+            return None, channel, node
+
+        best_image, best_channel, best_sep, best_depth = None, None, None, float('inf')
+        for inp in node.inputs:
+            if not inp.is_linked:
+                continue
+            image, channel, sep_node = self._walk_to_image_with_channel(
+                inp.links[0].from_node,
+                inp.links[0].from_socket,
+                depth + 1
+            )
+            if image and depth < best_depth:
+                best_image, best_channel, best_sep, best_depth = image, channel, sep_node, depth
+
+        return best_image, best_channel, best_sep
+
+    def _find_image_and_channel_from_socket(self, socket) -> tuple:
+        if not socket or not socket.is_linked:
+            return None, None, None
+        return self._walk_to_image_with_channel(
+            socket.links[0].from_node,
+            socket.links[0].from_socket
+        )
+
+    def _assign_from_socket(self, socket, item, img_attr: str, ch_attr: str | None = None) -> tuple:
+        image, channel, sep_node = self._find_image_and_channel_from_socket(socket)
+        if image:
+            setattr(item, img_attr, image.name)
+            if ch_attr and channel:
+                setattr(item, ch_attr, channel)
+        return image, channel, sep_node
+
+    def _assign_from_node_input(self, node, input_name: str, item, img_attr: str, ch_attr: str | None = None) -> tuple:
+        return self._assign_from_socket(node.inputs.get(input_name), item, img_attr, ch_attr)
+
+    # ------------------------------------------------------------------ #
+    # Main assignment logic
+    # ------------------------------------------------------------------ #
+
+    def _try_assign_from_material(self, context: Context, item) -> None:
+        ob = context.active_object
+        if not ob or ob.type != 'MESH':
+            return
+
+        mat = ob.active_material
+        if not mat or not mat.use_nodes:
+            return
+
+        principled = next(
+            (n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None
+        )
+        if not principled:
+            return
+
+        self._assign_base_color(principled, item)
+        self._assign_normal(principled, item)
+        self._assign_rmo(principled, item)
+        self._assign_alpha(principled, item)
+
+    def _assign_base_color(self, principled, item) -> None:
+        socket = principled.inputs.get('Base Color')
+        if not socket or not socket.is_linked:
+            return
+
+        from_node = socket.links[0].from_node
+
+        if getattr(from_node, 'blend_type', None) == 'MULTIPLY':
+            self._assign_from_node_input(from_node, 'A', item, 'diffuse_map')
+            self._assign_from_node_input(from_node, 'B', item, 'ambientocclu_map', 'ambientocclu_map_ch')
+        else:
+            self._assign_from_socket(socket, item, 'diffuse_map')
+
+    def _assign_normal(self, principled, item) -> None:
+        socket = principled.inputs.get('Normal')
+        if not socket or not socket.is_linked:
+            return
+
+        from_node = socket.links[0].from_node
+        if from_node.type == 'NORMAL_MAP':
+            socket = from_node.inputs.get('Color')
+
+        self._assign_from_socket(socket, item, 'normal_map')
+
+    def _assign_rmo(self, principled, item) -> None:
+        rmo_sep_node = None
+
+        for socket_name, img_attr, ch_attr in (
+            ('Roughness', 'roughness_map', 'roughness_map_ch'),
+            ('Metallic',  'metal_map',     'metal_map_ch'),
+        ):
+            socket = principled.inputs.get(socket_name)
+            _, _, sep_node = self._assign_from_socket(socket, item, img_attr, ch_attr)
+            if sep_node and rmo_sep_node is None:
+                rmo_sep_node = sep_node
+
+        # AO fallback from RMO Blue channel if not already set via multiply
+        if not item.ambientocclu_map and rmo_sep_node:
+            color_socket = rmo_sep_node.inputs.get('Color') or rmo_sep_node.inputs.get('Image')
+            image, _, _ = self._find_image_and_channel_from_socket(color_socket)
+            if image:
+                item.ambientocclu_map = image.name
+                item.ambientocclu_map_ch = 'B'
+
+    def _assign_alpha(self, principled, item) -> None:
+        socket = principled.inputs.get('Alpha')
+        self._assign_from_socket(socket, item, 'alpha_map', 'alpha_map_ch')
+
 
 class TEXTURECONVERSION_OT_RemoveItem(Operator):
     bl_idname = "textureconvert.remove_pbr_item"

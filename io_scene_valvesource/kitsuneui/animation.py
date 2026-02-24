@@ -31,6 +31,7 @@ class TOOLS_PT_Animation(KITSUNE_PT_ToolSubPanel):
         col.operator(TOOLS_OT_convert_rotation_keyframes.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_propagate_pose_offset.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_copy_bone_keyframes.bl_idname, icon='ACTION_SLOT')
+        col.operator(TOOLS_OT_Make_Proportion_Animation.bl_idname, icon='ACTION_SLOT')
         col.operator(TOOLS_OT_delete_action_slot.bl_idname, icon='TRASH')
         
 class TOOLS_OT_merge_animation_slots(Operator):

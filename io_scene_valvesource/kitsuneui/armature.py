@@ -3,7 +3,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
 from bpy.types import Context, Operator, Object
 
 from ..kitsunetools.commonutils import (
-    is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
+    is_armature, is_mesh, draw_wrapped_texts,
     get_armature, get_armature_meshes, preserve_context_mode,
     get_selected_bones, unselect_all, has_selected_bones
 )
@@ -288,7 +288,7 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 else:
                     
                     if self.remove_unused_bonecollections:
-                        success, total_collection_removed = remove_empty_bonecollections(armature)
+                        total_collection_removed = remove_empty_bonecollections(armature)
 
                     break
 
@@ -329,8 +329,10 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
         
         return False
 
-    def has_weighted_descendants(self, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, bones_with_children) -> bool:
+    def has_weighted_descendants(self, bone, meshes, remaining_vgroups, bones_with_children) -> bool:
         for child in bone.children:
+            if self.is_excluded_bone(child.name):
+                return True
             if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
                 return True
             if child.name in bones_with_children:
@@ -339,20 +341,18 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 return True
         return False
 
-    def has_animated_or_constrained_descendants(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:
+    def has_animated_or_constrained_descendants(self, armature, bone, meshes, remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:
         for child in bone.children:
+            if self.is_excluded_bone(child.name):
+                return True
             if any(child.name in remaining_vgroups[mesh] for mesh in meshes):
                 return True
-            
             if child.name in bones_with_children:
                 return True
-            
             if self.bone_has_animation(armature, child.name):
                 return True
-            
             if child.name in constraint_targets or child.name in constraint_owners:
                 return True
-            
             if self.has_animated_or_constrained_descendants(
                 armature, child, meshes, remaining_vgroups, constraint_targets, constraint_owners, bones_with_children
             ):
