@@ -181,7 +181,7 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         
         split1 = row.split(factor=0.8)
         split1.alert = not enabled
-        split1.label(text=sanitize_string(item.name))
+        split1.label(text=sanitize_string(item.name, allow_unicode=True))
         
         return split1
     

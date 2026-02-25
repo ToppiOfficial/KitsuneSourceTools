@@ -108,6 +108,9 @@ class SMD_PT_Scene(bpy.types.Panel):
         row.alert = len(scene.vs.engine_path) > 0 and State.compiler == Compiler.UNKNOWN
         row.prop(scene.vs, "engine_path")
 
+        row = box.row()
+        row.row().prop(scene.vs, "prefab_to_clipboard", toggle=True)
+
         # Format
 
         if State.datamodelEncoding != 0:

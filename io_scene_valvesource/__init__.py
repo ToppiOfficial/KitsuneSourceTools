@@ -374,6 +374,8 @@ class ValveSource_SceneProps(PropertyGroup):
 
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
 
+    prefab_to_clipboard : BoolProperty(name='Prefab to Clipboard', default=False, description='Copy prefab export content to clipboard instead of to a file.')
+
     merge_bone_options_parent: EnumProperty(
         name='Merge to Parent Options',
         description='Options for merging bones to parent',

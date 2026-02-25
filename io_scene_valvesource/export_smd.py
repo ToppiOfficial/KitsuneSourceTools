@@ -35,7 +35,30 @@ from .kitsunetools.commonutils import sanitize_string, get_armature, get_attachm
 from .kitsunetools.armatureutils import sort_bone_by_hierarchy
 from .kitsuneui.common import ShowConsole
 
-class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
+class ExportCheck():
+    def check_duplicate_bone_names(self, bone_names_dict):
+        seen = {}
+        duplicates = []
+        for bone, name in bone_names_dict.items():
+            if name in seen:
+                duplicates.append(name)
+            else:
+                seen[name] = bone
+
+        if duplicates:
+            dupe_report = {}
+            for name in set(duplicates):
+                dupe_report[name] = [bone for bone, export_name in bone_names_dict.items() if export_name == name]
+            
+            error_message = "Found duplicate bone export names:\n"
+            for name, bones in dupe_report.items():
+                error_message += f"- Name '{name}' is used by: {', '.join(bones)}\n"
+            
+            self.report({'ERROR'}, error_message)
+            return False
+        return True
+
+class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
     bl_idname = "export_scene.smd"
     bl_label = get_id("exporter_title")
     bl_description = get_id("exporter_tip")
@@ -200,29 +223,6 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
         if new_name != name:
             self.warning(get_id("exporter_warn_sanitised_filename",True).format(name,new_name))
         return new_name
-
-    def check_duplicate_bone_names(self, bone_names_dict):
-        seen = {}
-        duplicates = []
-        for bone, name in bone_names_dict.items():
-            if name in seen:
-                duplicates.append(name)
-            else:
-                seen[name] = bone
-
-        if duplicates:
-            # Making the error message more informative
-            dupe_report = {}
-            for name in set(duplicates):
-                dupe_report[name] = [bone for bone, export_name in bone_names_dict.items() if export_name == name]
-            
-            error_message = "Found duplicate bone export names:\n"
-            for name, bones in dupe_report.items():
-                error_message += f"- Name '{name}' is used by: {', '.join(bones)}\n"
-            
-            self.report({'ERROR'}, error_message)
-            return False
-        return True
     
     def exportId(self,context,id):
         self.attemptedExports += 1
@@ -635,7 +635,7 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
         if len(ob.material_slots) > material_index:
             mat_id = ob.material_slots[material_index].material
             if mat_id:
-                mat_name = sanitize_string(mat_id.name)
+                mat_name = sanitize_string(mat_id.name, allow_unicode=True)
         if mat_name:
             self.materials_used.add((mat_name,mat_id))
             return mat_name, True
@@ -1090,7 +1090,7 @@ class SmdExporter(bpy.types.Operator, Logger, ShowConsole):
         bench = BenchMarker(1,"SMD")
         goldsrc = bpy.context.scene.vs.smd_format == "GOLDSOURCE"
         
-        self.smd_file = self.openSMD(filepath,sanitize_string(name) + "." + filetype,filetype.upper())
+        self.smd_file = self.openSMD(filepath,sanitize_string(name,allow_unicode=True) + "." + filetype,filetype.upper())
         if self.smd_file == None: return 0
 
         if State.compiler > Compiler.STUDIOMDL:
@@ -1417,7 +1417,7 @@ skeleton
 
     def writeDMX(self, datablock : bpy.types.ID, bake_results : list[BakeResult], name : str, dir_path : str):
         bench = BenchMarker(1,"DMX")
-        filepath = os.path.realpath(os.path.join(dir_path,sanitize_string(name) + ".dmx"))
+        filepath = os.path.realpath(os.path.join(dir_path,sanitize_string(name, allow_unicode=True) + ".dmx"))
         print("-",filepath)
         armature_name = self.armature_src.name if self.armature_src else name
         materials = {}
@@ -2304,7 +2304,7 @@ skeleton
         
         return written
 
-class PrefabExporter(bpy.types.Operator):
+class PrefabExporter(bpy.types.Operator, ExportCheck):
     bl_idname = "smd.export_prefab"
     bl_label = "Export Prefab"
     bl_options = {'REGISTER', 'UNDO'}
@@ -2316,8 +2316,6 @@ class PrefabExporter(bpy.types.Operator):
             ('HITBOXES',    "Hitboxes",    ""),
         ]
     )
-
-    to_clipboard: bpy.props.BoolProperty(name='Copy To Clipboard', default=False)
 
     @classmethod
     def poll(cls, context):
@@ -2358,6 +2356,12 @@ class PrefabExporter(bpy.types.Operator):
 
     def execute(self, context) -> set:
         arm = get_armature(context.active_object)
+        self.to_clipboard = context.scene.vs.prefab_to_clipboard
+
+        bone_names = {bone.name: get_bone_exportname(bone) for bone in arm.data.bones}
+        if not self.check_duplicate_bone_names(bone_names):
+            return {'CANCELLED'}
+
         export_path = None
         fmt = None
 

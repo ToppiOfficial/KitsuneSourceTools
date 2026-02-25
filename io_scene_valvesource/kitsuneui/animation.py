@@ -6,7 +6,7 @@ from bpy_extras import anim_utils
 
 from .common import KITSUNE_PT_ToolSubPanel
 from ..kitsunetools.commonutils import (
-    draw_wrapped_texts, is_armature, sanitize_string
+    draw_wrapped_texts, is_armature
     )
 from ..kitsunetools.armatureutils import copy_target_armature_visualpose
 from ..kitsunetools.boneutils import get_bone_exportname
@@ -166,7 +166,7 @@ class TOOLS_OT_merge_animation_slots(Operator):
                 self.report({'ERROR'}, "Existing action not found")
                 return {'CANCELLED'}
         else:
-            new_action = bpy.data.actions.new(name=sanitize_string(self.new_action_name))
+            new_action = bpy.data.actions.new(name=self.new_action_name)
             if self.use_fake_user:
                 new_action.use_fake_user = True
 
@@ -469,7 +469,7 @@ class TOOLS_OT_merge_two_actions(Operator):
                 self.report({'ERROR'}, "Existing action not found")
                 return {'CANCELLED'}
         else:
-            target_action = bpy.data.actions.new(name=sanitize_string(self.new_action_name))
+            target_action = bpy.data.actions.new(name=self.new_action_name)
             if self.use_fake_user:
                 target_action.use_fake_user = True
         

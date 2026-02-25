@@ -229,19 +229,25 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
 #
 # ------------------------------------------------
 
-def sanitize_string(data: typing.Union[str, list]) -> typing.Union[str, list]:
-    
+def sanitize_string(data: typing.Union[str, list], allow_unicode: bool = False) -> typing.Union[str, list]:
+    from ..utils import State, Compiler
+
     if isinstance(data, list):
-        return [sanitize_string(item) for item in data]
-    
+        return [sanitize_string(item, allow_unicode) for item in data]
+
     _data = data.strip()
-    _data = re.sub(r'[^\w.]+', '_', _data, flags=re.UNICODE)
+
+    if State.compiler == Compiler.MODELDOC and not allow_unicode:
+        _data = re.sub(r'[^a-zA-Z0-9_]+', '_', _data)
+    else:
+        _data = re.sub(r'[^\w.]+', '_', _data, flags=re.UNICODE)
+
     _data = re.sub(r'_+', '_', _data)
     _data = _data.strip('_')
-    
+
     if not _data:
         return 'unnamed'
-    
+
     return _data
 
 def unselect_all() -> None:
