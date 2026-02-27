@@ -405,12 +405,6 @@ class TOOLS_OT_SubdivideBone(Operator):
         col.label(text="Weight Distribution:")
         col.prop(self, 'falloff')
         col.prop(self, 'smoothness')
-        
-        layout.separator()
-        
-        col = layout.column(align=True)
-        col.label(text="Constraints:")
-        col.prop(self, 'minweight')
 
         layout.separator()
         if self.weights_only:

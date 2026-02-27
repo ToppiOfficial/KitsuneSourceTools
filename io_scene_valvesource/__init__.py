@@ -356,6 +356,11 @@ class ValveSource_SceneProps(PropertyGroup):
     dmx_encoding : EnumProperty(name=get_id("dmx_encoding"),description=get_id("dmx_encoding_tip"),items=tuple(encodings),default='2')
     dmx_format : EnumProperty(name=get_id("dmx_format"),description=get_id("dmx_format_tip"),items=tuple(formats),default='1')
     
+    kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', default='kitsuneresource.exe')
+    kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
+    kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    kitsuneresource_args : StringProperty(name='Arguments', default='-game -log -keep-flat-qc')
+
     export_format : EnumProperty(name=get_id("export_format"),items=[ ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ],default='DMX')
     up_axis : EnumProperty(name=get_id("up_axis"),items=axes,default='Z',description=get_id("up_axis_tip"))
     up_axis_offset : FloatProperty(name=get_id("up_axis_offset"),description=get_id("up_axis_tip"), soft_max=30,soft_min=-30,default=0,precision=2)
@@ -557,6 +562,10 @@ _classes = (
     properties.SMD_PT_All_Attachments,
     properties.SMD_PT_All_Jigglebones,
     properties.SMD_PT_Jigglebones,
+
+    # KitsuneResource
+    GUI.SMD_PT_KitsuneResourceCompile,
+    GUI.SMD_OT_KitsuneResourceCompile,
 
     # GUI - Common
     common.KITSUNE_PT_ToolsPanel,

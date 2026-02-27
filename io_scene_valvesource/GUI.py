@@ -18,10 +18,12 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy
+import bpy, sys, re, os, subprocess
 from .utils import getSelectedExportables, count_exports, get_id, State, Compiler, ExportFormat
 from .export_smd import SmdExporter, PrefabExporter
+from .import_smd import SmdImporter
 from .kitsunetools.commonutils import is_armature, get_attachments, get_hitboxes, get_jigglebones
+from .kitsuneui.common import ShowConsole
 
 
 class SMD_MT_ExportChoice(bpy.types.Menu):
@@ -97,7 +99,10 @@ class SMD_PT_Scene(bpy.types.Panel):
         scene = context.scene
 
         # Export
-        l.operator(SmdExporter.bl_idname, text="Export", icon='EXPORT')
+        row = l.row(align=True)
+        row.scale_y = 1.5
+        row.operator(SmdImporter.bl_idname, text="Import", icon='IMPORT')
+        row.operator(SmdExporter.bl_idname, text="Export", icon='EXPORT')
 
         box = l.box()
         row = box.row()
@@ -155,3 +160,107 @@ class SMD_MT_ConfigureScene(bpy.types.Menu):
     bl_label = get_id("exporter_report_menu")
     def draw(self, context : bpy.types.Context) -> None:
         self.layout.label(text=get_id("exporter_err_unconfigured"))
+
+
+class SMD_PT_KitsuneResourceCompile(bpy.types.Panel):
+    bl_label = 'Kitsune Resource Compile'
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return sys.platform == 'win32'
+
+    def draw(self, context: bpy.types.Context) -> None:
+        l = self.layout
+        scene = context.scene
+
+        box = l.box()
+
+        col = box.column()
+        col.alert = len(scene.vs.kitsuneresource_app_path) == 0
+        col.prop(scene.vs, 'kitsuneresource_app_path')
+
+        col = box.column()
+        col.enabled = len(scene.vs.kitsuneresource_app_path) > 0
+        col.prop(scene.vs, 'kitsuneresource_config')
+
+        col = box.column()
+        col.enabled = len(scene.vs.kitsuneresource_config) > 0
+        col.prop(scene.vs, 'kitsuneresource_project_path')
+
+        col = box.column()
+        col.enabled = len(scene.vs.kitsuneresource_app_path) > 0
+        col.prop(scene.vs, 'kitsuneresource_args')
+
+        box.column().operator(SMD_OT_KitsuneResourceCompile.bl_idname)
+
+
+class SMD_OT_KitsuneResourceCompile(bpy.types.Operator):
+    bl_idname = "smd.kitsuneresource_compile"
+    bl_label = "Compile"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        return len(scene.vs.kitsuneresource_project_path) > 0 and len(scene.vs.kitsuneresource_app_path) > 0 and len(scene.vs.kitsuneresource_config) > 0
+
+    def execute(self, context) -> set:
+        vs = context.scene.vs
+
+        raw_app = vs.kitsuneresource_app_path.strip()
+        resolved = bpy.path.abspath(raw_app)
+        app_path = resolved if os.path.isfile(resolved) else raw_app
+
+        raw_args = vs.kitsuneresource_args.strip()
+        filtered_args = raw_args.strip()
+
+        blend_dir = os.path.dirname(bpy.data.filepath)
+        if vs.kitsuneresource_project_path:
+            project_path = bpy.path.abspath(vs.kitsuneresource_project_path)
+            basedir = os.path.normpath(os.path.join(blend_dir, project_path) if not os.path.isabs(project_path) else project_path)
+        else:
+            basedir = blend_dir
+
+        cmd = [app_path]
+        if filtered_args:
+            cmd += filtered_args.split()
+        cmd += [vs.kitsuneresource_config]
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=basedir
+            )
+        except FileNotFoundError:
+            self.report({'ERROR'}, f"Executable not found: {app_path}")
+            return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+
+        ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+
+        errors = []
+        for raw_line in process.stdout:
+            line = ansi_escape.sub('', raw_line.decode('utf-8', errors='replace')).rstrip()
+            print(line)
+            if '[ERROR]' in line:
+                clean = re.sub(r'^\d{2}:\d{2}:\d{2} \| ', '', line.strip())
+                clean = clean.encode('ascii', errors='replace').decode('ascii')
+                errors.append(clean)
+
+        process.wait()
+
+        if errors:
+            for err in errors:
+                self.report({'WARNING'}, err)
+        else:
+            self.report({'INFO'}, "Compile finished")
+
+        return {'FINISHED'}
