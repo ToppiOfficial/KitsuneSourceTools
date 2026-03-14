@@ -14,7 +14,7 @@ from ..kitsunetools.meshutils import (
 
 from ..kitsunetools.armatureutils import (
     apply_current_pose_as_restpose, remove_bone, filter_exclude_vertexgroup_names,
-    merge_armatures, copy_target_armature_visualpose, remove_empty_bonecollections,
+    merge_armatures, copy_target_armature_visualpose,
     apply_current_pose_shapekey
 )
 
@@ -288,14 +288,13 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 else:
                     
                     if self.remove_unused_bonecollections:
-                        total_collection_removed = remove_empty_bonecollections(armature)
-
+                        bpy.ops.armature.collection_remove_unused()
                     break
 
-        if total_bones_removed == 0 and total_vgroups_removed == 0 and total_collection_removed == 0:
+        if total_bones_removed == 0 and total_vgroups_removed == 0:
             self.report({'INFO'}, 'No bones or vertex groups to remove.')
         else:
-            self.report({'INFO'}, f'{total_bones_removed} bones removed, {total_collection_removed} bone collections removed, and {total_vgroups_removed} empty vertex groups cleaned.')
+            self.report({'INFO'}, f'{total_bones_removed} bones removed, and {total_vgroups_removed} empty vertex groups cleaned.')
         return {'FINISHED'}
 
     def should_preserve_bone(self, armature : Object, bone : bpy.types.PoseBone, meshes : list[Object], remaining_vgroups, constraint_targets, constraint_owners, bones_with_children) -> bool:

@@ -2307,7 +2307,6 @@ skeleton
 class PrefabExporter(bpy.types.Operator, ExportCheck):
     bl_idname = "smd.export_prefab"
     bl_label = "Export Prefab"
-    bl_options = {'REGISTER', 'UNDO'}
 
     export_type: bpy.props.EnumProperty(
         items=[
