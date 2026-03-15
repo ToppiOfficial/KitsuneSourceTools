@@ -288,7 +288,8 @@ class TOOLS_OT_CleanUnWeightedBones(Operator):
                 else:
                     
                     if self.remove_unused_bonecollections:
-                        bpy.ops.armature.collection_remove_unused()
+                        if armature.data.collections:
+                            bpy.ops.armature.collection_remove_unused()
                     break
 
         if total_bones_removed == 0 and total_vgroups_removed == 0:
