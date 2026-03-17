@@ -446,16 +446,14 @@ class TOOLS_OT_multi_weight_paint_finish(Operator):
             self.report({'WARNING'}, "No original mesh data found")
             return {'CANCELLED'}
         
-        original_meshes = []
-        for name in original_names:
-            obj = bpy.data.objects.get(name)
-            if obj:
-                original_meshes.append(obj)
-                obj.hide_set(False)
+        original_meshes = [obj for name in original_names if (obj := bpy.data.objects.get(name))]
         
         if not original_meshes:
             self.report({'WARNING'}, "Original meshes not found")
             return {'CANCELLED'}
+        
+        for obj in original_meshes:
+            obj.hide_set(False)
         
         bpy.ops.object.select_all(action='DESELECT')
         
@@ -476,16 +474,16 @@ class TOOLS_OT_multi_weight_paint_finish(Operator):
                 
                 bm = bmesh.new()
                 bm.from_mesh(temp_source_obj.data)
-                
                 deform_layer = bm.verts.layers.deform.verify()
-                
                 verts_to_delete = [v for v in bm.verts if vg_index not in v[deform_layer]]
-                
                 bmesh.ops.delete(bm, geom=verts_to_delete, context='VERTS')
-                
                 bm.to_mesh(temp_source_obj.data)
                 bm.free()
                 temp_source_obj.data.update()
+
+                for vg in combined_obj.vertex_groups:
+                    if vg.name != vg_name and not target_obj.vertex_groups.get(vg.name):
+                        target_obj.vertex_groups.new(name=vg.name)
 
                 if "DataTransfer" in target_obj.modifiers:
                     target_obj.modifiers.remove(target_obj.modifiers["DataTransfer"])
@@ -503,7 +501,6 @@ class TOOLS_OT_multi_weight_paint_finish(Operator):
                     bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
                 
                 bpy.ops.object.modifier_apply(modifier=mod.name)
-                
                 target_obj.select_set(False)
                 
                 self.report({'INFO'}, f"Successfully transferred weights to {target_obj.name}")
@@ -536,12 +533,11 @@ class TOOLS_OT_multi_weight_paint_finish(Operator):
         combined_obj.select_set(True)
         context.view_layer.objects.active = combined_obj
         bpy.ops.object.delete()
-        
-        if original_meshes:
-            for obj in original_meshes:
-                obj.select_set(True)
-            context.view_layer.objects.active = original_meshes[0]
-        
+
+        for obj in original_meshes:
+            obj.select_set(True)
+        context.view_layer.objects.active = original_meshes[0]
+
         self.report({'INFO'}, f"Weight transfer completed for {len(original_meshes)} meshes")
         return {'FINISHED'}
 

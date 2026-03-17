@@ -486,17 +486,17 @@ def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bp
 
     elif isinstance(ob, bpy.types.Bone):
         for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob.name in o.data.bones:
+            if o.type == 'ARMATURE' and o.data.bones.get(ob.name) == ob:
                 return o
 
     elif isinstance(ob, bpy.types.EditBone):
         for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob.name in o.data.edit_bones:
+            if o.type == 'ARMATURE' and o.data.edit_bones.get(ob.name) == ob:
                 return o
 
     elif isinstance(ob, bpy.types.PoseBone):
         for o in bpy.data.objects:
-            if o.type == 'ARMATURE' and ob.name in o.pose.bones:
+            if o.type == 'ARMATURE' and o.pose.bones.get(ob.name) == ob:
                 return o
 
     else:

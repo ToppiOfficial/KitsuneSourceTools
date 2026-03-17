@@ -55,7 +55,6 @@ class DmxWriteFlexControllers(bpy.types.Operator):
         controls = DmeCombinationOperator["controls"] = datamodel.make_array([],datamodel.Element)
 
         def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, use_slider_range=False, normalize_shapekeys=False):
-            
             if flexcontroller is not None:
                 shapekey_name, eyelid, stereo, raw_delta_name, controller_name = flexcontroller
                 raw_control_names = [raw_delta_name] if raw_delta_name else []
@@ -89,10 +88,14 @@ class DmxWriteFlexControllers(bpy.types.Operator):
             normalize = ob.data.vs.normalize_shapekeys if ob.data.shape_keys else False
 
             if ob.vs.flex_controller_mode == 'BUILDER':
-                if flexcontrollers is None:
+                ob_flexcontrollers = flexcontrollers
+                if ob_flexcontrollers is None and export:
+                    ob_flexcontrollers = get_flexcontrollers(ob)
+
+                if ob_flexcontrollers is None:
                     continue
                 
-                for fc in flexcontrollers:
+                for fc in ob_flexcontrollers:
                     shapekey_name = fc[0]
                     shape = None
                     
