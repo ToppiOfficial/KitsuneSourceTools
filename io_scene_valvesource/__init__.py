@@ -486,6 +486,9 @@ class ValveSource_ArmatureProps(PropertyGroup):
         ('CURRENT',get_id("action_selection_current"),get_id("action_selection_current_tip")),
         ('FILTERED',get_id("action_filter"),get_id("action_selection_filter_tip"))		
     )
+
+    reset_pose_per_anim : BoolProperty(name='Reset Pose Per Animation Export', description="Reset all bones to rest pose before each export to prevent pose carry-over between animations",default=True)
+
     action_selection : EnumProperty(name=get_id("action_selection_mode"), items=arm_modes,description=get_id("action_selection_mode_tip"),default='FILTERED')
     legacy_rotation : BoolProperty(name=get_id("bone_rot_legacy"),description=get_id("bone_rot_legacy_tip"),default=False)
 

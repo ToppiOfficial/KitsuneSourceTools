@@ -1155,9 +1155,12 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                 else:
                     anim_len = 1
 
-                # remove any unkeyed poses, e.g. from other animations in this export operation.
-                for posebone in self.armature.pose.bones: posebone.matrix_basis.identity()
-
+                if not is_anim: 
+                    for posebone in self.armature.pose.bones: posebone.matrix_basis.identity()
+                else:
+                    if self.armature.data.vs.reset_pose_per_anim:
+                        for posebone in self.armature.pose.bones: posebone.matrix_basis.identity()
+                
                 # Start writing out the animation
                 for i in range(anim_len):
                     bpy.context.window_manager.progress_update(i / anim_len)
@@ -1459,7 +1462,6 @@ skeleton
         # NOTE: This is also found in SMD but not here, is there a reason for this?
         
         is_anim = bool(len(bake_results) == 1 and bake_results[0].object.type == 'ARMATURE')
-        saved_action = None
         
         if not is_anim and self.armature:
             self.armature.data.pose_position = 'REST'
@@ -1467,11 +1469,10 @@ skeleton
             self.armature.data.pose_position = 'POSE'
             
         if self.armature: 
-            for pb in self.armature.pose.bones: pb.matrix_basis.identity() # we still want to reset the pose to prevent un-keyed poses from interfering with the other animation exports
+            if self.armature.data.vs.reset_pose_per_anim:
+                for pb in self.armature.pose.bones: pb.matrix_basis.identity()
             bpy.context.view_layer.update()
-            
-        # -------------------------------------------------------------------------------------------------------------------------------------
-                
+                   
         # skeleton
         root["skeleton"] = DmeModel
         want_jointlist = dm.format_ver >= 11

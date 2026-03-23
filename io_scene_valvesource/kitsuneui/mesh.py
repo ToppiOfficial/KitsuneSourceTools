@@ -812,6 +812,7 @@ class TOOLS_OT_transfer_topology_shapekeys(bpy.types.Operator):
         else:
             self.report({'WARNING'}, "No shape keys transferred")
             return {'CANCELLED'}
+    
         
 class TOOLS_OT_unlock_all_vertexgroups(bpy.types.Operator):
     bl_idname = "kitsunetools.unlock_all_vertexgroups"

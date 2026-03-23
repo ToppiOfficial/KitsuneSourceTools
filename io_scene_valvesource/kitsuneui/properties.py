@@ -329,6 +329,7 @@ class SMD_PT_Armature(Properties_SubPanel):
         if active_object.data.vs.action_selection != 'CURRENT':
             is_slot_filter = active_object.data.vs.action_selection == 'FILTERED' and State.useActionSlots
             col.prop(active_object.vs, "action_filter", text=get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
+            col.prop(active_object.data.vs, "reset_pose_per_anim")
 
         if active_object.animation_data and not State.useActionSlots:
             col.template_ID(active_object.animation_data, "action", new="action.new")

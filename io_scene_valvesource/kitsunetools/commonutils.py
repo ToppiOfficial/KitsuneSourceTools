@@ -458,7 +458,7 @@ def get_selected_bones(armature : bpy.types.Object | None,
                             continue
                     else:
                         # If no solo mode, skip bones in hidden collections
-                        if not all(col.is_visible for col in boneCollections):
+                        if not any(col.is_visible for col in boneCollections):
                             continue
 
             selectedBones.append(bone.name)
