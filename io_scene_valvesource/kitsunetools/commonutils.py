@@ -28,27 +28,47 @@ MODE_MAP: dict[str, str] = {
 #
 # ------------------------------------------------
 
+_undo_depth = 0
+
+@contextmanager
+def _undo_guard():
+    global _undo_depth
+    ctx = bpy.context
+    if _undo_depth == 0:
+        _undo_enabled = ctx.preferences.edit.use_global_undo
+        ctx.preferences.edit.use_global_undo = False
+    _undo_depth += 1
+    try:
+        yield
+    except Exception:
+        _undo_depth = 0  # force reset on unexpected error
+        ctx.preferences.edit.use_global_undo = True
+        raise
+    finally:
+        if _undo_depth > 0:
+            _undo_depth -= 1
+        if _undo_depth == 0:
+            bpy.ops.ed.undo_push(message="Kitsune Operation")
+            ctx.preferences.edit.use_global_undo = _undo_enabled
+
 @contextmanager
 def unhide_all_objects():
     """
     Temporarily unhide all objects and collections in the view layer.
     Restores original visibility afterwards.
-
+ 
     Notes:
         - Only restores objects/collections that were hidden before.
         - Deleted objects/collections are skipped safely.
     """
-    ctx = bpy.context
-    view_layer = ctx.view_layer
-    root_layer_coll = view_layer.layer_collection
-
-    undo_enabled = ctx.preferences.edit.use_global_undo
-    ctx.preferences.edit.use_global_undo = False
-
-    try:
+    with _undo_guard():
+        ctx = bpy.context
+        view_layer = ctx.view_layer
+        root_layer_coll = view_layer.layer_collection
+ 
         original_visibility = {}
         original_obj_visibility = {}
-
+ 
         def store_layer_collection_visibility(layer_coll, vis):
             vis[layer_coll] = {
                 "exclude": layer_coll.exclude,
@@ -57,23 +77,23 @@ def unhide_all_objects():
             }
             for child in layer_coll.children:
                 store_layer_collection_visibility(child, vis)
-
+ 
         def restore_layer_collection_visibility(vis):
             for layer_coll, state in vis.items():
                 if layer_coll:
                     layer_coll.exclude = state["exclude"]
                     layer_coll.hide_viewport = state["hide_viewport"]
                     layer_coll.collection.hide_viewport = state["collection_hide_viewport"]
-
+ 
         def unhide_all_layer_collections(layer_coll):
             layer_coll.exclude = False
             layer_coll.hide_viewport = False
             layer_coll.collection.hide_viewport = False
             for child in layer_coll.children:
                 unhide_all_layer_collections(child)
-
+ 
         store_layer_collection_visibility(root_layer_coll, original_visibility)
-
+ 
         for obj in bpy.data.objects:
             original_obj_visibility[obj.name] = {
                 "hide": obj.hide_get(),
@@ -81,16 +101,12 @@ def unhide_all_objects():
             }
             obj.hide_set(False)
             obj.hide_viewport = False
-
+ 
         unhide_all_layer_collections(root_layer_coll)
-
-        ctx.preferences.edit.use_global_undo = undo_enabled
-
+ 
         try:
             yield
         finally:
-            ctx.preferences.edit.use_global_undo = False
-
             restore_layer_collection_visibility(original_visibility)
             for name, state in original_obj_visibility.items():
                 if name not in bpy.data.objects:
@@ -99,30 +115,22 @@ def unhide_all_objects():
                 obj.hide_set(state["hide"])
                 obj.hide_viewport = state["hide_viewport"]
 
-            ctx.preferences.edit.use_global_undo = undo_enabled
-    except:
-        ctx.preferences.edit.use_global_undo = undo_enabled
-        raise
-
 @contextmanager
-def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDIT"):
-    ctx = bpy.context
-    view_layer = ctx.view_layer
-    
-    undo_enabled = ctx.preferences.edit.use_global_undo
-    ctx.preferences.edit.use_global_undo = False
-    
-    try:
+def preserve_context_mode(obj: bpy.types.Object | None = None, mode: str = "EDIT"):
+    with _undo_guard():
+        ctx = bpy.context
+        view_layer = ctx.view_layer
+ 
         prev_selected = list(view_layer.objects.selected)
         prev_active = view_layer.objects.active
         prev_mode = ctx.mode
-
-        target_obj = obj or prev_active
         prev_vgroup_index = None
         prev_bone_name = None
         prev_bone_mode = None
         prev_bone_selected = None
-
+ 
+        target_obj = obj or prev_active
+ 
         if target_obj:
             if target_obj.type == "MESH":
                 prev_vgroup_index = target_obj.vertex_groups.active_index
@@ -136,23 +144,21 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
                     prev_bone_name = data.bones.active.name
                     prev_bone_mode = "POSE"
                     prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
-
+ 
         if target_obj and target_obj.name in bpy.data.objects:
             try:
                 bpy.ops.object.mode_set(mode="OBJECT")
             except RuntimeError:
                 pass
-
+ 
             view_layer.objects.active = target_obj
             target_obj.select_set(True)
-
+ 
             try:
                 bpy.ops.object.mode_set(mode=mode)
             except RuntimeError:
                 pass
-
-        ctx.preferences.edit.use_global_undo = undo_enabled
-
+ 
         try:
             if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
                 yield target_obj.data.edit_bones
@@ -161,29 +167,27 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
             else:
                 yield target_obj
         finally:
-            ctx.preferences.edit.use_global_undo = False
-            
             try:
                 bpy.ops.object.mode_set(mode="OBJECT")
             except RuntimeError:
                 pass
-
+ 
             bpy.ops.object.select_all(action="DESELECT")
             for sel in prev_selected:
                 try:
-                    if sel and sel.name in bpy.data.objects:
+                    if sel and sel.name in bpy.data.objects and sel.name in view_layer.objects:
                         sel.select_set(True)
                 except ReferenceError:
                     pass
-
+ 
             if prev_active:
                 try:
-                    if prev_active.name in bpy.data.objects:
+                    if prev_active.name in bpy.data.objects and prev_active.name in view_layer.objects:
                         view_layer.objects.active = prev_active
                 except ReferenceError:
                     pass
-
-            mapped_mode : str = MODE_MAP.get(prev_mode, "OBJECT")
+ 
+            mapped_mode = MODE_MAP.get(prev_mode, "OBJECT")
             try:
                 bpy.ops.object.mode_set(mode=mapped_mode)
             except RuntimeError:
@@ -195,16 +199,14 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
                             bpy.ops.object.mode_set(mode="OBJECT")
                     except ReferenceError:
                         pass
-
+ 
             if prev_active:
                 try:
                     if prev_active.type == "MESH" and prev_vgroup_index is not None:
                         if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
                             prev_active.vertex_groups.active_index = prev_vgroup_index
-
                     elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
                         data = prev_active.data
-
                         if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
                             edit_bone = data.edit_bones.get(prev_bone_name)
                             if edit_bone:
@@ -217,11 +219,6 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode : str = "EDI
                                 bone.select = prev_bone_selected
                 except ReferenceError:
                     pass
-            
-            ctx.preferences.edit.use_global_undo = undo_enabled
-    except:
-        ctx.preferences.edit.use_global_undo = undo_enabled
-        raise
 
 # ------------------------------------------------
 #
