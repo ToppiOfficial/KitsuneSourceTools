@@ -389,7 +389,7 @@ def copy_target_armature_visualpose(base_armature: bpy.types.Object,target_armat
                 
                 bpy.context.view_layer.update()
 
-def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True, anchor_bone: str = ""):
+def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True, anchor_bone: str = "", apply_pose : bool = True):
     if not source_arm or not target_arm: return
     if source_arm.type != 'ARMATURE' or target_arm.type != 'ARMATURE': return
 
@@ -410,8 +410,9 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
                 
                 print("  Matched target posture to source")
 
-            apply_current_pose_as_restpose(target_arm)
-            print("  Applied pose as rest pose")
+            if apply_pose:
+                apply_current_pose_as_restpose(target_arm)
+                print("  Applied pose as rest pose")
 
             source_bone_names = {b.name for b in source_arm.data.bones}
             source_export_map = {get_bone_exportname(b): b.name for b in source_arm.data.bones if get_bone_exportname(b)}

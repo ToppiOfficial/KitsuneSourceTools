@@ -421,6 +421,7 @@ class TOOLS_OT_MergeArmatures(Operator, ShowConsole):
     clean_bones : BoolProperty(name='Clean Bones', default=True)
     use_anchor_bone : BoolProperty(name='Anchor Root Bones', default=False)
     anchor_bone : StringProperty(name='Anchor Bone', default="")
+    apply_pose : BoolProperty(name='Apply Pose', default=True)
     
     @classmethod
     def poll(cls, context : Context) -> bool:
@@ -431,9 +432,9 @@ class TOOLS_OT_MergeArmatures(Operator, ShowConsole):
     
     def draw(self, context):
         layout = self.layout
-        row = layout.row()
-        row.prop(self, 'match_posture')
-        row.prop(self, 'clean_bones')
+        layout.prop(self, 'match_posture')
+        layout.prop(self, 'clean_bones')
+        layout.prop(self, 'apply_pose')
         layout.prop(self, 'use_anchor_bone')
 
         if self.use_anchor_bone:
@@ -466,7 +467,7 @@ class TOOLS_OT_MergeArmatures(Operator, ShowConsole):
                             arm.select_set(True)
                             bpy.ops.kitsunetools.clean_unweighted_bones('EXEC_DEFAULT', cleaning_mode='FULL_CLEAN', remove_empty_vertex_groups=True)
                     
-                        merge_armatures(active_object, arm, match_posture=self.match_posture, anchor_bone=resolved_anchor)
+                        merge_armatures(active_object, arm, match_posture=self.match_posture, anchor_bone=resolved_anchor, apply_pose=self.apply_pose)
                         success_count += 1
                     except Exception as e:
                         self.report({'ERROR'}, f"Failed to merge '{arm.name}': {str(e)}")

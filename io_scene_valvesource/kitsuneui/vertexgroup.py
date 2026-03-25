@@ -330,7 +330,7 @@ class TOOLS_OT_curve_ramp_weights(Operator):
 
 
 class TOOLS_OT_multi_weight_paint_start(Operator):
-    bl_idname = "kitsunetools.multi_weight_paint_start"
+    bl_idname = "kitsunetools.start_multi_mesh_weightpaint"
     bl_label = "Start Multi-Object Weight Paint"
     bl_description = "Prepare selected meshes for multi-object weight painting"
     bl_options = {'REGISTER', 'UNDO'}
@@ -425,7 +425,7 @@ class TOOLS_OT_multi_weight_paint_start(Operator):
 
 
 class TOOLS_OT_multi_weight_paint_finish(Operator):
-    bl_idname = "kitsunetools.multi_weight_paint_finish"
+    bl_idname = "kitsunetools.finish_multi_mesh_weightpaint"
     bl_label = "Finish Multi-Object Weight Paint"
     bl_description = "Transfer weights back to original meshes and cleanup"
     bl_options = {'REGISTER', 'UNDO'}
@@ -543,7 +543,7 @@ class TOOLS_OT_multi_weight_paint_finish(Operator):
 
 
 class TOOLS_OT_multi_weight_paint_cancel(Operator):
-    bl_idname = "kitsunetools.multi_weight_paint_cancel"
+    bl_idname = "kitsunetools.cancel_multi_mesh_weightpaint"
     bl_label = "Cancel Multi-Object Weight Paint"
     bl_description = "Discard changes and cleanup"
     bl_options = {'REGISTER', 'UNDO'}
