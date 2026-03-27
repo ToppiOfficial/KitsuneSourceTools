@@ -202,6 +202,13 @@ class TextureConversionItem(PropertyGroup):
     specular_map_ch: EnumProperty(name='Channel', items=image_channels)
     invert_specular_map : BoolProperty(name='Invert Specular Map', default=False)
     specular_map_diffuse_baked: IntProperty(name='Baked Specular amount', default=70, min=0, max=100)
+
+    specular_blend: EnumProperty(
+        name="Blend Mode",
+        items=[
+            ('ADD', "Add", ""),
+            ('COLOR_BURN', "Color Burn", ""),
+        ],default='ADD')
     
     normal_map: StringProperty(name='Normal Map')
     normal_map_preprocess: EnumProperty(
@@ -592,6 +599,7 @@ _classes = (
     # Object Data Tools
     objectdata.OBJECT_PT_ObjectData_Panel,
     objectdata.OBJECT_OT_Apply_Transform,
+    objectdata.SMD_OT_SurfaceSnap,
 
     # Armature Tools
     armature.TOOLS_PT_Armature,

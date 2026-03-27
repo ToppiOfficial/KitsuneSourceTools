@@ -409,6 +409,24 @@ class ImageProcessor:
         return result
     
     @staticmethod
+    def color_burn(src: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
+        """Color burn blend mode"""
+        result = src.copy()
+        rgb_s = result[:, :, :3]
+        rgb_b = blend[:, :, :3]
+        
+        blended = np.zeros_like(rgb_s)
+        non_zero = rgb_b != 0
+        blended[non_zero] = 1.0 - (1.0 - rgb_s[non_zero]) / rgb_b[non_zero]
+        np.clip(blended, 0.0, 1.0, out=blended)
+        
+        if opacity != 1.0:
+            result[:, :, :3] = rgb_s * (1.0 - opacity) + blended * opacity
+        else:
+            result[:, :, :3] = blended
+        return result
+    
+    @staticmethod
     def _rgb_to_hsv(rgb: np.ndarray) -> np.ndarray:
         """Convert RGB to HSV"""
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]

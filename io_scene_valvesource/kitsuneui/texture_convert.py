@@ -41,20 +41,18 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
         self._try_assign_from_material(context, item)
         return {'FINISHED'}
 
-    # ------------------------------------------------------------------ #
-    # Node traversal
-    # ------------------------------------------------------------------ #
-
     def _walk_to_image_with_channel(self, node, from_socket, depth=0) -> tuple:
-        """Returns (image, channel, separate_color_node) where channel is 'R','G','B' or None."""
+        """Returns (image, channel, separate_color_node) where channel is 'R','G','B','A' or None."""
         if node is None:
             return None, None, None
 
         if node.type == 'TEX_IMAGE':
+            if from_socket.name == 'Alpha':
+                return node.image, 'A', None
             return node.image, None, None
 
         if node.type in {'SEPARATE_COLOR', 'SEPRGB'}:
-            channel_map = {'Red': 'R', 'Green': 'G', 'Blue': 'B'}
+            channel_map = {'Red': 'R', 'Green': 'G', 'Blue': 'B', 'Alpha': 'A'}
             channel = channel_map.get(from_socket.name)
             color_socket = node.inputs.get('Color') or node.inputs.get('Image')
             if color_socket and color_socket.is_linked:
@@ -98,10 +96,6 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
 
     def _assign_from_node_input(self, node, input_name: str, item, img_attr: str, ch_attr: str | None = None) -> tuple:
         return self._assign_from_socket(node.inputs.get(input_name), item, img_attr, ch_attr)
-
-    # ------------------------------------------------------------------ #
-    # Main assignment logic
-    # ------------------------------------------------------------------ #
 
     def _try_assign_from_material(self, context: Context, item) -> None:
         ob = context.active_object
@@ -148,24 +142,26 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
         self._assign_from_socket(socket, item, 'normal_map')
 
     def _assign_rmo(self, principled, item) -> None:
-        rmo_sep_node = None
-
+        rmo_images = {}
+        
         for socket_name, img_attr, ch_attr in (
             ('Roughness', 'roughness_map', 'roughness_map_ch'),
             ('Metallic',  'metal_map',     'metal_map_ch'),
         ):
             socket = principled.inputs.get(socket_name)
-            _, _, sep_node = self._assign_from_socket(socket, item, img_attr, ch_attr)
-            if sep_node and rmo_sep_node is None:
-                rmo_sep_node = sep_node
-
-        # AO fallback from RMO Blue channel if not already set via multiply
-        if not item.ambientocclu_map and rmo_sep_node:
-            color_socket = rmo_sep_node.inputs.get('Color') or rmo_sep_node.inputs.get('Image')
-            image, _, _ = self._find_image_and_channel_from_socket(color_socket)
+            image, channel, sep_node = self._assign_from_socket(socket, item, img_attr, ch_attr)
             if image:
-                item.ambientocclu_map = image.name
-                item.ambientocclu_map_ch = 'B'
+                rmo_images[socket_name] = (image, channel, sep_node)
+
+        if not item.ambientocclu_map:
+            for socket_name, (image, channel, sep_node) in rmo_images.items():
+                if sep_node:
+                    color_socket = sep_node.inputs.get('Color') or sep_node.inputs.get('Image')
+                    ao_image, _, _ = self._find_image_and_channel_from_socket(color_socket)
+                    if ao_image:
+                        item.ambientocclu_map = ao_image.name
+                        item.ambientocclu_map_ch = 'B'
+                        break
 
     def _assign_alpha(self, principled, item) -> None:
         socket = principled.inputs.get('Alpha')
@@ -387,15 +383,15 @@ class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolSubPanel):
             col.prop(item, 'adjust_for_albedoboost')
             col.prop(item, 'albedoboost_factor', slider=True)
         
-        if item.texture_conversion_mode == 'NPR':
-            box = layout.box()
-            col = box.column(align=True)
-            col.label(text="Specular Map")
-            row = col.split(align=True, factor=0.8)
-            row.prop_search(item, 'specular_map', bpy.data, 'images', text='')
-            row.prop(item, 'specular_map_ch', text='')
-            col.prop(item, 'invert_specular_map')
-            col.prop(item, 'specular_map_diffuse_baked', slider=True)
+        box = layout.box()
+        col = box.column(align=True)
+        col.label(text="Specular Map")
+        row = col.split(align=True, factor=0.8)
+        row.prop_search(item, 'specular_map', bpy.data, 'images', text='')
+        row.prop(item, 'specular_map_ch', text='')
+        col.prop(item, 'invert_specular_map')
+        col.prop(item, 'specular_blend')
+        col.prop(item, 'specular_map_diffuse_baked', slider=True)
         
         box = layout.box()
         col = box.column(align=True)

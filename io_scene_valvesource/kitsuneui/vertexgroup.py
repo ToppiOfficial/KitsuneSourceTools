@@ -524,10 +524,18 @@ class TOOLS_OT_multi_weight_paint_finish(Operator):
                 del target_obj["__temp_modifier_states"]
 
             vg = target_obj.vertex_groups.get(vg_name)
-            if vg:
-                target_obj.vertex_groups.remove(vg)
+            # Clean up temp ID vertex groups
             if "__temp_id_vg_name" in target_obj:
+                vg_name_to_remove = target_obj["__temp_id_vg_name"]
+                vg = target_obj.vertex_groups.get(vg_name_to_remove)
+                if vg:
+                    target_obj.vertex_groups.remove(vg)
                 del target_obj["__temp_id_vg_name"]
+            
+            # Remove any other temp ID vertex groups that may have been transferred
+            for vg in list(target_obj.vertex_groups):
+                if vg.name.startswith("__temp_id_"):
+                    target_obj.vertex_groups.remove(vg)
 
         bpy.ops.object.select_all(action='DESELECT')
         combined_obj.select_set(True)
@@ -589,6 +597,11 @@ class TOOLS_OT_multi_weight_paint_cancel(Operator):
                     if vg:
                         obj.vertex_groups.remove(vg)
                     del obj["__temp_id_vg_name"]
+                
+                # Remove any other temp ID vertex groups
+                for vg in list(obj.vertex_groups):
+                    if vg.name.startswith("__temp_id_"):
+                        obj.vertex_groups.remove(vg)
 
         bpy.ops.object.select_all(action='DESELECT')
         combined_obj.select_set(True)

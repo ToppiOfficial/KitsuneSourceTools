@@ -5,8 +5,38 @@ class ColorMapGenerator(BaseMapGenerator):
     """Base class for color/diffuse map generators"""
     pass
 
+class SpecularBaking():
+    def _apply_specular_baking(self, result, maps, item):
+        """Apply specular map baking"""
+        specular = maps.get('specular')
+        print(specular)
+        if specular is None:
+            return result
+        
+        blend_strength = item.specular_map_diffuse_baked / 100.0
+        if blend_strength <= 0:
+            return result
+        
+        diffuse_h, diffuse_w = result.shape[:2]
+        spec_h, spec_w = specular.shape[:2]
+        
+        if (spec_h, spec_w) != (diffuse_h, diffuse_w):
+            from .texture_map_loader import TextureMapLoader
+            loader = TextureMapLoader()
+            specular = loader.resize_channel(specular, diffuse_h, diffuse_w)
+        
+        specular_rgb = np.stack([specular]*3, axis=2)
+        specular_rgba = np.dstack([specular_rgb, np.ones((diffuse_h, diffuse_w))])
+        
+        if item.specular_blend == 'COLOR_BURN':
+            result = self.img_proc.color_burn(result, specular_rgba, opacity=blend_strength)
+        else:
+            result = self.img_proc.add(result, specular_rgba, opacity=blend_strength)
+        
+        return result
 
-class PBRColorMapGenerator(ColorMapGenerator):
+
+class PBRColorMapGenerator(ColorMapGenerator, SpecularBaking):
     """Generates PBR color maps"""
     
     def generate(self, maps, item) -> np.ndarray:
@@ -15,10 +45,13 @@ class PBRColorMapGenerator(ColorMapGenerator):
         
         result = diffuse.copy()
         result[:, :, 3] = alpha
+        
+        result = self._apply_specular_baking(result, maps, item)
+        
         return result
+    
 
-
-class PhongDiffuseMapGenerator(ColorMapGenerator):
+class PhongDiffuseMapGenerator(ColorMapGenerator, SpecularBaking):
     """Generates Phong diffuse maps with AO and metal adjustments"""
     
     def generate(self, maps, item) -> np.ndarray:
@@ -35,6 +68,8 @@ class PhongDiffuseMapGenerator(ColorMapGenerator):
         
         if skin is not None:
             result = self._apply_skin_adjustments(result, diffuse, skin, item)
+        
+        result = self._apply_specular_baking(result, maps, item)
         
         if item.color_alpha_mode != 'ALPHA':
             result[:, :, 3] = alpha
@@ -83,7 +118,7 @@ class PhongDiffuseMapGenerator(ColorMapGenerator):
         return result
 
 
-class NPRColorMapGenerator(ColorMapGenerator):
+class NPRColorMapGenerator(ColorMapGenerator, SpecularBaking):
     """Generates NPR color/diffuse maps"""
     
     def generate(self, maps, item) -> np.ndarray:
@@ -109,26 +144,7 @@ class NPRColorMapGenerator(ColorMapGenerator):
         if skin is not None:
             result = self._apply_skin_adjustments(result, diffuse, skin, item)
 
-        specular = maps.get('specular')
-        if specular is not None:
-            blend_strength = item.specular_map_diffuse_baked / 100.0
-            if blend_strength > 0:
-                spec_h, spec_w = specular.shape[:2]
-                if (spec_h, spec_w) != (diffuse_h, diffuse_w):
-                    from .texture_map_loader import TextureMapLoader
-                    loader = TextureMapLoader()
-                    specular = loader.resize_channel(specular, diffuse_h, diffuse_w)
-
-                specular_rgb = np.stack([specular]*3, axis=2)
-                
-                # The add method in image_processor expects 4 channels for the blend image
-                # but only uses :3, so we make it compatible.
-                if specular_rgb.shape[2] == 3:
-                    specular_rgba = np.dstack([specular_rgb, np.ones((diffuse_h, diffuse_w))])
-                else:
-                    specular_rgba = specular_rgb
-
-                result = self.img_proc.add(result, specular_rgba, opacity=blend_strength)
+        result = self._apply_specular_baking(result, maps, item)
 
         if alpha is not None:
             result[:, :, 3] = alpha

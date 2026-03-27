@@ -241,11 +241,7 @@ class Texture_Convert:
         print(f"Diffuse size: {diffuse_height}x{diffuse_width}")
         
         map_collection = MapCollection(self.loader)
-        
-        if item.texture_conversion_mode == 'NPR':
-            success = self._load_npr_maps(item, map_collection, diffuse_height, diffuse_width)
-        else:
-            success = map_collection.load_all(item, diffuse_height, diffuse_width)
+        success = map_collection.load_all(item, diffuse_height, diffuse_width)
         
         if not success:
             error_msg = f"Failed to load required textures for '{item.name}'"
@@ -254,78 +250,6 @@ class Texture_Convert:
             return None
         
         return map_collection
-    
-    def _load_npr_maps(self, item, map_collection, diffuse_height, diffuse_width):
-        """Special loading logic for NPR mode"""
-        print(f"\nLoading maps for '{item.name}'")
-        
-        print(f"  Loading diffuse: {item.diffuse_map}")
-        map_collection.maps['diffuse'] = self.loader.load_image_data(item.diffuse_map)
-        
-        print(f"  Loading normal: {item.normal_map}")
-        normal_img = self.loader.load_image_data(item.normal_map)
-        
-        if map_collection.maps['diffuse'] is None or normal_img is None:
-            print("  ERROR: Failed to load diffuse or normal map")
-            return False
-        
-        print(f"  Loading AO: {item.ambientocclu_map} (channel: {item.ambientocclu_map_ch})")
-        ao_data = self.loader.load_channel(item.ambientocclu_map, item.ambientocclu_map_ch)
-        if item.invert_ambientocclu_map and ao_data is not None:
-            ao_data = 1.0 - ao_data
-            print("    Inverting AO")
-        map_collection.maps['ao'] = ao_data
-        
-        print(f"  Loading skin: {item.skin_map} (channel: {item.skin_map_ch})")
-        skin_data = self.loader.load_channel(item.skin_map, item.skin_map_ch)
-        if item.invert_skin_map and skin_data is not None:
-            skin_data = 1.0 - skin_data
-            print("    Inverting skin map")
-        map_collection.maps['skin'] = skin_data
-        
-        print(f"  Loading alpha: {item.alpha_map} (channel: {item.alpha_map_ch})")
-        alpha_data = self.loader.load_and_prep_channel(
-            item.alpha_map, item.alpha_map_ch,
-            diffuse_height, diffuse_width, item.invert_alpha_map
-        )
-        if item.invert_alpha_map:
-            print("    Inverting alpha")
-        map_collection.maps['alpha'] = alpha_data
-        
-        print(f"  Loading specular: {item.specular_map} (channel: {item.specular_map_ch})")
-        specular_data = self.loader.load_and_prep_channel(
-            item.specular_map, item.specular_map_ch,
-            0, 0, item.invert_specular_map
-        )
-        
-        normal_h, normal_w = normal_img.shape[:2]
-        
-        if specular_data is not None:
-            spec_h, spec_w = specular_data.shape[:2]
-            
-            if (normal_h, normal_w) != (spec_h, spec_w):
-                if normal_h * normal_w > spec_h * spec_w:
-                    specular_data = self.loader.resize_channel(specular_data, normal_h, normal_w)
-                else:
-                    normal_img = self.loader.resize_image(normal_img, spec_h, spec_w)
-        
-        map_collection.maps['normal'] = normal_img
-        map_collection.maps['specular'] = specular_data
-        
-        if item.emissive_map and item.emissive_map != "":
-            print(f"  Loading emissive: {item.emissive_map} (channel: {item.emissive_map_ch})")
-            if item.emissive_map_ch == 'COLOR':
-                emissive_data = self.loader.load_image_data(item.emissive_map)
-                if emissive_data is not None:
-                    map_collection.maps['emissive'] = self.loader.resize_image(emissive_data, diffuse_height, diffuse_width)
-            else:
-                map_collection.maps['emissive'] = self.loader.load_and_prep_channel(
-                    item.emissive_map, item.emissive_map_ch,
-                    diffuse_height, diffuse_width, False
-                )
-        
-        print("  All maps loaded successfully")
-        return True
     
     def _execute_conversion(self, item, maps, export_dir, base_name):
         """Execute the appropriate conversion strategy"""

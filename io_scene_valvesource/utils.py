@@ -1037,7 +1037,7 @@ def import_hitboxes_from_content(content: str, armature : bpy.types.Object, cont
         
         bpy.ops.object.empty_add(type='CUBE', location=(0, 0, 0))
         empty = context.active_object
-        empty.name = f"{armature.name}_hbox_{bone.name}"
+        empty.name = f"{bone.name}_hbox_{armature.name}"
         
         if hitbox_collection:
             for coll in empty.users_collection:

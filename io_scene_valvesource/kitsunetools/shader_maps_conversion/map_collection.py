@@ -103,7 +103,7 @@ class MapCollection:
         self.maps['normal_sized'] = self.loader.resize_image(self.maps['normal'], rma_h, rma_w)
     
     def _load_optional_maps(self, item, diffuse_h: int, diffuse_w: int):
-        """Load optional maps like alpha, skin, and emissive"""
+        """Load optional maps like alpha, skin, specular, and emissive"""
         print(f"  Loading alpha: {item.alpha_map} (channel: {item.alpha_map_ch})")
         self.maps['alpha'] = self.loader.load_and_prep_channel(
             item.alpha_map, item.alpha_map_ch,
@@ -120,6 +120,15 @@ class MapCollection:
             )
             if item.invert_skin_map:
                 print("    Inverting skin")
+        
+        if item.specular_map and item.specular_map != "":
+            print(f"  Loading specular: {item.specular_map} (channel: {item.specular_map_ch})")
+            self.maps['specular'] = self.loader.load_and_prep_channel(
+                item.specular_map, item.specular_map_ch,
+                0, 0, item.invert_specular_map
+            )
+            if item.invert_specular_map:
+                print("    Inverting specular")
         
         if item.emissive_map and item.emissive_map != "":
             print(f"  Loading emissive: {item.emissive_map} (channel: {item.emissive_map_ch})")
