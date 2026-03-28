@@ -1,6 +1,6 @@
 import bpy, math
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
-from bpy.types import Context, Operator, Object, Event
+from bpy.types import Context, Operator, Event
 from mathutils import Vector
 
 from ..kitsunetools.commonutils import(

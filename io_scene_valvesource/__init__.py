@@ -546,6 +546,10 @@ _classes = (
     # Exportable and Scene Classes
     ValveSource_Exportable,
     ValveSource_SceneProps,
+
+    # KitsuneResource
+    GUI.SMD_PT_KitsuneResourceCompile,
+    GUI.SMD_OT_KitsuneResourceCompile,
     
     # GUI - Scene
     GUI.SMD_MT_ExportChoice,
@@ -573,10 +577,6 @@ _classes = (
     properties.SMD_PT_All_Jigglebones,
     properties.SMD_PT_Jigglebones,
 
-    # KitsuneResource
-    GUI.SMD_PT_KitsuneResourceCompile,
-    GUI.SMD_OT_KitsuneResourceCompile,
-
     # GUI - Common
     common.KITSUNE_PT_ToolsPanel,
     
@@ -599,7 +599,6 @@ _classes = (
     # Object Data Tools
     objectdata.OBJECT_PT_ObjectData_Panel,
     objectdata.OBJECT_OT_Apply_Transform,
-    objectdata.SMD_OT_SurfaceSnap,
 
     # Armature Tools
     armature.TOOLS_PT_Armature,

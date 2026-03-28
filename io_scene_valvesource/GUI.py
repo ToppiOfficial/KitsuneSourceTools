@@ -23,7 +23,6 @@ from .utils import getSelectedExportables, count_exports, get_id, State, Compile
 from .export_smd import SmdExporter, PrefabExporter
 from .import_smd import SmdImporter
 from .kitsunetools.commonutils import is_armature, get_attachments, get_hitboxes, get_jigglebones
-from .kitsuneui.common import ShowConsole
 
 
 class SMD_MT_ExportChoice(bpy.types.Menu):
