@@ -15,6 +15,33 @@ class MRAOMapGenerator(BaseMapGenerator):
         mrao[:, :, 1] = roughness
         mrao[:, :, 2] = ao
         return mrao
+    
+
+class SeparateMapGenerator(BaseMapGenerator):
+    """Returns separate maps, but formatted as RGBA for Blender compatibility"""
+    
+    def generate(self, maps, item) -> np.ndarray:
+        metal = maps.get('metal_sized')
+        roughness = maps.get('roughness_sized')
+        ao = maps.get('ao_sized')
+        
+        height, width = metal.shape[:2]
+        
+        def to_rgba_buffer(grayscale_array):
+            # Create an RGBA buffer (H, W, 4)
+            rgba = np.ones((height, width, 4), dtype=np.float32)
+            # Copy grayscale to R, G, and B
+            rgba[:, :, 0] = grayscale_array
+            rgba[:, :, 1] = grayscale_array
+            rgba[:, :, 2] = grayscale_array
+            # Alpha index 3 is already 1.0 from np.ones
+            return rgba
+
+        return np.stack([
+            to_rgba_buffer(metal),
+            to_rgba_buffer(roughness),
+            to_rgba_buffer(ao)
+        ], axis=0)
 
 
 class ExponentMapGenerator(BaseMapGenerator):

@@ -8,7 +8,7 @@ from .texture_map_defaults import TextureMapDefaults
 from .normal_map_generators import PBRNormalMapGenerator, PhongNormalMapGenerator, NPRNormalMapGenerator
 from .color_map_generators import PBRColorMapGenerator, PhongDiffuseMapGenerator, NPRColorMapGenerator
 from .map_collection import MapCollection
-from .other_map_generators import MRAOMapGenerator, ExponentMapGenerator, EmissiveMapGenerator, PhongEmissiveMapGenerator
+from .other_map_generators import MRAOMapGenerator, ExponentMapGenerator, EmissiveMapGenerator, PhongEmissiveMapGenerator, SeparateMapGenerator
 
 class ConversionStrategy:
     """Base class for conversion strategies"""
@@ -83,6 +83,48 @@ class PBRConversionStrategy(ConversionStrategy):
                 self._save_tga(emissive_map, emissive_path)
         
         print("  PBR conversion complete!")
+
+
+class SeparatePBRConversionStrategy(ConversionStrategy):
+    """Handles PBR conversion with separate grayscale files instead of packed MRAO"""
+    
+    def convert(self, item, maps, export_dir: str, base_name: str):
+        print(f"\nProcessing Separate PBR conversion for '{item.name}'")
+        
+        print("  Creating color map...")
+        color_gen = PBRColorMapGenerator(self.img_proc)
+        color_map = color_gen.generate(maps, item)
+        color_path = os.path.join(export_dir, f"{base_name}_color.tga")
+        self._save_tga(color_map, color_path)
+        
+        print("  Creating separate Metal, Roughness, and AO maps...")
+        sep_gen = SeparateMapGenerator(self.img_proc)
+        # Result is a stacked array [3, H, W]
+        stacked_maps = sep_gen.generate(maps, item)
+        
+        # Define the suffixes and their corresponding indices in the stack
+        suffixes = ['metal', 'roughness', 'ao']
+        for i, suffix in enumerate(suffixes):
+            map_data = stacked_maps[i]
+            path = os.path.join(export_dir, f"{base_name}_{suffix}.tga")
+            print(f"  Saving: {path}")
+            self._save_tga(map_data, path)
+        
+        print("  Creating normal map...")
+        normal_gen = PBRNormalMapGenerator(self.img_proc)
+        normal_map = normal_gen.generate(maps, item)
+        normal_path = os.path.join(export_dir, f"{base_name}_normal.tga")
+        self._save_tga(normal_map, normal_path)
+        
+        if 'emissive' in maps:
+            print("  Creating emissive map...")
+            emissive_gen = EmissiveMapGenerator(self.img_proc)
+            emissive_map = emissive_gen.generate(maps, item)
+            if emissive_map is not None:
+                emissive_path = os.path.join(export_dir, f"{base_name}_emissive.tga")
+                self._save_tga(emissive_map, emissive_path)
+        
+        print("  Separate PBR conversion complete!")
 
 
 class PhongConversionStrategy(ConversionStrategy):
@@ -174,6 +216,7 @@ class Texture_Convert:
         if not hasattr(self, '_strategies'):
             self._strategies = {
                 'PBR': PBRConversionStrategy(self.img_proc),
+                'SOURCE2PBR': SeparatePBRConversionStrategy(self.img_proc),
                 'PSEUDOPBR': PhongConversionStrategy(self.img_proc),
                 'NPR': NPRConversionStrategy(self.img_proc),
             }

@@ -237,6 +237,7 @@ class TextureConversionItem(PropertyGroup):
         items=[
             ('PSEUDOPBR', "Pseudo-PBR", "Convert PBR to Source Engine Phong (PseudoPBR)"),
             ('PBR', "Source-PBR", "Convert to simple PBR format (_color, _mrao, _normal)"),
+            ('SOURCE2PBR', "Source2-PBR", "Convert to Source2 PBR format (_color, _rough, _metal, _ao)"),
             ('NPR', "Toon-Specular", "Convert to common specular only toon shading (Genshin, Umamusume, etc..)")
         ],default='PSEUDOPBR')
     

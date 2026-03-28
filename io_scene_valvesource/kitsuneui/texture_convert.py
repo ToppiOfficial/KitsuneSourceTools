@@ -24,6 +24,7 @@ class TEXTURECONVERSION_UL_ItemList(UIList):
         elif self.layout_type in {'GRID'}:
             layout.alignment = 'CENTER'
             layout.label(text="", icon='MATERIAL')
+         
             
 class TEXTURECONVERSION_OT_AddItem(Operator):
     bl_idname = "textureconvert.add_pbr_item"
@@ -183,6 +184,7 @@ class TEXTURECONVERSION_OT_RemoveItem(Operator):
                                                  len(context.scene.vs.texture_conversion_items) - 1)
         return {'FINISHED'}
 
+
 class TEXTURECONVERSION_OT_ProcessItem(Operator, Texture_Convert):
     bl_idname = 'textureconvert.process_item'
     bl_label = 'Processing'
@@ -251,6 +253,7 @@ class TEXTURECONVERSION_OT_ProcessItem(Operator, Texture_Convert):
             self.report({'ERROR'}, f"Error during processing: {str(e)}")
             return {'CANCELLED'}
 
+
 class TEXTURECONVERSION_OT_ConvertItem(Operator, ShowConsole):
     bl_idname = 'textureconvert.convert_pbr_item'
     bl_label = 'Convert Selected Item'
@@ -266,6 +269,7 @@ class TEXTURECONVERSION_OT_ConvertItem(Operator, ShowConsole):
         bpy.ops.textureconvert.process_item('EXEC_DEFAULT', item_index=self.item_index, process_all=False)
         return {'FINISHED'}
 
+
 class TEXTURECONVERSION_OT_ConvertAllItems(Operator, ShowConsole):
     bl_idname = 'textureconvert.convert_all_pbr_items'
     bl_label = 'Convert All Items'
@@ -278,6 +282,7 @@ class TEXTURECONVERSION_OT_ConvertAllItems(Operator, ShowConsole):
     def execute(self, context) -> set:
         bpy.ops.textureconvert.process_item('EXEC_DEFAULT', process_all=True)
         return {'FINISHED'}
+
 
 class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolSubPanel):
     bl_label = 'Texture Conversion'
