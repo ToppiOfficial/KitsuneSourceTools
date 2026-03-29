@@ -30,8 +30,8 @@ from .keyvalue3 import *
 from . import datamodel, ordered_set, flex
 from .kitsunetools.boneutils import get_bone_exportname, get_bone_matrix
 from .kitsunetools.objectutils import apply_modifier
-from .kitsunetools.meshutils import normalize_object_vertexgroups, get_delta_shapekeys
-from .kitsunetools.commonutils import sanitize_string, get_armature, get_attachments, update_vmdl_container
+from .kitsunetools.meshutils import normalize_object_vertexgroups, get_delta_shapekeys, compute_edgeline_island_weights
+from .kitsunetools.commonutils import sanitize_string, get_armature, get_attachments, update_vmdl_container, is_mesh_compatible
 from .kitsunetools.armatureutils import sort_bone_by_hierarchy
 from .kitsuneui.common import ShowConsole
 
@@ -85,24 +85,19 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
 
         if layer_col.exclude:
             layer_col.exclude = False
-            print(f"- Un-Excluding {layer_col.name}")
 
         if layer_col.hide_viewport:
             layer_col.hide_viewport = False
-            print(f"- Un-Hiding (layer) {layer_col.name}")
 
         if layer_col.collection.hide_viewport:
             layer_col.collection.hide_viewport = False
-            print(f"- Un-Hiding (collection) {layer_col.name}")
 
         for obj in layer_col.collection.objects:
             if obj.hide_viewport:
                 obj.hide_viewport = False
-                print(f"  - Un-Hiding (viewport) {obj.name}")
 
             if obj.hide_get():
                 obj.hide_set(False)
-                print(f"  - Un-Hiding (outliner) {obj.name}")
 
         for child in layer_col.children:
             self.unhide_all(child)
@@ -763,6 +758,83 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
             cur = cur.parent
         del cur
 
+        if is_mesh_compatible(id):
+            if id.vs.use_toon_edgeline:
+
+                material_count = len(id.data.materials)
+                has_vertex_groups = bool(getattr(id, 'vertex_groups', None))
+                edgeline_vertexgroup = None
+
+                if has_vertex_groups and id.vs.auto_compute_thickness_on_ratio:
+                    edgeline_vertexgroup = id.vertex_groups.get('Edgeline_Thickness')
+
+                    if edgeline_vertexgroup is None:
+                        edgeline_vertexgroup = id.vertex_groups.new(name='Edgeline_Thickness')
+                        compute_edgeline_island_weights(id, edgeline_vertexgroup, 0.3, 0.8)
+
+                # Material filter override pass
+                needs_override = any(
+                    slot.material and slot.material.vs.face_export_filter in ('BY_MATERIAL', 'BY_VGROUP')
+                    for slot in id.material_slots
+                )
+
+                if has_vertex_groups and needs_override:
+                    if edgeline_vertexgroup is None:
+                        edgeline_vertexgroup = id.vertex_groups.get('Edgeline_Thickness') or id.vertex_groups.new(name='Edgeline_Thickness')
+
+                    bm = bmesh.new()
+                    bm.from_mesh(id.data)
+                    bm.verts.ensure_lookup_table()
+                    bm.faces.ensure_lookup_table()
+
+                    for slot_idx, slot in enumerate(id.material_slots):
+                        if not slot.material:
+                            continue
+                        mat_vs = slot.material.vs
+                        filter_mode = mat_vs.face_export_filter
+
+                        if filter_mode == 'BY_MATERIAL':
+                            affected = {v.index for f in bm.faces if f.material_index == slot_idx for v in f.verts}
+                            for vi in affected:
+                                edgeline_vertexgroup.add([vi], 1.0, 'REPLACE')
+
+                        elif filter_mode == 'BY_VGROUP':
+                            src_vg = id.vertex_groups.get(mat_vs.non_exportable_vgroup)
+                            if src_vg:
+                                tolerance = mat_vs.non_exportable_vgroup_tolerance
+                                for v in id.data.vertices:
+                                    for g in v.groups:
+                                        if g.group == src_vg.index and g.weight >= tolerance:
+                                            edgeline_vertexgroup.add([v.index], 1.0, 'REPLACE')
+                                            break
+
+                    bm.free()
+
+                if id.vs.edgeline_per_material:
+                    for slot in id.material_slots:
+                        name = f"{slot.material.name}_edgeline" if slot.material else "edgeline"
+                        mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
+                        mat.vs.face_export_filter = 'BY_VGROUP'
+                        mat.vs.non_exportable_vgroup = "Edgeline_Thickness"
+                        id.data.materials.append(mat)
+                else:
+                    mat = bpy.data.materials.get("edgeline") or bpy.data.materials.new(name="edgeline")
+                    mat.vs.face_export_filter = 'BY_VGROUP'
+                    mat.vs.non_exportable_vgroup = "Edgeline_Thickness"
+                    for _ in range(material_count):
+                        id.data.materials.append(mat)
+
+                mod_name = "Toon_Edgeline"
+                solid = id.modifiers.get(mod_name) or id.modifiers.new(name=mod_name, type='SOLIDIFY')
+                solid.use_rim = False
+                solid.use_flip_normals = True
+                solid.material_offset = material_count
+                solid.offset = -1.0
+                solid.thickness = -1 * round(id.vs.base_toon_edgeline_thickness,3)
+                if edgeline_vertexgroup:
+                    solid.vertex_group = edgeline_vertexgroup.name
+                    solid.invert_vertex_group = True
+
         if id.type == 'MESH':
             
             if hasShapes(id): 
@@ -808,6 +880,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                    getUpAxisMat(bpy.context.scene.vs.up_axis).inverted() @ 
                    getForwardAxisMat(bpy.context.scene.vs.forward_axis).inverted() @
                    getUpAxisOffsetMat(bpy.context.scene.vs.up_axis, bpy.context.scene.vs.up_axis_offset) @
+                   Matrix.Scale(bpy.context.scene.vs.world_scale, 4) @
                    id.matrix_world)
         
         if id.type == 'ARMATURE':
@@ -859,12 +932,14 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                 if not mat:
                     continue
 
-                if getattr(mat.vs, "do_not_export_faces", False):
+                filter_mode = getattr(mat.vs, "face_export_filter", 'NONE')
+
+                if filter_mode == 'BY_MATERIAL':
                     for poly in me.polygons:
                         if poly.material_index == slot_index:
                             faces_to_delete.add(poly.index)
 
-                if getattr(mat.vs, "do_not_export_faces_vgroup", False):
+                elif filter_mode == 'BY_VGROUP':
                     vg_name = getattr(mat.vs, "non_exportable_vgroup", "")
                     if vg_name and vg_name in vgroups:
                         vg = vgroups[vg_name]
@@ -872,7 +947,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                             if poly.material_index != slot_index:
                                 continue
                             if all(
-                                any(g.group == vg.index and g.weight >= mat.vs.do_not_export_faces_vgroup_tolerance for g in me.vertices[v].groups)
+                                any(g.group == vg.index and g.weight >= mat.vs.non_exportable_vgroup_tolerance for g in me.vertices[v].groups)
                                 for v in poly.vertices
                             ):
                                 faces_to_delete.add(poly.index)

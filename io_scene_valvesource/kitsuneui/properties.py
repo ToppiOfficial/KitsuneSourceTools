@@ -1,4 +1,5 @@
 import bpy, math
+from bpy.props import FloatProperty
 from typing import Any
 
 from bpy.types import (
@@ -11,6 +12,10 @@ from ..kitsunetools.commonutils import (
     is_armature, is_mesh, is_empty, is_curve, draw_wrapped_texts,
     get_valid_vertexanimation_object, is_mesh_compatible, sanitize_string,
     get_armature, get_jigglebones, get_hitboxes, get_attachments, get_selected_bones
+)
+
+from ..kitsunetools.meshutils import (
+    compute_edgeline_island_weights
 )
 
 from ..utils import (
@@ -167,12 +172,12 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         enabled = not (is_collection and obj.vs.mute)
         
         col = layout.column()
-        split1 = self._draw_header_row(col, obj, item, enabled, index)
+        split1 = self._draw_header_row(col, obj, item, enabled, index, is_collection = is_collection)
         
         if enabled:
             self._draw_stats_row(split1, obj)
     
-    def _draw_header_row(self, col : UILayout, obj : bpy.types.Object, item, enabled, index):
+    def _draw_header_row(self, col : UILayout, obj : bpy.types.Object, item, enabled, index, is_collection : bool):
         row = col.row(align=True)
         
         export_icon = 'CHECKBOX_HLT' if obj.vs.export and enabled else 'CHECKBOX_DEHLT'
@@ -181,7 +186,7 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         
         split1 = row.split(factor=0.8)
         split1.alert = not enabled
-        split1.label(text=sanitize_string(item.name, allow_unicode=True))
+        split1.label(text=item.name)
         
         return split1
     
@@ -658,7 +663,7 @@ class SMD_PT_Shapekey(Properties_SubPanel):
         layout = self.layout
         active_object = context.active_object
         
-        if not is_mesh(active_object) or not hasShapes(active_object):
+        if not is_mesh_compatible(active_object) or not hasShapes(active_object):
             draw_wrapped_texts(layout,get_id("panel_select_mesh_sk"),alert=True,icon='ERROR')
             return
         
@@ -897,6 +902,72 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
             box.operator(SMD_OT_GenerateVertexAnimationQCSnippet.bl_idname, icon='FILE_TEXT')
 
 
+class SMD_PT_ToonEdgeline(Properties_SubPanel):
+    bl_label = 'Toon Outline/Edgeline'
+    bl_parent_id = 'SMD_PT_Mesh'
+    
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.active_object)
+    
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='', icon='MOD_SOLIDIFY')
+        
+    def draw(self, context):
+        layout = self.layout
+
+        active_object = context.active_object
+        
+        if not is_mesh_compatible(active_object):
+            draw_wrapped_texts(layout, get_id("panel_select_mesh"), alert=True, icon='ERROR')
+            return
+
+        box = layout.box()
+
+        col = box.column(align=True)
+        col = col.column()
+        col.prop(active_object.vs, 'use_toon_edgeline')
+
+        col = col.column()
+        col.enabled = active_object.vs.use_toon_edgeline
+        col.prop(active_object.vs, 'edgeline_per_material')
+        col.prop(active_object.vs, 'base_toon_edgeline_thickness', slider=True)
+        col.prop(active_object.vs, 'auto_compute_thickness_on_ratio')
+
+        box.operator(SMD_OT_ComputeEdgelineWeights.bl_idname)
+
+
+class SMD_OT_ComputeEdgelineWeights(Operator):
+    bl_idname = "kitsunetools.compute_edgeline_weights"
+    bl_label = "Compute Edgeline Weights"
+    bl_options = {"REGISTER", "UNDO"}
+
+    weight_min: FloatProperty(name="Min Weight", default=0.3, min=0.0, max=1.0)
+    weight_max: FloatProperty(name="Max Weight", default=0.8, min=0.0, max=1.0)
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and any(o.type == 'MESH' for o in context.selected_objects)
+
+    def invoke(self, context, event):
+        has_existing = any(
+            ob.vertex_groups.get('Edgeline_Thickness')
+            for ob in context.selected_objects if ob.type == 'MESH'
+        )
+        if has_existing:
+            return context.window_manager.invoke_confirm(self, event)
+        return self.execute(context)
+
+    def execute(self, context) -> set:
+        for ob in context.selected_objects:
+            if ob.type != 'MESH':
+                continue
+            vg = ob.vertex_groups.get('Edgeline_Thickness') or ob.vertex_groups.new(name='Edgeline_Thickness')
+            compute_edgeline_island_weights(ob, vg, self.weight_min, self.weight_max)
+        return {'FINISHED'}
+
+
 class SMD_PT_Material(Properties_SubPanel):
     bl_label = ''
 
@@ -910,7 +981,7 @@ class SMD_PT_Material(Properties_SubPanel):
         layout = self.layout
         active_object = context.active_object
         
-        if not is_mesh(active_object):
+        if not is_mesh_compatible(active_object):
             draw_wrapped_texts(layout, get_id("panel_select_mesh"), alert=True, icon='ERROR')
             return
         
@@ -923,17 +994,17 @@ class SMD_PT_Material(Properties_SubPanel):
         box = layout.box()
         
         col = box.column(align=True)
-        col.prop(active_material.vs, 'do_not_export_faces')
-        col.prop(active_material.vs, 'do_not_export_faces_vgroup')
+        col.label(text='Filter Vertices and Faces on Export')
+        col.row(align=True).prop(active_material.vs, 'face_export_filter',expand=True)
         
-        if not active_material.vs.do_not_export_faces:
+        if not active_material.vs.face_export_filter == 'BY_MATERIAL':
             col = box.column()
             
             if State.exportFormat == ExportFormat.DMX:
                 col.prop(active_material.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
                 
             col.prop(active_material.vs, 'non_exportable_vgroup')   
-            col.prop(active_material.vs, 'do_not_export_faces_vgroup_tolerance', slider=True)
+            col.prop(active_material.vs, 'non_exportable_vgroup_tolerance', slider=True)
 
 
 class SMD_PT_Empty(Properties_SubPanel):

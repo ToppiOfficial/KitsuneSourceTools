@@ -108,6 +108,12 @@ def on_flexcontroller_index_changed(self, context):
     if sk_idx != -1:
         mesh.active_shape_key_index = sk_idx
 
+def draw_copy_armature_map(self, context):
+    self.layout.operator(humanoid_armature_map.HUMANOIDARMATUREMAP_OT_CopyToSelected.bl_idname)
+
+def draw_copy_bone_props(self, context):
+    self.layout.operator(bone.TOOLS_OT_CopySourceBoneProps.bl_idname)
+
 #
 # Property Groups
 #
@@ -340,6 +346,11 @@ class ExportableProps():
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
 
+    use_toon_edgeline : BoolProperty(name="Export with Toon Edge Line",default=False)
+    base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0, soft_max=0.8, precision=3)
+    auto_compute_thickness_on_ratio : BoolProperty(name="Compute Egeline Thickness Based on Ratio", default=True)
+    edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
+
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
 
@@ -373,6 +384,7 @@ class ValveSource_SceneProps(PropertyGroup):
     up_axis : EnumProperty(name=get_id("up_axis"),items=axes,default='Z',description=get_id("up_axis_tip"))
     up_axis_offset : FloatProperty(name=get_id("up_axis_offset"),description=get_id("up_axis_tip"), soft_max=30,soft_min=-30,default=0,precision=2)
     forward_axis : EnumProperty(name=get_id("forward_axis"),items=axes_forward,default='-Y',description=get_id("up_axis_tip"))
+    world_scale : FloatProperty(name=get_id("world_scale"),description=get_id("world_scale_tip"),default=1.00, precision=3, min=0.0001)
     material_path : StringProperty(name=get_id("dmx_mat_path"),description=get_id("dmx_mat_path_tip"))
     export_list_active : IntProperty(name=get_id("active_exportable"),default=0,min=0,update=export_active_changed)
     export_list : CollectionProperty(type=ValveSource_Exportable,options={'SKIP_SAVE','HIDDEN'})
@@ -512,10 +524,20 @@ class ValveSource_CollectionProps(ExportableProps,PropertyGroup):
 
 class ValveSource_MaterialProps(PropertyGroup):
     override_dmx_export_path : StringProperty(name='Material Path', default='')
-    do_not_export_faces : BoolProperty(name='Do Not Export Faces (By Material)', default=False)
-    do_not_export_faces_vgroup : BoolProperty(name='Do Not Export Faces (By Vertex Groups)', default=False)
-    non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='non_exportable_face')
-    do_not_export_faces_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
+
+    face_export_filter : EnumProperty(
+        name='Face Export Filter',
+        description='Filter faces to exclude from export',
+        items=[
+            ('NONE', 'None', 'Export all faces'),
+            ('BY_MATERIAL', 'By Material', 'Exclude faces based on material'),
+            ('BY_VGROUP', 'By Vertex Group', 'Exclude faces based on vertex group membership'),
+        ],
+        default='NONE'
+    )
+
+    non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='Non-Exportable Group')
+    non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
 
 _classes = (
     # Base/Utility Classes
@@ -571,6 +593,8 @@ _classes = (
     properties.SMD_PT_Vertexmap,
     properties.SMD_PT_Vertexfloatmap,
     properties.SMD_PT_Vertexanimations,
+    properties.SMD_PT_ToonEdgeline,
+    properties.SMD_OT_ComputeEdgelineWeights,
     properties.SMD_PT_Empty,
     properties.SMD_PT_Curve,
     properties.SMD_PT_All_Hitboxes,
@@ -619,6 +643,7 @@ _classes = (
     bone.TOOLS_OT_CreateCenterBone,
     bone.TOOLS_OT_SplitActiveWeightLinear,
     bone.TOOLS_OT_align_bone_to_axis,
+    bone.TOOLS_OT_CopySourceBoneProps,
 
     # Mesh Tools
     mesh.TOOLS_PT_Mesh,
@@ -630,6 +655,7 @@ _classes = (
     mesh.TOOLS_OT_AddToonEdgeLine,
     mesh.TOOLS_OT_transfer_topology_shapekeys,
     mesh.TOOLS_OT_unlock_all_vertexgroups,
+    mesh.TOOLS_OT_CleanDuplicateMaterials,
 
     # Vertex Group Tools
     vertexgroup.TOOLS_PT_VertexGroup,
@@ -653,6 +679,7 @@ _classes = (
     # Humanoid Armature Map
     humanoid_armature_map.HUMANOIDARMATUREMAP_PT_Panel,
     humanoid_armature_map.HUMANOIDARMATUREMAP_UL_ConfigList,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_CopyToSelected,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_AddItem,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_RemoveItem,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_WriteConfig,
@@ -696,6 +723,8 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.MESH_MT_shape_key_context_menu.append(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
+    bpy.types.VIEW3D_MT_object.append(draw_copy_armature_map)
+    bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
         
     try: bpy.ops.wm.addon_disable('EXEC_SCREEN',module="io_smd_tools")
     except: pass
@@ -723,6 +752,8 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.types.MESH_MT_shape_key_context_menu.remove(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
+    bpy.types.VIEW3D_MT_object.remove(draw_copy_armature_map)
+    bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)
 
     bpy.app.translations.unregister(__name__)
     

@@ -730,6 +730,12 @@ _data = {
     'forward_axis': {
         'en': "Target Forward Axis",
     },
+    'world_scale': {
+        'en': "World Scale",
+    },
+    'world_scale_tip': {
+        'en': 'Scales the the objects in the world proportionally',
+    },
     'dmx_format': {
         'ja': "DMXのフォーマット",
         'en': "DMX format",

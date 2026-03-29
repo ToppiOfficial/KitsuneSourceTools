@@ -492,7 +492,7 @@ def PrintVer(in_seq,sep="."):
 def getUpAxisMat(axis):
     match axis.upper():
         case 'X':
-            return Matrix.Rotation(pi/2, 4, 'Y')
+            return Matrix.Rotation(-pi/2, 4, 'Y')
         case 'Y':
             return Matrix.Rotation(pi/2, 4, 'X')
         case 'Z':
@@ -501,21 +501,11 @@ def getUpAxisMat(axis):
             raise AttributeError("getUpAxisMat got invalid axis argument '{}'".format(axis))
     
 def getUpAxisOffsetMat(axis, offset):
-    """
-    Offset position along the up axis direction
-    
-    Args:
-        axis: The up axis ('X', 'Y', or 'Z')
-        offset: Float value - positive moves up, negative moves down
-    
-    Returns:
-        Matrix: Translation matrix along the up axis
-    """
     match axis.upper():
         case 'X':
-            return Matrix.Translation((offset, 0, 0))
+            return Matrix.Translation((0, 0, offset))
         case 'Y':
-            return Matrix.Translation((0, offset, 0))
+            return Matrix.Translation((0, 0, offset))
         case 'Z':
             return Matrix.Translation((0, 0, offset))
         case _:

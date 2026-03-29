@@ -233,6 +233,49 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolSubPanel):
         row.prop_search(context.active_object.vs, prop_r, context.active_object.data, "bones", text="")
         row.alert = False
 
+
+class HUMANOIDARMATUREMAP_OT_CopyToSelected(Operator):
+    bl_idname = "humanoidarmaturemap.copy_to_selected"
+    bl_label = "Copy Humanoid Armature Map"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'OBJECT'
+            and is_armature(context.active_object)
+            and any(o != context.active_object and is_armature(o) for o in context.selected_objects)
+        )
+
+    def execute(self, context) -> set:
+        src = context.active_object.vs
+        props = [
+            'armature_map_pelvis', 'armature_map_chest', 'armature_map_spine', 'armature_map_head',
+            'armature_map_eye_l', 'armature_map_eye_r',
+            'armature_map_thigh_l', 'armature_map_thigh_r',
+            'armature_map_knee_l', 'armature_map_knee_r',
+            'armature_map_ankle_l', 'armature_map_ankle_r',
+            'armature_map_toe_l', 'armature_map_toe_r',
+            'armature_map_shoulder_l', 'armature_map_shoulder_r',
+            'armature_map_upperarm_l', 'armature_map_upperarm_r',
+            'armature_map_forearm_l', 'armature_map_forearm_r',
+            'armature_map_wrist_l', 'armature_map_wrist_r',
+            'armature_map_thumb_f_l', 'armature_map_thumb_f_r',
+            'armature_map_index_f_l', 'armature_map_index_f_r',
+            'armature_map_middle_f_l', 'armature_map_middle_f_r',
+            'armature_map_ring_f_l', 'armature_map_ring_f_r',
+            'armature_map_pinky_f_l', 'armature_map_pinky_f_r',
+        ]
+
+        targets = [o for o in context.selected_objects if o != context.active_object and is_armature(o)]
+        for ob in targets:
+            for prop in props:
+                setattr(ob.vs, prop, getattr(src, prop))
+
+        self.report({'INFO'}, f"Copied armature map to {len(targets)} object(s)")
+        return {'FINISHED'}
+    
+
 class HUMANOIDARMATUREMAP_OT_LoadPreset(Operator):
     bl_idname = "humanoidarmaturemap.load_preset"
     bl_label = "Load Preset"
@@ -308,6 +351,7 @@ class HUMANOIDARMATUREMAP_OT_LoadPreset(Operator):
 
         self.report({'INFO'}, f"Loaded preset from: {self.filepath} ({len(items)} items)")
         return {'FINISHED'}
+
 
 class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
     bl_idname= "humanoidarmaturemap.load_json"
@@ -1074,6 +1118,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         print(f"[CREATE] {bone_name} (Parent: {parent_name})")
         return new_bone
 
+
 class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
     bl_idname = "humanoidarmaturemap.write_json"
     bl_label = "Write Json"
@@ -1214,6 +1259,7 @@ class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
+
 class HUMANOIDARMATUREMAP_OT_RemoveItem(Operator):
     bl_idname = "humanoidarmaturemap.remove_item"
     bl_label = "Remove Bone"
@@ -1226,6 +1272,7 @@ class HUMANOIDARMATUREMAP_OT_RemoveItem(Operator):
         if 0 <= self.index < len(coll):
             coll.remove(self.index)
         return {'FINISHED'}
+
 
 class HUMANOIDARMATUREMAP_OT_AddItem(Operator):
     bl_idname = "humanoidarmaturemap.add_item"
@@ -1268,6 +1315,7 @@ class HUMANOIDARMATUREMAP_OT_AddItem(Operator):
             self.report({'INFO'}, f"Skipped {skipped} already existing bone(s)")
 
         return {'FINISHED'}
+
 
 class HUMANOIDARMATUREMAP_UL_ConfigList(UIList):
     def draw_item(self, context: Context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property: str | None, index: int | None, flt_flag: int | None) -> None:

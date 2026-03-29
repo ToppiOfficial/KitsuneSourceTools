@@ -989,3 +989,39 @@ class TOOLS_OT_align_bone_to_axis(Operator):
 
         self.report({'INFO'}, f'Aligned {processed_bone} bones to {self.axis} axis')
         return {'FINISHED'}
+    
+
+class TOOLS_OT_CopySourceBoneProps(Operator):
+    bl_idname = "valvesource.copy_bone_props"
+    bl_label = "Copy Source Bone Properties"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'POSE'
+            and context.active_pose_bone is not None
+            and len(context.selected_pose_bones) > 1
+        )
+
+    def execute(self, context) -> set:
+        src = context.active_pose_bone.bone.vs
+        props = [
+            'export_name',
+            'ignore_rotation_offset',
+            'export_rotation_offset_x',
+            'export_rotation_offset_y',
+            'export_rotation_offset_z',
+            'ignore_location_offset',
+            'export_location_offset_x',
+            'export_location_offset_y',
+            'export_location_offset_z',
+        ]
+
+        targets = [pb for pb in context.selected_pose_bones if pb != context.active_pose_bone]
+        for pb in targets:
+            for prop in props:
+                setattr(pb.bone.vs, prop, getattr(src, prop))
+
+        self.report({'INFO'}, f"Copied bone properties to {len(targets)} bone(s)")
+        return {'FINISHED'}

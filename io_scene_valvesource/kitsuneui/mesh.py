@@ -25,6 +25,7 @@ class TOOLS_PT_Mesh(KITSUNE_PT_ToolSubPanel):
         col.operator(TOOLS_OT_CleanShapeKeys.bl_idname, icon='SHAPEKEY_DATA')
         col.operator(TOOLS_OT_RemoveUnusedVertexGroups.bl_idname, icon='GROUP_VERTEX')
         col.operator(TOOLS_OT_Delete_Faces_by_ImageMask.bl_idname, icon='UV_FACESEL')
+        col.operator(TOOLS_OT_CleanDuplicateMaterials.bl_idname, icon='UV_FACESEL')
         
         box1 = box.box()
         col = box1.column(align=True)
@@ -35,10 +36,11 @@ class TOOLS_PT_Mesh(KITSUNE_PT_ToolSubPanel):
         box1 = box.box()
         col = box1.column(align=True)
         col.label(text='Modifiers')
-        col.operator(TOOLS_OT_AddToonEdgeLine.bl_idname, icon='MOD_SOLIDIFY')
+        col.operator(TOOLS_OT_AddToonEdgeLine.bl_idname, icon='MOD_SOLIDIFY', text=TOOLS_OT_AddToonEdgeLine.bl_label + ' (DEPRECATED)')
         col.operator(TOOLS_OT_transfer_topology_shapekeys.bl_idname, icon='MOD_DATA_TRANSFER')
         col.operator(TOOLS_OT_unlock_all_vertexgroups.bl_idname, icon='UNLOCKED')
-        
+
+
 class TOOLS_OT_CleanShapeKeys(Operator):
     bl_idname = 'kitsunetools.clean_shape_keys'
     bl_label = 'Clean Shape Keys'
@@ -73,7 +75,8 @@ class TOOLS_OT_CleanShapeKeys(Operator):
             self.report({'INFO'}, f'No shapekeys were removed')
             
         return {'FINISHED'}
-    
+
+
 class TOOLS_OT_SelectShapekeyVets(Operator):
     bl_idname = 'kitsunetools.select_shapekey_vertices'
     bl_label = 'Select Shapekey Vertices'
@@ -138,6 +141,7 @@ class TOOLS_OT_SelectShapekeyVets(Operator):
         bpy.ops.mesh.select_mode(type='VERT')
         return {'FINISHED'}
 
+
 class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
     bl_idname = "kitsunetools.remove_unused_vertexgroups"
     bl_label = "Clean Unused Vertex Groups"
@@ -173,6 +177,9 @@ class TOOLS_OT_RemoveUnusedVertexGroups(Operator):
         self.report({'INFO'}, f"Removed {total_removed} unused vertex groups.")
         return {'FINISHED'}
 
+
+# This is now replaced with an 'Export' version
+# NOTE: Do note use this in conjunction with the new version!!
 EDGELINE_PROP = "toon_edgeline_thickness"
 
 class TOOLS_OT_AddToonEdgeLine(Operator):
@@ -233,6 +240,8 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
             node_em.inputs[0].default_value = (0, 0, 0, 1)
             node_out = nodes.new('ShaderNodeOutputMaterial')
             mat.node_tree.links.new(node_em.outputs[0], node_out.inputs[0])
+            mat.vs.face_export_filter = 'BY_VGROUP'
+            mat.vs.non_exportable_vgroup = "Edgeline_Thickness"
         
         mat.use_backface_culling = True
         mat.use_backface_culling_shadow = True
@@ -362,6 +371,7 @@ class TOOLS_OT_AddToonEdgeLine(Operator):
                 self._process_object(context, ob, unit_scale)
             
         return {'FINISHED'}
+
 
 class faces_by_imagemask():
     image_mask : StringProperty(name="Image Mask", default="")
@@ -754,4 +764,37 @@ class TOOLS_OT_unlock_all_vertexgroups(bpy.types.Operator):
                     unlocked_count += 1
                 
         self.report({'INFO'}, f"Unlocked {unlocked_count} vertex group(s)")
+        return {'FINISHED'}
+
+
+class TOOLS_OT_CleanDuplicateMaterials(Operator):
+    bl_idname = "kitsunetools.clean_duplicate_materials"
+    bl_label = "Clean Duplicate Materials"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and any(o.type == 'MESH' for o in context.selected_objects)
+
+    def execute(self, context):
+        selected_meshes = [o for o in context.selected_objects if o.type == 'MESH']
+        materials_remapped = 0
+
+        for obj in selected_meshes:
+            if not obj.data.materials:
+                continue
+
+            for slot in obj.material_slots:
+                if not slot.material:
+                    continue
+
+                mat_name = slot.material.name
+                parts = mat_name.rsplit('.', 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    base_name = parts[0]
+                    if base_name in bpy.data.materials:
+                        slot.material = bpy.data.materials[base_name]
+                        materials_remapped += 1
+
+        self.report({'INFO'}, f"Remapped {materials_remapped} duplicate material(s)")
         return {'FINISHED'}

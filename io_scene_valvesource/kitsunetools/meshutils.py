@@ -1,4 +1,4 @@
-import bpy
+import bpy, bmesh
 
 from .commonutils import get_armature, get_armature_meshes
 
@@ -361,3 +361,47 @@ def reapply_vertexgroup_as_curve(arm: bpy.types.Object, bones: bpy.types.PoseBon
                 for idx, w in residuals:
                     if w > 0:
                         target_vg.add([idx], w, 'ADD')
+
+def compute_edgeline_island_weights(id, edgeline_vertexgroup, weight_min=0.3, weight_max=0.8):
+    bm = bmesh.new()
+    bm.from_mesh(id.data)
+
+    islands = []
+    verts_to_visit = set(bm.verts)
+
+    while verts_to_visit:
+        start_v = next(iter(verts_to_visit))
+        island = [start_v]
+        verts_to_visit.remove(start_v)
+        stack = [start_v]
+        while stack:
+            v = stack.pop()
+            for edge in v.link_edges:
+                other_v = edge.other_vert(v)
+                if other_v in verts_to_visit:
+                    verts_to_visit.remove(other_v)
+                    island.append(other_v)
+                    stack.append(other_v)
+        islands.append(island)
+
+    if islands:
+        island_data = []
+        for island_verts in islands:
+            island_set = set(island_verts)
+            size = sum(f.calc_area() for v in island_verts for f in v.link_faces
+                    if all(fv in island_set for fv in f.verts))
+            island_data.append((island_verts, size))
+
+        sizes = [d[1] for d in island_data]
+        min_s, max_s = min(sizes), max(sizes)
+        s_range = max_s - min_s
+
+        for verts, size in island_data:
+            weight = weight_max
+            if s_range > 0:
+                factor = (max_s - size) / s_range
+                weight = weight_min + (factor * (weight_max - weight_min))
+            for v in verts:
+                edgeline_vertexgroup.add([v.index], weight, 'REPLACE')
+
+    bm.free()
