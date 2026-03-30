@@ -1,6 +1,8 @@
 import bpy, os
 from PIL import Image
 
+from ..kitsunetools.commonutils import is_mesh
+
 
 class KITSUNETOOLS_UL_node_queue(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
@@ -21,7 +23,7 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
         layout = self.layout
         obj = context.active_object
         
-        if not obj or obj.type != 'MESH':
+        if not is_mesh(obj):
             layout.label(text="Select a Mesh Object", icon='ERROR')
             return
 
@@ -39,7 +41,6 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
         row.template_list("KITSUNETOOLS_UL_node_queue", "", mat.vs, "node_baker_list", mat.vs, "node_baker_list_index")
         
         col = row.column(align=True)
-        # Using specific operator names
         col.operator(KITSUNETOOLS_OT_node_bake_add.bl_idname, icon='ADD', text="")
         col.operator(KITSUNETOOLS_OT_node_bake_remove.bl_idname, icon='REMOVE', text="")
 
@@ -61,8 +62,8 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
             box.prop(item, "use_full_frame")
 
         layout.separator()
-        layout.prop(mat.vs, "node_baker_export_dir")
-        layout.prop(mat.vs, "node_baker_file_format")
+        layout.prop(context.scene.vs, "node_baker_export_dir")
+        layout.prop(context.scene.vs, "node_baker_file_format")
 
         row = layout.row(align=True)
         row.operator(KITSUNETOOLS_OT_node_bake_run.bl_idname, text="Bake Selected").all_items = False
@@ -72,6 +73,7 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
 class KITSUNETOOLS_OT_node_bake_add(bpy.types.Operator):
     bl_idname = "kitsunetools.node_bake_queue_add"
     bl_label = "Add Bake Item"
+    bl_options = {'UNDO'}
     
     def execute(self, context) -> set:
         mat = context.active_object.active_material
@@ -85,6 +87,7 @@ class KITSUNETOOLS_OT_node_bake_add(bpy.types.Operator):
 class KITSUNETOOLS_OT_node_bake_remove(bpy.types.Operator):
     bl_idname = "kitsunetools.node_bake_queue_remove"
     bl_label = "Remove Bake Item"
+    bl_options = {'UNDO'}
     
     def execute(self, context) -> set:
         mat = context.active_object.active_material
@@ -106,7 +109,7 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
         vs = mat.vs
         items = vs.node_baker_list if self.all_items else [vs.node_baker_list[vs.node_baker_list_index]]
 
-        raw_path = bpy.path.abspath(vs.node_baker_export_dir)
+        raw_path = bpy.path.abspath(context.scene.vs.node_baker_export_dir)
         export_path = os.path.normpath(raw_path)
         os.makedirs(export_path, exist_ok=True)
 
@@ -138,9 +141,9 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
 
                 if item.has_alpha_channel:
                     self._process_bake(context, bake_obj, mat, node, int(item.alpha_socket_index), item, temp_alpha, force_colorspace='Non-Color')
-                    self._merge_with_pil(temp_col, temp_alpha, export_path, filename, vs.node_baker_file_format)
+                    self._merge_with_pil(temp_col, temp_alpha, export_path, filename, context.scene.vs.node_baker_file_format)
                 else:
-                    ext = ".png" if vs.node_baker_file_format == 'PNG' else ".tga"
+                    ext = ".png" if context.scene.vs.node_baker_file_format == 'PNG' else ".tga"
                     final_path = os.path.normpath(os.path.join(export_path, filename + ext))
                     if os.path.exists(final_path): os.remove(final_path)
                     os.rename(temp_col, final_path)

@@ -466,6 +466,9 @@ class ValveSource_SceneProps(PropertyGroup):
     texture_conversion_active_index : IntProperty(default=-1)
     texture_conversion_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
+    node_baker_export_dir: StringProperty(name="Export Dir", default="//baked_output", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
+
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
     
@@ -575,8 +578,6 @@ class ValveSource_MaterialProps(PropertyGroup):
     non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='Non-Exportable Group')
     non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
 
-    node_baker_export_dir: StringProperty(name="Export Dir", default="//baked_output", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
     node_baker_list : CollectionProperty(type=BakeNodeItem)
     node_baker_list_index : IntProperty(default=-1)
 
@@ -729,13 +730,13 @@ _classes = (
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
     
     # Texture Conversion
-    texture_convert.TEXTURECONVERSION_UL_ItemList,
-    texture_convert.TEXTURECONVERSION_OT_AddItem,
-    texture_convert.TEXTURECONVERSION_OT_RemoveItem,
-    texture_convert.TEXTURECONVERSION_OT_ProcessItem,
-    texture_convert.TEXTURECONVERSION_OT_ConvertItem,
-    texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
-    texture_convert.TEXTURECONVERSION_PT_Panel,
+    #texture_convert.TEXTURECONVERSION_UL_ItemList,
+    #texture_convert.TEXTURECONVERSION_OT_AddItem,
+    #texture_convert.TEXTURECONVERSION_OT_RemoveItem,
+    #texture_convert.TEXTURECONVERSION_OT_ProcessItem,
+    #texture_convert.TEXTURECONVERSION_OT_ConvertItem,
+    #texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
+    #texture_convert.TEXTURECONVERSION_PT_Panel,
 
     # Node Baker
     nodebaker.KITSUNETOOLS_UL_node_queue,
