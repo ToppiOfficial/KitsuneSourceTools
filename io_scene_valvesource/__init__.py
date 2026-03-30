@@ -38,8 +38,8 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
             collection.remove(func)
 
 from . import datamodel, import_smd, export_smd, flex, GUI
-from .kitsunetools import armatureutils, boneutils, commonutils, meshutils, objectutils
-from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, texture_convert, animation, vertexgroup, armature, mesh, bone
+from .kitsunetools import armatureutils, boneutils, commonutils, meshutils, objectutils, shadernodesutils
+from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, texture_convert, animation, vertexgroup, armature, mesh, bone, nodebaker
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -249,7 +249,43 @@ class TextureConversionItem(PropertyGroup):
     
     adjust_for_albedoboost: BoolProperty(name='Adjust for AlbedoBoost', default=False)
     albedoboost_factor: FloatProperty(name='AlbedoBoost Factor', default=1.4, min=0.0, soft_max=2, max=5, precision=4)
+
+class BakeNodeItem(PropertyGroup):
+    node_name: StringProperty(name="Node Name")
+    name: StringProperty(name="Suffix", default="")
+    socket_index: EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
     
+    resolution: EnumProperty(
+        name="Resolution",
+        items=[
+            ('32', '32', ''),
+            ('128', '128', ''),
+            ('256', '256', ''),
+            ('512', '512', ''),
+            ('1024', '1024', ''),
+            ('2048', '2048', ''),
+            ('4096', '4096', ''),
+        ],
+        default='2048'
+    )
+    
+    color_space: EnumProperty(
+        name="Type",
+        items=[('sRGB', 'sRGB (Color)', ''), ('Non-Color', 'Non-Color (Data)', '')],
+        default='sRGB'
+    )
+    use_full_frame: BoolProperty(name="Full Frame (No UV)", default=True)
+
+    has_alpha_channel : BoolProperty(name="Has Alpha Channel", default=False)
+    alpha_socket_index : EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
+
+
+    def get_node(self):
+        mat = self.id_data
+        if isinstance(mat, bpy.types.Material) and mat.node_tree:
+            return mat.node_tree.nodes.get(self.node_name)
+        return None
+
 
 # Base/Utility Classes
 class ValveSource_FloatMapRemap(PropertyGroup):
@@ -539,6 +575,11 @@ class ValveSource_MaterialProps(PropertyGroup):
     non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='Non-Exportable Group')
     non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
 
+    node_baker_export_dir: StringProperty(name="Export Dir", default="//baked_output", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
+    node_baker_list : CollectionProperty(type=BakeNodeItem)
+    node_baker_list_index : IntProperty(default=-1)
+
 _classes = (
     # Base/Utility Classes
     ValveSource_FloatMapRemap,
@@ -548,6 +589,7 @@ _classes = (
     HumanoidArmatureMap,
     VertexAnimation,
     TextureConversionItem,
+    BakeNodeItem,
     
     # Material Classes
     ValveSource_MaterialProps,
@@ -694,6 +736,13 @@ _classes = (
     texture_convert.TEXTURECONVERSION_OT_ConvertItem,
     texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
     texture_convert.TEXTURECONVERSION_PT_Panel,
+
+    # Node Baker
+    nodebaker.KITSUNETOOLS_UL_node_queue,
+    nodebaker.KITSUNETOOLS_PT_node_baker,
+    nodebaker.KITSUNETOOLS_OT_node_bake_add,
+    nodebaker.KITSUNETOOLS_OT_node_bake_remove,
+    nodebaker.KITSUNETOOLS_OT_node_bake_run,
     
     # Developer Tools
     developer.DEVELOPER_PT_PANEL,

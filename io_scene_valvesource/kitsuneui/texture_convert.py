@@ -42,8 +42,7 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
         self._try_assign_from_material(context, item)
         return {'FINISHED'}
 
-    def _walk_to_image_with_channel(self, node, from_socket, depth=0) -> tuple:
-        """Returns (image, channel, separate_color_node) where channel is 'R','G','B','A' or None."""
+    def _walk_to_image_with_channel(self, node, from_socket, depth=0, outer_group=None) -> tuple:
         if node is None:
             return None, None, None
 
@@ -60,10 +59,47 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
                 image, _, _ = self._walk_to_image_with_channel(
                     color_socket.links[0].from_node,
                     color_socket.links[0].from_socket,
-                    depth + 1
+                    depth + 1,
+                    outer_group
                 )
                 return image, channel, node
             return None, channel, node
+
+        if node.type == 'GROUP' and node.node_tree:
+            group_output = next(
+                (n for n in node.node_tree.nodes if n.type == 'GROUP_OUTPUT'), None
+            )
+            if group_output:
+                socket_index = from_socket.index if hasattr(from_socket, 'index') else None
+                inner_socket = None
+                if socket_index is not None and socket_index < len(group_output.inputs):
+                    inner_socket = group_output.inputs[socket_index]
+                else:
+                    inner_socket = group_output.inputs.get(from_socket.name)
+
+                if inner_socket and inner_socket.is_linked:
+                    return self._walk_to_image_with_channel(
+                        inner_socket.links[0].from_node,
+                        inner_socket.links[0].from_socket,
+                        depth + 1,
+                        node
+                    )
+
+        if node.type == 'GROUP_INPUT' and outer_group is not None:
+            socket_index = from_socket.index if hasattr(from_socket, 'index') else None
+            outer_socket = None
+            if socket_index is not None and socket_index < len(outer_group.inputs):
+                outer_socket = outer_group.inputs[socket_index]
+            else:
+                outer_socket = outer_group.inputs.get(from_socket.name)
+
+            if outer_socket and outer_socket.is_linked:
+                return self._walk_to_image_with_channel(
+                    outer_socket.links[0].from_node,
+                    outer_socket.links[0].from_socket,
+                    depth + 1,
+                    None
+                )
 
         best_image, best_channel, best_sep, best_depth = None, None, None, float('inf')
         for inp in node.inputs:
@@ -72,7 +108,8 @@ class TEXTURECONVERSION_OT_AddItem(Operator):
             image, channel, sep_node = self._walk_to_image_with_channel(
                 inp.links[0].from_node,
                 inp.links[0].from_socket,
-                depth + 1
+                depth + 1,
+                outer_group
             )
             if image and depth < best_depth:
                 best_image, best_channel, best_sep, best_depth = image, channel, sep_node, depth
