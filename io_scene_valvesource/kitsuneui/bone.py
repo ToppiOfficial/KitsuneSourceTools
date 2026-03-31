@@ -156,6 +156,20 @@ class TOOLS_OT_CopyTargetRotation(Operator):
                         'inv_mw': ob.matrix_world.inverted()
                     }
 
+        active_obj = context.active_object
+        if not armature_map and active_obj and active_obj.type == 'ARMATURE':
+            if active_obj.mode == 'EDIT':
+                bone_names = [b.name for b in active_obj.data.edit_bones if b.select]
+            else:
+                bone_names = [b.name for b in active_obj.data.bones if b.select]
+            
+            if bone_names:
+                armature_map[active_obj] = {
+                    'bones': bone_names,
+                    'mw': active_obj.matrix_world.copy(),
+                    'inv_mw': active_obj.matrix_world.inverted()
+                }
+
         if not armature_map:
             self.report({'ERROR'}, "No armatures selected")
             return {'CANCELLED'}

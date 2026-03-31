@@ -4,12 +4,27 @@ from PIL import Image
 from ..kitsunetools.commonutils import is_mesh
 
 
-class KITSUNETOOLS_UL_node_queue(bpy.types.UIList):
+class KITSUNETOOLS_UL_nodes_to_bake(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         row = layout.row(align=True)
-        row.label(text=item.node_name if item.node_name else "Select Node...", icon='NODE')
+
+        node = None
+        for mat in bpy.data.materials:
+            if mat.node_tree and item.node_name in mat.node_tree.nodes:
+                node = mat.node_tree.nodes[item.node_name]
+                break
+
+        if node:
+            if hasattr(node, 'node_tree') and node.node_tree:
+                display_name = node.node_tree.name
+            else:
+                display_name = node.name
+        else:
+            display_name = item.node_name if item.node_name else "Select Node..."
+
+        row.label(text=display_name, icon='NODE')
         if item.name:
-            row.label(text=f"({item.name})", icon='EDITMODE_HLT')
+            row.label(text=f"({item.name})")
 
 
 class KITSUNETOOLS_UL_material_list(bpy.types.UIList):
@@ -77,30 +92,60 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
             return
 
         layout.separator()
-        layout.label(text=f"Bake Queue: {mat.name}")
+        layout.label(text=f"Nodes: {mat.name}")
         row = layout.row()
-        row.template_list("KITSUNETOOLS_UL_node_queue", "", mat.vs, "node_baker_list", mat.vs, "node_baker_list_index")
+        row.template_list("KITSUNETOOLS_UL_nodes_to_bake", "", mat.vs, "node_baker_list", mat.vs, "node_baker_list_index")
         
         col = row.column(align=True)
         col.operator(KITSUNETOOLS_OT_node_bake_add.bl_idname, icon='ADD', text="")
         col.operator(KITSUNETOOLS_OT_node_bake_remove.bl_idname, icon='REMOVE', text="")
 
+        def _draw_split(box, label, prop_owner, prop_name, **kwargs):
+            split = box.split(factor=0.4)
+            split.alignment = 'RIGHT'
+            split.label(text=label)
+            split.prop(prop_owner, prop_name, text="", **kwargs)
+
         if len(mat.vs.node_baker_list) > 0 and mat.vs.node_baker_list_index < len(mat.vs.node_baker_list):
             item = mat.vs.node_baker_list[mat.vs.node_baker_list_index]
             box = layout.box()
-            box.prop_search(item, "node_name", mat.node_tree, "nodes", text="Target Node", icon='NODE_SEL')
 
-            box.prop(item, "name", text="Filename Suffix")
-            box.prop(item, "socket_index", text="Output")
+            row = box.row(align=True)
+            row.prop_search(item, "node_name", mat.node_tree, "nodes", text="", icon='NODE_SEL')
 
-            box.prop(item, "has_alpha_channel")
+            _draw_split(box, "Suffix", item, "name")
+            _draw_split(box, "Output", item, "socket_index")
+
+            split = box.split(factor=0.4)
+            split.alignment = 'RIGHT'
+            split.label(text="")
+            split.prop(item, "has_alpha_channel", text="Alpha Channel")
+
             if item.has_alpha_channel:
-                box.prop(item,'alpha_socket_index')
-            
+                _draw_split(box, "Alpha Out", item, "alpha_socket_index")
+
             col = box.column(align=True)
-            col.prop(item, "resolution")
-            col.prop(item, "color_space")
-            box.prop(item, "use_full_frame")
+            row = col.row(align=True)
+            split = row.split(factor=0.4)
+            split.alignment = 'RIGHT'
+            split.label(text="X Resolution" if not item.sync_y_with_x else "Resolution")
+            sub = split.row(align=True)
+            sub.prop(item, "resolution_x", text="")
+            sub.prop(item, "sync_y_with_x", text="", icon='LOCKED' if item.sync_y_with_x else 'UNLOCKED', toggle=True, emboss=False)
+
+            if not item.sync_y_with_x:
+                row = col.row(align=True)
+                split = row.split(factor=0.4)
+                split.alignment = 'RIGHT'
+                split.label(text="Y Resolution")
+                sub = split.row(align=True)
+                sub.prop(item, "resolution_y", text="")
+                sub.label(icon='BLANK1')
+
+            split = box.split(factor=0.4)
+            split.alignment = 'RIGHT'
+            split.label(text="")
+            split.prop(item, "use_full_frame", text="Full Frame (No UV)")
 
         layout.separator()
         layout.prop(context.scene.vs, "node_baker_export_dir")
@@ -114,7 +159,7 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
 
 
 class KITSUNETOOLS_OT_node_bake_add(bpy.types.Operator):
-    bl_idname = "kitsunetools.node_bake_queue_add"
+    bl_idname = "kitsunetools.node_bake_node_add"
     bl_label = "Add Bake Item"
     bl_options = {'UNDO'}
     
@@ -128,7 +173,7 @@ class KITSUNETOOLS_OT_node_bake_add(bpy.types.Operator):
 
 
 class KITSUNETOOLS_OT_node_bake_remove(bpy.types.Operator):
-    bl_idname = "kitsunetools.node_bake_queue_remove"
+    bl_idname = "kitsunetools.node_bake_node_remove"
     bl_label = "Remove Bake Item"
     bl_options = {'UNDO'}
     
@@ -144,7 +189,7 @@ def _run_bake_for_material(operator, context, obj, mat, export_path):
     total = len(items)
 
     if total == 0:
-        print(f"  [skip] '{mat.name}' has no bake queue items.")
+        print(f"  [skip] '{mat.name}' has no items.")
         return
 
     for item_idx, item in enumerate(items):
@@ -283,12 +328,13 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
 
     def _process_bake(self, context, obj, mat, node, socket_idx, item, filepath, force_colorspace=None, save_alpha=False):
         ntree = mat.node_tree
-        res = int(item.resolution)
+        res_x = int(item.resolution_x)
+        res_y = int(item.resolution_y) if not item.sync_y_with_x else res_x
         colorspace = force_colorspace if force_colorspace else item.color_space
 
-        print(f"      _process_bake | res={res} | colorspace='{colorspace}' | save_alpha={save_alpha}")
+        print(f"      _process_bake | res_x={res_x} | res_y={res_y} | colorspace='{colorspace}' | save_alpha={save_alpha}")
 
-        bake_img = bpy.data.images.new("_temp_bake", width=res, height=res, alpha=save_alpha)
+        bake_img = bpy.data.images.new("_temp_bake", width=res_x, height=res_y, alpha=save_alpha)
         bake_img.colorspace_settings.name = colorspace
 
         mat_out = next((n for n in ntree.nodes if n.type == 'OUTPUT_MATERIAL' and n.is_active_output), None)
@@ -416,7 +462,7 @@ class KITSUNETOOLS_OT_node_bake_all_materials(bpy.types.Operator):
         for mat_idx, slot in enumerate(material_slots):
             mat = slot.material
             total_items = len(mat.vs.node_baker_list)
-            print(f"\n[Node Baker] Material [{mat_idx + 1}/{total_mats}]: '{mat.name}' | {total_items} queue item(s)")
+            print(f"\n[Node Baker] Material [{mat_idx + 1}/{total_mats}]: '{mat.name}' | {total_items} item(s)")
             obj.active_material_index = mat_idx
             _run_bake_for_material(self, context, obj, mat, export_path)
 

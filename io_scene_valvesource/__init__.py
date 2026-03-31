@@ -255,18 +255,28 @@ class BakeNodeItem(PropertyGroup):
     node_name: StringProperty(name="Node Name")
     name: StringProperty(name="Suffix", default="")
     socket_index: EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
+
+    resolution_list = [
+        ('32', '32', ''),
+        ('128', '128', ''),
+        ('256', '256', ''),
+        ('512', '512', ''),
+        ('1024', '1024', ''),
+        ('2048', '2048', ''),
+        ('4096', '4096', ''),
+    ]
+
+    sync_y_with_x: BoolProperty(name="Sync Resolution", default=True)
     
-    resolution: EnumProperty(
-        name="Resolution",
-        items=[
-            ('32', '32', ''),
-            ('128', '128', ''),
-            ('256', '256', ''),
-            ('512', '512', ''),
-            ('1024', '1024', ''),
-            ('2048', '2048', ''),
-            ('4096', '4096', ''),
-        ],
+    resolution_x: EnumProperty(
+        name="X Resolution",
+        items=resolution_list,
+        default='2048'
+    )
+
+    resolution_y: EnumProperty(
+        name="Y Resolution",
+        items=resolution_list,
         default='2048'
     )
     
@@ -746,7 +756,7 @@ _classes = (
 
     # Node Baker
     nodebaker.KITSUNETOOLS_UL_material_list,
-    nodebaker.KITSUNETOOLS_UL_node_queue,
+    nodebaker.KITSUNETOOLS_UL_nodes_to_bake,
     nodebaker.KITSUNETOOLS_PT_node_baker,
     nodebaker.KITSUNETOOLS_OT_node_bake_add,
     nodebaker.KITSUNETOOLS_OT_node_bake_remove,
