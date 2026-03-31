@@ -933,7 +933,7 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         col.enabled = active_object.vs.use_toon_edgeline
         col.prop(active_object.vs, 'edgeline_per_material')
         col.prop(active_object.vs, 'base_toon_edgeline_thickness', slider=True)
-        col.prop(active_object.vs, 'auto_compute_thickness_on_ratio')
+        col.prop(active_object.vs, 'apply_edgeline_thickness_by_weights')
 
         box.operator(SMD_OT_ComputeEdgelineWeights.bl_idname)
 

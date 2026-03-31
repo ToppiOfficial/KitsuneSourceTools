@@ -765,7 +765,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                 has_vertex_groups = bool(getattr(id, 'vertex_groups', None))
                 edgeline_vertexgroup = None
 
-                if has_vertex_groups and id.vs.auto_compute_thickness_on_ratio:
+                if has_vertex_groups and id.vs.apply_edgeline_thickness_by_weights:
                     edgeline_vertexgroup = id.vertex_groups.get('Edgeline_Thickness')
 
                     if edgeline_vertexgroup is None:
@@ -816,11 +816,13 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                         mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
                         mat.vs.face_export_filter = 'BY_VGROUP'
                         mat.vs.non_exportable_vgroup = "Edgeline_Thickness"
+                        mat.vs.non_exportable_vgroup_tolerance = 0.95
                         id.data.materials.append(mat)
                 else:
                     mat = bpy.data.materials.get("edgeline") or bpy.data.materials.new(name="edgeline")
                     mat.vs.face_export_filter = 'BY_VGROUP'
                     mat.vs.non_exportable_vgroup = "Edgeline_Thickness"
+                    mat.vs.non_exportable_vgroup_tolerance = 0.95
                     for _ in range(material_count):
                         id.data.materials.append(mat)
 
@@ -831,7 +833,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                 solid.material_offset = material_count
                 solid.offset = -1.0
                 solid.thickness = -1 * round(id.vs.base_toon_edgeline_thickness,3)
-                if edgeline_vertexgroup:
+                if edgeline_vertexgroup and id.vs.apply_edgeline_thickness_by_weights:
                     solid.vertex_group = edgeline_vertexgroup.name
                     solid.invert_vertex_group = True
 

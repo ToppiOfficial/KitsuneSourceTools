@@ -102,6 +102,8 @@ class SMD_PT_Scene(bpy.types.Panel):
         row.scale_y = 1.5
         row.operator(SmdImporter.bl_idname, text="Import", icon='IMPORT')
         row.operator(SmdExporter.bl_idname, text="Export", icon='EXPORT')
+        row = l.row()
+        row.row().prop(scene.vs, "prefab_to_clipboard", toggle=True)
 
         box = l.box()
         row = box.row()
@@ -111,9 +113,6 @@ class SMD_PT_Scene(bpy.types.Panel):
         row = box.row()
         row.alert = len(scene.vs.engine_path) > 0 and State.compiler == Compiler.UNKNOWN
         row.prop(scene.vs, "engine_path")
-
-        row = box.row()
-        row.row().prop(scene.vs, "prefab_to_clipboard", toggle=True)
 
         # Format
 

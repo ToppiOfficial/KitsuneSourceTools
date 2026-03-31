@@ -113,6 +113,7 @@ def draw_copy_armature_map(self, context):
 
 def draw_copy_bone_props(self, context):
     self.layout.operator(bone.TOOLS_OT_CopySourceBoneProps.bl_idname)
+    self.layout.operator(properties.SMD_OT_Copy_Jigglebone_Properties.bl_idname)
 
 #
 # Property Groups
@@ -272,7 +273,7 @@ class BakeNodeItem(PropertyGroup):
     color_space: EnumProperty(
         name="Type",
         items=[('sRGB', 'sRGB (Color)', ''), ('Non-Color', 'Non-Color (Data)', '')],
-        default='sRGB'
+        default='Non-Color'
     )
     use_full_frame: BoolProperty(name="Full Frame (No UV)", default=True)
 
@@ -384,7 +385,7 @@ class ExportableProps():
 
     use_toon_edgeline : BoolProperty(name="Export with Toon Edge Line",default=False)
     base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0, soft_max=0.8, precision=3)
-    auto_compute_thickness_on_ratio : BoolProperty(name="Compute Egeline Thickness Based on Ratio", default=True)
+    apply_edgeline_thickness_by_weights : BoolProperty(name="Apply Egeline Thickness Based on Weights", description="Apply varation of thickness on the outline based on a vertex group \"Edgeline_Thickness\", it will be auto-computed if it doesn't exist", default=True)
     edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
 
     show_items : BoolProperty()
@@ -468,6 +469,11 @@ class ValveSource_SceneProps(PropertyGroup):
 
     node_baker_export_dir: StringProperty(name="Export Dir", default="//baked_output", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
+    node_baker_material_listmode : EnumProperty(name='Material List Mode',items=[
+        ('ALL', 'All', 'All materials available within the BLEND file'),
+        ('ACTIVE', 'Active', 'All materials in the active object'),
+    ], default='ACTIVE')
+    node_baker_material_list_index : IntProperty(default=-1)
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
@@ -730,20 +736,22 @@ _classes = (
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
     
     # Texture Conversion
-    #texture_convert.TEXTURECONVERSION_UL_ItemList,
-    #texture_convert.TEXTURECONVERSION_OT_AddItem,
-    #texture_convert.TEXTURECONVERSION_OT_RemoveItem,
-    #texture_convert.TEXTURECONVERSION_OT_ProcessItem,
-    #texture_convert.TEXTURECONVERSION_OT_ConvertItem,
-    #texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
-    #texture_convert.TEXTURECONVERSION_PT_Panel,
+    # texture_convert.TEXTURECONVERSION_UL_ItemList,
+    # texture_convert.TEXTURECONVERSION_OT_AddItem,
+    # texture_convert.TEXTURECONVERSION_OT_RemoveItem,
+    # texture_convert.TEXTURECONVERSION_OT_ProcessItem,
+    # texture_convert.TEXTURECONVERSION_OT_ConvertItem,
+    # texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
+    # texture_convert.TEXTURECONVERSION_PT_Panel,
 
     # Node Baker
+    nodebaker.KITSUNETOOLS_UL_material_list,
     nodebaker.KITSUNETOOLS_UL_node_queue,
     nodebaker.KITSUNETOOLS_PT_node_baker,
     nodebaker.KITSUNETOOLS_OT_node_bake_add,
     nodebaker.KITSUNETOOLS_OT_node_bake_remove,
     nodebaker.KITSUNETOOLS_OT_node_bake_run,
+    nodebaker.KITSUNETOOLS_OT_node_bake_all_materials,
     
     # Developer Tools
     developer.DEVELOPER_PT_PANEL,

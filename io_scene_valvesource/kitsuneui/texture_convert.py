@@ -322,7 +322,7 @@ class TEXTURECONVERSION_OT_ConvertAllItems(Operator, ShowConsole):
 
 
 class TEXTURECONVERSION_PT_Panel(KITSUNE_PT_ToolSubPanel):
-    bl_label = 'Texture Conversion'
+    bl_label = 'Texture Conversion (DEPRECATED)'
     
     def draw(self, context : Context) -> None:
         layout = self.layout
