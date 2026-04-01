@@ -334,27 +334,25 @@ def copy_target_armature_visualpose(base_armature: bpy.types.Object,target_armat
         else:
             item.rotation_euler = mat.to_3x3().to_euler(item.rotation_mode)
 
-    with preserve_context_mode(base_armature, "POSE"):
-        with preserve_armature_state(base_armature, target_armature, reset_pose=False, reset_action=False):
-            
-            for target_data_bone in target_bones:
-                export_name = get_bone_exportname(target_data_bone, for_write=True)
-                base_data_bone = base_bones.get(export_name) or base_bones.get(target_data_bone.name)
-                if not base_data_bone:
-                    continue
+    with preserve_context_mode(base_armature, "POSE"), preserve_armature_state(base_armature, target_armature, reset_pose=False, reset_action=False):
+        for target_data_bone in target_bones:
+            export_name = get_bone_exportname(target_data_bone, for_write=True)
+            base_data_bone = base_bones.get(export_name) or base_bones.get(target_data_bone.name)
+            if not base_data_bone:
+                continue
 
-                target_pose_bone = target_armature.pose.bones[target_data_bone.name]
-                base_pose_bone = base_armature.pose.bones[base_data_bone.name]
-                
-                if copy_type == 'ORIGIN':
-                    mat = getmat(target_pose_bone, base_pose_bone, False)
-                    target_pose_bone.location = mat.to_translation()
-                else:
-                    ignoreparent = not target_data_bone.use_inherit_rotation
-                    mat = getmat(target_pose_bone, base_pose_bone, ignoreparent)
-                    rotcopy(target_pose_bone, mat)
-                
-                bpy.context.view_layer.update()
+            target_pose_bone = target_armature.pose.bones[target_data_bone.name]
+            base_pose_bone = base_armature.pose.bones[base_data_bone.name]
+            
+            if copy_type == 'ORIGIN':
+                mat = getmat(target_pose_bone, base_pose_bone, False)
+                target_pose_bone.location = mat.to_translation()
+            else:
+                ignoreparent = not target_data_bone.use_inherit_rotation
+                mat = getmat(target_pose_bone, base_pose_bone, ignoreparent)
+                rotcopy(target_pose_bone, mat)
+            
+            bpy.context.view_layer.update()
 
 def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, match_posture=True, anchor_bone: str = "", apply_pose : bool = True):
     if not source_arm or not target_arm: return
@@ -362,7 +360,7 @@ def merge_armatures(source_arm: bpy.types.Object, target_arm: bpy.types.Object, 
 
     print(f"Merging '{target_arm.name}' into '{source_arm.name}'...")
 
-    with preserve_armature_state(source_arm, target_arm, reset_pose=True) and unhide_all_objects():
+    with preserve_armature_state(source_arm, target_arm, reset_pose=True), unhide_all_objects():
         try:
             target_meshes = get_armature_meshes(target_arm)
             print(f"  Found {len(target_meshes)} mesh(es) attached to target armature")
@@ -745,28 +743,27 @@ def centralize_bone_pairs(arm: bpy.types.Object, pairs: list, min_length: float 
     if not is_armature(arm):
         return
 
-    with preserve_context_mode(arm, "EDIT") as edit_bones:
-        with preserve_armature_state(arm,reset_pose=False):
-            for src_name, tgt_name in pairs:
-                if src_name not in edit_bones or tgt_name not in edit_bones:
-                    continue
+    with preserve_context_mode(arm, "EDIT") as edit_bones, preserve_armature_state(arm,reset_pose=False):
+        for src_name, tgt_name in pairs:
+            if src_name not in edit_bones or tgt_name not in edit_bones:
+                continue
 
-                src_bone = edit_bones[src_name] # type: ignore
-                tgt_bone = edit_bones[tgt_name] # type: ignore
+            src_bone = edit_bones[src_name] # type: ignore
+            tgt_bone = edit_bones[tgt_name] # type: ignore
 
-                mid_head = (src_bone.head + tgt_bone.head) * 0.5
-                mid_tail = (src_bone.tail + tgt_bone.tail) * 0.5
+            mid_head = (src_bone.head + tgt_bone.head) * 0.5
+            mid_tail = (src_bone.tail + tgt_bone.tail) * 0.5
 
-                if (mid_tail - mid_head).length < min_length:
-                    direction = (
-                        (src_bone.tail - src_bone.head).normalized()
-                        if (src_bone.tail - src_bone.head).length > 0
-                        else mathutils.Vector((0, 0, 1))
-                    )
-                    mid_tail = mid_head + direction * min_length
+            if (mid_tail - mid_head).length < min_length:
+                direction = (
+                    (src_bone.tail - src_bone.head).normalized()
+                    if (src_bone.tail - src_bone.head).length > 0
+                    else mathutils.Vector((0, 0, 1))
+                )
+                mid_tail = mid_head + direction * min_length
 
-                src_bone.head = mid_head
-                src_bone.tail = mid_tail
+            src_bone.head = mid_head
+            src_bone.tail = mid_tail
 
 def assign_bone_headtip_positions(arm, bone_data: list[tuple]):
     """

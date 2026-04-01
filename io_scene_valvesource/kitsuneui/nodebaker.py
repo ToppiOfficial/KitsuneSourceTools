@@ -147,6 +147,15 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
             split.label(text="")
             split.prop(item, "use_full_frame", text="Full Frame (No UV)")
 
+            col = box.column(align=True)
+            row = col.row(align=True)
+            split = row.split(factor=0.4)
+            split.alignment = 'RIGHT'
+            split.label(text="Color Space")
+            sub = split.row(align=True)
+            sub.prop(item, "color_space", text="")
+
+
         layout.separator()
         layout.prop(context.scene.vs, "node_baker_export_dir")
         layout.prop(context.scene.vs, "node_baker_file_format")
@@ -259,7 +268,19 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
         if not mat or not mat.node_tree: return {'CANCELLED'}
 
         vs = mat.vs
-        items = list(vs.node_baker_list) if self.all_items else [vs.node_baker_list[vs.node_baker_list_index]]
+        
+        if self.all_items:
+            items = list(vs.node_baker_list)
+        else:
+            if not vs.node_baker_list or vs.node_baker_list_index < 0 or vs.node_baker_list_index >= len(vs.node_baker_list):
+                self.report({'WARNING'}, "No item selected in Node Baker list.")
+                return {'CANCELLED'}
+            items = [vs.node_baker_list[vs.node_baker_list_index]]
+
+        if not items:
+            self.report({'WARNING'}, "Node Baker list is empty.")
+            return {'CANCELLED'}
+
         total = len(items)
 
         raw_path = bpy.path.abspath(context.scene.vs.node_baker_export_dir)

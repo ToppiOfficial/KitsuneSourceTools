@@ -115,6 +115,9 @@ def draw_copy_bone_props(self, context):
     self.layout.operator(bone.TOOLS_OT_CopySourceBoneProps.bl_idname)
     self.layout.operator(properties.SMD_OT_Copy_Jigglebone_Properties.bl_idname)
 
+def draw_addon_parenting(self, context):
+    self.layout.operator(bone.TOOLS_OT_SetParentBone.bl_idname)
+
 #
 # Property Groups
 #
@@ -422,8 +425,8 @@ class ValveSource_SceneProps(PropertyGroup):
 
     prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
 
-    merge_bone_options_parent: EnumProperty(name=get_id("merge_bone_options_parent"),items=bone_merging_options,default='DEFAULT')
-    merge_bone_options_active: EnumProperty(name=get_id("merge_bone_options_active"),items=bone_merging_options,default='DEFAULT')
+    merge_bone_options_parent: EnumProperty(name=get_id("merge_bone_options_parent"),items=bone_merging_options_parent,default='DEFAULT')
+    merge_bone_options_active: EnumProperty(name=get_id("merge_bone_options_active"),items=bone_merging_options_active,default='DEFAULT')
     
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
@@ -660,6 +663,8 @@ _classes = (
     bone.TOOLS_OT_SplitActiveWeightLinear,
     bone.TOOLS_OT_align_bone_to_axis,
     bone.TOOLS_OT_CopySourceBoneProps,
+    bone.TOOLS_OT_SetParentBone,
+    bone.TOOLS_OT_mirror_by_position,
 
     # Mesh Tools
     mesh.TOOLS_PT_Mesh,
@@ -701,6 +706,7 @@ _classes = (
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_WriteConfig,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadConfig,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
+    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_MirrorBoneNames,
 
     # Node Baker
     nodebaker.KITSUNETOOLS_UL_material_list,
@@ -741,6 +747,7 @@ def register():
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
     bpy.types.VIEW3D_MT_object.append(draw_copy_armature_map)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
+    bpy.types.VIEW3D_MT_object_parent.append(draw_addon_parenting)
         
     try: bpy.ops.wm.addon_disable('EXEC_SCREEN',module="io_smd_tools")
     except: pass
@@ -770,6 +777,7 @@ def unregister():
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
     bpy.types.VIEW3D_MT_object.remove(draw_copy_armature_map)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)
+    bpy.types.VIEW3D_MT_object.remove(draw_addon_parenting)
 
     bpy.app.translations.unregister(__name__)
     

@@ -464,6 +464,50 @@ def get_selected_bones(armature : bpy.types.Object | None,
     if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in selectedBones]
     else: return [armature.data.bones.get(b) for b in selectedBones]
 
+def get_visible_bones(armature: bpy.types.Object | None,
+                      bone_type: str = 'BONE',
+                      sort_type: str | None = 'TO_LAST',
+                      exclude_active: bool = False) -> list[bpy.types.Bone | bpy.types.PoseBone | bpy.types.EditBone | None]:
+    
+    if not is_armature(armature): return []
+
+    if bone_type not in ['BONE', 'EDITBONE', 'POSEBONE']:
+        if armature.mode == 'EDIT': bone_type = 'EDITBONE'
+        elif armature.mode == 'POSE': bone_type = 'POSEBONE'
+        else: bone_type = 'BONE'
+
+    if sort_type is None: sort_type = ''
+
+    with preserve_context_mode(armature, 'OBJECT'):
+        armatureBones = list(armature.data.bones)
+        armatureBoneCollections = armature.data.collections_all
+        solo_BoneCollections = [col for col in armatureBoneCollections if col.is_solo]
+
+        if exclude_active and armature.data.bones.active is not None:
+            active_name = armature.data.bones.active.name
+            armatureBones = [b for b in armatureBones if b.name != active_name]
+
+        if sort_type in ['TO_LAST', 'TO_FIRST']:
+            armatureBones = sort_bone_by_hierarchy(armatureBones)
+            if sort_type == 'TO_FIRST':
+                armatureBones.reverse()
+
+        visibleBones = []
+        for bone in armatureBones:
+            if bone.hide: continue
+
+            if armatureBoneCollections and bone.collections:
+                if solo_BoneCollections:
+                    if not any(col in solo_BoneCollections for col in bone.collections): continue
+                else:
+                    if not any(col.is_visible for col in bone.collections): continue
+
+            visibleBones.append(bone.name)
+
+    if bone_type == 'POSEBONE': return [armature.pose.bones.get(b) for b in visibleBones]
+    if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in visibleBones]
+    else: return [armature.data.bones.get(b) for b in visibleBones]
+
 def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
     if isinstance(ob, bpy.types.Object):
         if ob.type == 'ARMATURE':

@@ -11,9 +11,10 @@ from ..kitsunetools.armatureutils import (
     get_armature,
     get_canonical_bonename,
     apply_current_pose_as_restpose,
-    remove_bone, merge_bones)
+    remove_bone, merge_bones
+)
 
-from ..kitsunetools.boneutils import get_armature, get_canonical_bonename
+from ..kitsunetools.boneutils import get_armature, get_canonical_bonename, bonename_direction_map
 from ..kitsunetools.commonutils import draw_wrapped_texts, is_armature
 
 from ..kitsunetools.meshutils import get_armature
@@ -157,6 +158,7 @@ class HUMANOIDARMATUREMAP_PT_Panel(KITSUNE_PT_ToolSubPanel):
         
         self.draw_humanoid_bone_mapping(context, layout, duplicates)
 
+        layout.operator(HUMANOIDARMATUREMAP_OT_MirrorBoneNames.bl_idname, icon='MOD_MIRROR')
         layout.operator(HUMANOIDARMATUREMAP_OT_LoadConfig.bl_idname)
 
     def draw_humanoid_bone_mapping(self, context : Context, layout : UILayout, duplicates : dict) -> None:
@@ -1325,3 +1327,74 @@ class HUMANOIDARMATUREMAP_UL_ConfigList(UIList):
             split.prop_search(item, "boneExportName", context.active_object.data, "bones", text="")
             split.label(text="", )
             row.operator(HUMANOIDARMATUREMAP_OT_RemoveItem.bl_idname, text="", icon="X").index = index
+
+
+class HUMANOIDARMATUREMAP_OT_MirrorBoneNames(bpy.types.Operator):
+    bl_idname = "humanoidarmaturemap.mirror_bone_names"
+    bl_label = "Mirror Bone Names"
+    bl_description = "Mirror bone names from one side to the other for paired bone slots"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context: Context) -> set:
+        vs = context.active_object.vs
+        missing_log = []
+
+        bone_pairs = [
+            ('armature_map_eye_l',       'armature_map_eye_r'),
+            ('armature_map_thigh_l',     'armature_map_thigh_r'),
+            ('armature_map_knee_l',      'armature_map_knee_r'),
+            ('armature_map_ankle_l',     'armature_map_ankle_r'),
+            ('armature_map_toe_l',       'armature_map_toe_r'),
+            ('armature_map_shoulder_l',  'armature_map_shoulder_r'),
+            ('armature_map_upperarm_l',  'armature_map_upperarm_r'),
+            ('armature_map_forearm_l',   'armature_map_forearm_r'),
+            ('armature_map_wrist_l',     'armature_map_wrist_r'),
+            ('armature_map_thumb_f_l',   'armature_map_thumb_f_r'),
+            ('armature_map_index_f_l',   'armature_map_index_f_r'),
+            ('armature_map_middle_f_l',  'armature_map_middle_f_r'),
+            ('armature_map_ring_f_l',    'armature_map_ring_f_r'),
+            ('armature_map_pinky_f_l',   'armature_map_pinky_f_r'),
+        ]
+
+        mirrored_count = 0
+
+        for prop_l, prop_r in bone_pairs:
+            val_l = getattr(vs, prop_l, "").strip()
+            val_r = getattr(vs, prop_r, "").strip()
+
+            if val_l and val_r:
+                continue
+
+            if val_l and not val_r:
+                mirrored = self.try_mirror(val_l)
+                if mirrored and mirrored in context.active_object.data.bones:
+                    setattr(vs, prop_r, mirrored)
+                    mirrored_count += 1
+                else:
+                    missing_log.append(f"{prop_r}: could not mirror '{val_l}' → '{mirrored or '?'}'")
+
+            elif val_r and not val_l:
+                mirrored = self.try_mirror(val_r)
+                if mirrored and mirrored in context.active_object.data.bones:
+                    setattr(vs, prop_l, mirrored)
+                    mirrored_count += 1
+                else:
+                    missing_log.append(f"{prop_l}: could not mirror '{val_r}' → '{mirrored or '?'}'")
+
+        for msg in missing_log:
+            self.report({'WARNING'}, msg)
+
+        if mirrored_count:
+            self.report({'INFO'}, f"Mirrored {mirrored_count} bone name(s).")
+        elif not missing_log:
+            self.report({'INFO'}, "Nothing to mirror — all pairs are already filled or empty.")
+
+        return {'FINISHED'}
+
+    def try_mirror(self, bone_name: str) -> str | None:
+        for suffix, replacement in bonename_direction_map.items():
+            if bone_name.endswith(suffix):
+                return bone_name[: -len(suffix)] + replacement
+            if bone_name.startswith(suffix):
+                return replacement + bone_name[len(suffix):]
+        return None

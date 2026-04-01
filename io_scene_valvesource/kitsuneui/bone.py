@@ -1,15 +1,17 @@
 import bpy, math
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
 from bpy.types import Context, Operator, Event
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 from ..kitsunetools.commonutils import(
     is_armature, is_mesh, draw_title_box_layout, draw_wrapped_texts,
-    get_armature, get_selected_bones, preserve_context_mode, get_armature_meshes
+    get_armature, get_selected_bones, preserve_context_mode, get_armature_meshes,
+    get_visible_bones
 )
 
 from ..kitsunetools.armatureutils import(
-    subdivide_bone, remove_bone, merge_bones, centralize_bone_pairs
+    subdivide_bone, remove_bone, merge_bones, centralize_bone_pairs,
+    preserve_armature_state
 )
 
 from ..utils import get_id
@@ -81,6 +83,7 @@ class TOOLS_PT_Bone(KITSUNE_PT_ToolSubPanel):
         # Bone Modifiers Section
         mod_box = draw_title_box_layout(main_col, text='Bone Modifiers', icon='MODIFIER', align=True)
         mod_box.operator(TOOLS_OT_SubdivideBone.bl_idname, icon='MOD_SUBSURF', text=TOOLS_OT_SubdivideBone.bl_label).weights_only = False
+        mod_box.operator(TOOLS_OT_mirror_by_position.bl_idname, icon='MOD_MIRROR')
         mod_box.operator(TOOLS_OT_FlipBone.bl_idname, icon='ARROW_LEFTRIGHT')
         mod_box.operator(TOOLS_OT_CreateCenterBone.bl_idname, icon='BONE_DATA')
         mod_box.operator(TOOLS_OT_SplitActiveWeightLinear.bl_idname, icon='SPLIT_VERTICAL')
@@ -140,34 +143,21 @@ class TOOLS_OT_CopyTargetRotation(Operator):
     @classmethod
     def poll(cls, context : Context) -> bool:
         return bool((is_armature(context.active_object) or is_mesh(context.active_object)) and context.active_object.mode in ['WEIGHT_PAINT', 'EDIT', 'POSE'])
-
+    
     def execute(self, context: Context) -> set:
         error_count = 0
         ref_data = None
         armature_map = {}
-        
-        for ob in context.selected_objects:
-            if ob.type == 'ARMATURE':
-                bone_names = [b.name for b in ob.data.bones if b.select]
-                if bone_names:
-                    armature_map[ob] = {
-                        'bones': bone_names,
-                        'mw': ob.matrix_world.copy(),
-                        'inv_mw': ob.matrix_world.inverted()
-                    }
 
-        active_obj = context.active_object
-        if not armature_map and active_obj and active_obj.type == 'ARMATURE':
-            if active_obj.mode == 'EDIT':
-                bone_names = [b.name for b in active_obj.data.edit_bones if b.select]
-            else:
-                bone_names = [b.name for b in active_obj.data.bones if b.select]
-            
+        for ob in context.selected_objects:
+            if ob.type != 'ARMATURE':
+                continue
+            bone_names = [b.name for b in get_selected_bones(ob, bone_type='BONE')]
             if bone_names:
-                armature_map[active_obj] = {
+                armature_map[ob] = {
                     'bones': bone_names,
-                    'mw': active_obj.matrix_world.copy(),
-                    'inv_mw': active_obj.matrix_world.inverted()
+                    'mw': ob.matrix_world.copy(),
+                    'inv_mw': ob.matrix_world.inverted()
                 }
 
         if not armature_map:
@@ -177,7 +167,7 @@ class TOOLS_OT_CopyTargetRotation(Operator):
         if self.copy_source == 'ACTIVE' and context.active_bone:
             active_obj = context.active_object
             active_bone_name = context.active_bone.name
-            
+
             with preserve_context_mode(active_obj, 'EDIT'):
                 eb = active_obj.data.edit_bones.get(active_bone_name)
                 if eb:
@@ -187,12 +177,12 @@ class TOOLS_OT_CopyTargetRotation(Operator):
                         'roll': eb.roll,
                         'length': eb.length
                     }
+
         main_armature = list(armature_map.keys())[0]
-        
+
         with preserve_context_mode(main_armature, 'EDIT'):
             for armature, data in armature_map.items():
                 try:
-                    # Only switch active if the armature is different
                     if context.active_object != armature:
                         bpy.ops.object.mode_set(mode='OBJECT')
                         context.view_layer.objects.active = armature
@@ -201,10 +191,11 @@ class TOOLS_OT_CopyTargetRotation(Operator):
                     edit_bones = armature.data.edit_bones
                     mw = data['mw']
                     inv_mw = data['inv_mw']
-                    
+
                     for b_name in data['bones']:
                         editbone = edit_bones.get(b_name)
-                        if not editbone: continue
+                        if not editbone:
+                            continue
 
                         current_ref = ref_data
                         if self.copy_source == 'PARENT' and editbone.parent:
@@ -215,17 +206,18 @@ class TOOLS_OT_CopyTargetRotation(Operator):
                                 'length': p.length
                             }
 
-                        if not current_ref: continue
+                        if not current_ref:
+                            continue
 
                         editbone.use_connect = False
                         target_world_dir = current_ref['world_dir'].copy()
-                        
+
                         if len(self.include_axes) < 3:
                             curr_w_dir = (mw @ editbone.tail - mw @ editbone.head).normalized()
                             if 'X' not in self.include_axes: target_world_dir.x = curr_w_dir.x
                             if 'Y' not in self.include_axes: target_world_dir.y = curr_w_dir.y
                             if 'Z' not in self.include_axes: target_world_dir.z = curr_w_dir.z
-                        
+
                         local_dir = (inv_mw.to_3x3() @ target_world_dir).normalized()
                         editbone.tail = editbone.head + (local_dir * editbone.length)
 
@@ -240,7 +232,7 @@ class TOOLS_OT_CopyTargetRotation(Operator):
 
         if error_count == 0:
             self.report({'INFO'}, "Orientation copied successfully")
-        
+
         return {'FINISHED'}
     
 
@@ -403,17 +395,14 @@ class TOOLS_OT_SubdivideBone(Operator):
     def poll(cls, context : Context) -> bool:
         return bool((is_armature(context.active_object) or is_mesh(context.active_object)) and context.active_object.mode in ["EDIT", "POSE", "WEIGHT_PAINT"])
     
-    def invoke(self, context: Context, event: Event) -> set:
-        any_selected = False
-        for ob in context.selected_objects:
-            if ob.type == 'ARMATURE':
-                if any(b.select for b in ob.data.bones):
-                    any_selected = True
-                    break
-        
-        if any_selected:
-            return context.window_manager.invoke_props_dialog(self)
-        
+    def invoke(self, context : Context, event : Event) -> set:
+        ob  = context.active_object
+        if ob.mode in ['POSE', 'WEIGHT_PAINT']:
+            if any([b for b in get_armature(context.active_object).data.bones if b.select]):
+                return context.window_manager.invoke_props_dialog(self)
+        elif ob.mode == 'EDIT':
+            if any([b for b in get_armature(context.active_object).data.edit_bones if b.select]):
+                return context.window_manager.invoke_props_dialog(self)
         return {'CANCELLED'}
 
     def draw(self, context : Context) -> None:
@@ -434,17 +423,24 @@ class TOOLS_OT_SubdivideBone(Operator):
             col = layout.column(align=True)
             col.prop(self, 'skip_original_bone')
 
-    def execute(self, context: Context) -> set:
-        armature_map = {ob: [b.name for b in ob.data.bones if b.select] 
-                        for ob in context.selected_objects if ob.type == 'ARMATURE'}
-
-        with preserve_context_mode(context.active_object, 'EDIT'):
-            for arm, bone_names in armature_map.items():
-                if not bone_names: continue
-                
-                context.view_layer.objects.active = arm
-                subdivide_bone(bone_names, arm, self.subdivisions, weights_only=self.weights_only)
+    def execute(self, context : Context) -> set:
+        arm = get_armature(context.active_object)
         
+        if arm is None: return {'CANCELLED'}
+        
+        with preserve_context_mode(context.active_object, 'OBJECT'):
+            context.view_layer.objects.active = arm
+            
+            bones = get_selected_bones(arm, bone_type='POSEBONE')
+            boneNames = [b.name for b in bones]
+            
+            if bones is None or boneNames is None:
+                return {'CANCELLED'}
+            
+            bpy.ops.object.mode_set(mode='EDIT')
+            subdivide_bone(boneNames, arm, self.subdivisions, weights_only=self.weights_only,
+                       falloff=self.falloff, smoothness=self.smoothness, skip_original_bone=self.skip_original_bone)
+
         return {'FINISHED'}
 
 
@@ -572,9 +568,9 @@ class TOOLS_OT_FlipBone(Operator):
     
     def execute(self, context: Context) -> set:
         flipped_count = 0
-        
+
         armatures = [ob for ob in context.selected_objects if ob.type == 'ARMATURE']
-        
+
         if not armatures:
             self.report({'ERROR'}, 'No armatures selected')
             return {'CANCELLED'}
@@ -585,14 +581,12 @@ class TOOLS_OT_FlipBone(Operator):
                     bpy.ops.object.mode_set(mode='OBJECT')
                     context.view_layer.objects.active = armature
                     bpy.ops.object.mode_set(mode='EDIT')
-                
-                edit_bones = armature.data.edit_bones
-                for bone in edit_bones:
-                    if bone.select:
-                        old_head = bone.head.copy()
-                        bone.head = bone.tail.copy()
-                        bone.tail = old_head
-                        flipped_count += 1
+
+                for bone in get_selected_bones(armature, bone_type='EDITBONE'):
+                    old_head = bone.head.copy()
+                    bone.head = bone.tail.copy()
+                    bone.tail = old_head
+                    flipped_count += 1
 
         self.report({'INFO'}, f'Flipped {flipped_count} bones')
         return {'FINISHED'}
@@ -955,7 +949,7 @@ class TOOLS_OT_align_bone_to_axis(Operator):
     
     def execute(self, context: Context) -> set:
         processed_bone = 0
-        
+
         axis_map = {
             'X':  Vector((1, 0, 0)),
             'Y':  Vector((0, 1, 0)),
@@ -966,38 +960,24 @@ class TOOLS_OT_align_bone_to_axis(Operator):
         }
         axis_vector = axis_map.get(self.axis)
 
-        armature_map = {}
-        for ob in context.selected_objects:
-            if ob.type == 'ARMATURE':
-                bone_names = [b.name for b in ob.data.bones if b.select]
-                if bone_names:
-                    armature_map[ob] = bone_names
+        armatures = [ob for ob in context.selected_objects if ob.type == 'ARMATURE']
 
-        if not armature_map:
+        if not armatures:
             self.report({'ERROR'}, 'No bones selected')
             return {'CANCELLED'}
 
-        first_armature = list(armature_map.keys())[0]
-
-        with preserve_context_mode(first_armature, 'EDIT'):
-            for armature, bone_names in armature_map.items():
+        with preserve_context_mode(armatures[0], 'EDIT'):
+            for armature in armatures:
                 try:
                     if context.active_object != armature:
                         bpy.ops.object.mode_set(mode='OBJECT')
                         context.view_layer.objects.active = armature
                         bpy.ops.object.mode_set(mode='EDIT')
 
-                    edit_bones = armature.data.edit_bones
-                    
-                    for b_name in bone_names:
-                        bone = edit_bones.get(b_name)
-                        if not bone: 
-                            continue
-                        
-                        bone_length = bone.length
-                        bone.tail = bone.head + (axis_vector * bone_length)
+                    for bone in get_selected_bones(context.view_layer.objects.active, bone_type='EDITBONE'):
+                        bone.tail = bone.head + (axis_vector * bone.length)
                         processed_bone += 1
-                        
+
                 except Exception as e:
                     self.report({'ERROR'}, f"Error in {armature.name}: {e}")
 
@@ -1039,3 +1019,119 @@ class TOOLS_OT_CopySourceBoneProps(Operator):
 
         self.report({'INFO'}, f"Copied bone properties to {len(targets)} bone(s)")
         return {'FINISHED'}
+    
+
+class TOOLS_OT_SetParentBone(Operator):
+    bl_idname = "kitsunetools.set_bone_parent"
+    bl_label = "Bone (Edit Bone)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.mode == 'POSE' and context.active_pose_bone is not None and len(context.selected_pose_bones) > 1)
+    
+    def execute(self, context) -> set:
+        active_object = get_armature(context.active_object)
+        active_pose_bone = context.active_pose_bone
+
+        active_bone_name = active_pose_bone.name
+        other_selected_bones = [pb.name for pb in context.selected_pose_bones if pb != active_pose_bone]
+        reparent_count = 0
+        
+        with preserve_context_mode(active_object, 'EDIT'), preserve_armature_state(active_object, reset_pose=False):
+            active_editbone = active_object.data.edit_bones.get(active_bone_name)
+            if active_editbone:
+                for bonename in other_selected_bones:
+                    editbone = active_object.data.edit_bones.get(bonename)
+                    if editbone:
+                        editbone.parent = active_editbone
+                        reparent_count += 1
+
+        if reparent_count > 0:
+            self.report({'INFO'}, f'Reparented {reparent_count} bones')
+        else:
+            self.report({'WARNING'}, 'No bones to reparent')
+
+        return {'FINISHED'}
+    
+
+class TOOLS_OT_mirror_by_position(Operator):
+    bl_idname = "kitsunetools.mirror_by_position"
+    bl_label = "Mirror Pose by Position"
+    bl_options = {"REGISTER", "UNDO"}
+ 
+    tolerance: bpy.props.FloatProperty(name="Tolerance", default=0.001, min=0.0, precision=4)
+ 
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.mode == "POSE" and context.object and context.object.type == "ARMATURE")
+ 
+    @staticmethod
+    def find_mirror_bone(armature, source_bone, tolerance):
+        src = source_bone.head
+        target = Vector((-src.x, src.y, src.z))
+        best, best_dist = None, float("inf")
+
+        for pb in get_visible_bones(armature, 'POSE'):
+            if pb == source_bone:
+                continue
+
+            dist = (pb.head - target).length
+            if dist < tolerance and dist < best_dist:
+                best_dist = dist
+                best = pb
+
+        return best
+ 
+    @staticmethod
+    def copy_mirrored_pose(source_pb, target_pb):
+        src = source_pb.matrix_basis
+        loc = src.to_translation()
+        rot = src.to_quaternion()
+        sca = src.to_scale()
+ 
+        loc.x = -loc.x
+        rot.y = -rot.y
+        rot.z = -rot.z
+ 
+        target_pb.matrix_basis = (
+            Matrix.Translation(loc)
+            @ rot.to_matrix().to_4x4()
+            @ Matrix.Diagonal(sca).to_4x4()
+        )
+ 
+        if target_pb.rotation_mode == "QUATERNION":
+            target_pb.rotation_quaternion = rot
+        elif target_pb.rotation_mode == "AXIS_ANGLE":
+            axis, angle = rot.to_axis_angle()
+            target_pb.rotation_axis_angle = (angle, -axis.x, axis.y, axis.z)
+        else:
+            target_pb.rotation_euler = rot.to_euler(target_pb.rotation_mode)
+ 
+        target_pb.location = loc
+        target_pb.scale = sca
+ 
+    def execute(self, context) -> set:
+        armature = context.object
+        selected = context.selected_pose_bones
+ 
+        if not selected:
+            self.report({"WARNING"}, "No bones selected")
+            return {"CANCELLED"}
+ 
+        mirrored, missing = 0, []
+ 
+        for pb in selected:
+            mirror = self.find_mirror_bone(armature, pb, self.tolerance)
+            if mirror is None:
+                missing.append(pb.name)
+                continue
+            self.copy_mirrored_pose(pb, mirror)
+            mirrored += 1
+ 
+        if missing:
+            self.report({"WARNING"}, f"No mirror found for: {', '.join(missing)}")
+        if mirrored:
+            self.report({"INFO"}, f"Mirrored {mirrored} bone(s)")
+ 
+        return {"FINISHED"}

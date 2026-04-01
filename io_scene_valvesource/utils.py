@@ -99,11 +99,18 @@ color_space = [
     ('Non-Color', 'Non-Color (Data)', '')
 ]
 
-bone_merging_options = [
+_bone_merging_options_base = [
     ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
     ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
     ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
+]
+
+bone_merging_options_parent = _bone_merging_options_base + [
     ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 3),
+]
+
+bone_merging_options_active = _bone_merging_options_base + [
+    ('CENTRALIZE', 'Centralize', 'Centralize bone position between source and target', 'PIVOT_MEDIAN', 3),
 ]
 
 class ExportFormat:
