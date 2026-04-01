@@ -22,7 +22,7 @@ from ..utils import get_id
 from .common import KITSUNE_PT_ToolSubPanel, ShowConsole
 
 class TOOLS_PT_Armature(KITSUNE_PT_ToolSubPanel):
-    bl_label = "Armature Tools"
+    bl_label = "Armature"
     
     def draw(self, context : Context) -> None:
         layout = self.layout

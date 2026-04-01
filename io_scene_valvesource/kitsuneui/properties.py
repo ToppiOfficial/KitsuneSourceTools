@@ -7,6 +7,8 @@ from bpy.types import (
     VertexGroup, LoopColors, MeshLoopColorLayer
 )
 
+from bpy.app.translations import pgettext as iface_
+
 from ..kitsunetools.boneutils import get_bone_exportname
 from ..kitsunetools.commonutils import (
     is_armature, is_mesh, is_empty, is_curve, draw_wrapped_texts,
@@ -280,7 +282,7 @@ class SMD_PT_Group(Properties_SubPanel):
 
     def draw_header(self, context):
         item = self.get_item(context)
-        label = 'Group ({})'.format(item.name) if item else 'Group'
+        label = '{} ({})'.format(iface_("Group"), item.name) if item else iface_("Group")
         self.layout.label(text=label, icon='GROUP')
 
     def draw(self, context):
@@ -311,7 +313,7 @@ class SMD_PT_Armature(Properties_SubPanel):
 
     def draw_header(self, context):
         active_object = get_armature(context.active_object)
-        label = 'Armature ({})'.format(active_object.name) if active_object else 'Armature'
+        label = '{} ({})'.format(iface_("Armature"), active_object.name) if active_object else iface_("Armature")
         self.layout.label(text=label, icon='ARMATURE_DATA')
     
     def draw(self, context):
@@ -362,7 +364,7 @@ class SMD_PT_Bone(Properties_SubPanel):
 
     def draw_header(self, context):
         active_bone = context.active_bone
-        label = 'Bone ({})'.format(active_bone.name) if active_bone else 'Bone'
+        label = '{} ({})'.format(iface_("Bone"), active_bone.name) if active_bone else iface_("Bone")
         self.layout.label(text=label, icon='BONE_DATA')
         
     def draw(self, context):
@@ -635,7 +637,7 @@ class SMD_PT_Mesh(Properties_SubPanel):
 
     def draw_header(self, context):
         active_object = context.active_object
-        label = 'Mesh ({})'.format(active_object.name) if is_mesh_compatible(active_object) else 'Mesh'
+        label = '{} ({})'.format(iface_("Mesh"), active_object.name) if is_mesh_compatible(active_object) else iface_("Mesh")
         self.layout.label(text=label, icon='MESH_DATA')
         
     def draw(self, context):
@@ -648,7 +650,7 @@ class SMD_PT_Mesh(Properties_SubPanel):
 
   
 class SMD_PT_Shapekey(Properties_SubPanel):
-    bl_label = 'Shapekey'
+    bl_label = 'Shape keys'
     bl_parent_id = 'SMD_PT_Mesh'
     
     @classmethod
@@ -974,7 +976,7 @@ class SMD_PT_Material(Properties_SubPanel):
     def draw_header(self, context):
         active_object = context.active_object
         active_material = active_object.active_material if is_mesh(active_object) else None
-        label = 'Material ({})'.format(active_material.name) if active_material else 'Material'
+        label = '{} ({})'.format(iface_("Material"), active_material.name) if active_material else iface_("Material")
         self.layout.label(text=label, icon='MATERIAL_DATA')
         
     def draw(self, context):
@@ -1012,7 +1014,7 @@ class SMD_PT_Empty(Properties_SubPanel):
 
     def draw_header(self, context):
         active_object = context.active_object
-        label = 'Empty ({})'.format(active_object.name) if is_empty(active_object) else 'Empty'
+        label = '{} ({})'.format(iface_("Empty"), active_object.name) if is_empty(active_object) else iface_("Empty")
         self.layout.label(text=label, icon='EMPTY_DATA')
         
     def draw(self, context):
@@ -1042,7 +1044,7 @@ class SMD_PT_Curve(Properties_SubPanel):
 
     def draw_header(self, context):
         active_object = context.active_object
-        label = 'Curve ({})'.format(active_object.name) if is_curve(active_object) else 'Curve'
+        label = '{} ({})'.format(iface_("Curve"), active_object.name) if is_curve(active_object) else iface_("Curve")
         self.layout.label(text=label, icon='CURVE_DATA')
         
     def draw(self, context):

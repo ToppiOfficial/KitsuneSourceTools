@@ -910,6 +910,15 @@ _data = {
     'panel_select_noneditbone': {
         'en': "Select a non-edit bone",
     },
+    'merge_bone_options_active': {
+        'en': "Merge to Active Options",
+    },
+    'merge_bone_options_parent': {
+        'en': "Merge to Parent Options",
+    },
+    'prefab_to_clipboard': {
+        'en': "Prefab to Clipboard",
+    },
 }
 
 def _get_ids() -> dict[str,str]:

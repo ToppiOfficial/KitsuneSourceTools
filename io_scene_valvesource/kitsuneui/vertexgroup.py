@@ -15,7 +15,7 @@ from ..utils import get_id
 from .bone import TOOLS_OT_SubdivideBone
 
 class TOOLS_PT_VertexGroup(KITSUNE_PT_ToolSubPanel):
-    bl_label = "Vertex Group Tools"
+    bl_label = "Vertex Group"
     
     def draw(self, context : Context) -> None:
         layout = self.layout

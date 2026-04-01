@@ -16,7 +16,7 @@ from ..utils import get_id
 from .common import KITSUNE_PT_ToolSubPanel
 
 class TOOLS_PT_Bone(KITSUNE_PT_ToolSubPanel):
-    bl_label= "Bone Tools"
+    bl_label= "Bone"
 
     def draw(self, context: Context) -> None:
         layout = self.layout

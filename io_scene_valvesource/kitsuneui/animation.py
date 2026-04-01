@@ -13,7 +13,7 @@ from ..kitsunetools.boneutils import get_bone_exportname
 from ..utils import get_id
 
 class TOOLS_PT_Animation(KITSUNE_PT_ToolSubPanel):
-    bl_label = "Animation Tools"
+    bl_label = "Animation"
     
     def draw(self, context : Context) -> None:
         layout = self.layout

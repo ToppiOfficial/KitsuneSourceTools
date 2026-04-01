@@ -7,7 +7,7 @@ from ..kitsunetools.objectutils import apply_object_transforms
 from .common import KITSUNE_PT_ToolSubPanel
 
 class OBJECT_PT_ObjectData_Panel(KITSUNE_PT_ToolSubPanel):
-    bl_label = "Object Tools"
+    bl_label = "Object"
     
     def draw(self, context : Context) -> None:
         layout : UILayout = self.layout
@@ -24,7 +24,7 @@ class OBJECT_PT_ObjectData_Panel(KITSUNE_PT_ToolSubPanel):
         
 class OBJECT_OT_Apply_Transform(Operator):
     bl_idname = "objectdata.apply_transform"
-    bl_label = "Apply Transform"
+    bl_label = "Apply Object Transform"
     bl_description = "Apply transforms to object and optionally its children"
     bl_options = {'REGISTER', 'UNDO'}
     

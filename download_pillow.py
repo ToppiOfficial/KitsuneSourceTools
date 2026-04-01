@@ -40,13 +40,13 @@ def download_pillow_wheels():
         whl_path = wheels_dir / target_whl["filename"]
         
         if whl_path.exists():
-            print(f"✓ {target_whl['filename']} (already exists)")
+            print(f"{target_whl['filename']} (already exists)")
         else:
             print(f"Downloading {target_whl['filename']}...")
             urllib.request.urlretrieve(target_whl["url"], whl_path)
-            print(f"✓ Downloaded ({whl_path.stat().st_size // 1024 // 1024}MB)")
+            print(f"Downloaded ({whl_path.stat().st_size // 1024 // 1024}MB)")
     
-    print(f"\n✓ All wheels ready in ./wheels/")
+    print(f"\nAll wheels ready in ./wheels/")
     print("\nUpdate your blender_manifest.toml with:")
     print("wheels = [")
     for whl in sorted(wheels_dir.glob("*.whl")):

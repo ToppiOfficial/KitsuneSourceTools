@@ -4,14 +4,6 @@ KitsuneSourceTool is a personal Blender addon built for my own Source engine wor
 
 I'm releasing this publicly in case anyone finds it useful, but be aware: **this is built for my specific needs and workflow**. Don't expect comprehensive documentation or support.
 
-> [!WARNING]
-> - Work in progress
-> - Original export code has been modified
-> - Incomplete translations and tooltips
-> - Features are being ported gradually from older versions
-
-Originally developed as "Fubukitek", later renamed to Kitsune.
-
 ## What's Included
 
 **Export:**
@@ -33,12 +25,10 @@ Originally developed as "Fubukitek", later renamed to Kitsune.
 - Toon edge lines
 
 **Material Tools:**
-- PBR to Phong conversion
+- Node Baker
 
 ## Dependencies
 
 Includes [Pillow](https://python-pillow.org/) (MIT-CMU License). See `wheels/pillow-license` for details.
 
 ---
-
-Again: this is a personal tool. If it works for you, great. If not, you'll need to figure it out yourself or modify it.

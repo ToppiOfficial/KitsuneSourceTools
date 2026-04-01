@@ -82,6 +82,30 @@ hitbox_group = [
     ('8', 'Neck', 'Used for human neck (to fix penetration to head from behind), appears Orange in HLMV (In all games since CS:GO)'),
 ]
 
+resolutions = [
+    ('8', '8', ''),
+    ('16', '16', ''),
+    ('32', '32', ''),
+    ('128', '128', ''),
+    ('256', '256', ''),
+    ('512', '512', ''),
+    ('1024', '1024', ''),
+    ('2048', '2048', ''),
+    ('4096', '4096', ''),
+]
+
+color_space = [
+    ('sRGB', 'sRGB (Color)', ''),
+    ('Non-Color', 'Non-Color (Data)', '')
+]
+
+bone_merging_options = [
+    ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
+    ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
+    ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
+    ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 3),
+]
+
 class ExportFormat:
     SMD = 1
     DMX = 2

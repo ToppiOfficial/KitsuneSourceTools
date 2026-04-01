@@ -7,7 +7,7 @@ from ..kitsunetools.armatureutils import (
 )
 
 class DEVELOPER_PT_PANEL(KITSUNE_PT_ToolSubPanel, Panel):
-    bl_label = 'Developer Tools'
+    bl_label = 'Developer'
     bl_order = 1000
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -23,6 +23,7 @@ class DEVELOPER_PT_PANEL(KITSUNE_PT_ToolSubPanel, Panel):
         maincol.operator(SMD_OT_Fix_Hitboxes.bl_idname)
         maincol.operator(SMD_OT_Fix_Attachments.bl_idname)
  
+
 class DEVELOPER_OT_ImportLegacyData(Operator):
     bl_idname = "smd.importlegacydata"
     bl_label = "Import FubukiTek Data"

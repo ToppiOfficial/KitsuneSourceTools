@@ -255,41 +255,15 @@ class BakeNodeItem(PropertyGroup):
     node_name: StringProperty(name="Node Name")
     name: StringProperty(name="Suffix", default="")
     socket_index: EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
-
-    resolution_list = [
-        ('32', '32', ''),
-        ('128', '128', ''),
-        ('256', '256', ''),
-        ('512', '512', ''),
-        ('1024', '1024', ''),
-        ('2048', '2048', ''),
-        ('4096', '4096', ''),
-    ]
-
-    sync_y_with_x: BoolProperty(name="Sync Resolution", default=True)
-    
-    resolution_x: EnumProperty(
-        name="X Resolution",
-        items=resolution_list,
-        default='2048'
-    )
-
-    resolution_y: EnumProperty(
-        name="Y Resolution",
-        items=resolution_list,
-        default='2048'
-    )
-    
-    color_space: EnumProperty(
-        name="Type",
-        items=[('sRGB', 'sRGB (Color)', ''), ('Non-Color', 'Non-Color (Data)', '')],
-        default='Non-Color'
-    )
-    use_full_frame: BoolProperty(name="Full Frame (No UV)", default=True)
-
     has_alpha_channel : BoolProperty(name="Has Alpha Channel", default=False)
     alpha_socket_index : EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
 
+    sync_y_with_x: BoolProperty(name="Sync Resolution", default=True)
+    resolution_x: EnumProperty(name="X Resolution",items=resolutions,default='2048')
+    resolution_y: EnumProperty(name="Y Resolution",items=resolutions,default='2048')
+
+    color_space: EnumProperty(name="Type",items=color_space,default='Non-Color')
+    use_full_frame: BoolProperty(name="Full Frame (No UV)", default=True)
 
     def get_node(self):
         mat = self.id_data
@@ -446,27 +420,10 @@ class ValveSource_SceneProps(PropertyGroup):
 
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
 
-    prefab_to_clipboard : BoolProperty(name='Prefab to Clipboard', default=False, description='Copy prefab export content to clipboard instead of to a file.')
+    prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
 
-    merge_bone_options_parent: EnumProperty(
-        name='Merge to Parent Options',
-        description='Options for merging bones to parent',
-        items=[
-            ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
-            ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
-            ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
-            ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 3),
-        ],default='DEFAULT')
-
-    merge_bone_options_active: EnumProperty(
-        name='Merge to Active Options',
-        description='Options for merging bones to active',
-        items=[
-            ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
-            ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
-            ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
-            ('CENTRALIZE', 'Centralize', 'Centralize bone position between source and target', 'PIVOT_MEDIAN', 3),
-        ],default='DEFAULT')
+    merge_bone_options_parent: EnumProperty(name=get_id("merge_bone_options_parent"),items=bone_merging_options,default='DEFAULT')
+    merge_bone_options_active: EnumProperty(name=get_id("merge_bone_options_active"),items=bone_merging_options,default='DEFAULT')
     
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
@@ -477,7 +434,7 @@ class ValveSource_SceneProps(PropertyGroup):
     texture_conversion_active_index : IntProperty(default=-1)
     texture_conversion_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
-    node_baker_export_dir: StringProperty(name="Export Dir", default="//baked_output", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    node_baker_export_dir: StringProperty(name="Export Dir", default="//textures\\", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
     node_baker_material_listmode : EnumProperty(name='Material List Mode',items=[
         ('ALL', 'All', 'All materials available within the BLEND file'),
@@ -585,8 +542,8 @@ class ValveSource_MaterialProps(PropertyGroup):
         description='Filter faces to exclude from export',
         items=[
             ('NONE', 'None', 'Export all faces'),
-            ('BY_MATERIAL', 'By Material', 'Exclude faces based on material'),
-            ('BY_VGROUP', 'By Vertex Group', 'Exclude faces based on vertex group membership'),
+            ('BY_MATERIAL', 'Material', 'Exclude faces based on material'),
+            ('BY_VGROUP', 'Vertex Group', 'Exclude faces based on vertex group membership'),
         ],
         default='NONE'
     )
@@ -744,15 +701,6 @@ _classes = (
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_WriteConfig,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadConfig,
     humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
-    
-    # Texture Conversion
-    # texture_convert.TEXTURECONVERSION_UL_ItemList,
-    # texture_convert.TEXTURECONVERSION_OT_AddItem,
-    # texture_convert.TEXTURECONVERSION_OT_RemoveItem,
-    # texture_convert.TEXTURECONVERSION_OT_ProcessItem,
-    # texture_convert.TEXTURECONVERSION_OT_ConvertItem,
-    # texture_convert.TEXTURECONVERSION_OT_ConvertAllItems,
-    # texture_convert.TEXTURECONVERSION_PT_Panel,
 
     # Node Baker
     nodebaker.KITSUNETOOLS_UL_material_list,

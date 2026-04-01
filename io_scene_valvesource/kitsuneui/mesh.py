@@ -8,7 +8,7 @@ from ..kitsunetools.meshutils import clean_unused_shapekeys, remove_unused_verte
 from ..utils import hasShapes, get_id, image_channels
 
 class TOOLS_PT_Mesh(KITSUNE_PT_ToolSubPanel):
-    bl_label = "Mesh Tools"
+    bl_label = "Mesh"
     
     def draw(self, context : Context) -> None:
         layout = self.layout
