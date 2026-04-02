@@ -39,7 +39,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
 
 from . import datamodel, import_smd, export_smd, flex, GUI
 from .kitsunetools import armatureutils, boneutils, commonutils, meshutils, objectutils, shadernodesutils
-from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, texture_convert, animation, vertexgroup, armature, mesh, bone, nodebaker
+from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, animation, vertexgroup, armature, mesh, bone, nodebaker
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -170,89 +170,6 @@ class VertexAnimation(PropertyGroup):
     start : IntProperty(name="Start",description=get_id("vca_start_tip"),default=0)
     end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
     export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
-
-class TextureConversionItem(PropertyGroup):
-    name: StringProperty(name="Name", default="TexturesItem")
-    
-    diffuse_map: StringProperty(name='Color Map')
-    
-    alpha_map: StringProperty(name='Alpha Map')
-    alpha_map_ch: EnumProperty(name='Channel', items=image_channels, default='A')
-    invert_alpha_map : BoolProperty(name='Invert Alpha Map', default=False)
-    
-    skin_map: StringProperty(name='Skin Map')
-    skin_map_ch: EnumProperty(name='Channel', items=image_channels)
-    skin_map_gamma: FloatProperty(name='Gamma Correction', soft_min=0, soft_max=10, default=1)
-    skin_map_contrast: FloatProperty(name='Contrast', soft_min=-100, soft_max=100, default=0)
-    invert_skin_map : BoolProperty(name='Invert Skin Map', default=False)
-    
-    metal_map: StringProperty(name='Metal Map')
-    metal_map_ch: EnumProperty(name='Channel', items=image_channels)
-    invert_metal_map : BoolProperty(name='Invert Metal Map', default=False)
-    metal_diffuse_mix : FloatProperty(name='Metal to Diffuse Mix', min=0.0,max=1.0,default=1.0)
-    phong_boost_influence : FloatProperty(name='Phong Boost Influence', min=0.0, max=1.0, default=0.3,
-        description="How much the metal map is screen influences the normal map's alpha channel. Used for specularity in Phong")
-    phong_exponent_influence : FloatProperty(name='Phong Exponent Influence', min=0.0, max=1.0, default=0.25,
-        description="How much the metal map is screen added influences the exponent map's red channel (glossiness)")
-    
-    roughness_map: StringProperty(name='Roughness Map')
-    roughness_map_ch: EnumProperty(name='Channel', items=image_channels)
-    invert_roughness_map : BoolProperty(name='Invert Roughness Map', default=False)
-    
-    ambientocclu_map: StringProperty(name='AO Map')
-    ambientocclu_strength: IntProperty(name='AO Map Strength', default=60, min=0, max=100)
-    ambientocclu_map_ch: EnumProperty(name='Channel', items=image_channels)
-    invert_ambientocclu_map : BoolProperty(name='Invert AO Map', default=False)
-    
-    emissive_map: StringProperty(name='Emissive Map')
-    emissive_ch_choice = [('COLOR', 'Color', 'Non Mask')] + image_channels
-    emissive_map_ch: EnumProperty(name='Channel', items=emissive_ch_choice)
-
-    specular_map: StringProperty(name='Specular Map')
-    specular_map_ch: EnumProperty(name='Channel', items=image_channels)
-    invert_specular_map : BoolProperty(name='Invert Specular Map', default=False)
-    specular_map_diffuse_baked: IntProperty(name='Baked Specular amount', default=70, min=0, max=100)
-
-    specular_blend: EnumProperty(
-        name="Blend Mode",
-        items=[
-            ('ADD', "Add", ""),
-            ('COLOR_BURN', "Color Burn", ""),
-        ],default='ADD')
-    
-    normal_map: StringProperty(name='Normal Map')
-    normal_map_preprocess: EnumProperty(
-        name="Normal Map Preprocess",
-        options={'ENUM_FLAG'},
-        items=[
-            ('RED', 'Red Normal Map', 'The normal map is a red-type normal map'),
-            ('FORCE_WHITE_B', 'Force White on Blue', 'Force White on Blue Channel'),
-            ('INVERT_G', 'Invert Green Channel', 'Invert Green Channel (Use for DirectX format from OpenGL)'),
-        ]
-    )
-    
-    color_alpha_mode: EnumProperty(
-        name="Color Alpha Channel",
-        description="Controls metal map application to the color texture",
-        items=[
-            ('NONE', "None", "No metal map modification"),
-            ('ALPHA', "Alpha Only", "Adds metal map to alpha channel for use with $color2 (Not Recommended)"),
-            ('RGB_ALPHA', "RGB", "Bakes metal contrast into RGB and adds metal map to alpha"),
-        ],default='RGB_ALPHA')
-    
-    is_npr : BoolProperty(name='Is NPR')
-
-    texture_conversion_mode: EnumProperty(
-        name="Conversion Mode",
-        items=[
-            ('PSEUDOPBR', "Pseudo-PBR", "Convert PBR to Source Engine Phong (PseudoPBR)"),
-            ('PBR', "Source-PBR", "Convert to simple PBR format (_color, _mrao, _normal)"),
-            ('SOURCE2PBR', "Source2-PBR", "Convert to Source2 PBR format (_color, _rough, _metal, _ao)"),
-            ('NPR', "Toon-Specular", "Convert to common specular only toon shading (Genshin, Umamusume, etc..)")
-        ],default='PSEUDOPBR')
-    
-    adjust_for_albedoboost: BoolProperty(name='Adjust for AlbedoBoost', default=False)
-    albedoboost_factor: FloatProperty(name='AlbedoBoost Factor', default=1.4, min=0.0, soft_max=2, max=5, precision=4)
 
 class BakeNodeItem(PropertyGroup):
     node_name: StringProperty(name="Node Name")
@@ -430,12 +347,6 @@ class ValveSource_SceneProps(PropertyGroup):
     
     visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
-    
-    smd_materials_index : IntProperty(get=lambda self: -1,set=lambda self, context: None,default=-1)
-    
-    texture_conversion_items : CollectionProperty(type=TextureConversionItem)
-    texture_conversion_active_index : IntProperty(default=-1)
-    texture_conversion_export_path: StringProperty(name="Default Export Path", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
     node_baker_export_dir: StringProperty(name="Export Dir", default="//textures\\", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
@@ -565,7 +476,6 @@ _classes = (
     FlexControllerItem,
     HumanoidArmatureMap,
     VertexAnimation,
-    TextureConversionItem,
     BakeNodeItem,
     
     # Material Classes
@@ -663,7 +573,6 @@ _classes = (
     bone.TOOLS_OT_SplitActiveWeightLinear,
     bone.TOOLS_OT_align_bone_to_axis,
     bone.TOOLS_OT_CopySourceBoneProps,
-    bone.TOOLS_OT_SetParentBone,
     bone.TOOLS_OT_mirror_by_position,
 
     # Mesh Tools

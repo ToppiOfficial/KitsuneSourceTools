@@ -34,22 +34,39 @@ _undo_depth = 0
 def _undo_guard():
     global _undo_depth
     ctx = bpy.context
+
     if _undo_depth == 0:
         _undo_enabled = ctx.preferences.edit.use_global_undo
         ctx.preferences.edit.use_global_undo = False
+        # bruh
+        was_in_edit = ctx.mode in ('EDIT_MESH', 'EDIT_ARMATURE', 'EDIT_CURVE', 'EDIT_SURFACE', 'EDIT_METABALL', 'EDIT_TEXT', 'EDIT_LATTICE')
+        active_obj = ctx.view_layer.objects.active
+    else:
+        was_in_edit = False
+        active_obj = None
+
     _undo_depth += 1
     try:
         yield
     except Exception:
-        _undo_depth = 0  # force reset on unexpected error
+        _undo_depth = 0
         ctx.preferences.edit.use_global_undo = True
         raise
     finally:
         if _undo_depth > 0:
             _undo_depth -= 1
         if _undo_depth == 0:
-            bpy.ops.ed.undo_push(message="Kitsune Operation")
+            if was_in_edit and active_obj and active_obj.name in bpy.data.objects:
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                    bpy.ops.ed.undo_push(message="Kitsune Operation")
+                    bpy.ops.object.mode_set(mode='EDIT')
+                except RuntimeError:
+                    bpy.ops.ed.undo_push(message="Kitsune Operation")
+            else:
+                bpy.ops.ed.undo_push(message="Kitsune Operation")
             ctx.preferences.edit.use_global_undo = _undo_enabled
+
 
 @contextmanager
 def unhide_all_objects():

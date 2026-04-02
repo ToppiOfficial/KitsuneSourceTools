@@ -1021,40 +1021,6 @@ class TOOLS_OT_CopySourceBoneProps(Operator):
         return {'FINISHED'}
     
 
-class TOOLS_OT_SetParentBone(Operator):
-    bl_idname = "kitsunetools.set_bone_parent"
-    bl_label = "Bone (Edit Bone)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    @classmethod
-    def poll(cls, context):
-        return bool(context.mode == 'POSE' and context.active_pose_bone is not None and len(context.selected_pose_bones) > 1)
-    
-    def execute(self, context) -> set:
-        active_object = get_armature(context.active_object)
-        active_pose_bone = context.active_pose_bone
-
-        active_bone_name = active_pose_bone.name
-        other_selected_bones = [pb.name for pb in context.selected_pose_bones if pb != active_pose_bone]
-        reparent_count = 0
-        
-        with preserve_context_mode(active_object, 'EDIT'), preserve_armature_state(active_object, reset_pose=False):
-            active_editbone = active_object.data.edit_bones.get(active_bone_name)
-            if active_editbone:
-                for bonename in other_selected_bones:
-                    editbone = active_object.data.edit_bones.get(bonename)
-                    if editbone:
-                        editbone.parent = active_editbone
-                        reparent_count += 1
-
-        if reparent_count > 0:
-            self.report({'INFO'}, f'Reparented {reparent_count} bones')
-        else:
-            self.report({'WARNING'}, 'No bones to reparent')
-
-        return {'FINISHED'}
-    
-
 class TOOLS_OT_mirror_by_position(Operator):
     bl_idname = "kitsunetools.mirror_by_position"
     bl_label = "Mirror Pose by Position"
