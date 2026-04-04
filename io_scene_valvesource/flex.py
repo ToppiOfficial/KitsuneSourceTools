@@ -20,8 +20,7 @@
 
 import bpy, re
 from . import datamodel, utils
-from .utils import get_id, getCorrectiveShapeSeparator
-from .kitsunetools.meshutils import get_flexcontrollers
+from .utils import get_id, getCorrectiveShapeSeparator, get_flexcontrollers
 
 class DmxWriteFlexControllers(bpy.types.Operator):
     bl_idname = "export_scene.dmx_flex_controller"
@@ -129,7 +128,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
 
         return dm
 
-    def execute(self, context):
+    def execute(self, context) -> set:
         utils.State.update_scene()
 
         id = context.object

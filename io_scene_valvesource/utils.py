@@ -18,14 +18,17 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils, re, math
+import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils, re, math, bmesh
+from typing import Optional, Any
 from bpy.app.translations import pgettext
+from contextlib import contextmanager
 from bpy.app.handlers import depsgraph_update_post, load_post, persistent
 from mathutils import Matrix, Vector
 from math import radians, pi, ceil
 from io import TextIOWrapper
 from . import datamodel
 from . import keyvalue3
+import numpy as np
 
 intsize = struct.calcsize("i")
 floatsize = struct.calcsize("f")
@@ -53,6 +56,19 @@ FLEX = 0x6 # $model VTA
 
 mesh_compatible = ('MESH', 'TEXT', 'FONT', 'SURFACE', 'META', 'CURVE')
 shape_types = ('MESH' , 'SURFACE', 'CURVE')
+MODE_MAP = {
+    "OBJECT": "OBJECT",
+    "EDIT_ARMATURE": "EDIT",
+    "POSE": "POSE",
+    "EDIT_MESH": "EDIT",
+    "SCULPT": "SCULPT",
+    "VERTEX_PAINT": "VERTEX_PAINT",
+    "PAINT_VERTEX": "VERTEX_PAINT",
+    "PAINT_WEIGHT": "WEIGHT_PAINT",
+    "WEIGHT_PAINT": "WEIGHT_PAINT",
+    "PAINT_TEXTURE": "TEXTURE_PAINT",
+    "TEXTURE_PAINT": "TEXTURE_PAINT"
+}
 
 exportable_types = list((*mesh_compatible, 'ARMATURE'))
 exportable_types = tuple(exportable_types)
@@ -62,13 +78,14 @@ axes_forward = (('-X','-X',''),('-Y','-Y',''),('-Z','-Z',''),('X','X',''),('Y','
 axes_lookup = { 'X':0, 'Y':1, 'Z':2 }
 axes_lookup_source2 = { 'X':1, 'Y':2, 'Z':3 }
 
-image_channels = [
-    ('GREY', 'BW', 'The image is a greyscale mask. (Only the red channel is used)'),
-    ('R', 'Red', ''),
-    ('G', 'Green', ''),
-    ('B', 'Blue', ''),
-    ('A', 'Alpha', ''),
-]
+bonename_direction_map = {
+    '.L': '.R', '_L': '_R', 'Left': 'Right', '_Left': '_Right', '.Left': '.Right', 'L_': 'R_', 'L.': 'R.', 'L ': 'R ',
+    '.R': '.L', '_R': '_L', 'Right': 'Left', '_Right': '_Left', '.Right': '.Left', 'R_': 'L_', 'R.': 'L.', 'R ': 'L '
+}
+
+exportname_shortcut_keywords = {
+    "vbip": "ValveBiped.Bip01"
+}
 
 hitbox_group = [
     ('0', 'Generic', 'the default group of hitboxes, appears White in HLMV'),
@@ -82,36 +99,9 @@ hitbox_group = [
     ('8', 'Neck', 'Used for human neck (to fix penetration to head from behind), appears Orange in HLMV (In all games since CS:GO)'),
 ]
 
-resolutions = [
-    ('8', '8', ''),
-    ('16', '16', ''),
-    ('32', '32', ''),
-    ('128', '128', ''),
-    ('256', '256', ''),
-    ('512', '512', ''),
-    ('1024', '1024', ''),
-    ('2048', '2048', ''),
-    ('4096', '4096', ''),
-]
-
-color_space = [
-    ('sRGB', 'sRGB (Color)', ''),
-    ('Non-Color', 'Non-Color (Data)', '')
-]
-
-_bone_merging_options_base = [
-    ('DEFAULT', 'Default', 'Merge bones and remove target bone and weights', 'NONE', 0),
-    ('KEEP_BONE', 'Keep Bone', 'Keep target bone but merge weights', 'BONE_DATA', 1),
-    ('KEEP_BOTH', 'Keep Both', 'Keep target bone and original weights', 'COPYDOWN', 2),
-]
-
-bone_merging_options_parent = _bone_merging_options_base + [
-    ('SNAP_PARENT', 'Snap Parent Tip', 'Re-align parent tip when merging to parent', 'SNAP_ON', 3),
-]
-
-bone_merging_options_active = _bone_merging_options_base + [
-    ('CENTRALIZE', 'Centralize', 'Centralize bone position between source and target', 'PIVOT_MEDIAN', 3),
-]
+exportname_shortcut_keywords = {
+    "vbip": "ValveBiped.Bip01"
+}
 
 class ExportFormat:
     SMD = 1
@@ -486,6 +476,7 @@ def isWild(in_str):
 # rounds to 6 decimal places, converts between "1e-5" and "0.000001", outputs str
 def getSmdFloat(fval):
     return "{:.6f}".format(float(fval))
+
 def getSmdVec(iterable):
     return " ".join([getSmdFloat(val) for val in iterable])
 
@@ -580,6 +571,32 @@ def MakeObjectIcon(object,prefix=None,suffix=None):
 def getObExportName(ob):
     return ob.name
 
+def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str, str]]:
+    """Return list of (shapekey, eyelid, stereo, raw_delta, controller_name) from object,
+    only including entries with a valid controller name. Shapekey is optional."""
+    
+    if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
+        return []
+
+    valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
+    
+    result = []
+    
+    for fc in ob.vs.dme_flexcontrollers:
+        controller_name = fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else ""
+        
+        if not controller_name:
+            if not fc.shapekey or fc.shapekey not in valid_keys:
+                continue
+            controller_name = fc.shapekey
+        
+        shapekey = fc.shapekey if fc.shapekey and fc.shapekey in valid_keys else ""
+        delta_name = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else shapekey
+        
+        result.append((shapekey, fc.eyelid, fc.stereo, delta_name, controller_name))
+    
+    return result
+
 def removeObject(obj):
     d = obj.data
     type = obj.type
@@ -623,7 +640,7 @@ def hasShapes(id, valid_only = True):
         return _test(id)
 
 def countShapes(*objects):
-    from .kitsunetools.meshutils import get_flexcontrollers
+    from .flex import get_flexcontrollers
     
     num_shapes = 0
     num_correctives = 0
@@ -662,6 +679,9 @@ def hasCurves(id):
         return False
     else:
         return _test(id)
+
+def is_mesh_compatible(ob : bpy.types.Object | None) -> bool:
+    return bool(ob and hasattr(ob,'type') and ob.type in mesh_compatible)
 
 def valvesource_vertex_maps(id) -> set[str]:
     """Returns all vertex colour maps which are recognised by the Tools."""
@@ -823,6 +843,80 @@ def make_export_list(scene : bpy.types.Scene):
                 i.icon = i_icon
                 i.obj = ob
 
+def update_vmdl_container(container_class: str, nodes: list[keyvalue3.KVNode] | keyvalue3.KVNode, export_path: str | None = None,
+                          to_clipboard: bool = False) -> keyvalue3.KVDocument | bool:
+    """
+    Insert or update node(s) into a container inside a KV3 RootNode.
+    Folders are overwritten if they exist; other nodes are appended.
+
+    Args:
+        container_class: _class of container (e.g., "JiggleBoneList" or "AnimConstraintList"/"ScratchArea").
+        nodes: Single KVNode or list of KVNodes to insert.
+        export_path: Filepath to load existing KV3 document if not clipboard.
+        to_clipboard: If True, uses ScratchArea container instead of a file.
+
+    Returns:
+        KVDocument ready for writing or clipboard.
+    """
+
+    def open_and_parse_vmdl(filepath: str) -> keyvalue3.KVNode | None:
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            return None
+        
+        try:
+            parser = keyvalue3.KVParser(text)
+            doc = parser.parse()
+
+            root_node = doc.roots.get("rootNode")
+            if not root_node or root_node.properties.get("_class") != "RootNode":
+                return None
+            return root_node
+
+        except Exception:
+            return None
+
+    if not isinstance(nodes, list):
+        nodes = [nodes]
+
+    root = None
+    if to_clipboard:
+        root = keyvalue3.KVNode(_class="RootNode")
+    else:
+        if export_path and os.path.exists(export_path):
+            root = keyvalue3.open_and_parse_vmdl(export_path)
+
+            if root is None:
+                return False
+        else:
+            root = keyvalue3.KVNode(_class="RootNode")
+
+    container = root.get(_class=container_class)
+    if not container:
+        container = keyvalue3.KVNode(_class=container_class)
+        root.add_child(container)
+
+    for node in nodes:
+        node_name = node.properties.get("name")
+        if node_name:
+            existing = next(
+                (c for c in container.children if c.properties.get("name") == node_name and c.properties.get("_class") == node.properties.get("_class")),
+                None
+            )
+            if existing:
+                existing.children.clear()
+                for child in node.children:
+                    existing.add_child(child)
+                continue
+
+        container.add_child(node)
+
+    kv_doc = keyvalue3.KVDocument()
+    kv_doc.add_root("rootNode", root)
+    return kv_doc
+
 class Logger:
     def __init__(self):
         self.log_warnings = []
@@ -944,32 +1038,256 @@ class SMD_OT_LaunchHLMV(bpy.types.Operator):
         subprocess.Popen(args)
         return {'FINISHED'}
 
-def get_filepath(path: str | None):
-    if not path or not isinstance(path, str):
-        raise ValueError(f"Invalid path: {path!r}")
+#   ---------------------------------
+#
+#   ADDITIONAL FUNCTIONS (IMPORTED DIRECTLY FROM KITSUNETOOLS)
+#
+#   ---------------------------------
 
-    path = path.replace("\\", "/")
-    path = path.replace("//..", "//../")
+#
+#   CONTEXT MANAGERS
+#
 
-    export_path = bpy.path.abspath(path)
-    if not export_path:
-        raise ValueError(f"bpy.path.abspath() failed to resolve: {path!r}")
+_undo_depth = 0
 
-    filename = os.path.basename(export_path)
-    root, ext = os.path.splitext(filename)
-    return export_path, filename, ext
+@contextmanager
+def _undo_guard():
+    global _undo_depth
+    ctx = bpy.context
 
+    if _undo_depth == 0:
+        _undo_enabled = ctx.preferences.edit.use_global_undo
+        ctx.preferences.edit.use_global_undo = False
+        # bruh
+        was_in_edit = ctx.mode in ('EDIT_MESH', 'EDIT_ARMATURE', 'EDIT_CURVE', 'EDIT_SURFACE', 'EDIT_METABALL', 'EDIT_TEXT', 'EDIT_LATTICE')
+        active_obj = ctx.view_layer.objects.active
+    else:
+        was_in_edit = False
+        active_obj = None
 
-def get_smd_prefab_enum(self, context):
-    prefabs = context.scene.vs.smd_prefabs
-    items = []
-    for i, p in enumerate(prefabs):
-        filepath = str(p.filepath)
-        if filepath:
-            filepath = bpy.path.abspath(filepath)
-        label = os.path.basename(filepath) or f"Prefab {i+1}"
-        items.append((str(i), label, ""))
-    return items
+    _undo_depth += 1
+    try:
+        yield
+    except Exception:
+        _undo_depth = 0
+        ctx.preferences.edit.use_global_undo = True
+        raise
+    finally:
+        if _undo_depth > 0:
+            _undo_depth -= 1
+        if _undo_depth == 0:
+            if was_in_edit and active_obj and active_obj.name in bpy.data.objects:
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                    bpy.ops.ed.undo_push(message="Kitsune Operation")
+                    bpy.ops.object.mode_set(mode='EDIT')
+                except RuntimeError:
+                    bpy.ops.ed.undo_push(message="Kitsune Operation")
+            else:
+                bpy.ops.ed.undo_push(message="Kitsune Operation")
+            ctx.preferences.edit.use_global_undo = _undo_enabled
+
+@contextmanager
+def preserve_context_mode(obj: bpy.types.Object | None = None, mode: str = "EDIT"):
+    with _undo_guard():
+        ctx = bpy.context
+        view_layer = ctx.view_layer
+ 
+        prev_selected = list(view_layer.objects.selected)
+        prev_active = view_layer.objects.active
+        prev_mode = ctx.mode
+        prev_vgroup_index = None
+        prev_bone_name = None
+        prev_bone_mode = None
+        prev_bone_selected = None
+ 
+        target_obj = obj or prev_active
+ 
+        if target_obj:
+            if target_obj.type == "MESH":
+                prev_vgroup_index = target_obj.vertex_groups.active_index
+            elif target_obj.type == "ARMATURE":
+                data = target_obj.data
+                if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
+                    prev_bone_name = data.edit_bones.active.name
+                    prev_bone_mode = "EDIT"
+                    prev_bone_selected = data.edit_bones.active.select
+                elif prev_mode == "POSE" and data.bones.active:
+                    prev_bone_name = data.bones.active.name
+                    prev_bone_mode = "POSE"
+                    prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
+ 
+        if target_obj and target_obj.name in bpy.data.objects:
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except RuntimeError:
+                pass
+ 
+            view_layer.objects.active = target_obj
+            target_obj.select_set(True)
+ 
+            try:
+                bpy.ops.object.mode_set(mode=mode)
+            except RuntimeError:
+                pass
+ 
+        try:
+            if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
+                yield target_obj.data.edit_bones
+            elif mode == "POSE" and target_obj and target_obj.type == "ARMATURE":
+                yield target_obj.pose.bones
+            else:
+                yield target_obj
+        finally:
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except RuntimeError:
+                pass
+ 
+            bpy.ops.object.select_all(action="DESELECT")
+            for sel in prev_selected:
+                try:
+                    if sel and sel.name in bpy.data.objects and sel.name in view_layer.objects:
+                        sel.select_set(True)
+                except ReferenceError:
+                    pass
+ 
+            if prev_active:
+                try:
+                    if prev_active.name in bpy.data.objects and prev_active.name in view_layer.objects:
+                        view_layer.objects.active = prev_active
+                except ReferenceError:
+                    pass
+ 
+            mapped_mode = MODE_MAP.get(prev_mode, "OBJECT")
+            try:
+                bpy.ops.object.mode_set(mode=mapped_mode)
+            except RuntimeError:
+                if prev_active:
+                    try:
+                        if prev_active.type == "ARMATURE":
+                            bpy.ops.object.mode_set(mode="POSE")
+                        elif prev_active.type == "MESH":
+                            bpy.ops.object.mode_set(mode="OBJECT")
+                    except ReferenceError:
+                        pass
+ 
+            if prev_active:
+                try:
+                    if prev_active.type == "MESH" and prev_vgroup_index is not None:
+                        if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
+                            prev_active.vertex_groups.active_index = prev_vgroup_index
+                    elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
+                        data = prev_active.data
+                        if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
+                            edit_bone = data.edit_bones.get(prev_bone_name)
+                            if edit_bone:
+                                data.edit_bones.active = edit_bone
+                                edit_bone.select = prev_bone_selected
+                        elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
+                            bone = data.bones.get(prev_bone_name)
+                            if bone:
+                                data.bones.active = bone
+                                bone.select = prev_bone_selected
+                except ReferenceError:
+                    pass
+
+#
+#   VERTEX GROUPS
+#
+
+def compute_edgeline_island_weights(id, edgeline_vertexgroup, weight_min=0.3, weight_max=0.8):
+    bm = bmesh.new()
+    bm.from_mesh(id.data)
+
+    islands = []
+    verts_to_visit = set(bm.verts)
+
+    while verts_to_visit:
+        start_v = next(iter(verts_to_visit))
+        island = [start_v]
+        verts_to_visit.remove(start_v)
+        stack = [start_v]
+        while stack:
+            v = stack.pop()
+            for edge in v.link_edges:
+                other_v = edge.other_vert(v)
+                if other_v in verts_to_visit:
+                    verts_to_visit.remove(other_v)
+                    island.append(other_v)
+                    stack.append(other_v)
+        islands.append(island)
+
+    if islands:
+        island_data = []
+        for island_verts in islands:
+            island_set = set(island_verts)
+            size = sum(f.calc_area() for v in island_verts for f in v.link_faces
+                    if all(fv in island_set for fv in f.verts))
+            island_data.append((island_verts, size))
+
+        sizes = [d[1] for d in island_data]
+        min_s, max_s = min(sizes), max(sizes)
+        s_range = max_s - min_s
+
+        for verts, size in island_data:
+            weight = weight_max
+            if s_range > 0:
+                factor = (max_s - size) / s_range
+                weight = weight_min + (factor * (weight_max - weight_min))
+            for v in verts:
+                edgeline_vertexgroup.add([v.index], weight, 'REPLACE')
+
+    bm.free()
+
+def limit_vertexgroup_influence(ob: bpy.types.Object, bone_names: set[str], limit: int = 4):
+    """Keep only the top N weights per vertex."""
+    to_remove = []
+
+    for v in ob.data.vertices:
+        groups = sorted(
+            (g for g in v.groups if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names),
+            key=lambda g: g.weight, reverse=True
+        )
+
+        for g in groups[limit:]:
+            to_remove.append((g.group, v.index))
+
+    for group_idx, vertex_idx in to_remove:
+        if group_idx < len(ob.vertex_groups):
+            vg = ob.vertex_groups[group_idx]
+            vg.remove([vertex_idx])
+
+def normalize_vertexgroup_weights(ob: bpy.types.Object, bone_names: set[str]):
+    """Normalize remaining weights so they sum to 1.0 per vertex."""
+    for v in ob.data.vertices:
+        groups = [
+            (ob.vertex_groups[g.group], g.weight)
+            for g in v.groups
+            if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names
+        ]
+
+        total = sum(weight for _, weight in groups)
+        if total > 0:
+            for vg, weight in groups:
+                vg.add([v.index], weight / total, 'REPLACE')
+
+def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
+    """Full pipeline: clean, limit, normalize."""
+    
+    arm = get_armature(ob)
+    if arm is None:
+        return
+    
+    deform_bones = [b for b in arm.data.bones if b.use_deform]
+    deform_bone_names = {b.name for b in deform_bones}
+    
+    limit_vertexgroup_influence(ob, deform_bone_names, limit=vgroup_limit)
+    normalize_vertexgroup_weights(ob, deform_bone_names)
+    
+#
+#   IMPORT
+#
 
 
 def parse_hitbox_line(line: str):
@@ -1005,7 +1323,6 @@ def import_hitboxes_from_content(content: str, armature : bpy.types.Object, cont
     Import hitboxes from text content containing $hbox lines.
     Returns (created_count, skipped_count, skipped_bones list)
     """
-    from .kitsunetools.boneutils import get_bone_exportname, get_bone_matrix
     
     hitboxes = []
     for line in content.split('\n'):
@@ -1111,8 +1428,6 @@ def import_jigglebones_from_content(content: str, armature: bpy.types.Object) ->
     Import jigglebones from text content containing $jigglebone definitions.
     Returns (imported_count, missing_bones_list)
     """
-    from .kitsunetools.boneutils import get_bone_exportname
-    
     imported_count = 0
     missing_bones = []
     
@@ -1325,7 +1640,6 @@ def import_jigglebones_from_content(content: str, armature: bpy.types.Object) ->
     return imported_count, missing_bones
 
 def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[int, list[str]]:
-    from .kitsunetools.boneutils import get_bone_exportname
     import math
 
     imported_count = 0
@@ -1420,3 +1734,499 @@ def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[i
         vs_bone.jiggle_along_damping = float(props.get('along_damping', 0.0))
 
     return imported_count, missing_bones
+
+
+#
+#   GET
+#
+
+def get_hitboxes(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
+    
+    armature : bpy.types.Object | None = None
+    if ob is None:
+        armature = get_armature()
+    else:
+        armature = get_armature(ob)
+        
+    if armature is None: return []
+    
+    hitboxes = []
+    for ob in bpy.data.objects:
+        if not ob.type == 'EMPTY': continue
+        if ob.empty_display_type != 'CUBE' or not ob.vs.smd_hitbox: continue
+        if ob.parent is not armature or ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
+        
+        hitboxes.append(ob)
+        
+    return hitboxes
+
+def get_jigglebones(ob : bpy.types.Object | None) -> list[bpy.types.Bone | None]:
+    armature = None
+    if ob is None:
+        armature = get_armature()
+    else:
+        armature = get_armature(ob)
+        
+    if armature is None: return []
+    
+    return [b for b in armature.data.bones if b.vs.bone_is_jigglebone]
+
+def get_attachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
+    armature = None
+    if ob is None:
+        armature = get_armature()
+    else:
+        if ob.type == 'ARMATURE':
+            armature = ob
+        else:
+            armature = get_armature(ob)
+        
+    if armature is None: return []
+    
+    attchs = []
+    for ob in bpy.data.objects:
+        if ob.type != 'EMPTY' or ob.parent is None or ob.parent != armature: continue
+        if ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
+        if not ob.vs.dmx_attachment: continue
+        
+        attchs.append(ob)
+        
+    return attchs
+
+def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
+    if isinstance(ob, bpy.types.Object):
+        if ob.type == 'ARMATURE':
+            return ob
+        
+        arm = ob.find_armature()
+        if arm:
+            return arm
+        
+        parent = ob.parent
+        while parent:
+            if parent.type == 'ARMATURE':
+                return parent
+            parent = parent.parent
+        
+        return None
+
+    elif isinstance(ob, bpy.types.Bone):
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and o.data.bones.get(ob.name) == ob:
+                return o
+
+    elif isinstance(ob, bpy.types.EditBone):
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and o.data.edit_bones.get(ob.name) == ob:
+                return o
+
+    elif isinstance(ob, bpy.types.PoseBone):
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and o.pose.bones.get(ob.name) == ob:
+                return o
+
+    else:
+        ctx_obj = bpy.context.active_object
+        if ctx_obj:
+            return get_armature(ctx_obj)
+        return None
+
+def get_selected_bones(armature : bpy.types.Object | None,
+                     bone_type : str = 'BONE',
+                     sort_type : str | None = 'TO_LAST',
+                     exclude_active : bool = False,
+                     select_all : bool = False) -> list[bpy.types.Bone | bpy.types.PoseBone | bpy.types.EditBone | None]:
+    """
+    Returns bones from an armature with optional selection, visibility, and sorting filters.
+
+    Args:
+        armature (bpy.types.Object): Target armature object (must be type 'ARMATURE').
+        bone_type (str, optional): Type of bones to return: 'BONE', 'EDITBONE', or 'POSEBONE'. 
+                                   If invalid, it is inferred from the current mode.
+        sort_type (str, optional): Sorting order: 'TO_LAST' (default), 'TO_FIRST', or no sorting.
+        exclude_active (bool, optional): If True, exclude the active bone from the result.
+        select_all (bool, optional): If True, ignore selection and visibility filters.
+
+    Returns:
+        list[bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone]:
+            A list of bone objects based on the filters applied.
+
+    Notes:
+        - Selection is checked in OBJECT mode.
+        - If any bone collections are soloed, only those bones are returned.
+        - If none are soloed, only bones from visible collections are included.
+    """
+    if not is_armature(armature): return []
+    
+    if bone_type not in ['BONE', 'EDITBONE', 'POSEBONE']:
+        if armature.mode == 'EDIT': bone_type = 'EDITBONE'
+        elif armature.mode == 'POSE': bone_type = 'POSEBONE'
+        else: bone_type = 'BONE'
+        
+    if sort_type is None: sort_type = ''
+    
+    # we can evaluate the selected bones through object mode
+    with preserve_context_mode(armature, 'OBJECT'): 
+        selectedBones = []
+        
+        armatureBones = armature.data.bones
+        armatureBoneCollections = armature.data.collections_all
+        
+        solo_BoneCollections = [col for col in armatureBoneCollections if col.is_solo]
+        
+        if exclude_active and armature.data.bones.active is not None:
+            active_name = armature.data.bones.active.name
+            armatureBones = [b for b in armatureBones if b.name != active_name]
+            
+        if sort_type in ['TO_LAST', 'TO_FIRST']:
+            armatureBones = sort_bone_by_hierarchy(armatureBones)
+            
+            if sort_type == 'TO_FIRST':
+                armatureBones.reverse()
+        
+        for bone in armatureBones:
+            if not select_all:
+                if bone.hide_select or not bone.select:
+                    continue
+                    
+                if armatureBoneCollections and bone.collections:
+                    boneCollections = bone.collections
+                    # If there are solo collections, skip bones not in any of them
+                    if solo_BoneCollections:
+                        if not any(col in solo_BoneCollections for col in boneCollections):
+                            continue
+                    else:
+                        # If no solo mode, skip bones in hidden collections
+                        if not any(col.is_visible for col in boneCollections):
+                            continue
+
+            selectedBones.append(bone.name)
+    
+    if bone_type == 'POSEBONE': return [armature.pose.bones.get(b) for b in selectedBones]
+    if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in selectedBones]
+    else: return [armature.data.bones.get(b) for b in selectedBones]
+
+def get_collection_parent(ob, scene) -> bpy.types.Collection | None:
+    for collection in scene.collection.children_recursive:
+        if ob.name in collection.objects:
+            return collection
+    
+    if ob.name in scene.collection.objects:
+        return None
+    
+    return None
+
+def get_valid_vertexanimation_object(ob : bpy.types.Object | None) -> bpy.types.Object | bpy.types.Collection | None:
+    if not is_mesh_compatible(ob): return None
+    
+    collection = get_collection_parent(ob, bpy.context.scene)
+    if collection is None or collection.vs.mute: return ob
+    else: return collection
+
+#
+#   DATA
+#
+
+def sanitize_string(data: typing.Union[str, list], allow_unicode: bool = False) -> typing.Union[str, list]:
+    if isinstance(data, list):
+        return [sanitize_string(item, allow_unicode) for item in data]
+
+    _data = data.strip()
+
+    if State.compiler == Compiler.MODELDOC and not allow_unicode:
+        _data = re.sub(r'[^a-zA-Z0-9_]+', '_', _data)
+    else:
+        _data = re.sub(r'[^\w.]+', '_', _data, flags=re.UNICODE)
+
+    _data = re.sub(r'_+', '_', _data)
+    _data = _data.strip('_')
+
+    if not _data:
+        return 'unnamed'
+
+    return _data
+
+def sort_bone_by_hierarchy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
+    bone_set = set(bones)
+    sorted_bones = []
+    visited = set()
+    
+    def dfs(bone):
+        if bone in visited or bone not in bone_set:
+            return
+        visited.add(bone)
+        sorted_bones.append(bone)
+        
+        for child in sorted(bone.children, key=lambda b: b.name):
+            if child in bone_set:
+                dfs(child)
+    
+    roots = [b for b in bone_set if b.parent is None or b.parent not in bone_set]
+    
+    for root in sorted(roots, key=lambda b: b.name):
+        dfs(root)
+    
+    return sorted_bones
+
+def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_write = False) -> str:
+    """Generate the export name for a bone or posebone, respecting custom naming rules."""
+    
+    if bone is None: 
+        return "None"
+    elif not isinstance(bone, (bpy.types.Bone, bpy.types.PoseBone)):
+        return bone.name if hasattr(bone, "name") else str(bone)
+
+    data_bone = bone.bone if isinstance(bone, bpy.types.PoseBone) else bone
+    armature = get_armature(data_bone)
+    
+    if armature is None: 
+        return bone.name
+    
+    arm_prop = armature.data.vs
+    
+    if arm_prop.ignore_bone_exportnames and not for_write:
+        return bone.name
+
+    def get_bone_side(b: bpy.types.Bone) -> str:
+        bone_x = b.matrix_local.to_translation().x
+        return (arm_prop.bone_direction_naming_right if bone_x < 0 
+                else arm_prop.bone_direction_naming_left)
+
+    ordered_bones = sort_bone_by_hierarchy(armature.data.bones)
+    name_count = collections.defaultdict(lambda: arm_prop.bone_name_startcount)
+    export_names = {}
+
+    for b in ordered_bones:
+        b_side = get_bone_side(b)
+        raw_name = b.vs.export_name.strip() or b.name
+        raw_name = raw_name.replace("*", b_side)
+
+        shortcut_pattern = re.compile(r"!(\w+)")
+        raw_name = shortcut_pattern.sub(
+            lambda match: exportname_shortcut_keywords.get(match.group(1), match.group(0)),
+            raw_name
+        )
+
+        if "$" in raw_name:
+            key = (raw_name, b_side)
+            final_name = raw_name.replace("$", str(name_count[key])).strip()
+            name_count[key] += 1
+        else:
+            final_name = raw_name
+
+        final_name = sanitize_string(final_name)
+        export_names[b.name] = final_name
+
+    return export_names[data_bone.name]
+
+def get_canonical_bonename(export_name: str) -> str:
+    """Convert an exported bone name back to its canonical form:
+       - Replaces directional markers with ' * '
+       - Converts expanded shortcut names back to '!shortcut!' form
+       - Converts underscores to spaces
+       - Collapses multiple spaces into a single space
+    """
+    # Reverse shortcut expansion
+    reversed_shortcuts = {v: k for k, v in exportname_shortcut_keywords.items()}
+    for full, shortcut in reversed_shortcuts.items():
+        export_name = export_name.replace(full, f"!{shortcut}!")
+
+    for k, v in bonename_direction_map.items():
+        export_name = export_name.replace(k, " * ")
+
+
+    export_name = export_name.replace("_", " ")
+    export_name = re.sub(r'\s+', ' ', export_name).strip()
+
+    return export_name
+
+def get_bone_matrix(data: bpy.types.PoseBone | mathutils.Matrix, bone: bpy.types.PoseBone | None = None,
+                    rest_space : bool = False) -> mathutils.Matrix:
+    """
+    Returns the effective matrix of a PoseBone or matrix with applied export offsets.
+
+    Args:
+        data: PoseBone or a 4x4 Matrix.
+        bone: Optional PoseBone reference (required for offset properties).
+              If not provided and `data` is a PoseBone, it's automatically used.
+
+    Returns:
+        Matrix: The final transform matrix with translation and rotation offsets applied.
+    """
+    # Resolve matrix and bone
+    if isinstance(data, bpy.types.PoseBone):
+        matrix = data.matrix if not rest_space else data.bone.matrix_local
+        bone = data
+    elif isinstance(data, mathutils.Matrix):
+        matrix = data
+
+    if bone is None:
+        return matrix
+
+    b_props = bone.bone.vs
+
+    # Rotation offsets
+    rot_x = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_x
+    rot_y = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_y
+    rot_z = 0.0 if b_props.ignore_rotation_offset else b_props.export_rotation_offset_z
+
+    rot_offset_matrix = (
+        mathutils.Matrix.Rotation(rot_z, 4, 'Z') @ # type: ignore
+        mathutils.Matrix.Rotation(rot_y, 4, 'Y') @ # type: ignore
+        mathutils.Matrix.Rotation(rot_x, 4, 'X')  # type: ignore
+    )
+
+    # Location offsets
+    loc_x = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_x
+    loc_y = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_y
+    loc_z = 0.0 if b_props.ignore_location_offset else b_props.export_location_offset_z
+
+    loc_offset_matrix = mathutils.Matrix.Translation((loc_x, loc_y, loc_z))
+
+    # Translation after rotation
+    offset_matrix = loc_offset_matrix @ rot_offset_matrix
+
+    # Apply offsets in bone space
+    return matrix @ offset_matrix
+
+def get_relative_target_matrix( slave: bpy.types.PoseBone, master: bpy.types.PoseBone | None = None, axis: str = 'XYZ',
+                               mode: str = 'ROTATION', is_string: bool = False, rest_space : bool = True) -> typing.Union[list[float], str]:
+    """
+    Returns relative translation or rotation of `slave` to `master`.
+
+    Args:
+        slave: PoseBone - the bone to measure.
+        master: PoseBone - optional reference bone. If None, uses armature space.
+        axis: str - which axes to include (default: 'XYZ').
+        mode: str - 'LOCATION' or 'ROTATION'.
+        is_string: bool - if True, returns space-separated string.
+
+    Returns:
+        list[float] or str: relative location or rotation
+    """
+    try:
+        # Get the matrices (pose space)
+        slave_matrix = get_bone_matrix(slave, rest_space=rest_space)
+        master_matrix = get_bone_matrix(master, rest_space=rest_space) if master else mathutils.Matrix.Identity(4)
+
+        # Compute relative matrix: master → slave
+        local_offset = master_matrix.inverted_safe() @ slave_matrix
+
+        # Convert to rotation or location
+        if mode.upper() == 'ROTATION':
+            euler = local_offset.to_euler()
+            values = [
+                math.degrees(euler.x),
+                math.degrees(euler.y),
+                math.degrees(euler.z)
+            ]
+        elif mode.upper() == 'LOCATION':
+            translation = local_offset.to_translation()
+            values = [translation.x, translation.y, translation.z]
+        else:
+            raise ValueError("mode must be 'LOCATION' or 'ROTATION'")
+
+        # Filter only selected axes
+        axis_map = {'X': values[0], 'Y': values[1], 'Z': values[2]}
+        result = [axis_map[a] for a in axis if a in axis_map]
+
+        return " ".join(f"{v:.6f}" for v in result) if is_string else result
+
+    except Exception:
+        return "0.0 0.0 0.0" if is_string else [0.0, 0.0, 0.0]
+
+
+#
+#   BOOL
+#
+
+def is_mesh(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'MESH'
+
+def is_armature(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'ARMATURE'
+
+def is_empty(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'EMPTY'
+
+def is_curve(ob : bpy.types.Object | None) -> bool:
+    return ob is not None and ob.type == 'CURVE'
+     
+#
+#   OBJECT MODIFIERS
+#
+
+def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
+                execution_context: Optional[str] = None, undo: Optional[bool] = None, **operator_args) -> set[str]:
+    """Call a Blender operator with a context override."""
+    args = []
+    if execution_context is not None:
+        args.append(execution_context)
+    if undo is not None:
+        args.append(undo)
+
+    if context is None:
+        context = bpy.context
+    with context.temp_override(**context_override):
+        return operator(*args, **operator_args)
+
+def apply_modifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
+    ob: bpy.types.Object | None = mod.id_data
+    if ob is None or ob.type != 'MESH':
+        return False
+    
+    bpy.context.view_layer.objects.active = ob
+    ob.select_set(True)
+
+    name = mod.name
+    m_type = mod.type
+
+    # Strict mode: deny applying if shapekeys exist
+    if strict and ob.data.shape_keys:
+        if not silent: 
+            print(f"- Skipping {name} ({m_type}) on {ob.name}: object has shapekeys (strict mode).")
+        return False
+
+    if not strict and ob.data.shape_keys:
+        if not silent: 
+            print(f"- Applying modifier {name} ({m_type}) with shapekeys on {ob.name}")
+
+        # Backup shapekeys
+        shape_keys = {sk.name: [v.co.copy() for v in sk.data] 
+                      for sk in ob.data.shape_keys.key_blocks}
+
+        # Remove all shapekeys but preserve final shape
+        context_override = {'object': ob, 'active_object': ob}
+        op_override(bpy.ops.object.shape_key_remove, context_override, all=True, apply_mix=True)
+
+        while ob.modifiers[0] != mod:
+            bpy.ops.object.modifier_move_up(modifier=mod.name)
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+
+        # Restore shapekeys only if vertex count unchanged
+        if all(len(coords) == len(ob.data.vertices) for coords in shape_keys.values()):
+            for sk_name, coords in shape_keys.items():
+                new_sk = ob.shape_key_add(name=sk_name, from_mix=False)
+                for i, coord in enumerate(coords):
+                    new_sk.data[i].co = coord
+            if not silent: 
+                print(f"- Successfully applied {name} ({m_type}) with shapekeys preserved.")
+        else:
+            if not silent: 
+                print(f"- Modifier {name} changed topology, shapekeys could not be restored.")
+
+        return True
+
+    # No shapekeys — apply normally
+    while ob.modifiers[0] != mod:
+        bpy.ops.object.modifier_move_up(modifier=mod.name)
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+
+    if name not in ob.modifiers:
+        if not silent: 
+            print(f"- Pre-Applied Modifier {name} ({m_type}) for Object '{ob.name}'")
+        return True
+    else:
+        if not silent: 
+            print(f"- Failed to apply {name} ({m_type}) for Object '{ob.name}'")
+        return False

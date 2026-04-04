@@ -37,9 +37,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-from . import datamodel, import_smd, export_smd, flex, GUI
-from .kitsunetools import armatureutils, boneutils, commonutils, meshutils, objectutils, shadernodesutils
-from .kitsuneui import developer, common, humanoid_armature_map, objectdata, properties, animation, vertexgroup, armature, mesh, bone, nodebaker
+from . import datamodel, import_smd, export_smd, flex, GUI, humanoid_armature_mapper
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -109,11 +107,11 @@ def on_flexcontroller_index_changed(self, context):
         mesh.active_shape_key_index = sk_idx
 
 def draw_copy_armature_map(self, context):
-    self.layout.operator(humanoid_armature_map.HUMANOIDARMATUREMAP_OT_CopyToSelected.bl_idname)
+    self.layout.operator(humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_CopyToSelected.bl_idname)
 
 def draw_copy_bone_props(self, context):
-    self.layout.operator(bone.TOOLS_OT_CopySourceBoneProps.bl_idname)
-    self.layout.operator(properties.SMD_OT_Copy_Jigglebone_Properties.bl_idname)
+    self.layout.operator(GUI.TOOLS_OT_CopySourceBoneProps.bl_idname)
+    self.layout.operator(GUI.SMD_OT_Copy_Jigglebone_Properties.bl_idname)
 
 #
 # Property Groups
@@ -139,6 +137,12 @@ class FlexControllerItem(PropertyGroup):
     eyelid : BoolProperty(name='Eyelid')
     stereo : BoolProperty(name='Stereo')
 
+class VertexAnimation(PropertyGroup):
+    name : StringProperty(name="Name",default="VertexAnim")
+    start : IntProperty(name="Start",description=get_id("vca_start_tip"),default=0)
+    end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
+    export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
+
 class HumanoidArmatureMap(PropertyGroup):
     boneExportName : StringProperty(
         name='Bone',
@@ -161,32 +165,6 @@ class HumanoidArmatureMap(PropertyGroup):
     twistBoneCount : IntProperty(name='TwistBone Count', default=1, min=1, soft_max=5)
     writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=True)
     parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
-
-class VertexAnimation(PropertyGroup):
-    name : StringProperty(name="Name",default="VertexAnim")
-    start : IntProperty(name="Start",description=get_id("vca_start_tip"),default=0)
-    end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
-    export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
-
-class BakeNodeItem(PropertyGroup):
-    node_name: StringProperty(name="Node Name")
-    name: StringProperty(name="Suffix", default="")
-    socket_index: EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
-    has_alpha_channel : BoolProperty(name="Has Alpha Channel", default=False)
-    alpha_socket_index : EnumProperty(name="Output", items=shadernodesutils._get_socket_items)
-
-    sync_y_with_x: BoolProperty(name="Sync Resolution", default=True)
-    resolution_x: EnumProperty(name="X Resolution",items=resolutions,default='2048')
-    resolution_y: EnumProperty(name="Y Resolution",items=resolutions,default='2048')
-
-    color_space: EnumProperty(name="Type",items=color_space,default='Non-Color')
-
-    def get_node(self):
-        mat = self.id_data
-        if isinstance(mat, bpy.types.Material) and mat.node_tree:
-            return mat.node_tree.nodes.get(self.node_name)
-        return None
-
 
 # Base/Utility Classes
 class ValveSource_FloatMapRemap(PropertyGroup):
@@ -308,14 +286,9 @@ class ValveSource_TextProps(CurveTypeProps,PropertyGroup):
 class ValveSource_SceneProps(PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"),description=get_id("exportroot_tip"), subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     engine_path : StringProperty(name=get_id("engine_path"),description=get_id("engine_path_tip"), subtype='DIR_PATH',update=State.onEnginePathChanged)
-    
+
     dmx_encoding : EnumProperty(name=get_id("dmx_encoding"),description=get_id("dmx_encoding_tip"),items=tuple(encodings),default='2')
     dmx_format : EnumProperty(name=get_id("dmx_format"),description=get_id("dmx_format_tip"),items=tuple(formats),default='1')
-    
-    kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', default='kitsuneresource.exe')
-    kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
-    kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    kitsuneresource_args : StringProperty(name='Arguments', default='-game -log -keep-flat-qc')
 
     export_format : EnumProperty(name=get_id("export_format"),items=[ ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ],default='DMX')
     up_axis : EnumProperty(name=get_id("up_axis"),items=axes,default='Z',description=get_id("up_axis_tip"))
@@ -335,22 +308,14 @@ class ValveSource_SceneProps(PropertyGroup):
     vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=3,max=32, soft_max=8,min=1)
 
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
-
     prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
 
-    merge_bone_options_parent: EnumProperty(name=get_id("merge_bone_options_parent"),items=bone_merging_options_parent,default='DEFAULT')
-    merge_bone_options_active: EnumProperty(name=get_id("merge_bone_options_active"),items=bone_merging_options_active,default='DEFAULT')
-    
-    visible_mesh_only : BoolProperty(name='Visible Meshes Only', default=False)
-    defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
+    kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', default='kitsuneresource.exe')
+    kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
+    kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    kitsuneresource_args : StringProperty(name='Arguments', default='-game -log -keep-flat-qc')
 
-    node_baker_export_dir: StringProperty(name="Export Dir", default="//textures\\", subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    node_baker_file_format: EnumProperty(name="Format",items=[('PNG', 'PNG', ''), ('TARGA', 'TGA', '')],default='TARGA')
-    node_baker_material_listmode : EnumProperty(name='Material List Mode',items=[
-        ('ALL', 'All', 'All materials available within the BLEND file'),
-        ('ACTIVE', 'Active', 'All materials in the active object'),
-    ], default='ACTIVE')
-    node_baker_material_list_index : IntProperty(default=-1)
+    defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
@@ -365,7 +330,7 @@ class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_location_offset_y : FloatProperty(name='Location Y', default=0, precision=4)
     export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4)
     
-class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
+class ValveSource_ObjectProps(ExportableProps, PropertyGroup):
     action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"),default="*")
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
@@ -376,7 +341,11 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     dmx_attachment : BoolProperty(name='Is Attachment',default=False)
     smd_hitbox : BoolProperty(name='Is Hitbox',default=False)    
     smd_hitbox_group : EnumProperty(name='Hitbox Group',items=hitbox_group,default='0')
-    
+
+    jigglebone_prefabfile : StringProperty(name='Jigglebone Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    attachment_prefabfile : StringProperty(name='Attachments Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    hitbox_prefabfile : StringProperty(name='Hitbox Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+
     humanoid_armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=HumanoidArmatureMap)
     humanoid_armature_map_bonecollections_index : IntProperty()
     
@@ -413,10 +382,6 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup,):
     armature_map_forearm_r: StringProperty(name="Right Fore Arm",)
     armature_map_knee_l: StringProperty(name="Left Knee",)
     armature_map_knee_r: StringProperty(name="Right Knee",)
-
-    jigglebone_prefabfile : StringProperty(name='Jigglebone Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    attachment_prefabfile : StringProperty(name='Attachments Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    hitbox_prefabfile : StringProperty(name='Hitbox Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
 class ValveSource_ArmatureProps(PropertyGroup):
     implicit_zero_bone : BoolProperty(name=get_id("dummy_bone"),default=True,description=get_id("dummy_bone_tip"))
@@ -461,18 +426,14 @@ class ValveSource_MaterialProps(PropertyGroup):
     non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='Non-Exportable Group')
     non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
 
-    node_baker_list : CollectionProperty(type=BakeNodeItem)
-    node_baker_list_index : IntProperty(default=-1)
-
 _classes = (
     # Base/Utility Classes
     ValveSource_FloatMapRemap,
+    HumanoidArmatureMap,
     
     # Simple Item Classes
     FlexControllerItem,
-    HumanoidArmatureMap,
     VertexAnimation,
-    BakeNodeItem,
     
     # Material Classes
     ValveSource_MaterialProps,
@@ -505,127 +466,55 @@ _classes = (
     GUI.SMD_MT_ConfigureScene,
     
     # Properties
-    properties.SMD_UL_ExportItems,
-    properties.SMD_UL_GroupItems,
-    properties.SMD_PT_Properties,
-    properties.SMD_PT_Group,
-    properties.SMD_PT_Armature,
-    properties.SMD_PT_Bone,
-    properties.SMD_PT_BoneData,
-    properties.SMD_PT_Mesh,
-    properties.SMD_PT_Material,
-    properties.SMD_PT_Shapekey,
-    properties.SMD_PT_Vertexmap,
-    properties.SMD_PT_Vertexfloatmap,
-    properties.SMD_PT_Vertexanimations,
-    properties.SMD_PT_ToonEdgeline,
-    properties.SMD_OT_ComputeEdgelineWeights,
-    properties.SMD_PT_Empty,
-    properties.SMD_PT_Curve,
-    properties.SMD_PT_All_Hitboxes,
-    properties.SMD_PT_All_Attachments,
-    properties.SMD_PT_All_Jigglebones,
-    properties.SMD_PT_Jigglebones,
-
-    # GUI - Common
-    common.KITSUNE_PT_ToolsPanel,
+    GUI.SMD_UL_ExportItems,
+    GUI.SMD_UL_GroupItems,
+    GUI.SMD_PT_Properties,
+    GUI.SMD_PT_Group,
+    GUI.SMD_PT_Armature,
+    GUI.SMD_PT_Bone,
+    GUI.SMD_PT_BoneData,
+    GUI.SMD_PT_Mesh,
+    GUI.SMD_PT_Material,
+    GUI.SMD_PT_Shapekey,
+    GUI.SMD_PT_Vertexmap,
+    GUI.SMD_PT_Vertexfloatmap,
+    GUI.SMD_PT_Vertexanimations,
+    GUI.SMD_PT_ToonEdgeline,
+    GUI.SMD_OT_ComputeEdgelineWeights,
+    GUI.SMD_PT_Empty,
+    GUI.SMD_PT_Curve,
+    GUI.SMD_PT_All_Hitboxes,
+    GUI.SMD_PT_All_Attachments,
+    GUI.SMD_PT_All_Jigglebones,
+    GUI.SMD_PT_Jigglebones,
     
     # Properties Operators
-    properties.SMD_UL_FlexControllers,
-    properties.SMD_OT_AddFlexController,
-    properties.SMD_OT_RemoveFlexController,
-    properties.SMD_OT_ClearFlexControllers,
-    properties.SMD_OT_PreviewFlexController,
-    properties.SMD_OT_AddVertexMapRemap,
-    properties.SMD_UL_VertexAnimationItem,
-    properties.SMD_OT_AddVertexAnimation,
-    properties.SMD_OT_RemoveVertexAnimation,
-    properties.SMD_OT_PreviewVertexAnimation,
-    properties.SMD_OT_GenerateVertexAnimationQCSnippet,
-    properties.SMD_OT_CopyBoneExportName,
-    properties.SMD_OT_AssignBoneRotExportOffset,
-    properties.SMD_OT_Copy_Jigglebone_Properties,
-    
-    # Object Data Tools
-    objectdata.OBJECT_PT_ObjectData_Panel,
-    objectdata.OBJECT_OT_Apply_Transform,
+    GUI.SMD_UL_FlexControllers,
+    GUI.SMD_OT_AddFlexController,
+    GUI.SMD_OT_RemoveFlexController,
+    GUI.SMD_OT_ClearFlexControllers,
+    GUI.SMD_OT_PreviewFlexController,
+    GUI.SMD_OT_AddVertexMapRemap,
+    GUI.SMD_UL_VertexAnimationItem,
+    GUI.SMD_OT_AddVertexAnimation,
+    GUI.SMD_OT_RemoveVertexAnimation,
+    GUI.SMD_OT_PreviewVertexAnimation,
+    GUI.SMD_OT_GenerateVertexAnimationQCSnippet,
+    GUI.SMD_OT_CopyBoneExportName,
+    GUI.SMD_OT_AssignBoneRotExportOffset,
+    GUI.SMD_OT_CopySourceBoneProps,
+    GUI.SMD_OT_Copy_Jigglebone_Properties,
 
-    # Armature Tools
-    armature.TOOLS_PT_Armature,
-    armature.TOOLS_OT_Apply_Current_Pose_As_RestPose,
-    armature.TOOLS_OT_Apply_Current_Pose_As_Shapekey,
-    armature.TOOLS_OT_CleanUnWeightedBones,
-    armature.TOOLS_OT_MergeArmatures,
-    armature.TOOLS_OT_CopyVisPosture,
-    
-    # Bone Tools
-    bone.TOOLS_PT_Bone,
-    bone.TOOLS_OT_MergeBones,
-    bone.TOOLS_OT_ReAlignBones,
-    bone.TOOLS_OT_CopyTargetRotation,
-    bone.TOOLS_OT_SubdivideBone,
-    bone.TOOLS_OT_FlipBone,
-    bone.TOOLS_OT_CreateCenterBone,
-    bone.TOOLS_OT_SplitActiveWeightLinear,
-    bone.TOOLS_OT_align_bone_to_axis,
-    bone.TOOLS_OT_CopySourceBoneProps,
-    bone.TOOLS_OT_mirror_by_position,
-
-    # Mesh Tools
-    mesh.TOOLS_PT_Mesh,
-    mesh.TOOLS_OT_CleanShapeKeys,
-    mesh.TOOLS_OT_SelectShapekeyVets,
-    mesh.TOOLS_OT_Delete_Faces_by_ImageMask,
-    mesh.TOOLS_OT_Select_Faces_by_ImageMask,
-    mesh.TOOLS_OT_RemoveUnusedVertexGroups,
-    mesh.TOOLS_OT_AddToonEdgeLine,
-    mesh.TOOLS_OT_transfer_topology_shapekeys,
-    mesh.TOOLS_OT_unlock_all_vertexgroups,
-    mesh.TOOLS_OT_CleanDuplicateMaterials,
-
-    # Vertex Group Tools
-    vertexgroup.TOOLS_PT_VertexGroup,
-    vertexgroup.TOOLS_OT_WeightMath,
-    vertexgroup.TOOLS_OT_SwapVertexGroups,
-    vertexgroup.TOOLS_OT_curve_ramp_weights,
-    vertexgroup.TOOLS_OT_multi_weight_paint_start,
-    vertexgroup.TOOLS_OT_multi_weight_paint_finish,
-    vertexgroup.TOOLS_OT_multi_weight_paint_cancel,
-
-    # Animation Tools
-    animation.TOOLS_PT_Animation,
-    animation.TOOLS_OT_merge_animation_slots,
-    animation.TOOLS_OT_merge_two_actions,
-    animation.TOOLS_OT_convert_rotation_keyframes,
-    animation.TOOLS_OT_propagate_pose_offset,
-    animation.TOOLS_OT_copy_bone_keyframes,
-    animation.TOOLS_OT_Make_Proportion_Animation,
-    animation.TOOLS_OT_delete_action_slot,
-    
-    # Humanoid Armature Map
-    humanoid_armature_map.HUMANOIDARMATUREMAP_PT_Panel,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_UL_ConfigList,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_CopyToSelected,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_AddItem,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_RemoveItem,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_WriteConfig,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadConfig,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_LoadPreset,
-    humanoid_armature_map.HUMANOIDARMATUREMAP_OT_MirrorBoneNames,
-
-    # Node Baker
-    nodebaker.KITSUNETOOLS_UL_material_list,
-    nodebaker.KITSUNETOOLS_UL_nodes_to_bake,
-    nodebaker.KITSUNETOOLS_PT_custom_nodes,
-    nodebaker.KITSUNETOOLS_PT_node_baker,
-    nodebaker.KITSUNETOOLS_OT_node_bake_add,
-    nodebaker.KITSUNETOOLS_OT_node_bake_remove,
-    nodebaker.KITSUNETOOLS_OT_node_bake_run,
-    nodebaker.KITSUNETOOLS_OT_node_bake_all_materials,
-    nodebaker.KITSUNETOOLS_OT_import_custom_nodes,
-    
-    # Developer Tools
-    developer.DEVELOPER_PT_PANEL,
+    # Humanoid Armature Mapper
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_PT_Panel,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_CopyToSelected,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_LoadPreset,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_LoadConfig,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_WriteConfig,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_RemoveItem,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_AddItem,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_UL_ConfigList,
+    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_MirrorBoneNames,
     
     # Flex and Export/Import
     flex.DmxWriteFlexControllers,

@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, bmesh, subprocess, collections, re
+import bpy, bmesh, collections, re
 from bpy import ops
 from bpy.app.translations import pgettext
 from mathutils import Vector, Matrix
@@ -28,12 +28,6 @@ from bpy.types import Collection
 from .utils import *
 from .keyvalue3 import *
 from . import datamodel, ordered_set, flex
-from .kitsunetools.boneutils import get_bone_exportname, get_bone_matrix
-from .kitsunetools.objectutils import apply_modifier
-from .kitsunetools.meshutils import normalize_object_vertexgroups, get_delta_shapekeys, compute_edgeline_island_weights
-from .kitsunetools.commonutils import sanitize_string, get_armature, get_attachments, update_vmdl_container, is_mesh_compatible
-from .kitsunetools.armatureutils import sort_bone_by_hierarchy
-from .kitsuneui.common import ShowConsole
 
 class ExportCheck():
     def check_duplicate_bone_names(self, bone_names_dict):
@@ -58,7 +52,7 @@ class ExportCheck():
             return False
         return True
 
-class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
+class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
     bl_idname = "export_scene.smd"
     bl_label = get_id("exporter_title")
     bl_description = get_id("exporter_tip")
@@ -560,8 +554,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                     test_for_unicode(ob.name, ob, ob.type.capitalize())
         for mat in self.materials_used:
             test_for_unicode(mat[0], mat[1], type(mat[1]).__name__)
-
-        
+      
     def getWeightmap(self,bake_result):
         out = []
         amod = bake_result.envelope
@@ -650,6 +643,31 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
 
         return [evaluated_armature.pose.bones[bone.name] for bone in self.exportable_bones]	
 
+    def get_delta_shapekeys(self, ob : bpy.types.Object) -> list[tuple[str, str]]:
+        """Return list of unique (delta_name, shapekey) from object,
+        only including valid shapekeys on the object, excluding the Basis.
+        Ensures no duplicate delta names."""
+        
+        if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
+            return []
+
+        valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
+        
+        seen_deltas = set()
+        result = []
+        
+        for fc in ob.vs.dme_flexcontrollers:
+            if fc.shapekey not in valid_keys:
+                continue
+            
+            delta_name = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+            
+            if delta_name not in seen_deltas:
+                seen_deltas.add(delta_name)
+                result.append((delta_name, fc.shapekey))
+        
+        return result
+    
     class BakedVertexAnimation(list):
         def __init__(self):
             super().__init__()
@@ -1070,7 +1088,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
 
             shapes_to_process = []
             if id.vs.flex_controller_mode == 'BUILDER':
-                delta_shapekeys = get_delta_shapekeys(id)
+                delta_shapekeys = self.get_delta_shapekeys(id)
                 
                 for delta_name, shape_name in delta_shapekeys:
                     shape_index = id.data.shape_keys.key_blocks.find(shape_name)
@@ -1862,7 +1880,7 @@ skeleton
             bench.report("verts")
 
             for loop in [ob.data.loops[i] for poly in ob.data.polygons for i in poly.loop_indices]:
-                texcoIndices[loop.index] = texco.add(datamodel.Vector2(uv_layer[loop.index].uv))
+                texcoIndices[loop.index] = texco.add(datamodel.Vector2(uv_layer[loop.index].uv)) # pyright: ignore
                 norms[loop.index] = datamodel.Vector3(loop.normal)
                 Indices[loop.index] = loop.vertex_index					
 
@@ -2398,6 +2416,22 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
     @classmethod
     def poll(cls, context):
         return context.active_object is not None and get_armature(context.active_object) is not None
+    
+    def get_filepath(self, path: str | None):
+        if not path or not isinstance(path, str):
+            raise ValueError(f"Invalid path: {path!r}")
+
+        path = path.replace("\\", "/")
+        path = path.replace("//..", "//../")
+
+        export_path = bpy.path.abspath(path)
+        if not export_path:
+            raise ValueError(f"bpy.path.abspath() failed to resolve: {path!r}")
+
+        filename = os.path.basename(export_path)
+        root, ext = os.path.splitext(filename)
+        return export_path, filename, ext
+
 
     def _get_export_path(self, context):
         vs = context.active_object.vs
@@ -2449,7 +2483,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                 self.report({'ERROR'}, "No export path set on object")
                 return {'CANCELLED'}
 
-            export_path, filename, ext = get_filepath(raw_path)
+            export_path, filename, ext = self.get_filepath(raw_path)
             if not filename or not ext:
                 self.report({'ERROR'}, "Invalid export path: must include filename and extension")
                 return {'CANCELLED'}

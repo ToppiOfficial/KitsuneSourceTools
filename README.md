@@ -1,34 +1,22 @@
 # KitsuneSourceTool [Blender 4.5+]
 
-KitsuneSourceTool is a personal Blender addon built for my own Source engine workflow. It's a fork of BlenderSourceTool with extensions from my older unreleased projects.
+A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/BlenderSourceTools), with Source 2 cloth support ported from [Rectus' fork](https://github.com/Rectus/BlenderSourceTools).
 
-I'm releasing this publicly in case anyone finds it useful, but be aware: **this is built for my specific needs and workflow**. Don't expect comprehensive documentation or support.
+## Features
 
-## What's Included
+### Bone Controls
+- Custom export name, rotation, and position per bone
+- Swap bone axes and assign different names on export
 
-**Export:**
-- KeyValue3 (`.vmdl`, `.vmdl_prefab`)
-- Vertex Float Maps (cloth proxy mesh)
-- DMX Attachments
-- Offset rotation/location
-- Custom bone export names
+### QC / VMDL Export
+- Export Jigglebones, Hitboxes, and Attachments to QC or VMDL
 
-**Armature & Bone Tools:**
-- Armature merging, bone cleanup, pose tools
-- Bone merging, realignment, subdivision
-- Jigglebones and hitboxes
+### Source 2 Cloth *(ported from [Rectus](https://github.com/Rectus/BlenderSourceTools))*
+- Export cloth proxy meshes using `VertexFloatMap`
 
-**Mesh & Animation Tools:**
-- Shapekey and vertex group cleanup
-- Animation merging and conversion
-- Custom proportion constraints
-- Toon edge lines
-
-**Material Tools:**
-- Node Baker
-
-## Dependencies
-
-Includes [Pillow](https://python-pillow.org/) (MIT-CMU License). See `wheels/pillow-license` for details.
-
----
+### Post-Processing on Export
+- **Toon Outline** — Solidify modifier export that mimics edgeline/outline effects
+- **Mesh Cleanup** — Remove faces/vertices via vertex groups or materials before export
+- **Flexcontrollers** — Export specific shapekeys and DMX config using `Build` mode
+- **DMX Attachments** — Export attachments directly in DMX format
+- **Transform Override** — Export at a specific height, scale, and forward axis
