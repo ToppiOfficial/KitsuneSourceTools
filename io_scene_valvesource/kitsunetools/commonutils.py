@@ -687,34 +687,6 @@ def get_attachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | Non
         
     return attchs
 
-def get_object_path(obj, view_layer) -> str:
-    if obj is None:
-        return "None"
-    
-    def find_collection_path(collections, target_obj, path=[]):
-        for col in collections:
-            if target_obj.name in col.objects:
-                return path + [col.name]
-            
-            result = find_collection_path(col.children, target_obj, path + [col.name])
-            if result:
-                return result
-        return None
-    
-    col_path = find_collection_path([view_layer.layer_collection.collection], obj)
-    
-    if col_path:
-        return f"{view_layer.name} > {' > '.join(col_path)} > {obj.name}"
-    else:
-        return f"{view_layer.name} > {obj.name}"
-    
-def get_all_child_objects(parent_obj : bpy.types.Object) -> list[bpy.types.Object]:
-    children = []
-    for child in parent_obj.children:
-        children.append(child)
-        children.extend(get_all_child_objects(child))
-    return children
-
 def get_collection_parent(ob, scene) -> bpy.types.Collection | None:
     for collection in scene.collection.children_recursive:
         if ob.name in collection.objects:

@@ -115,9 +115,6 @@ def draw_copy_bone_props(self, context):
     self.layout.operator(bone.TOOLS_OT_CopySourceBoneProps.bl_idname)
     self.layout.operator(properties.SMD_OT_Copy_Jigglebone_Properties.bl_idname)
 
-def draw_addon_parenting(self, context):
-    self.layout.operator(bone.TOOLS_OT_SetParentBone.bl_idname)
-
 #
 # Property Groups
 #
@@ -654,7 +651,6 @@ def register():
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
     bpy.types.VIEW3D_MT_object.append(draw_copy_armature_map)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
-    bpy.types.VIEW3D_MT_object_parent.append(draw_addon_parenting)
         
     try: bpy.ops.wm.addon_disable('EXEC_SCREEN',module="io_smd_tools")
     except: pass
@@ -684,7 +680,6 @@ def unregister():
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
     bpy.types.VIEW3D_MT_object.remove(draw_copy_armature_map)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)
-    bpy.types.VIEW3D_MT_object.remove(draw_addon_parenting)
 
     bpy.app.translations.unregister(__name__)
     
