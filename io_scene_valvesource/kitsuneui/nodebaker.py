@@ -1,10 +1,11 @@
 import bpy, os
 from PIL import Image
+from bpy.types import UIList, Operator, Panel
 
 from ..kitsunetools.commonutils import is_mesh
 
 
-class KITSUNETOOLS_UL_nodes_to_bake(bpy.types.UIList):
+class KITSUNETOOLS_UL_nodes_to_bake(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         row = layout.row(align=True)
 
@@ -27,7 +28,7 @@ class KITSUNETOOLS_UL_nodes_to_bake(bpy.types.UIList):
             row.label(text=f"({item.name})")
 
 
-class KITSUNETOOLS_UL_material_list(bpy.types.UIList):
+class KITSUNETOOLS_UL_material_list(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if context.scene.vs.node_baker_material_listmode == 'ALL':
             mat = item
@@ -51,7 +52,20 @@ class KITSUNETOOLS_UL_material_list(bpy.types.UIList):
         return flt_flags, flt_neworder
 
 
-class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
+class KITSUNETOOLS_PT_custom_nodes(Panel):
+    bl_label = "Custom Nodes"
+    bl_idname = "KITSUNETOOLS_PT_custom_nodes"
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = 'KitsuneSrcTool'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(KITSUNETOOLS_OT_import_custom_nodes.bl_idname, icon='IMPORT')
+
+
+class KITSUNETOOLS_PT_node_baker(Panel):
     bl_label = "Node Baker"
     bl_idname = "KITSUNETOOLS_PT_node_baker"
     bl_space_type = 'NODE_EDITOR'
@@ -142,11 +156,6 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
                 sub.prop(item, "resolution_y", text="")
                 sub.label(icon='BLANK1')
 
-            split = box.split(factor=0.4)
-            split.alignment = 'RIGHT'
-            split.label(text="")
-            split.prop(item, "use_full_frame", text="Full Frame (No UV)")
-
             col = box.column(align=True)
             row = col.row(align=True)
             split = row.split(factor=0.4)
@@ -167,7 +176,7 @@ class KITSUNETOOLS_PT_node_baker(bpy.types.Panel):
         layout.operator(KITSUNETOOLS_OT_node_bake_all_materials.bl_idname, text="Bake All Materials", icon='MATERIAL')
 
 
-class KITSUNETOOLS_OT_node_bake_add(bpy.types.Operator):
+class KITSUNETOOLS_OT_node_bake_add(Operator):
     bl_idname = "kitsunetools.node_bake_node_add"
     bl_label = "Add Bake Item"
     bl_options = {'UNDO'}
@@ -181,7 +190,7 @@ class KITSUNETOOLS_OT_node_bake_add(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class KITSUNETOOLS_OT_node_bake_remove(bpy.types.Operator):
+class KITSUNETOOLS_OT_node_bake_remove(Operator):
     bl_idname = "kitsunetools.node_bake_node_remove"
     bl_label = "Remove Bake Item"
     bl_options = {'UNDO'}
@@ -191,6 +200,22 @@ class KITSUNETOOLS_OT_node_bake_remove(bpy.types.Operator):
         mat.vs.node_baker_list.remove(mat.vs.node_baker_list_index)
         mat.vs.node_baker_list_index = max(0, mat.vs.node_baker_list_index - 1)
         return {'FINISHED'}
+
+
+def _setup_temp_plane(context, mat):
+    prev_active = context.view_layer.objects.active
+    prev_selected = list(context.selected_objects)
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.mesh.primitive_plane_add(size=2)
+    temp_plane = context.active_object
+    temp_plane.data.materials.append(mat)
+    return temp_plane, prev_active, prev_selected
+
+
+def _restore_after_plane(context, temp_plane, prev_active, prev_selected):
+    bpy.data.objects.remove(temp_plane, do_unlink=True)
+    for o in prev_selected: o.select_set(True)
+    context.view_layer.objects.active = prev_active
 
 
 def _run_bake_for_material(operator, context, obj, mat, export_path):
@@ -216,17 +241,8 @@ def _run_bake_for_material(operator, context, obj, mat, export_path):
         temp_col = os.path.join(export_path, f"_temp_col_{mat.name}.tga")
         temp_alpha = os.path.join(export_path, f"_temp_alpha_{mat.name}.tga")
 
-        if item.use_full_frame:
-            prev_active = context.view_layer.objects.active
-            prev_selected = list(context.selected_objects)
-            bpy.ops.object.select_all(action='DESELECT')
-            bpy.ops.mesh.primitive_plane_add(size=2)
-            temp_plane = context.active_object
-            temp_plane.data.materials.append(mat)
-            bake_obj = temp_plane
-        else:
-            temp_plane = None
-            bake_obj = obj
+        temp_plane, prev_active, prev_selected = _setup_temp_plane(context, mat)
+        bake_obj = temp_plane
 
         try:
             print(f"    Baking color channel...")
@@ -248,16 +264,13 @@ def _run_bake_for_material(operator, context, obj, mat, export_path):
                 if os.path.exists(p):
                     try: os.remove(p)
                     except: pass
-            if temp_plane:
-                bpy.data.objects.remove(temp_plane, do_unlink=True)
-                for o in prev_selected: o.select_set(True)
-                context.view_layer.objects.active = prev_active
+            _restore_after_plane(context, temp_plane, prev_active, prev_selected)
 
         print(f"    Done -> {os.path.join(export_path, filename)}")
         operator.report({'INFO'}, f"Baked '{filename}' -> {os.path.join(export_path, filename)}")
 
 
-class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
+class KITSUNETOOLS_OT_node_bake_run(Operator):
     bl_idname = "kitsunetools.node_bake_run"
     bl_label = "Run Node Bake"
     all_items: bpy.props.BoolProperty(default=False)
@@ -304,17 +317,8 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
             temp_col = os.path.join(export_path, f"_temp_col_{mat.name}.tga")
             temp_alpha = os.path.join(export_path, f"_temp_alpha_{mat.name}.tga")
 
-            if item.use_full_frame:
-                prev_active = context.view_layer.objects.active
-                prev_selected = list(context.selected_objects)
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.ops.mesh.primitive_plane_add(size=2)
-                temp_plane = context.active_object
-                temp_plane.data.materials.append(mat)
-                bake_obj = temp_plane
-            else:
-                temp_plane = None
-                bake_obj = obj
+            temp_plane, prev_active, prev_selected = _setup_temp_plane(context, mat)
+            bake_obj = temp_plane
 
             try:
                 print(f"    Baking color channel...")
@@ -336,10 +340,7 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
                     if os.path.exists(p):
                         try: os.remove(p)
                         except: pass
-                if temp_plane:
-                    bpy.data.objects.remove(temp_plane, do_unlink=True)
-                    for o in prev_selected: o.select_set(True)
-                    context.view_layer.objects.active = prev_active
+                _restore_after_plane(context, temp_plane, prev_active, prev_selected)
 
             print(f"    Done -> {os.path.join(export_path, filename)}")
             self.report({'INFO'}, f"Baked '{filename}' -> {os.path.join(export_path, filename)}")
@@ -441,7 +442,7 @@ class KITSUNETOOLS_OT_node_bake_run(bpy.types.Operator):
                 print(f"      Merged image saved -> '{save_path}'")
 
 
-class KITSUNETOOLS_OT_node_bake_all_materials(bpy.types.Operator):
+class KITSUNETOOLS_OT_node_bake_all_materials(Operator):
     bl_idname = "kitsunetools.node_bake_all_materials"
     bl_label = "Bake All Materials"
 
@@ -496,3 +497,105 @@ class KITSUNETOOLS_OT_node_bake_all_materials(bpy.types.Operator):
 
     def _merge_with_pil(self, col_path, alpha_path, export_dir, filename, fmt):
         return KITSUNETOOLS_OT_node_bake_run._merge_with_pil(self, col_path, alpha_path, export_dir, filename, fmt)
+    
+
+class KITSUNETOOLS_OT_import_custom_nodes(Operator):
+    bl_idname = "kitsunetools.import_custom_nodes"
+    bl_label = "Import Custom Shader Nodes"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    overwrite: bpy.props.BoolProperty(default=False)
+    _conflicts: set = set()
+
+    @staticmethod
+    def _get_blend_path():
+        addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(addon_dir, "ext_files", "shadernodes.blend")
+
+    @staticmethod
+    def _get_conflicting_names(blend_path):
+        existing = set(ng.name for ng in bpy.data.node_groups)
+        conflicts = set()
+        with bpy.data.libraries.load(blend_path, link=False) as (data_from, _):
+            for name in data_from.node_groups:
+                if name in existing:
+                    conflicts.add(name)
+        return conflicts
+
+    @staticmethod
+    def _update_materials(old_name, new_node_group):
+        for mat in bpy.data.materials:
+            if not mat.use_nodes:
+                continue
+            for node in mat.node_tree.nodes:
+                if node.type == 'GROUP' and node.node_tree and node.node_tree.name == old_name:
+                    node.node_tree = new_node_group
+
+    def _import_nodes(self, blend_path):
+        old_groups = {name: bpy.data.node_groups.get(name) for name in self._conflicts}
+
+        with bpy.data.libraries.load(blend_path, link=False) as (data_from, data_to):
+            data_to.node_groups = data_from.node_groups
+
+        for ng in data_to.node_groups:
+            if ng:
+                ng.use_fake_user = True
+
+        if self.overwrite:
+            for name, old_ng in old_groups.items():
+                new_ng = next(
+                    (ng for ng in bpy.data.node_groups if ng.name.startswith(name) and ng != old_ng),
+                    None
+                )
+                if old_ng and new_ng:
+                    self._update_materials(name, new_ng)
+                    new_ng.name = name + "__tmp"
+                    bpy.data.node_groups.remove(old_ng)
+                    new_ng.name = name
+
+        for lib in bpy.data.libraries:
+            if lib.filepath == blend_path:
+                bpy.data.libraries.remove(lib)
+
+    def invoke(self, context, event) -> set:
+        blend_path = self._get_blend_path()
+
+        if not os.path.exists(blend_path):
+            self.report({'ERROR'}, f"Shader nodes file not found: {blend_path}")
+            return {'CANCELLED'}
+
+        self._conflicts = self._get_conflicting_names(blend_path)
+
+        if self._conflicts:
+            return context.window_manager.invoke_props_dialog(self, width=400)
+
+        return self.execute(context)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="The following node groups already exist:", icon='ERROR')
+        box = layout.box()
+        for name in sorted(self._conflicts):
+            box.label(text=f"  • {name}")
+        layout.separator()
+        layout.prop(self, "overwrite", text="Overwrite and update existing nodes")
+
+    def execute(self, context) -> set:
+        blend_path = self._get_blend_path()
+
+        if not os.path.exists(blend_path):
+            self.report({'ERROR'}, f"Shader nodes file not found: {blend_path}")
+            return {'CANCELLED'}
+
+        if self._conflicts and not self.overwrite:
+            self.report({'INFO'}, "Import cancelled — existing nodes were not overwritten.")
+            return {'CANCELLED'}
+
+        self._import_nodes(blend_path)
+
+        for area in context.screen.areas:
+            area.tag_redraw()
+
+        action = "imported and updated" if self.overwrite else "imported"
+        self.report({'INFO'}, f"Shader nodes {action} successfully.")
+        return {'FINISHED'}

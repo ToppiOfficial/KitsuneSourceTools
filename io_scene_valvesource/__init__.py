@@ -183,7 +183,6 @@ class BakeNodeItem(PropertyGroup):
     resolution_y: EnumProperty(name="Y Resolution",items=resolutions,default='2048')
 
     color_space: EnumProperty(name="Type",items=color_space,default='Non-Color')
-    use_full_frame: BoolProperty(name="Full Frame (No UV)", default=True)
 
     def get_node(self):
         mat = self.id_data
@@ -620,17 +619,16 @@ _classes = (
     # Node Baker
     nodebaker.KITSUNETOOLS_UL_material_list,
     nodebaker.KITSUNETOOLS_UL_nodes_to_bake,
+    nodebaker.KITSUNETOOLS_PT_custom_nodes,
     nodebaker.KITSUNETOOLS_PT_node_baker,
     nodebaker.KITSUNETOOLS_OT_node_bake_add,
     nodebaker.KITSUNETOOLS_OT_node_bake_remove,
     nodebaker.KITSUNETOOLS_OT_node_bake_run,
     nodebaker.KITSUNETOOLS_OT_node_bake_all_materials,
+    nodebaker.KITSUNETOOLS_OT_import_custom_nodes,
     
     # Developer Tools
     developer.DEVELOPER_PT_PANEL,
-    developer.DEVELOPER_OT_ImportLegacyData,
-    developer.SMD_OT_Fix_Attachments,
-    developer.SMD_OT_Fix_Hitboxes,
     
     # Flex and Export/Import
     flex.DmxWriteFlexControllers,

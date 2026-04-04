@@ -811,7 +811,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck, ShowConsole):
                     bm.free()
 
                 if id.vs.edgeline_per_material:
-                    for slot in id.material_slots:
+                    slots = list(id.material_slots)
+                    for slot in slots:
                         name = f"{slot.material.name}_edgeline" if slot.material else "edgeline"
                         mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
                         mat.vs.face_export_filter = 'BY_VGROUP'
@@ -2515,50 +2516,50 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                 if bone.vs.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
                     d.append('\tis_flexible' if bone.vs.jiggle_flex_type == 'FLEXIBLE' else '\tis_rigid')
                     d.append('\t{')
-                    d.append(f'\t\tlength {jiggle_length}')
-                    d.append(f'\t\ttip_mass {bone.vs.jiggle_tip_mass}')
+                    d.append(f'\t\tlength {jiggle_length:.4f}')
+                    d.append(f'\t\ttip_mass {bone.vs.jiggle_tip_mass:.2f}')
                     if bone.vs.jiggle_flex_type == 'FLEXIBLE':
-                        d.append(f'\t\tyaw_stiffness {bone.vs.jiggle_yaw_stiffness}')
-                        d.append(f'\t\tyaw_damping {bone.vs.jiggle_yaw_damping}')
+                        d.append(f'\t\tyaw_stiffness {bone.vs.jiggle_yaw_stiffness:.4f}')
+                        d.append(f'\t\tyaw_damping {bone.vs.jiggle_yaw_damping:.4f}')
                         if bone.vs.jiggle_has_yaw_constraint:
-                            d.append(f'\t\tyaw_constraint {-abs(math.degrees(bone.vs.jiggle_yaw_constraint_min))} {abs(math.degrees(bone.vs.jiggle_yaw_constraint_max))}')
-                            d.append(f'\t\tyaw_friction {bone.vs.jiggle_yaw_friction}')
-                        d.append(f'\t\tpitch_stiffness {bone.vs.jiggle_pitch_stiffness}')
-                        d.append(f'\t\tpitch_damping {bone.vs.jiggle_pitch_damping}')
+                            d.append(f'\t\tyaw_constraint {-abs(math.degrees(bone.vs.jiggle_yaw_constraint_min)):.4f} {abs(math.degrees(bone.vs.jiggle_yaw_constraint_max)):.4f}')
+                            d.append(f'\t\tyaw_friction {bone.vs.jiggle_yaw_friction:.3f}')
+                        d.append(f'\t\tpitch_stiffness {bone.vs.jiggle_pitch_stiffness:.4f}')
+                        d.append(f'\t\tpitch_damping {bone.vs.jiggle_pitch_damping:.4f}')
                         if bone.vs.jiggle_has_pitch_constraint:
-                            d.append(f'\t\tpitch_constraint {-abs(math.degrees(bone.vs.jiggle_pitch_constraint_min))} {abs(math.degrees(bone.vs.jiggle_pitch_constraint_max))}')
-                            d.append(f'\t\tpitch_friction {bone.vs.jiggle_pitch_friction}')
+                            d.append(f'\t\tpitch_constraint {-abs(math.degrees(bone.vs.jiggle_pitch_constraint_min)):.4f} {abs(math.degrees(bone.vs.jiggle_pitch_constraint_max)):.4f}')
+                            d.append(f'\t\tpitch_friction {bone.vs.jiggle_pitch_friction:.3f}')
                         if bone.vs.jiggle_allow_length_flex:
                             d.append('\t\tallow_length_flex')
-                            d.append(f'\t\talong_stiffness {bone.vs.jiggle_along_stiffness}')
+                            d.append(f'\t\talong_stiffness {bone.vs.jiggle_along_stiffness:.4f}')
                         if bone.vs.jiggle_has_angle_constraint:
-                            d.append(f'\t\tangle_constraint {math.degrees(bone.vs.jiggle_angle_constraint)}')
+                            d.append(f'\t\tangle_constraint {math.degrees(bone.vs.jiggle_angle_constraint):.4f}')
                     d.append('\t}')
 
                 if bone.vs.jiggle_base_type == 'BASESPRING':
                     d.append('\thas_base_spring')
                     d.append('\t{')
-                    d.append(f'\t\tstiffness {bone.vs.jiggle_base_stiffness}')
-                    d.append(f'\t\tdamping {bone.vs.jiggle_base_damping}')
+                    d.append(f'\t\tstiffness {bone.vs.jiggle_base_stiffness:.4f}')
+                    d.append(f'\t\tdamping {bone.vs.jiggle_base_damping:.4f}')
                     d.append(f'\t\tbase_mass {bone.vs.jiggle_base_mass}')
                     if bone.vs.jiggle_has_left_constraint:
-                        d.append(f'\t\tleft_constraint {-abs(bone.vs.jiggle_left_constraint_min)} {abs(bone.vs.jiggle_left_constraint_max)}')
-                        d.append(f'\t\tleft_friction {bone.vs.jiggle_left_friction}')
+                        d.append(f'\t\tleft_constraint {-abs(bone.vs.jiggle_left_constraint_min):.2f} {abs(bone.vs.jiggle_left_constraint_max):.2f}')
+                        d.append(f'\t\tleft_friction {bone.vs.jiggle_left_friction:.3f}')
                     if bone.vs.jiggle_has_up_constraint:
-                        d.append(f'\t\tup_constraint {-abs(bone.vs.jiggle_up_constraint_min)} {abs(bone.vs.jiggle_up_constraint_max)}')
-                        d.append(f'\t\tup_friction {bone.vs.jiggle_up_friction}')
+                        d.append(f'\t\tup_constraint {-abs(bone.vs.jiggle_up_constraint_min):.2f} {abs(bone.vs.jiggle_up_constraint_max):.2f}')
+                        d.append(f'\t\tup_friction {bone.vs.jiggle_up_friction:.3f}')
                     if bone.vs.jiggle_has_forward_constraint:
-                        d.append(f'\t\tforward_constraint {-abs(bone.vs.jiggle_forward_constraint_min)} {abs(bone.vs.jiggle_forward_constraint_max)}')
-                        d.append(f'\t\tforward_friction {bone.vs.jiggle_forward_friction}')
+                        d.append(f'\t\tforward_constraint {-abs(bone.vs.jiggle_forward_constraint_min):.2f} {abs(bone.vs.jiggle_forward_constraint_max):.2f}')
+                        d.append(f'\t\tforward_friction {bone.vs.jiggle_forward_friction:.3f}')
                     d.append('\t}')
                 elif bone.vs.jiggle_base_type == 'BOING':
                     d.append('\tis_boing')
                     d.append('\t{')
                     d.append(f'\t\timpact_speed {bone.vs.jiggle_impact_speed}')
-                    d.append(f'\t\timpact_angle {bone.vs.jiggle_impact_angle}')
-                    d.append(f'\t\tdamping_rate {bone.vs.jiggle_damping_rate}')
-                    d.append(f'\t\tfrequency {bone.vs.jiggle_frequency}')
-                    d.append(f'\t\tamplitude {bone.vs.jiggle_amplitude}')
+                    d.append(f'\t\timpact_angle {math.degrees(bone.vs.jiggle_impact_angle):.4f}')
+                    d.append(f'\t\tdamping_rate {bone.vs.jiggle_damping_rate:.3f}')
+                    d.append(f'\t\tfrequency {bone.vs.jiggle_frequency:.3f}')
+                    d.append(f'\t\tamplitude {bone.vs.jiggle_amplitude:.3f}')
                     d.append('\t}')
                 d.append('}')
                 d.append('\n')
