@@ -28,76 +28,6 @@ from .import_smd import SmdImporter
 from .flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers,DmxWriteFlexControllers
 from .utils import *
 
-def draw_wrapped_texts(layout: UILayout, text: str | list[str], max_chars: int = 40, 
-                       icon: str | None = None, alert: bool = False, boxed: bool = True,
-                       title: str | None = None, scale_y: float = 0.7, icon_factor: float = 0.08,
-                       exclude_endspacer = False,) -> None:
-    """
-    Draw text with automatic word wrapping in a column layout.
-    Preserves paragraph breaks and handles both string and list inputs.
-    
-    Args:
-        layout: Blender UILayout to draw into
-        text: Text content as string or list of strings
-        max_chars: Maximum characters per line before wrapping
-        icon: Optional icon to display
-        alert: Whether to highlight with alert styling
-        boxed: Whether to wrap content in a box
-        title: Optional title text to display above content
-        scale_y: Vertical scale factor for text rows
-        icon_factor: Width factor for icon column (when title is None)
-    """
-    if isinstance(text, list):
-        text = '\n'.join(text)
-    
-    lines = []
-    for paragraph in text.split('\n'):
-        if not paragraph:
-            lines.append('')
-            continue
-        
-        words = paragraph.split()
-        line = []
-        length = 0
-        
-        for word in words:
-            word_len = len(word)
-            space = 1 if line else 0
-            
-            if length + word_len + space > max_chars:
-                lines.append(' '.join(line))
-                line = [word]
-                length = word_len
-            else:
-                line.append(word)
-                length += word_len + space
-        
-        if line:
-            lines.append(' '.join(line))
-    
-    col = layout.column(align=True)
-    col.scale_y = scale_y
-    col.alert = alert
-    container = col.box() if boxed else col
-    
-    if title:
-        title_row = container.row(align=True)
-        title_row.label(text=title, icon=icon or 'NONE')
-        text_col = container.column(align=True)
-    elif icon:
-        split = container.split(factor=icon_factor)
-        split.label(icon=icon)
-        text_col = split.column(align=True)
-    else:
-        text_col = container.column(align=True)
-    
-    for line in lines:
-        text_col.label(text=line)
-    
-    if not exclude_endspacer: 
-        layout.separator(factor=0.125)
-
-
 class SMD_MT_ExportChoice(Menu):
     bl_label = get_id("exportmenu_title")
 
@@ -644,8 +574,10 @@ class SMD_PT_Group(Properties_SubPanel):
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
 
         if not item or not self.is_collection(item):
-            draw_wrapped_texts(layout, get_id("panel_select_group"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_group"), icon='ERROR')
             return
+        
+        
         
         r = layout.row()
         r.alignment = 'CENTER'
@@ -672,7 +604,7 @@ class SMD_PT_Armature(Properties_SubPanel):
         active_object = get_armature(context.active_object)
         
         if not is_armature(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_armature"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_armature"), icon='ERROR')
             return
         
         box = layout.box()
@@ -732,11 +664,11 @@ class SMD_PT_BoneData(Properties_SubPanel):
         active_bone = context.active_bone
         
         if not is_armature(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_armature"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_armature"), icon='ERROR')
             return
         
         if not isinstance(active_bone, (bpy.types.PoseBone, bpy.types.Bone)):
-            draw_wrapped_texts(layout, get_id("panel_select_noneditbone"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_noneditbone"), icon='ERROR')
             return
         
         box = layout.box()
@@ -996,7 +928,7 @@ class SMD_PT_Mesh(Properties_SubPanel):
         active_object = context.active_object
         
         if not is_mesh_compatible(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_mesh"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
 
   
@@ -1017,7 +949,7 @@ class SMD_PT_Shapekey(Properties_SubPanel):
         active_object = context.active_object
         
         if not is_mesh_compatible(active_object) or not hasShapes(active_object):
-            draw_wrapped_texts(layout,get_id("panel_select_mesh_sk"),alert=True,icon='ERROR')
+            layout.label(text=get_id("panel_select_mesh_sk"), icon='ERROR')
             return
         
         num_shapes, num_correctives = countShapes(active_object)
@@ -1160,7 +1092,7 @@ class SMD_PT_Vertexmap(Properties_SubPanel):
         col = box.column(align=True)
         
         if State.exportFormat != ExportFormat.DMX:
-            draw_wrapped_texts(box,'Only Applicable in DMX!',alert=True,icon='ERROR')
+            box.label(text='Only Applicable in DMX!', icon='ERROR')
         
         col.label(text='Vertex Maps:')
         for map_name in vertex_maps:
@@ -1238,12 +1170,12 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
         op3.url = "http://developer.valvesoftware.com/wiki/Vertex_animation"
         
         if active_object is None:
-            draw_wrapped_texts(layout, get_id("panel_select_mesh"))
+            layout.label(text=get_id("panel_select_mesh"))
+            return
             
         box = layout.box()
         
-        draw_wrapped_texts(box, text="Target Object: {}".format(active_object.name), icon='MESH_DATA' if is_mesh_compatible(active_object) else "OUTLINER_COLLECTION")
-        
+        box.label(text="Target Object: {}".format(active_object.name), icon='MESH_DATA' if is_mesh_compatible(active_object) else "OUTLINER_COLLECTION")
         row = box.row(align=True)
         row.operator(SMD_OT_AddVertexAnimation.bl_idname, icon="ADD", text="Add")
         
@@ -1273,7 +1205,7 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         active_object = context.active_object
         
         if not is_mesh_compatible(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_mesh"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
 
         box = layout.box()
@@ -1335,13 +1267,13 @@ class SMD_PT_Material(Properties_SubPanel):
         active_object = context.active_object
         
         if not is_mesh_compatible(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_mesh"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
         
         active_material = active_object.active_material
         
         if not active_material:
-            draw_wrapped_texts(layout, get_id("panel_select_mesh_mat"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_mesh_mat"), icon='ERROR')
             return
         
         box = layout.box()
@@ -1373,7 +1305,7 @@ class SMD_PT_Empty(Properties_SubPanel):
         active_object = context.active_object
         
         if not is_empty(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_empty"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_empty"), icon='ERROR')
             return
 
         box = layout.box()
@@ -1403,7 +1335,7 @@ class SMD_PT_Curve(Properties_SubPanel):
         active_object = context.active_object
         
         if not is_curve(active_object):
-            draw_wrapped_texts(layout, get_id("panel_select_curve"), alert=True, icon='ERROR')
+            layout.label(text=get_id("panel_select_curve"), icon='ERROR')
             return
         
         box = layout.box()

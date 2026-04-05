@@ -1,11 +1,8 @@
 import bpy, os, json
 from typing import Any
-
 from bpy.types import Context, Object, Operator, UILayout, UIList, Event, BoneCollection, Panel
 from bpy.props import EnumProperty, IntProperty, StringProperty, BoolProperty
 from mathutils import Vector
-
-from .GUI import draw_wrapped_texts
 from .utils import *
 
 class HUMANOIDARMATUREMAP_PT_Panel(Panel):
@@ -22,7 +19,7 @@ class HUMANOIDARMATUREMAP_PT_Panel(Panel):
         ob  = context.active_object
         if is_armature(ob): pass
         else:
-            draw_wrapped_texts(bx,get_id("panel_select_armature"),max_chars=40 , icon='HELP')
+            bx.label(text=get_id("panel_select_armature"),icon='HELP')
             return
 
         col = bx.column()
@@ -135,15 +132,12 @@ class HUMANOIDARMATUREMAP_PT_Panel(Panel):
             for bone, labels in duplicates.items():
                 duplicate_messages.append(f"'{bone}' assigned to: {', '.join(labels)}")
             
-            draw_wrapped_texts(
-                layout,
-                duplicate_messages,
-                max_chars=40,
-                icon='ERROR',
-                alert=True,
-                boxed=True,
-                title='Duplicate Bone Assignments Detected!'
-            )
+            err_box = layout.box()
+            err_box_col = err_box.column(align=True)
+            err_box_col.alert = True
+            err_box_col.label(text='Duplicate Bone Assignments Detected!', icon='ERROR')
+            for err_msg in duplicate_messages:
+                err_box_col.label(text=err_msg)
         
         self.draw_humanoid_bone_mapping(context, layout, duplicates)
 
@@ -156,7 +150,7 @@ class HUMANOIDARMATUREMAP_PT_Panel(Panel):
         bx = col.box()
         col = bx.column()
 
-        draw_wrapped_texts(col,text='Head, Chest and Pelvis are required', icon='HELP')
+        col.label(text='Head, Chest and Pelvis are required', icon='HELP')
         
         col = bx.column(align=True)
         self.draw_bone_prop(col, context, 'armature_map_head', "Head", duplicates)
