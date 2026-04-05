@@ -26,7 +26,7 @@ from math import *
 from bpy.types import Collection
 
 from .utils import *
-from .keyvalue3 import *
+from .keyvalues3 import *
 from . import datamodel, ordered_set, flex
 
 class ExportCheck():
@@ -2654,7 +2654,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             to_clipboard=self.to_clipboard
         )
         if kv_doc is False:
-            self.report({"WARNING"}, 'Existing file may not be a valid KeyValue3')
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValues3')
             return None
         return kv_doc.to_text()
 
@@ -2724,7 +2724,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             to_clipboard=self.to_clipboard
         )
         if kv_doc is False:
-            self.report({"WARNING"}, 'Existing file may not be a valid KeyValue3')
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValues3')
             return None
         return kv_doc.to_text()
 

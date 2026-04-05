@@ -1,6 +1,6 @@
 # KitsuneSourceTool [Blender 4.5+]
 
-A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/BlenderSourceTools), with Source 2 cloth support ported from [Rectus' fork](https://github.com/Rectus/BlenderSourceTools).
+A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/BlenderSourceTools)
 
 ## Features
 
@@ -10,6 +10,7 @@ A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/Blender
 
 ### QC / VMDL Export
 - Export Jigglebones, Hitboxes, and Attachments to QC or VMDL
+- KeyValues3.py
 
 ### Source 2 Cloth *(ported from [Rectus](https://github.com/Rectus/BlenderSourceTools))*
 - Export cloth proxy meshes using `VertexFloatMap`

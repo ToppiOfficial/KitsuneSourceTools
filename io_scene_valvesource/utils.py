@@ -27,7 +27,7 @@ from mathutils import Matrix, Vector
 from math import radians, pi, ceil
 from io import TextIOWrapper
 from . import datamodel
-from . import keyvalue3
+from . import keyvalues3
 import numpy as np
 
 intsize = struct.calcsize("i")
@@ -843,8 +843,8 @@ def make_export_list(scene : bpy.types.Scene):
                 i.icon = i_icon
                 i.obj = ob
 
-def update_vmdl_container(container_class: str, nodes: list[keyvalue3.KVNode] | keyvalue3.KVNode, export_path: str | None = None,
-                          to_clipboard: bool = False) -> keyvalue3.KVDocument | bool:
+def update_vmdl_container(container_class: str, nodes: list[keyvalues3.KVNode] | keyvalues3.KVNode, export_path: str | None = None,
+                          to_clipboard: bool = False) -> keyvalues3.KVDocument | bool:
     """
     Insert or update node(s) into a container inside a KV3 RootNode.
     Folders are overwritten if they exist; other nodes are appended.
@@ -859,7 +859,7 @@ def update_vmdl_container(container_class: str, nodes: list[keyvalue3.KVNode] | 
         KVDocument ready for writing or clipboard.
     """
 
-    def open_and_parse_vmdl(filepath: str) -> keyvalue3.KVNode | None:
+    def open_and_parse_vmdl(filepath: str) -> keyvalues3.KVNode | None:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 text = f.read()
@@ -867,7 +867,7 @@ def update_vmdl_container(container_class: str, nodes: list[keyvalue3.KVNode] | 
             return None
         
         try:
-            parser = keyvalue3.KVParser(text)
+            parser = keyvalues3.KVParser(text)
             doc = parser.parse()
 
             root_node = doc.roots.get("rootNode")
@@ -883,19 +883,19 @@ def update_vmdl_container(container_class: str, nodes: list[keyvalue3.KVNode] | 
 
     root = None
     if to_clipboard:
-        root = keyvalue3.KVNode(_class="RootNode")
+        root = keyvalues3.KVNode(_class="RootNode")
     else:
         if export_path and os.path.exists(export_path):
-            root = keyvalue3.open_and_parse_vmdl(export_path)
+            root = open_and_parse_vmdl(export_path)
 
             if root is None:
                 return False
         else:
-            root = keyvalue3.KVNode(_class="RootNode")
+            root = keyvalues3.KVNode(_class="RootNode")
 
     container = root.get(_class=container_class)
     if not container:
-        container = keyvalue3.KVNode(_class=container_class)
+        container = keyvalues3.KVNode(_class=container_class)
         root.add_child(container)
 
     for node in nodes:
@@ -913,7 +913,7 @@ def update_vmdl_container(container_class: str, nodes: list[keyvalue3.KVNode] | 
 
         container.add_child(node)
 
-    kv_doc = keyvalue3.KVDocument()
+    kv_doc = keyvalues3.KVDocument()
     kv_doc.add_root("rootNode", root)
     return kv_doc
 
@@ -1649,7 +1649,7 @@ def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[i
 
     def find_jigglebone_nodes(node):
         found = []
-        if isinstance(node, keyvalue3.KVNode):
+        if isinstance(node, keyvalues3.KVNode):
             if node.properties.get('_class') == "JiggleBone":
                 found.append(node)
             for child in node.children:

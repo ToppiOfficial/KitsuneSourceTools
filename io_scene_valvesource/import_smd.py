@@ -26,7 +26,7 @@ from mathutils import Quaternion, Euler
 from math import ceil
 from typing import cast
 from .utils import *
-from . import datamodel, ordered_set, flex, keyvalue3
+from . import datamodel, ordered_set, flex, keyvalues3
 
 class SmdImporter(bpy.types.Operator, Logger):
     bl_idname = "import_scene.smd"
@@ -972,7 +972,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 return 0
             
             try:
-                parser = keyvalue3.KVParser(vmdl_text)
+                parser = keyvalues3.KVParser(vmdl_text)
                 kv_doc = parser.parse()
                 
                 imported_count, missing_bones = import_jigglebones_from_kv3(kv_doc, arm)
