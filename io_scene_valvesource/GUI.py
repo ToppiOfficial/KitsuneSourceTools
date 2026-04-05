@@ -1833,6 +1833,11 @@ class SMD_OT_CopySourceBoneProps(Operator):
     bl_label = "Copy Source Bone Properties"
     bl_options = {"REGISTER", "UNDO"}
 
+    copy_name: BoolProperty(name="Export Name", default=False)
+    copy_rotation: BoolProperty(name="Export Rotation Offset", default=True)
+    copy_location: BoolProperty(name="Export Location Offset", default=True)
+    copy_jigglebone: BoolProperty(name="Jigglebone", default=False)
+
     @classmethod
     def poll(cls, context):
         return (
@@ -1841,110 +1846,101 @@ class SMD_OT_CopySourceBoneProps(Operator):
             and len(context.selected_pose_bones) > 1
         )
 
+    def invoke(self, context, event):
+        self.copy_jigglebone = context.active_pose_bone.bone.vs.bone_is_jigglebone
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Properties to copy:")
+        layout.prop(self, "copy_name")
+        layout.prop(self, "copy_rotation")
+        layout.prop(self, "copy_location")
+        row = layout.row()
+        row.prop(self, "copy_jigglebone")
+        row.enabled = context.active_pose_bone.bone.vs.bone_is_jigglebone
+
     def execute(self, context) -> set:
         src = context.active_pose_bone.bone.vs
-        props = [
-            'export_name',
-            'ignore_rotation_offset',
-            'export_rotation_offset_x',
-            'export_rotation_offset_y',
-            'export_rotation_offset_z',
-            'ignore_location_offset',
-            'export_location_offset_x',
-            'export_location_offset_y',
-            'export_location_offset_z',
-        ]
+
+        props = []
+        if self.copy_name:
+            props.append('export_name')
+        if self.copy_rotation:
+            props += [
+                'ignore_rotation_offset',
+                'export_rotation_offset_x',
+                'export_rotation_offset_y',
+                'export_rotation_offset_z',
+            ]
+        if self.copy_location:
+            props += [
+                'ignore_location_offset',
+                'export_location_offset_x',
+                'export_location_offset_y',
+                'export_location_offset_z',
+            ]
+        if self.copy_jigglebone:
+            if not src.bone_is_jigglebone:
+                self.report({'WARNING'}, "Active bone is not a jigglebone")
+                return {'CANCELLED'}
+            props += [
+                'bone_is_jigglebone',
+                'jiggle_flex_type',
+                'jiggle_base_type',
+                'use_bone_length_for_jigglebone_length',
+                'jiggle_length',
+                'jiggle_tip_mass',
+                'jiggle_yaw_stiffness',
+                'jiggle_yaw_damping',
+                'jiggle_pitch_stiffness',
+                'jiggle_pitch_damping',
+                'jiggle_allow_length_flex',
+                'jiggle_along_stiffness',
+                'jiggle_along_damping',
+                'jiggle_has_angle_constraint',
+                'jiggle_has_yaw_constraint',
+                'jiggle_has_pitch_constraint',
+                'jiggle_angle_constraint',
+                'jiggle_yaw_constraint_min',
+                'jiggle_yaw_constraint_max',
+                'jiggle_yaw_friction',
+                'jiggle_pitch_constraint_min',
+                'jiggle_pitch_constraint_max',
+                'jiggle_pitch_friction',
+                'jiggle_base_stiffness',
+                'jiggle_base_damping',
+                'jiggle_base_mass',
+                'jiggle_has_left_constraint',
+                'jiggle_has_up_constraint',
+                'jiggle_has_forward_constraint',
+                'jiggle_left_constraint_min',
+                'jiggle_left_constraint_max',
+                'jiggle_left_friction',
+                'jiggle_up_constraint_min',
+                'jiggle_up_constraint_max',
+                'jiggle_up_friction',
+                'jiggle_forward_constraint_min',
+                'jiggle_forward_constraint_max',
+                'jiggle_forward_friction',
+                'jiggle_impact_speed',
+                'jiggle_impact_angle',
+                'jiggle_damping_rate',
+                'jiggle_frequency',
+                'jiggle_amplitude',
+            ]
+
+        if not props:
+            self.report({'WARNING'}, "Nothing selected to copy")
+            return {'CANCELLED'}
 
         targets = [pb for pb in context.selected_pose_bones if pb != context.active_pose_bone]
         for pb in targets:
             for prop in props:
-                setattr(pb.bone.vs, prop, getattr(src, prop))
-
-        self.report({'INFO'}, f"Copied bone properties to {len(targets)} bone(s)")
-        return {'FINISHED'}
-
-
-class SMD_OT_Copy_Jigglebone_Properties(Operator):
-    bl_idname= "smd.copy_jiggleboneproperties"
-    bl_label= "Copy Jigglebone Properties"
-    bl_options: set = {'REGISTER', 'UNDO'}
-    
-    @classmethod
-    def poll(cls, context) -> bool:
-        if not is_armature(context.active_object) or context.mode != 'POSE':
-            return False
-        if context.active_object.data.bones.active is None:
-            return False
-        return True
-    
-    def execute(self, context) -> set:
-        armature = get_armature(context.active_object)
-        active_bone = armature.data.bones.active
-        selected_bones = get_selected_bones(armature, bone_type='BONE', exclude_active=True)
-        
-        if not selected_bones:
-            self.report({'WARNING'}, "No other bones selected")
-            return {'CANCELLED'}
-        
-        source_vs = active_bone.vs
-        
-        if not source_vs.bone_is_jigglebone:
-            self.report({'WARNING'}, "Active bone is not a jigglebone")
-            return {'CANCELLED'}
-        
-        jigglebone_props = [
-            'bone_is_jigglebone',
-            'jiggle_flex_type',
-            'jiggle_base_type',
-            'use_bone_length_for_jigglebone_length',
-            'jiggle_length',
-            'jiggle_tip_mass',
-            'jiggle_yaw_stiffness',
-            'jiggle_yaw_damping',
-            'jiggle_pitch_stiffness',
-            'jiggle_pitch_damping',
-            'jiggle_allow_length_flex',
-            'jiggle_along_stiffness',
-            'jiggle_along_damping',
-            'jiggle_has_angle_constraint',
-            'jiggle_has_yaw_constraint',
-            'jiggle_has_pitch_constraint',
-            'jiggle_angle_constraint',
-            'jiggle_yaw_constraint_min',
-            'jiggle_yaw_constraint_max',
-            'jiggle_yaw_friction',
-            'jiggle_pitch_constraint_min',
-            'jiggle_pitch_constraint_max',
-            'jiggle_pitch_friction',
-            'jiggle_base_stiffness',
-            'jiggle_base_damping',
-            'jiggle_base_mass',
-            'jiggle_has_left_constraint',
-            'jiggle_has_up_constraint',
-            'jiggle_has_forward_constraint',
-            'jiggle_left_constraint_min',
-            'jiggle_left_constraint_max',
-            'jiggle_left_friction',
-            'jiggle_up_constraint_min',
-            'jiggle_up_constraint_max',
-            'jiggle_up_friction',
-            'jiggle_forward_constraint_min',
-            'jiggle_forward_constraint_max',
-            'jiggle_forward_friction',
-            'jiggle_impact_speed',
-            'jiggle_impact_angle',
-            'jiggle_damping_rate',
-            'jiggle_frequency',
-            'jiggle_amplitude'
-        ]
-        
-        for bone in selected_bones:
-            target_vs = bone.vs
-            for prop in jigglebone_props:
                 try:
-                    setattr(target_vs, prop, getattr(source_vs, prop))
+                    setattr(pb.bone.vs, prop, getattr(src, prop))
                 except AttributeError:
                     continue
-        
-        self.report({'INFO'}, f"Copied jigglebone properties to {len(selected_bones)} bone(s)")
+
+        self.report({'INFO'}, f"Copied bone properties to {len(targets)} bone(s)")
         return {'FINISHED'}

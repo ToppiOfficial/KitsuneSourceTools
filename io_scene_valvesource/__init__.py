@@ -111,7 +111,6 @@ def draw_copy_armature_map(self, context):
 
 def draw_copy_bone_props(self, context):
     self.layout.operator(GUI.TOOLS_OT_CopySourceBoneProps.bl_idname)
-    self.layout.operator(GUI.SMD_OT_Copy_Jigglebone_Properties.bl_idname)
 
 #
 # Property Groups
@@ -503,7 +502,6 @@ _classes = (
     GUI.SMD_OT_CopyBoneExportName,
     GUI.SMD_OT_AssignBoneRotExportOffset,
     GUI.SMD_OT_CopySourceBoneProps,
-    GUI.SMD_OT_Copy_Jigglebone_Properties,
 
     # Humanoid Armature Mapper
     humanoid_armature_mapper.HUMANOIDARMATUREMAP_PT_Panel,
