@@ -729,7 +729,12 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         box = layout.box()
         box.label(text='Jigglebone Properties')
         if bone and bone.select:
-            box.operator(SMD_OT_Copy_Jigglebone_Properties.bl_idname, icon='COPYDOWN')
+            copyop = box.operator(SMD_OT_CopySourceBoneProps.bl_idname, text='Copy Jigglebone Properties')
+            copyop.to_invoke = False
+            copyop.copy_name = False
+            copyop.copy_rotation = False
+            copyop.copy_location = False
+            copyop.copy_jigglebone = True
             self.draw_jigglebone_properties(box, bone)
         else:
             box = box.box()
@@ -1051,6 +1056,7 @@ class SMD_PT_Shapekey(Properties_SubPanel):
             
             second_col = row.column(align=True)
             second_col.operator(SMD_OT_AddFlexController.bl_idname, icon='ADD',text='')
+            second_col.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='GROUP',text='')
             second_col.operator(SMD_OT_RemoveFlexController.bl_idname, icon='REMOVE',text='')   
             
             second_col.separator()
@@ -1352,9 +1358,6 @@ class SMD_UL_FlexControllers(UIList):
     def draw_item(self, context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property : str | None, index: int | None, flt_flag: int | None) -> None:
     
         ob = context.active_object
-        valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
-        
-        invalid_shapekey = item.shapekey is None or item.shapekey not in ob.data.shape_keys.key_blocks
         
         is_basis = False
         if ob.data and ob.data.shape_keys and item.shapekey and len(ob.data.shape_keys.key_blocks) > 0:
@@ -1378,7 +1381,9 @@ class SMD_UL_FlexControllers(UIList):
         info_row.alignment = 'RIGHT'
         
         if len(item.raw_delta_name.strip()) > 0 and item.shapekey in ob.data.shape_keys.key_blocks:
-            info_row.label(text=item.raw_delta_name)
+            info_row.label(text=sanitize_string_for_delta(item.raw_delta_name))
+        elif item.shapekey in ob.data.shape_keys.key_blocks:
+            info_row.label(text=sanitize_string_for_delta(item.shapekey))
             
         if item.stereo:
                 info_row.label(text="", icon='MOD_MIRROR')
@@ -1388,7 +1393,7 @@ class SMD_UL_FlexControllers(UIList):
 
 
 class SMD_OT_AddFlexController(Operator):
-    bl_idname = "dme.add_flexcontroller"
+    bl_idname = "smd.add_flexcontroller"
     bl_label = "Add Flex Controller"
     bl_options = {'INTERNAL', 'UNDO'}  
 
@@ -1404,6 +1409,37 @@ class SMD_OT_AddFlexController(Operator):
         else:
             new_item.shapekey = ""
         
+        return {'FINISHED'}
+
+
+class SMD_OT_AddAllFlexControllers(Operator):
+    bl_idname = "smd.add_all_flexcontrollers"
+    bl_label = "Add All Flex Controllers"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context) -> set:
+        ob = context.active_object
+
+        if not hasattr(ob.data, 'shape_keys') or ob.data.shape_keys is None:
+            self.report({'WARNING'}, "No shape keys found on active object")
+            return {'CANCELLED'}
+
+        key_blocks = ob.data.shape_keys.key_blocks
+        existing = {item.shapekey for item in ob.vs.dme_flexcontrollers}
+
+        added = 0
+        for key in key_blocks[1:]:  # skip Basis
+            if key.name in existing:
+                continue
+            new_item = ob.vs.dme_flexcontrollers.add()
+            new_item.shapekey = key.name
+            new_item.raw_delta_name = key.name
+            added += 1
+
+        if added:
+            ob.vs.dme_flexcontrollers_index = len(ob.vs.dme_flexcontrollers) - 1
+
+        self.report({'INFO'}, f"Added {added} flex controller(s)")
         return {'FINISHED'}
 
 
@@ -1837,6 +1873,7 @@ class SMD_OT_CopySourceBoneProps(Operator):
     copy_rotation: BoolProperty(name="Export Rotation Offset", default=True)
     copy_location: BoolProperty(name="Export Location Offset", default=True)
     copy_jigglebone: BoolProperty(name="Jigglebone", default=False)
+    to_invoke : BoolProperty(default=True)
 
     @classmethod
     def poll(cls, context):
@@ -1847,8 +1884,11 @@ class SMD_OT_CopySourceBoneProps(Operator):
         )
 
     def invoke(self, context, event):
-        self.copy_jigglebone = context.active_pose_bone.bone.vs.bone_is_jigglebone
-        return context.window_manager.invoke_props_dialog(self)
+        if self.to_invoke:
+            self.copy_jigglebone = context.active_pose_bone.bone.vs.bone_is_jigglebone
+            return context.window_manager.invoke_props_dialog(self)
+        else:
+            return self.execute(context)
 
     def draw(self, context):
         layout = self.layout

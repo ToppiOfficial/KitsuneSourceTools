@@ -490,6 +490,7 @@ _classes = (
     # Properties Operators
     GUI.SMD_UL_FlexControllers,
     GUI.SMD_OT_AddFlexController,
+    GUI.SMD_OT_AddAllFlexControllers,
     GUI.SMD_OT_RemoveFlexController,
     GUI.SMD_OT_ClearFlexControllers,
     GUI.SMD_OT_PreviewFlexController,

@@ -660,7 +660,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             if fc.shapekey not in valid_keys:
                 continue
             
-            delta_name = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+            raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+            delta_name = sanitize_string_for_delta(raw)
             
             if delta_name not in seen_deltas:
                 seen_deltas.add(delta_name)
@@ -2047,10 +2048,10 @@ skeleton
                 for shape_name,shape in bake.shapes.items():
                     wrinkle_scale = 0
 
-                    if ob.vs.flex_controller_modes != 'BUILDER':
+                    if bake.src.vs.flex_controller_mode != 'BUILDER':
                         corrective = getCorrectiveShapeSeparator() in shape_name
                     else:
-                        corrective = None
+                        corrective = False
 
                     if corrective:
                         # drivers always override shape name to avoid name truncation issues

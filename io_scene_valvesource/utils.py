@@ -591,7 +591,9 @@ def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str,
             controller_name = fc.shapekey
         
         shapekey = fc.shapekey if fc.shapekey and fc.shapekey in valid_keys else ""
-        delta_name = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else shapekey
+
+        raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else shapekey
+        delta_name = sanitize_string_for_delta(raw)
         
         result.append((shapekey, fc.eyelid, fc.stereo, delta_name, controller_name))
     
@@ -1945,6 +1947,9 @@ def sanitize_string(data: typing.Union[str, list], allow_unicode: bool = False) 
         return 'unnamed'
 
     return _data
+
+def sanitize_string_for_delta(name: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9]', '', name)
 
 def sort_bone_by_hierarchy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
     bone_set = set(bones)
