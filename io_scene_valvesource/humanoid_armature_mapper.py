@@ -709,7 +709,6 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         prev_mode = arm.mode
         if bpy.context.active_object != arm:
             bpy.context.view_layer.objects.active = arm
-        bpy.ops.object.mode_set(mode='EDIT')
 
         limb_pairs = [
             (vs_arm.armature_map_thigh_l, vs_arm.armature_map_knee_l),
@@ -722,14 +721,12 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             (vs_arm.armature_map_forearm_r, vs_arm.armature_map_wrist_r),
         ]
 
-        edit_bones = arm.data.edit_bones
-
-        bpy.ops.object.mode_set(mode='OBJECT')
-        intermediate_collection = arm.data.collections.get("Intermediate")
-        if intermediate_collection is None:
-            intermediate_collection = arm.data.collections.new("Intermediate")
+        default_collection = self._ensure_default_collection(arm)
+        intermediate_collection = self._ensure_child_collection(arm, "Intermediate", default_collection)
         intermediate_collection.is_visible = False
+
         bpy.ops.object.mode_set(mode='EDIT')
+        edit_bones = arm.data.edit_bones
 
         for start_name, end_name in limb_pairs:
             if not (start_name and end_name):
@@ -818,12 +815,21 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             self._prepare_pose_bones(arm, default_collection)
             self._process_bones_edit_mode(arm, bone_elements)
             self._process_bones_object_mode(arm, bone_elements)
+            self._assign_hair_bones_to_collection(arm)
 
     def _ensure_default_collection(self, arm: Object) -> BoneCollection:
         default_collection = arm.data.collections.get('Default')
         if default_collection is None:
             default_collection = arm.data.collections.new(name='Default')
         return default_collection
+
+    def _ensure_child_collection(self, arm: Object, name: str, default_collection: BoneCollection) -> BoneCollection:
+        collection = next((c for c in arm.data.collections_all if c.name == name), None)
+        if collection is None:
+            collection = arm.data.collections.new(name, parent=default_collection)
+        elif collection.parent is None:
+            collection.parent = default_collection
+        return collection
 
     def _prepare_pose_bones(self, arm: Object, default_collection: BoneCollection) -> None:
         for bone in arm.pose.bones:
@@ -1053,20 +1059,19 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
     def _setup_twist_constraints(self, arm: Object, pb, bone_name: str, bone_data: dict) -> None:
         twist_target = bone_data.get("TwistBones")
         twist_count = bone_data.get("TwistBoneCount") or (1 if twist_target else 0)
-        
+
         if twist_count == 0:
             return
 
         twist_bones = []
         for i in range(twist_count):
-            if i == 0:
-                potential_name = f"{bone_name}.001"
-            else:
-                potential_name = f"{bone_name}.{str(i+1).zfill(3)}"
-            
+            potential_name = f"{bone_name}.001" if i == 0 else f"{bone_name}.{str(i+1).zfill(3)}"
             twist_pb = arm.pose.bones.get(potential_name)
             if twist_pb:
                 twist_bones.append(twist_pb)
+
+        default_collection = self._ensure_default_collection(arm)
+        twist_collection = self._ensure_child_collection(arm, "Twist", default_collection)
 
         for idx, pbtwist in enumerate(twist_bones):
             if not pbtwist:
@@ -1083,13 +1088,8 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             else:
                 self._add_twist_constraint(arm, pbtwist, bone_name, twist_target, idx, twist_count)
 
-            twist_collection = arm.data.collections.get("Twist")
-            if twist_collection is None:
-                twist_collection = arm.data.collections.new("Twist")
-            
             for c in pbtwist.bone.collections:
                 c.unassign(pbtwist.bone)
-            
             twist_collection.assign(pbtwist.bone)
 
     def _add_twist_constraint(self, arm: Object, pbtwist, bone_name: str, twist_target: str, idx: int, twist_count: int) -> None:
@@ -1164,6 +1164,19 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
 
         print(f"[CREATE] {bone_name} (Parent: {parent_name})")
         return new_bone
+
+    def _assign_hair_bones_to_collection(self, arm: Object) -> None:
+        hair_bones = [bone for bone in arm.data.bones if "hair" in bone.name.lower() or "bangs" in bone.name.lower()]
+        if not hair_bones:
+            return
+
+        default_collection = self._ensure_default_collection(arm)
+        hair_collection = self._ensure_child_collection(arm, "Hair", default_collection)
+
+        for bone in hair_bones:
+            for col in list(bone.collections):
+                col.unassign(bone)
+            hair_collection.assign(bone)
 
 
 class HUMANOIDARMATUREMAP_OT_WriteConfig(Operator):

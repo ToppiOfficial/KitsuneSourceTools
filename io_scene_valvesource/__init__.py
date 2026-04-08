@@ -262,7 +262,7 @@ class ExportableProps():
 
     use_toon_edgeline : BoolProperty(name="Export with Toon Edge Line",default=False)
     base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0, soft_max=0.8, precision=3)
-    apply_edgeline_thickness_by_weights : BoolProperty(name="Apply Egeline Thickness Based on Weights", description="Apply varation of thickness on the outline based on a vertex group \"Edgeline_Thickness\", it will be auto-computed if it doesn't exist", default=True)
+    apply_edgeline_thickness_by_weights : BoolProperty(name="Apply Egeline Thickness Based on Weights", description="Apply varation of thickness on the outline based on a vertex group \"Edgeline_Thickness\", it will be auto-computed if it doesn't exist", default=False)
     edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
 
     show_items : BoolProperty()
@@ -318,6 +318,8 @@ class ValveSource_SceneProps(PropertyGroup):
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
+
+    bone_sort_order : IntProperty(name='Bone Sort Order', default=0, min=0,soft_max=4)
     
     ignore_rotation_offset : BoolProperty(name='Ignore Rotation Offsets', default=False)
     export_rotation_offset_x : FloatProperty(name='Rotation X', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)

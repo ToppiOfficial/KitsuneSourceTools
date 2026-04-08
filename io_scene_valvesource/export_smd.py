@@ -2048,10 +2048,7 @@ skeleton
                 for shape_name,shape in bake.shapes.items():
                     wrinkle_scale = 0
 
-                    if bake.src.vs.flex_controller_mode != 'BUILDER':
-                        corrective = getCorrectiveShapeSeparator() in shape_name
-                    else:
-                        corrective = False
+                    corrective = getCorrectiveShapeSeparator() in shape_name
 
                     if corrective:
                         # drivers always override shape name to avoid name truncation issues

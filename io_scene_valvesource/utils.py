@@ -445,13 +445,15 @@ def animationLength(ad : bpy.types.AnimData):
     if ad.action:
         if State.useActionSlots:			
             def iter_keyframes(channelbag : bpy.types.ActionChannelbag):
+                if channelbag is None:
+                    return
                 for fcurve in channelbag.fcurves:
                     for keyframe in fcurve.keyframe_points:
                         yield keyframe
 
             keyframeTimes = [kf.co.x for kf in iter_keyframes(ad.action.layers[0].strips[0].channelbag(ad.action_slot))]
             
-            return ceil(max(keyframeTimes) - min(keyframeTimes))
+            return ceil(max(keyframeTimes) - min(keyframeTimes)) if keyframeTimes else 0
         else:
             return ceil(ad.action.frame_range[1] - ad.action.frame_range[0])
     elif not State.useActionSlots:
@@ -1242,14 +1244,15 @@ def compute_edgeline_island_weights(id, edgeline_vertexgroup, weight_min=0.3, we
 
     bm.free()
 
-def limit_vertexgroup_influence(ob: bpy.types.Object, bone_names: set[str], limit: int = 4):
-    """Keep only the top N weights per vertex."""
+def limit_vertexgroup_influence(ob: bpy.types.Object, bone_names: set[str], arm: bpy.types.Object, limit: int = 4):
+    """Keep only the top N weights per vertex, respecting bone_sort_order priority."""
+    bones_by_name = {b.name: b for b in arm.data.bones if b.name in bone_names}
     to_remove = []
 
     for v in ob.data.vertices:
         groups = sorted(
             (g for g in v.groups if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names),
-            key=lambda g: g.weight, reverse=True
+            key=lambda g: (bones_by_name[ob.vertex_groups[g.group].name].vs.bone_sort_order, -g.weight)
         )
 
         for g in groups[limit:]:
@@ -1257,8 +1260,7 @@ def limit_vertexgroup_influence(ob: bpy.types.Object, bone_names: set[str], limi
 
     for group_idx, vertex_idx in to_remove:
         if group_idx < len(ob.vertex_groups):
-            vg = ob.vertex_groups[group_idx]
-            vg.remove([vertex_idx])
+            ob.vertex_groups[group_idx].remove([vertex_idx])
 
 def normalize_vertexgroup_weights(ob: bpy.types.Object, bone_names: set[str]):
     """Normalize remaining weights so they sum to 1.0 per vertex."""
@@ -1276,7 +1278,6 @@ def normalize_vertexgroup_weights(ob: bpy.types.Object, bone_names: set[str]):
 
 def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
     """Full pipeline: clean, limit, normalize."""
-    
     arm = get_armature(ob)
     if arm is None:
         return
@@ -1284,7 +1285,7 @@ def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, c
     deform_bones = [b for b in arm.data.bones if b.use_deform]
     deform_bone_names = {b.name for b in deform_bones}
     
-    limit_vertexgroup_influence(ob, deform_bone_names, limit=vgroup_limit)
+    limit_vertexgroup_influence(ob, deform_bone_names, arm, limit=vgroup_limit)
     normalize_vertexgroup_weights(ob, deform_bone_names)
     
 #

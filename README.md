@@ -1,6 +1,6 @@
 # KitsuneSourceTool [Blender 4.5+]
 
-A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/BlenderSourceTools)
+A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/BlenderSourceTools) specifically tailored for character modding
 
 ## Features
 
@@ -21,3 +21,10 @@ A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/Blender
 - **Flexcontrollers** — Export specific shapekeys and DMX config using `Build` mode
 - **DMX Attachments** — Export attachments directly in DMX format
 - **Transform Override** — Export at a specific height, scale, and forward axis
+- **Vertex Group Normalization** — Limit and normalize vertex group influences per vertex on export, with per-bone priority control via `Bone Sort Order`
+
+## Note
+- Datamodel.py is an older version (3.3) due to the issue when compiling models in Binary 4 to 5 DMX from the up to date.
+- SMD, VTA are hardly maintained and updated. I recommend using DMX for export.
+- Vertex Animation is not considered to work with the new post-processing features and is completely untested.
+- Compile QC is completely removed and KitsuneResource Compile replaced it. see: [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource)
