@@ -1,6 +1,6 @@
 import bpy, os, json
 from typing import Any
-from bpy.types import Context, Object, Operator, UILayout, UIList, Event, BoneCollection, Panel
+from bpy.types import Context, Object, Operator, UILayout, UIList, Event, BoneCollection, Panel, EditBone, CopyRotationConstraint
 from bpy.props import EnumProperty, IntProperty, StringProperty, BoolProperty
 from mathutils import Vector
 from .utils import *
@@ -939,7 +939,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         for bone_entry in bone_data:
             bone_ref, x, y, z, roll = bone_entry
 
-            if isinstance(bone_ref, bpy.types.EditBone):
+            if isinstance(bone_ref, EditBone):
                 bone = bone_ref
             else:
                 bone = arm.data.edit_bones.get(bone_ref if isinstance(bone_ref, str) else bone_ref.name)
@@ -1097,7 +1097,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         influence = (idx + 1) / twist_count
 
         constraint_name = f"{bone_name}_twist_constraint_{idx+1}"
-        twist_constraint : bpy.types.CopyRotationConstraint = pbtwist.constraints.get(constraint_name)
+        twist_constraint : CopyRotationConstraint = pbtwist.constraints.get(constraint_name)
         
         if twist_constraint is None:
             twist_constraint = pbtwist.constraints.new('COPY_ROTATION')
@@ -1118,7 +1118,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
                 return True
         return False
 
-    def _write_missing_bone(self, arm: Object, bone_name: str, child_hint: str, bone_elements: dict) -> bpy.types.EditBone | None:
+    def _write_missing_bone(self, arm: Object, bone_name: str, child_hint: str, bone_elements: dict) -> EditBone | None:
         existing = arm.data.edit_bones.get(bone_name)
         if existing:
             return existing
@@ -1387,7 +1387,7 @@ class HUMANOIDARMATUREMAP_UL_ConfigList(UIList):
             row.operator(HUMANOIDARMATUREMAP_OT_RemoveItem.bl_idname, text="", icon="X").index = index
 
 
-class HUMANOIDARMATUREMAP_OT_MirrorBoneNames(bpy.types.Operator):
+class HUMANOIDARMATUREMAP_OT_MirrorBoneNames(Operator):
     bl_idname = "humanoidarmaturemap.mirror_bone_names"
     bl_label = "Mirror Bone Names"
     bl_description = "Mirror bone names from one side to the other for paired bone slots"

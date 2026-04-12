@@ -19,7 +19,7 @@
 # ##### END GPL LICENSE BLOCK #####
 
 import bpy, sys, re, os, subprocess
-from bpy.types import Menu, Panel, Operator, MeshLoopColorLayer, UILayout, UIList, LoopColors
+from bpy.types import Menu, Panel, Operator, MeshLoopColorLayer, UILayout, UIList, LoopColors, Collection, Object, UI_UL_list, PoseBone, Bone, EditBone
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty, StringProperty
 from bpy.app.translations import pgettext
 from .utils import getSelectedExportables, count_exports, get_id, State, Compiler, ExportFormat, is_armature, get_attachments, get_hitboxes, get_jigglebones
@@ -448,10 +448,10 @@ for map_name in vertex_float_maps:
 vca_icon = 'EDITMODE_HLT'
 
 
-class SMD_UL_ExportItems(bpy.types.UIList):
+class SMD_UL_ExportItems(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
         obj = item.item
-        is_collection = isinstance(obj, bpy.types.Collection)
+        is_collection = isinstance(obj, Collection)
         enabled = not (is_collection and obj.vs.mute)
         
         col = layout.column()
@@ -460,7 +460,7 @@ class SMD_UL_ExportItems(bpy.types.UIList):
         if enabled:
             self._draw_stats_row(split1, obj)
     
-    def _draw_header_row(self, col : UILayout, obj : bpy.types.Object, item, enabled, index, is_collection : bool):
+    def _draw_header_row(self, col : UILayout, obj : Object, item, enabled, index, is_collection : bool):
         row = col.row(align=True)
         
         export_icon = 'CHECKBOX_HLT' if obj.vs.export and enabled else 'CHECKBOX_DEHLT'
@@ -497,7 +497,7 @@ class FilterCache:
 
 
 gui_cache = {}
-class SMD_UL_GroupItems(bpy.types.UIList):
+class SMD_UL_GroupItems(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
         r = layout.row(align=True)
         r.prop(item.vs,"export",text="",icon='CHECKBOX_HLT' if item.vs.export else 'CHECKBOX_DEHLT',emboss=False)
@@ -510,7 +510,7 @@ class SMD_UL_GroupItems(bpy.types.UIList):
         if not (cache and cache.fname == fname and cache.state_objects is State.exportableObjects):
             cache = FilterCache()
             cache.filter = [self.bitflag_filter_item if ob.session_uid in State.exportableObjects and (not fname or fname in ob.name.lower()) else 0 for ob in data.objects]
-            cache.order = bpy.types.UI_UL_list.sort_items_by_name(data.objects)
+            cache.order = UI_UL_list.sort_items_by_name(data.objects)
             cache.fname = fname
             gui_cache[data] = cache
             
@@ -525,13 +525,6 @@ class SMD_PT_Properties(Panel):
     
     def draw(self, context) -> None:
         layout = self.layout
-
-        active_exportable = get_active_exportable(context)
-        if not active_exportable:
-            return
-
-        item = active_exportable.item
-        layout.column().prop(item.vs,"subdir",icon='FILE_FOLDER')
 
 
 class Properties_SubPanel(Panel):
@@ -551,7 +544,7 @@ class Properties_SubPanel(Panel):
 
     @classmethod
     def is_collection(cls, item):
-        return isinstance(item, bpy.types.Collection)
+        return isinstance(item, Collection)
 
     def draw(self, context):
         layout = self.layout
@@ -570,6 +563,8 @@ class SMD_PT_Group(Properties_SubPanel):
         layout = self.layout
         item = self.get_item(context)
         scene = context.scene
+
+        layout.column().prop(item.vs,"subdir",icon='FILE_FOLDER')
 
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
 
@@ -652,29 +647,35 @@ class SMD_PT_Bone(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
-
-
-class SMD_PT_BoneData(Properties_SubPanel):
-    bl_label = 'Bone Data'
-    bl_parent_id = 'SMD_PT_Bone'
-
-    def draw(self, context):
-        layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         active_bone = context.active_bone
         
         if not is_armature(active_object):
             layout.label(text=get_id("panel_select_armature"), icon='ERROR')
             return
         
-        if not isinstance(active_bone, (bpy.types.PoseBone, bpy.types.Bone)):
+        if not isinstance(active_bone, (PoseBone, Bone)):
             layout.label(text=get_id("panel_select_noneditbone"), icon='ERROR')
             return
+
+
+class SMD_PT_BoneData(Properties_SubPanel):
+    bl_label = 'Bone Data'
+    bl_parent_id = 'SMD_PT_Bone'
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.active_object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.active_object
+        active_bone = context.active_bone
         
         box = layout.box()
         col = box.column(align=True)
         
-        if isinstance(active_bone, bpy.types.PoseBone):
+        if isinstance(active_bone, PoseBone):
             active_bone_vs = active_bone.bone.vs
         else:
             active_bone_vs = active_bone.vs
@@ -716,28 +717,27 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
     bl_label = 'Jigglebones'
     bl_parent_id = 'SMD_PT_Bone'
     bl_options = {'DEFAULT_CLOSED'}
-    
+
     @classmethod
     def poll(cls, context):
-        return is_armature(context.active_object)
+        return is_armature(context.active_object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
         
     def draw(self, context):
         layout = self.layout
         active_object = context.active_object
         active_armature = get_armature(active_object)
-
-        bone = active_armature.data.bones.active
+        active_bone = context.active_bone
         
         box = layout.box()
         box.label(text='Jigglebone Properties')
-        if bone and bone.select:
+        if active_bone and active_bone.select:
             copyop = box.operator(SMD_OT_CopySourceBoneProps.bl_idname, text='Copy Jigglebone Properties')
             copyop.to_invoke = False
             copyop.copy_name = False
             copyop.copy_rotation = False
             copyop.copy_location = False
             copyop.copy_jigglebone = True
-            self.draw_jigglebone_properties(box, bone)
+            self.draw_jigglebone_properties(box, active_bone)
         else:
             box = box.box()
             box.label(text='Select a Valid Bone', icon='ERROR')
@@ -753,7 +753,7 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
         row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
         
-    def draw_jigglebone_properties(self, layout: UILayout, bone: bpy.types.Bone) -> None:
+    def draw_jigglebone_properties(self, layout: UILayout, bone: Bone) -> None:
         vs_bone = bone.vs
         
         box = layout
@@ -940,7 +940,7 @@ class SMD_PT_Mesh(Properties_SubPanel):
 
   
 class SMD_PT_Shapekey(Properties_SubPanel):
-    bl_label = 'Shape keys'
+    bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
     
     @classmethod
@@ -948,8 +948,10 @@ class SMD_PT_Shapekey(Properties_SubPanel):
         return is_mesh_compatible(context.active_object)
     
     def draw_header(self, context):
-        layout = self.layout
-        layout.label(text='', icon='SHAPEKEY_DATA')
+        active_object = context.active_object
+        val1, val2 = countShapes(active_object)
+        label = '{} ({} Shapes, {} Correctives)'.format(pgettext("Shape keys"), val1, val2) if is_mesh_compatible(active_object) else pgettext("Shape Keys")
+        self.layout.label(text=label, icon='SHAPEKEY_DATA')
         
     def draw(self, context):
         layout = self.layout
@@ -1196,7 +1198,7 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
 
 
 class SMD_PT_ToonEdgeline(Properties_SubPanel):
-    bl_label = 'Toon Outline/Edgeline'
+    bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
     
     @classmethod
@@ -1204,8 +1206,10 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         return is_mesh_compatible(context.active_object)
     
     def draw_header(self, context):
-        layout = self.layout
-        layout.label(text='', icon='MOD_SOLIDIFY')
+        active_object = context.active_object
+        is_outline = active_object.vs.use_toon_edgeline
+        label = '{} ({})'.format(pgettext("Toon Outline/Edgeline"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Toon Outline/Edgeline")
+        self.layout.label(text=label, icon='SHAPEKEY_DATA')
         
     def draw(self, context):
         layout = self.layout
@@ -1419,6 +1423,18 @@ class SMD_OT_AddAllFlexControllers(Operator):
     bl_label = "Add All Flex Controllers"
     bl_options = {'INTERNAL', 'UNDO'}
 
+    mode: EnumProperty(
+        name="Add Mode",
+        items=[
+            ('ALL', "Add All", "Add all shape keys, replacing existing entries"),
+            ('MISSING', "Add Missing", "Only add shape keys not already in the list"),
+        ],
+        default='MISSING',
+    )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
     def execute(self, context) -> set:
         ob = context.active_object
 
@@ -1431,7 +1447,7 @@ class SMD_OT_AddAllFlexControllers(Operator):
 
         added = 0
         for key in key_blocks[1:]:  # skip Basis
-            if key.name in existing:
+            if self.mode == 'MISSING' and key.name in existing:
                 continue
             new_item = ob.vs.dme_flexcontrollers.add()
             new_item.shapekey = key.name

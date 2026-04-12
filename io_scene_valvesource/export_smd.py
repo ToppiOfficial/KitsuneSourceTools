@@ -73,29 +73,6 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         ops.wm.call_menu(name="SMD_MT_ExportChoice")
         return {'PASS_THROUGH'}
     
-    def unhide_all(self, layer_col: bpy.types.LayerCollection):
-        if layer_col is None:
-            return
-
-        if layer_col.exclude:
-            layer_col.exclude = False
-
-        if layer_col.hide_viewport:
-            layer_col.hide_viewport = False
-
-        if layer_col.collection.hide_viewport:
-            layer_col.collection.hide_viewport = False
-
-        for obj in layer_col.collection.objects:
-            if obj.hide_viewport:
-                obj.hide_viewport = False
-
-            if obj.hide_get():
-                obj.hide_set(False)
-
-        for child in layer_col.children:
-            self.unhide_all(child)
-            
     def execute(self, context):
         #bpy.context.window_manager.progress_begin(0,1)
         
@@ -150,7 +127,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             # lots of operators only work on visible objects
             # ensure that objects in all collections are accessible to operators
             for view_layer in bpy.context.scene.view_layers:
-                self.unhide_all(view_layer.layer_collection)
+                unhide_all(view_layer.layer_collection)
             
             self.files_exported = self.attemptedExports = 0
             
@@ -2432,7 +2409,8 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
 
 
     def _get_export_path(self, context):
-        vs = context.active_object.vs
+        arm = get_armature(context.active_object)
+        vs = arm.vs
         return {
             'JIGGLEBONES': vs.jigglebone_prefabfile,
             'ATTACHMENTS': vs.attachment_prefabfile,
@@ -2465,55 +2443,64 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         return True
 
     def execute(self, context) -> set:
-        arm = get_armature(context.active_object)
-        self.to_clipboard = context.scene.vs.prefab_to_clipboard
 
-        bone_names = {bone.name: get_bone_exportname(bone) for bone in arm.data.bones}
-        if not self.check_duplicate_bone_names(bone_names):
-            return {'CANCELLED'}
+        ops.ed.undo_push(message=self.bl_label)
+        try:
+            for view_layer in bpy.context.scene.view_layers:
+                    unhide_all(view_layer.layer_collection)
 
-        export_path = None
-        fmt = None
+            arm = get_armature(context.active_object)
+            self.to_clipboard = context.scene.vs.prefab_to_clipboard
 
-        if not self.to_clipboard:
-            raw_path = self._get_export_path(context)
-            if not raw_path:
-                self.report({'ERROR'}, "No export path set on object")
+            bone_names = {bone.name: get_bone_exportname(bone) for bone in arm.data.bones}
+            if not self.check_duplicate_bone_names(bone_names):
                 return {'CANCELLED'}
 
-            export_path, filename, ext = self.get_filepath(raw_path)
-            if not filename or not ext:
-                self.report({'ERROR'}, "Invalid export path: must include filename and extension")
-                return {'CANCELLED'}
+            export_path = None
+            fmt = None
 
-            ext_lower = ext.lower()
-            if ext_lower in {'.qc', '.qci'}:
-                fmt = 'QC'
-            elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
-                fmt = 'VMDL'
+            if not self.to_clipboard:
+                raw_path = self._get_export_path(context)
+                if not raw_path:
+                    self.report({'ERROR'}, "No export path set on object")
+                    return {'CANCELLED'}
+
+                export_path, filename, ext = self.get_filepath(raw_path)
+                if not filename or not ext:
+                    self.report({'ERROR'}, "Invalid export path: must include filename and extension")
+                    return {'CANCELLED'}
+
+                ext_lower = ext.lower()
+                if ext_lower in {'.qc', '.qci'}:
+                    fmt = 'QC'
+                elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
+                    fmt = 'VMDL'
+                else:
+                    self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
+                    return {'CANCELLED'}
+
+            warnings = None
+            if self.export_type == 'JIGGLEBONES':
+                compiled = self._run_jigglebones(arm, fmt, export_path)
+            elif self.export_type == 'ATTACHMENTS':
+                compiled = self._run_attachments(arm, fmt, export_path, context)
+            elif self.export_type == 'HITBOXES':
+                compiled, warnings = self._run_hitboxes(arm)
             else:
-                self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
                 return {'CANCELLED'}
 
-        warnings = None
-        if self.export_type == 'JIGGLEBONES':
-            compiled = self._run_jigglebones(arm, fmt, export_path)
-        elif self.export_type == 'ATTACHMENTS':
-            compiled = self._run_attachments(arm, fmt, export_path, context)
-        elif self.export_type == 'HITBOXES':
-            compiled, warnings = self._run_hitboxes(arm)
-        else:
-            return {'CANCELLED'}
+            if compiled is None:
+                return {'CANCELLED'}
 
-        if compiled is None:
-            return {'CANCELLED'}
-
-        if not self._write_output(compiled, export_path, warnings):
-            return {'CANCELLED'}
+            if not self._write_output(compiled, export_path, warnings):
+                return {'CANCELLED'}
+        finally:
+            ops.ed.undo_push(message=self.bl_label)
+            if bpy.app.debug_value <= 1: ops.ed.undo()
 
         return {'FINISHED'}
 
-    # ── Jigglebones ───────────────────────────────────────────────────────────
+    # Jigglebones
 
     def _run_jigglebones(self, arm, fmt, export_path):
         jigglebones = [b for b in arm.data.bones if b.vs.bone_is_jigglebone]
@@ -2656,7 +2643,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             return None
         return kv_doc.to_text()
 
-    # ── Attachments ───────────────────────────────────────────────────────────
+    # Attachments
 
     def _run_attachments(self, arm, fmt, export_path, context):
         attachments = get_attachments(arm)
@@ -2726,7 +2713,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             return None
         return kv_doc.to_text()
 
-    # ── Hitboxes ──────────────────────────────────────────────────────────────
+    # Hitboxes
 
     def _run_hitboxes(self, arm):
         hitbox_data = []
