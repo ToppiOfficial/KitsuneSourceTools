@@ -1016,6 +1016,21 @@ class SMD_PT_Shapekey(Properties_SubPanel):
             first_col = row.column()
             first_col.template_list("SMD_UL_FlexControllers","",active_object.vs,"dme_flexcontrollers", active_object.vs,"dme_flexcontrollers_index")
             
+            second_col = row.column(align=True)
+            second_col.operator(SMD_OT_AddFlexController.bl_idname, icon='ADD', text='')
+            second_col.operator(SMD_OT_RemoveFlexController.bl_idname, icon='REMOVE', text='')
+
+            second_col.separator()
+
+            second_col.menu('SMD_MT_FlexControllerSpecials', icon='DOWNARROW_HLT', text='')
+
+            second_col.separator()
+
+            move_up = second_col.operator(SMD_OT_MoveFlexController.bl_idname, icon='TRIA_UP', text='')
+            move_up.direction = 'UP'
+            move_down = second_col.operator(SMD_OT_MoveFlexController.bl_idname, icon='TRIA_DOWN', text='')
+            move_down.direction = 'DOWN'
+
             if len(active_object.vs.dme_flexcontrollers) > 0 and active_object.vs.dme_flexcontrollers_index != -1:
                 
                 box = col.box()
@@ -1057,16 +1072,6 @@ class SMD_PT_Shapekey(Properties_SubPanel):
                 preview_op.reset_others = False
                 
                 box_row.operator("object.shape_key_clear", icon='X', text="")
-            
-            second_col = row.column(align=True)
-            second_col.operator(SMD_OT_AddFlexController.bl_idname, icon='ADD',text='')
-            second_col.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='GROUP',text='')
-            second_col.operator(SMD_OT_RemoveFlexController.bl_idname, icon='REMOVE',text='')   
-            
-            second_col.separator()
-            
-            second_col.alert = True
-            second_col.operator(SMD_OT_ClearFlexControllers.bl_idname, icon='TRASH',text='')   
             
             insertStereoSplitUi(col)
             
@@ -1398,6 +1403,17 @@ class SMD_UL_FlexControllers(UIList):
                 info_row.label(text="", icon='HIDE_OFF')
 
 
+class SMD_MT_FlexControllerSpecials(Menu):
+    bl_label = "Flex Controller Specials"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='IMPORT', text="Add All")
+        layout.operator(SMD_OT_SortFlexControllers.bl_idname, icon='SORTALPHA', text="Sort by Name")
+        layout.separator()
+        layout.operator(SMD_OT_ClearFlexControllers.bl_idname, icon='TRASH', text="Delete All")
+
+
 class SMD_OT_AddFlexController(Operator):
     bl_idname = "smd.add_flexcontroller"
     bl_label = "Add Flex Controller"
@@ -1474,6 +1490,59 @@ class SMD_OT_RemoveFlexController(Operator):
         context.active_object.vs.dme_flexcontrollers.remove(context.active_object.vs.dme_flexcontrollers_index)
         context.active_object.vs.dme_flexcontrollers_index = min(max(0, context.active_object.vs.dme_flexcontrollers_index - 1), 
                                                  len(context.active_object.vs.dme_flexcontrollers) - 1)
+        return {'FINISHED'}
+
+
+class SMD_OT_MoveFlexController(Operator):
+    bl_idname = "smd.move_flexcontroller"
+    bl_label = "Move Flex Controller"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    direction: EnumProperty(items=[('UP', "Up", ""), ('DOWN', "Down", "")])
+
+    def execute(self, context) -> set:
+        ob = context.active_object
+        controllers = ob.vs.dme_flexcontrollers
+        index = ob.vs.dme_flexcontrollers_index
+
+        if self.direction == 'UP' and index > 0:
+            controllers.move(index, index - 1)
+            ob.vs.dme_flexcontrollers_index -= 1
+        elif self.direction == 'DOWN' and index < len(controllers) - 1:
+            controllers.move(index, index + 1)
+            ob.vs.dme_flexcontrollers_index += 1
+
+        return {'FINISHED'}
+
+
+class SMD_OT_SortFlexControllers(Operator):
+    bl_idname = "smd.sort_flexcontrollers"
+    bl_label = "Sort Flex Controllers"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context) -> set:
+        ob = context.active_object
+        controllers = ob.vs.dme_flexcontrollers
+
+        def sort_key(fc):
+            name = fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else None
+            delta = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else None
+            return (name or delta or fc.shapekey or "").lower()
+
+        sorted_controllers = sorted(controllers, key=sort_key)
+
+        temp = [(fc.controller_name, fc.shapekey, fc.raw_delta_name, fc.stereo, fc.eyelid) for fc in sorted_controllers]
+
+        controllers.clear()
+        for controller_name, shapekey, raw_delta_name, stereo, eyelid in temp:
+            item = controllers.add()
+            item.controller_name = controller_name
+            item.shapekey = shapekey
+            item.raw_delta_name = raw_delta_name
+            item.stereo = stereo
+            item.eyelid = eyelid
+
+        ob.vs.dme_flexcontrollers_index = 0
         return {'FINISHED'}
 
 

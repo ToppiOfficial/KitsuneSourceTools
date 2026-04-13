@@ -2449,6 +2449,8 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             for view_layer in bpy.context.scene.view_layers:
                     unhide_all(view_layer.layer_collection)
 
+            bpy.context.view_layer.update()
+
             arm = get_armature(context.active_object)
             self.to_clipboard = context.scene.vs.prefab_to_clipboard
 

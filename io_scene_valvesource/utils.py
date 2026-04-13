@@ -1201,27 +1201,28 @@ def preserve_context_mode(obj: bpy.types.Object | None = None, mode: str = "EDIT
 #
 
 def unhide_all(layer_col: bpy.types.LayerCollection):
-        if layer_col is None:
-            return
+    if layer_col is None:
+        return
 
-        if layer_col.exclude:
-            layer_col.exclude = False
+    if layer_col.exclude:
+        layer_col.exclude = False
 
-        if layer_col.hide_viewport:
-            layer_col.hide_viewport = False
+    if layer_col.hide_viewport:
+        layer_col.hide_viewport = False
 
-        if layer_col.collection.hide_viewport:
-            layer_col.collection.hide_viewport = False
+    if layer_col.collection.hide_viewport:
+        layer_col.collection.hide_viewport = False
 
-        for obj in layer_col.collection.objects:
-            if obj.hide_viewport:
-                obj.hide_viewport = False
+    for obj in layer_col.collection.objects:
+        if obj.hide_viewport:
+            obj.hide_viewport = False
 
-            if obj.hide_get():
-                obj.hide_set(False)
+        if obj.hide_get():
+            obj.hide_set(False)
 
-        for child in layer_col.children:
-            unhide_all(child)
+    for child in layer_col.children:
+        unhide_all(child)
+        
 
 #
 #   VERTEX GROUPS
