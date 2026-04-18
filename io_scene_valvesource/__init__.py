@@ -106,6 +106,12 @@ def on_flexcontroller_index_changed(self, context):
     if sk_idx != -1:
         mesh.active_shape_key_index = sk_idx
 
+def update_sanitize_name(self, context):
+    legal_name = re.sub(r'[^a-z0-9]', '_', self.controller_name.lower())
+    
+    if self.controller_name != legal_name:
+        self.controller_name = legal_name
+
 def draw_copy_armature_map(self, context):
     self.layout.operator(humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_CopyToSelected.bl_idname)
 
@@ -129,12 +135,22 @@ class PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
 class FlexControllerItem(PropertyGroup):
-    controller_name : StringProperty(name='Controller Name')
+    controller_name: StringProperty(name='Controller Name',update=update_sanitize_name)
     raw_delta_name : StringProperty(name='Delta Name')
 
     shapekey : StringProperty(name='ShapeKey')
     eyelid : BoolProperty(name='Eyelid')
     stereo : BoolProperty(name='Stereo')
+
+    flexgroup : EnumProperty(name='Flex Type', items=[
+        ('NONE', 'NONE', ''),
+        ('EYES', 'EYES', ''),
+        ('EYELID', 'EYELID', ''),
+        ('BROW', 'BROW', ''),
+        ('MOUTH', 'MOUTH', ''),
+        ('MISC', 'MISC', ''),
+        ('CHEEK', 'CHEEK', ''),
+        ], default='NONE')
 
 class VertexAnimation(PropertyGroup):
     name : StringProperty(name="Name",default="VertexAnim")
@@ -264,9 +280,14 @@ class ExportableProps():
     base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0, soft_max=0.8, precision=3)
     apply_edgeline_thickness_by_weights : BoolProperty(name="Apply Egeline Thickness Based on Weights", description="Apply varation of thickness on the outline based on a vertex group \"Edgeline_Thickness\", it will be auto-computed if it doesn't exist", default=False)
     edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
+    export_edgeline_separately : BoolProperty(name="Export Edgeline Separately", default=False)
 
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
+
+    generate_lods : BoolProperty(name='Generate LODs on Export', default=False)
+    lod_count : IntProperty(name='LOD count', default=1,min=1,soft_max=3)
+    decimate_factor : FloatProperty(name='Decimation Per LOD', default=50.0,min=0,soft_max=100,precision=2)
 
 
 # Property Classes (using mixins)
@@ -315,6 +336,8 @@ class ValveSource_SceneProps(PropertyGroup):
     kitsuneresource_args : StringProperty(name='Arguments', default='-game -log -keep-flat-qc')
 
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
+
+    do_not_export_edgeline : BoolProperty(name='Do Not Write Edgeline/Outline', default=False)
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
@@ -481,6 +504,7 @@ _classes = (
     GUI.SMD_PT_Vertexfloatmap,
     GUI.SMD_PT_Vertexanimations,
     GUI.SMD_PT_ToonEdgeline,
+    GUI.SMD_PT_LOD,
     GUI.SMD_OT_ComputeEdgelineWeights,
     GUI.SMD_PT_Empty,
     GUI.SMD_PT_Curve,
@@ -492,6 +516,7 @@ _classes = (
     # Properties Operators
     GUI.SMD_UL_FlexControllers,
     GUI.SMD_MT_FlexControllerSpecials,
+    GUI.SMD_OT_AutoAssignFlexGroups,
     GUI.SMD_OT_AddFlexController,
     GUI.SMD_OT_AddAllFlexControllers,
     GUI.SMD_OT_RemoveFlexController,

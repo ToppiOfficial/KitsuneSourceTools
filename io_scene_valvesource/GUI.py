@@ -163,7 +163,10 @@ class SMD_PT_Scene(Panel):
 
         # OTHERS
 
-        box.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
+        box1 = box.box().column(align=True)
+        box1.label(text='Options', icon='OPTIONS')
+        box1.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
+        box1.prop(context.scene.vs,"do_not_export_edgeline")
 
 
 class SMD_MT_ConfigureScene(Menu):
@@ -564,7 +567,8 @@ class SMD_PT_Group(Properties_SubPanel):
         item = self.get_item(context)
         scene = context.scene
 
-        layout.column().prop(item.vs,"subdir",icon='FILE_FOLDER')
+        vs = item.vs
+        if vs is not None: layout.column().prop(vs,"subdir",icon='FILE_FOLDER')
 
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
 
@@ -572,18 +576,17 @@ class SMD_PT_Group(Properties_SubPanel):
             layout.label(text=get_id("panel_select_group"), icon='ERROR')
             return
         
-        
-        
-        r = layout.row()
-        r.alignment = 'CENTER'
-        r.prop(item.vs, "mute")
-        if item.vs.mute:
-            return
-        elif State.exportFormat == ExportFormat.DMX:
-            r.prop(item.vs, "automerge")
+        if vs:
+            r = layout.row()
+            r.alignment = 'CENTER'
+            r.prop(vs, "mute")
+            if vs.mute:
+                return
+            elif State.exportFormat == ExportFormat.DMX:
+                r.prop(vs, "automerge")
 
-        if not item.vs.mute:
-            layout.template_list("SMD_UL_GroupItems", item.name, item, "objects", item.vs, "selected_item", columns=2, rows=2, maxrows=10)
+            if not vs.mute:
+                layout.template_list("SMD_UL_GroupItems", item.name, item, "objects", vs, "selected_item", columns=2, rows=2, maxrows=10)
 
 
 class SMD_PT_Armature(Properties_SubPanel):
@@ -957,8 +960,8 @@ class SMD_PT_Shapekey(Properties_SubPanel):
         layout = self.layout
         active_object = context.active_object
         
-        if not is_mesh_compatible(active_object) or not hasShapes(active_object):
-            layout.label(text=get_id("panel_select_mesh_sk"), icon='ERROR')
+        if not is_mesh_compatible(active_object):
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
         
         num_shapes, num_correctives = countShapes(active_object)
@@ -1062,6 +1065,11 @@ class SMD_PT_Shapekey(Properties_SubPanel):
                 prop_col.alignment = 'RIGHT'
                 prop_col.label(text='')
                 prop_col.prop(item,'stereo',text='Is Stereo')
+                
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Flex Type')
+                prop_col.prop(item,'flexgroup',text='')
                 
                 box_row = box.row(align=True)
                 
@@ -1214,30 +1222,67 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         active_object = context.active_object
         is_outline = active_object.vs.use_toon_edgeline
         label = '{} ({})'.format(pgettext("Toon Outline/Edgeline"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Toon Outline/Edgeline")
-        self.layout.label(text=label, icon='SHAPEKEY_DATA')
+        self.layout.label(text=label, icon='MOD_SOLIDIFY')
         
     def draw(self, context):
         layout = self.layout
-
         active_object = context.active_object
-        
-        if not is_mesh_compatible(active_object):
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
 
+        vs = active_object.vs
+
         box = layout.box()
+        box.prop(vs, 'use_toon_edgeline', text="Export with Toon Edge Line", toggle=True)
 
         col = box.column(align=True)
-        col = col.column()
-        col.prop(active_object.vs, 'use_toon_edgeline')
+        col.enabled = vs.use_toon_edgeline
 
-        col = col.column()
-        col.enabled = active_object.vs.use_toon_edgeline
-        col.prop(active_object.vs, 'edgeline_per_material')
-        col.prop(active_object.vs, 'base_toon_edgeline_thickness', slider=True)
-        col.prop(active_object.vs, 'apply_edgeline_thickness_by_weights')
+        col.prop(vs, 'edgeline_per_material', text="Edgeline Per Material")
+        col.prop(vs, 'apply_edgeline_thickness_by_weights', text="Apply Edgeline Thickness Based on Weights")
+        col.prop(vs, 'export_edgeline_separately', text="Export Edgeline Separately")
 
-        box.operator(SMD_OT_ComputeEdgelineWeights.bl_idname)
+        row = col.row(align=True)
+        row.prop(vs, 'base_toon_edgeline_thickness', text="Toon Edgeline Thickness", slider=True)
+
+        col.separator()
+        col.operator(SMD_OT_ComputeEdgelineWeights.bl_idname, text="Compute Edgeline Weights")
+
+
+class SMD_PT_LOD(Properties_SubPanel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+    
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.active_object)
+    
+    def draw_header(self, context):
+        active_object = context.active_object
+        is_outline = active_object.vs.use_toon_edgeline
+        label = '{} ({})'.format(pgettext("Level Of Detail"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Level Of Detail")
+        self.layout.label(text=label, icon='MOD_DECIM')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.active_object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box()
+        box.prop(vs, 'generate_lods', text="Generate LODs on export", toggle=True)
+
+        col = box.column(align=True)
+        col.enabled = vs.generate_lods
+
+        col.prop(vs, 'lod_count', slider=True)
+        col.prop(vs, 'decimate_factor', slider=True)
 
 
 class SMD_OT_ComputeEdgelineWeights(Operator):
@@ -1250,7 +1295,7 @@ class SMD_OT_ComputeEdgelineWeights(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'OBJECT' and any(o.type == 'MESH' for o in context.selected_objects)
+        return any(o.type == 'MESH' for o in context.selected_objects)
 
     def invoke(self, context, event):
         has_existing = any(
@@ -1366,8 +1411,7 @@ class SMD_PT_Curve(Properties_SubPanel):
 
    
 class SMD_UL_FlexControllers(UIList):
-    def draw_item(self, context, layout: UILayout, data: Any | None, item: Any | None, icon: int | None, active_data: Any, active_property : str | None, index: int | None, flt_flag: int | None) -> None:
-    
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
         ob = context.active_object
         
         is_basis = False
@@ -1380,15 +1424,20 @@ class SMD_UL_FlexControllers(UIList):
         has_duplicate_controller = sum(1 for fc in ob.vs.dme_flexcontrollers 
                                        if (fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else fc.shapekey) == controller_name) > 1
 
-        split = layout.split(factor=0.6, align=True)
+        main_split = layout.split(factor=0.15, align=True)
         
-        name_row = split.row(align=True)
+        group_text = item.flexgroup.title() if item.flexgroup != 'NONE' else "-"
+        main_split.label(text=group_text)
+        
+        name_split = main_split.split(factor=0.55, align=True)
+        name_row = name_split.row(align=True)
+        
         if has_duplicate_controller or not item.shapekey or is_basis:
             name_row.alert = True
-
+        
         name_row.label(text=controller_name, icon='SHAPEKEY_DATA')
         
-        info_row = split.row(align=True)
+        info_row = name_split.row(align=True)
         info_row.alignment = 'RIGHT'
         
         if len(item.raw_delta_name.strip()) > 0 and item.shapekey in ob.data.shape_keys.key_blocks:
@@ -1397,10 +1446,10 @@ class SMD_UL_FlexControllers(UIList):
             info_row.label(text=sanitize_string_for_delta(item.shapekey))
             
         if item.stereo:
-                info_row.label(text="", icon='MOD_MIRROR')
+            info_row.label(text="", icon='MOD_MIRROR')
                 
         if item.eyelid:
-                info_row.label(text="", icon='HIDE_OFF')
+            info_row.label(text="", icon='HIDE_OFF')
 
 
 class SMD_MT_FlexControllerSpecials(Menu):
@@ -1410,6 +1459,7 @@ class SMD_MT_FlexControllerSpecials(Menu):
         layout = self.layout
         layout.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='IMPORT', text="Add All")
         layout.operator(SMD_OT_SortFlexControllers.bl_idname, icon='SORTALPHA', text="Sort by Name")
+        layout.operator(SMD_OT_AutoAssignFlexGroups.bl_idname, icon='GROUP')
         layout.separator()
         layout.operator(SMD_OT_ClearFlexControllers.bl_idname, icon='TRASH', text="Delete All")
 
@@ -1512,6 +1562,54 @@ class SMD_OT_MoveFlexController(Operator):
             controllers.move(index, index + 1)
             ob.vs.dme_flexcontrollers_index += 1
 
+        return {'FINISHED'}
+
+
+class SMD_OT_AutoAssignFlexGroups(Operator):
+    bl_idname = "smd.auto_assign_flexgroups"
+    bl_label = "Auto Assign Flex Groups"
+    bl_description = "Automatically categorize flex controllers based on keywords"
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.active_object and 
+                hasattr(context.active_object, "vs") and 
+                len(context.active_object.vs.dme_flexcontrollers) > 0)
+
+    def execute(self, context) -> set:
+        ob = context.active_object
+        controllers = ob.vs.dme_flexcontrollers
+        
+        mapping = [
+            ('EYELID', ['lid', 'blink', 'wink']),
+            ('EYES', ['eye']),
+            ('BROW', ['brow']),
+            ('MOUTH', ['mouth', 'phoneme', 'smile', 'frown', 'jaw', 'lip', 'tongue']),
+            ('CHEEK', ['cheek', 'puff']),
+        ]
+
+        assigned_count = 0
+
+        for item in controllers:
+            search_name = ""
+            if item.controller_name:
+                search_name = item.controller_name.lower()
+            elif hasattr(item, 'raw_delta_name') and item.raw_delta_name:
+                search_name = item.raw_delta_name.lower()
+            elif hasattr(item, 'shapekey') and item.shapekey:
+                search_name = item.shapekey.lower()
+
+            if not search_name:
+                continue
+
+            for group_id, keywords in mapping:
+                if any(kw in search_name for kw in keywords):
+                    item.flexgroup = group_id
+                    assigned_count += 1
+                    break
+            
+        self.report({'INFO'}, f"Categorized {assigned_count} controllers")
         return {'FINISHED'}
 
 
@@ -1783,53 +1881,63 @@ class SMD_OT_AssignBoneRotExportOffset(Operator):
     
     @classmethod
     def poll(cls, context) -> bool:
-        if not is_armature(context.active_object): return False
-        return bool(context.mode not in ['EDIT', 'EDIT_ARMATURE'])
+        selected_arms = [ob for ob in context.selected_objects if is_armature(ob)]
+        return bool(selected_arms) and context.mode not in {'EDIT', 'EDIT_ARMATURE'}
     
     def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=300)
-    
+        return context.window_manager.invoke_props_dialog(self)
+
+
     def draw(self, context):
         layout = self.layout
         layout.label(text='Y to...')
         row = layout.row(align=True)
         row.prop(self,'export_rot_target',expand=True)
-    
+
+
     def execute(self, context) -> set:
-        selected_bones = None
-        
-        if self.only_active_bone:
-            selected_bones = [context.active_object.data.bones.active]
-        else:
-            selected_bones = get_selected_bones(context.active_object, bone_type='BONE')
-            
-        if not selected_bones: 
-            self.report({'ERROR'}, 'No active or selected bones')
+        selected_arms = [ob for ob in context.selected_objects if is_armature(ob)]
+
+        if not selected_arms:
             return {'CANCELLED'}
-        
-        for bone in selected_bones:
-            vsprops = bone.vs
-            
-            if vsprops:
-                
-                setattr(bone.vs,'export_rotation_offset_x',0)
-                setattr(bone.vs,'export_rotation_offset_y',0)
-                setattr(bone.vs,'export_rotation_offset_z',0)
-                
+
+        any_bones_found = False
+
+        for arm in selected_arms:
+            if self.only_active_bone:
+                selected_bones = [arm.data.bones.active] if arm.data.bones.active else []
+            else:
+                selected_bones = get_selected_bones(arm, bone_type='BONE')
+
+            if not selected_bones:
+                continue
+
+            any_bones_found = True
+
+            for bone in selected_bones:
+                if not bone.vs:
+                    continue
+
+                bone.vs.export_rotation_offset_x = 0
+                bone.vs.export_rotation_offset_y = 0
+                bone.vs.export_rotation_offset_z = 0
+
                 match self.export_rot_target:
                     case 'X':
-                        setattr(bone.vs,'export_rotation_offset_z',math.radians(90))
+                        bone.vs.export_rotation_offset_z = math.radians(90)
                     case 'Z':
-                        setattr(bone.vs,'export_rotation_offset_x',math.radians(-90))
+                        bone.vs.export_rotation_offset_x = math.radians(-90)
                     case 'X_INVERT':
-                        setattr(bone.vs,'export_rotation_offset_z',math.radians(-90))
+                        bone.vs.export_rotation_offset_z = math.radians(-90)
                     case 'Y_INVERT':
-                        setattr(bone.vs,'export_rotation_offset_y',math.radians(180))
+                        bone.vs.export_rotation_offset_y = math.radians(180)
                     case 'Z_INVERT':
-                        setattr(bone.vs,'export_rotation_offset_x',math.radians(-90))
-                    case _:
-                        pass
-                    
+                        bone.vs.export_rotation_offset_x = math.radians(-90)
+
+        if not any_bones_found:
+            self.report({'ERROR'}, 'No active or selected bones')
+            return {'CANCELLED'}
+
         return {'FINISHED'}
 
 

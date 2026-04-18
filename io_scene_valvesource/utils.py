@@ -55,6 +55,7 @@ ANIM = 0x4 # $sequence, $animation
 FLEX = 0x6 # $model VTA
 
 mesh_compatible = ('MESH', 'TEXT', 'FONT', 'SURFACE', 'META', 'CURVE')
+modifier_compatible = {'MESH', 'CURVE', 'SURFACE', 'FONT', 'LATTICE'}
 shape_types = ('MESH' , 'SURFACE', 'CURVE')
 MODE_MAP = {
     "OBJECT": "OBJECT",
@@ -573,32 +574,34 @@ def MakeObjectIcon(object,prefix=None,suffix=None):
 def getObExportName(ob):
     return ob.name
 
-def get_flexcontrollers(ob : bpy.types.Object) -> list[tuple[str,bool,bool, str, str]]:
-    """Return list of (shapekey, eyelid, stereo, raw_delta, controller_name) from object,
+def get_flexcontrollers(ob: bpy.types.Object) -> list[tuple[str, bool, bool, str, str, str]]:
+    """Return list of (shapekey, eyelid, stereo, raw_delta, controller_name, flexgroup) from object,
     only including entries with a valid controller name. Shapekey is optional."""
-    
+
     if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
         return []
 
     valid_keys = set(ob.data.shape_keys.key_blocks.keys()[1:]) if ob.data.shape_keys else set()
-    
+
     result = []
-    
+
     for fc in ob.vs.dme_flexcontrollers:
         controller_name = fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else ""
-        
+
         if not controller_name:
             if not fc.shapekey or fc.shapekey not in valid_keys:
                 continue
             controller_name = fc.shapekey
-        
+
         shapekey = fc.shapekey if fc.shapekey and fc.shapekey in valid_keys else ""
 
         raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else shapekey
         delta_name = sanitize_string_for_delta(raw)
-        
-        result.append((shapekey, fc.eyelid, fc.stereo, delta_name, controller_name))
-    
+
+        flexgroup = fc.flexgroup if fc.flexgroup and fc.flexgroup != 'NONE' else ""
+
+        result.append((shapekey, fc.eyelid, fc.stereo, delta_name, controller_name, flexgroup))
+
     return result
 
 def removeObject(obj):
@@ -644,8 +647,6 @@ def hasShapes(id, valid_only = True):
         return _test(id)
 
 def countShapes(*objects):
-    from .flex import get_flexcontrollers
-    
     num_shapes = 0
     num_correctives = 0
     flattened_objects = []

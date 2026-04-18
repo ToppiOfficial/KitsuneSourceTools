@@ -53,14 +53,15 @@ class DmxWriteFlexControllers(bpy.types.Operator):
         root["combinationOperator"] = DmeCombinationOperator
         controls = DmeCombinationOperator["controls"] = datamodel.make_array([],datamodel.Element)
 
-        def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, use_slider_range=False, normalize_shapekeys=False):
+        def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, normalize_shapekeys=False):
             if flexcontroller is not None:
-                shapekey_name, eyelid, stereo, raw_delta_name, controller_name = flexcontroller
+                shapekey_name, eyelid, stereo, raw_delta_name, controller_name, flextype = flexcontroller
                 raw_control_names = [raw_delta_name] if raw_delta_name else []
             else:
                 controller_name = name
                 eyelid = False
                 stereo = False
+                flextype = ""
                 raw_control_names = deltas
             
             DmeCombinationInputControl = dm.add_element(controller_name, "DmeCombinationInputControl", id=namespace + controller_name + "inputcontrol")
@@ -69,19 +70,10 @@ class DmxWriteFlexControllers(bpy.types.Operator):
             DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(raw_control_names, str)
             DmeCombinationInputControl["stereo"] = bool(stereo)
             DmeCombinationInputControl["eyelid"] = bool(eyelid)
-            
-            if normalize_shapekeys and use_slider_range:
-                flex_max = 1.0
-                flex_min = -1.0 if shape_key is not None and shape_key.slider_min != 0.0 else 0.0
-            elif shape_key is not None and use_slider_range:
-                flex_min = round(float(shape_key.slider_min), 2)
-                flex_max = round(float(shape_key.slider_max), 2)
-            else:
-                flex_min = 0.0
-                flex_max = 1.0
-            
-            DmeCombinationInputControl["flexMin"] = flex_min
-            DmeCombinationInputControl["flexMax"] = flex_max
+            DmeCombinationInputControl["flexgroup"] = flextype.lower()
+
+            DmeCombinationInputControl["flexMin"] = 0.0
+            DmeCombinationInputControl["flexMax"] = 1.0
 
         for ob in objects:
             normalize = ob.data.vs.normalize_shapekeys if ob.data.shape_keys else False
@@ -101,7 +93,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                     if shapekey_name and ob.data.shape_keys:
                         shape = ob.data.shape_keys.key_blocks.get(shapekey_name)
 
-                    createController(ob.name, fc[4], [], shape_key=shape, flexcontroller=fc, use_slider_range=True, normalize_shapekeys=normalize)
+                    createController(ob.name, fc[4], [], shape_key=shape, flexcontroller=fc, normalize_shapekeys=normalize)
                     if shape:
                         shapes.add(shape.name)
             else:
@@ -113,7 +105,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                     if corrective_separator in shape.name or shape.name in shapes:
                         continue
                     
-                    createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=None, use_slider_range=False, normalize_shapekeys=normalize)
+                    createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=None, normalize_shapekeys=normalize)
                     shapes.add(shape.name)
 
         for vca in id.vs.vertex_animations:
