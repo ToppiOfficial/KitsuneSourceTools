@@ -567,7 +567,8 @@ class SMD_PT_Group(Properties_SubPanel):
         item = self.get_item(context)
         scene = context.scene
 
-        vs = item.vs
+        if item is not None:vs = item.vs
+        else: vs = None
         if vs is not None: layout.column().prop(vs,"subdir",icon='FILE_FOLDER')
 
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
