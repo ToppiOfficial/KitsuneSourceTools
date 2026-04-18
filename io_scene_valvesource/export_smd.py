@@ -163,7 +163,7 @@ class EdgelineBuilder:
         finally:
             self._cleanup_temp(temp)
 
-    # ── private helpers ──────────────────────────────────────────────────────
+    # -- private helpers ------------------------------------------------------
 
     def _make_temp_copy(self, ob: bpy.types.Object) -> bpy.types.Object:
         temp = ob.copy()
@@ -367,7 +367,7 @@ class ExportPlanner:
         suffix = name.rsplit("_lod", 1)[-1]
         return suffix.isdigit() and int(suffix) > 0
 
-    # ── collection planning ──────────────────────────────────────────────────
+    # -- collection planning --------------------------------------------------
 
     def _plan_collection(self, col: Collection) -> list[ExportTask]:
         # Check if we need to merge edgelines into the base collection export
@@ -462,7 +462,7 @@ class ExportPlanner:
             State.exportableObjects.add(ob.session_uid)
         return col
 
-    # ── object planning ──────────────────────────────────────────────────────
+    # -- object planning ------------------------------------------------------
 
     def _plan_object(self, ob: bpy.types.Object, export_name: str) -> list[ExportTask]:
         target_ob = ob
@@ -548,7 +548,7 @@ class Baker:
 
         should_tri = State.exportFormat == ExportFormat.SMD or ob.vs.triangulate
 
-        # ── realize instances ────────────────────────────────────────────────
+        # -- realize instances ------------------------------------------------
         duplis = None
         if ob.instance_type != "NONE":
             bpy.ops.object.duplicates_make_real()
@@ -566,7 +566,7 @@ class Baker:
             elif ob.type not in exportable_types:
                 return None
 
-        # ── copy for non-destructive baking ─────────────────────────────────
+        # -- copy for non-destructive baking ---------------------------------
         top_parent = self._exporter.getTopParent(ob)
 
         if ob.type != "META":
@@ -582,14 +582,14 @@ class Baker:
         if hasShapes(ob):
             ob.active_shape_key_index = 0
 
-        # ── envelope / armature detection ────────────────────────────────────
+        # -- envelope / armature detection ------------------------------------
         self._setup_envelope(ob, result, top_parent)
 
-        # ── per-type pre-bake mesh ops ───────────────────────────────────────
+        # -- per-type pre-bake mesh ops ---------------------------------------
         if ob.type == "MESH":
             self._pre_bake_mesh_ops(ob)
 
-        # ── coordinate transform ─────────────────────────────────────────────
+        # -- coordinate transform ---------------------------------------------
         ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
         ob.matrix_world = (
             Matrix.Translation(top_parent.location).inverted()
@@ -613,7 +613,7 @@ class Baker:
         for con in [c for c in ob.constraints if not c.mute]:
             con.mute = True
 
-        # ── modifier scan ────────────────────────────────────────────────────
+        # -- modifier scan ----------------------------------------------------
         solidify_fill_rim = None
         shapes_invalid = False
         for mod in ob.modifiers:
@@ -633,7 +633,7 @@ class Baker:
 
         ops.object.mode_set(mode="OBJECT")
 
-        # ── bake mesh ────────────────────────────────────────────────────────
+        # -- bake mesh --------------------------------------------------------
         if ob.type in exportable_types:
             depsgraph = bpy.context.evaluated_depsgraph_get()
             data = bpy.data.meshes.new_from_object(
@@ -674,7 +674,7 @@ class Baker:
 
         result.matrix = baked.matrix_world
 
-        # ── shape key baking ─────────────────────────────────────────────────
+        # -- shape key baking -------------------------------------------------
         if not shapes_invalid and hasShapes(ob):
             self._bake_shapes(ob, baked, result, solidify_fill_rim)
 
@@ -689,7 +689,7 @@ class Baker:
 
         return result
 
-    # ── private helpers ──────────────────────────────────────────────────────
+    # -- private helpers ------------------------------------------------------
 
     def _triangulate(self) -> None:
         ops.object.mode_set(mode="EDIT")
@@ -1012,12 +1012,15 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             self.files_exported = self.attemptedExports = 0
 
             export_ids = self._collect_export_ids(context)
+            success = True
             for id in export_ids:
-                self._export_one(context, id)
+                if not self._export_one(context, id):
+                    success = False
+                    break
 
-            self.errorReport(
-                get_id("exporter_report", True).format(self.files_exported, self.elapsed_time())
-            )
+            if success:
+                self.errorReport(get_id("exporter_report", True).format(self.files_exported, self.elapsed_time()))
+
         finally:
             ops.ed.undo_push(message=self.bl_label)
             if bpy.app.debug_value <= 1:
@@ -1058,7 +1061,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     ids.append(exportable.item)
         return ids
 
-    def _export_one(self, context, id) -> None:
+    def _export_one(self, context, id) -> bool:
         self.attemptedExports += 1
         self._last_bake_results = []
         bench = BenchMarker()
@@ -1071,16 +1074,16 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 os.makedirs(path)
             except Exception as err:
                 self.error(get_id("exporter_err_makedirs", True).format(err))
-                return
+                return False
 
         if isinstance(id, Collection) and not any(ob.vs.export for ob in id.objects):
             self.error(get_id("exporter_err_nogroupitems", True).format(id.name))
-            return
+            return False
 
         if isinstance(id, bpy.types.Object) and id.type == "ARMATURE":
             ad = id.animation_data
             if not ad:
-                return
+                return False
 
         planner = ExportPlanner(self)
         try:
@@ -1088,26 +1091,28 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             bench.report("planning")
 
             for task in tasks:
-                self._execute_task(context, id, task, path, bench)
+                if not self._execute_task(context, id, task, path, bench):
+                    return False
         finally:
             planner.cleanup()
 
         self._warn_unicode(id)
+        return True
 
-    def _execute_task(self, context, original_id, task: ExportTask, path: str, bench: BenchMarker) -> None:
+    def _execute_task(self, context, original_id, task: ExportTask, path: str, bench: BenchMarker) -> bool:
         source = task.source_id
 
         if isinstance(source, Collection) and not any(ob.vs.export for ob in source.objects):
-            return
+            return True
 
-        # ── hide unwanted metaballs ──────────────────────────────────────────
+        # -- hide unwanted metaballs ------------------------------------------
         for meta in [ob for ob in context.scene.objects if ob.type == "META" and (
             not ob.vs.export or (isinstance(source, Collection) and ob.name not in source.objects)
         )]:
             for element in meta.data.elements:
                 element.hide = True
 
-        # ── bake ─────────────────────────────────────────────────────────────
+        # -- bake -------------------------------------------------------------
         baker = Baker(self)
         bake_results = []
 
@@ -1140,16 +1145,16 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         bench.report("bake", len(bake_results))
 
         if not any(bake_results):
-            return
+            return True
 
-        # ── vertex animations ────────────────────────────────────────────────
+        # -- vertex animations ------------------------------------------------
         self._process_vertex_animations(source, bake_results, bench)
 
-        # ── DMX automerge ────────────────────────────────────────────────────
+        # -- DMX automerge ----------------------------------------------------
         if isinstance(source, Collection) and State.exportFormat == ExportFormat.DMX and source.vs.automerge:
             bake_results = self._dmx_automerge(source, bake_results, bench)
 
-        # ── skeleton setup ───────────────────────────────────────────────────
+        # -- skeleton setup ---------------------------------------------------
         self.armature = self.armature_src = None
         self.bone_ids = {}
         self.exportable_bones = []
@@ -1165,12 +1170,13 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     self.warning(get_id("exporter_warn_multiarmature"))
 
         if self.armature_src:
-            self._setup_skeleton(source, bake_results, baker)
+            if not self._setup_skeleton(source, bake_results, baker):
+                return False
 
         self.bake_results = list(baker._cache.values())
         self._last_bake_results.extend(bake_results)
 
-        # ── flex controller setup ─────────────────────────────────────────────
+        # -- flex controller setup ---------------------------------------------
         if State.exportFormat == ExportFormat.DMX and hasShapes(source):
             self.flex_controller_mode = source.vs.flex_controller_mode
             self.flex_controller_source = source.vs.flex_controller_source
@@ -1178,7 +1184,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         bpy.context.view_layer.objects.active = bake_results[0].object
         bpy.ops.object.mode_set(mode="OBJECT")
 
-        # ── VCA automerge check ───────────────────────────────────────────────
+        # -- VCA automerge check -----------------------------------------------
         skip_vca = False
         if isinstance(source, Collection) and len(source.vs.vertex_animations) and len(source.objects) > 1:
             mesh_bakes = [b for b in bake_results if b.object.type == "MESH"]
@@ -1188,7 +1194,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             elif not source.vs.automerge:
                 source.vs.automerge = True
 
-        # ── write ─────────────────────────────────────────────────────────────
+        # -- write -------------------------------------------------------------
         write_func = self.writeDMX if State.exportFormat == ExportFormat.DMX else self.writeSMD
         bench.report("Post Bake")
 
@@ -1211,7 +1217,9 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             if re.match(r"[^a-z0-9_]", source.name):
                 self.warning(get_id("exporter_warn_source2names", format_string=True).format(source.name))
 
-    def _setup_skeleton(self, source, bake_results: list[BakeResult], baker: Baker) -> None:
+        return True
+
+    def _setup_skeleton(self, source, bake_results: list[BakeResult], baker: Baker) -> bool:
         if list(self.armature_src.scale).count(self.armature_src.scale[0]) != 3:
             self.warning(get_id("exporter_err_arm_nonuniform", True).format(self.armature_src.name))
 
@@ -1231,7 +1239,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         }
 
         if not self.check_duplicate_bone_names(self.exportable_boneNames):
-            return
+            return False
 
         skipped = len(self.armature.pose.bones) - len(self.exportable_bones)
         if skipped:
@@ -1254,6 +1262,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
         self.armature_src.data.pose_position = original_pose
         bpy.context.view_layer.update()
+        
+        return True
 
     def _process_vertex_animations(self, source, bake_results: list[BakeResult], bench: BenchMarker) -> None:
         if not (isinstance(source, Collection) and len(getattr(source.vs, "vertex_animations", []))):
@@ -1398,7 +1408,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         bench.report("Mesh merge")
         return bake_results
 
-    # ── utilities ────────────────────────────────────────────────────────────
+    # -- utilities ------------------------------------------------------------
 
     def _find_basis_metaball(self, id: bpy.types.Object) -> bpy.types.Object:
         basis_ns = id.name.rsplit(".")
@@ -1543,9 +1553,9 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 result.append((delta, fc.shapekey))
         return result
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # SMD writing — logic unchanged from original
-    # ─────────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
 
     def openSMD(self, path, name, description):
         full_path = os.path.realpath(os.path.join(path, name))
@@ -1834,9 +1844,9 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         self.smd_file.close()
         return 1
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     # DMX writing — logic unchanged from original
-    # ─────────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
 
     def writeDMX(self, datablock: bpy.types.ID, bake_results: list[BakeResult], name: str, dir_path: str):
         bench = BenchMarker(1, "DMX")
