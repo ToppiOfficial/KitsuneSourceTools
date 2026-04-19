@@ -1151,8 +1151,22 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         self._process_vertex_animations(source, bake_results, bench)
 
         # -- DMX automerge ----------------------------------------------------
-        if isinstance(source, Collection) and State.exportFormat == ExportFormat.DMX and source.vs.automerge:
-            bake_results = self._dmx_automerge(source, bake_results, bench)
+        if isinstance(source, Collection) and State.exportFormat == ExportFormat.DMX:
+            if len(getattr(source.vs, "vertex_animations", [])) and len(source.objects) > 1:
+                mesh_bakes_check = [b for b in bake_results if b.object.type == "MESH"]
+                mergeable_check = [
+                    b for b in bake_results
+                    if (type(b.envelope) is str and b.envelope == bake_results[0].envelope)
+                    or b.envelope is None
+                ]
+                if len(mesh_bakes_check) > len(mergeable_check):
+                    self.error(get_id("exporter_err_unmergable", True).format(source.name))
+                    return False
+                elif not source.vs.automerge:
+                    source.vs.automerge = True
+
+            if source.vs.automerge:
+                bake_results = self._dmx_automerge(source, bake_results, bench)
 
         # -- skeleton setup ---------------------------------------------------
         self.armature = self.armature_src = None
@@ -1185,7 +1199,6 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         bpy.ops.object.mode_set(mode="OBJECT")
 
         # -- VCA automerge check -----------------------------------------------
-        skip_vca = False
         if isinstance(source, Collection) and len(source.vs.vertex_animations) and len(source.objects) > 1:
             mesh_bakes = [b for b in bake_results if b.object.type == "MESH"]
             if len(mesh_bakes) > len([b for b in bake_results if (type(b.envelope) is str and b.envelope == bake_results[0].envelope) or b.envelope is None]):
