@@ -333,7 +333,7 @@ class ValveSource_SceneProps(PropertyGroup):
     kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', default='kitsuneresource.exe')
     kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
     kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    kitsuneresource_args : StringProperty(name='Arguments', default='-game -log -keep-flat-qc')
+    kitsuneresource_args : StringProperty(name='Arguments', default='-game -log')
 
     defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
 
