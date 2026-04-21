@@ -361,35 +361,96 @@ class ExportPlanner:
         self._owned_objects.clear()
 
     def _is_existing_lod(self, name: str) -> bool:
-        """Helper to check if a name represents a non-base LOD (1+)."""
         if "_lod" not in name:
             return False
         suffix = name.rsplit("_lod", 1)[-1]
         return suffix.isdigit() and int(suffix) > 0
 
+    def _apply_merge_vertices(self, ob: bpy.types.Object) -> None:
+        MERGE_DIST = 1e-5
+        OPPOSING_DOT = -0.9
+
+        me = ob.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.verts.ensure_lookup_table()
+        bm.normal_update()
+
+        raw_map = bmesh.ops.find_doubles(bm, verts=bm.verts, dist=MERGE_DIST)["targetmap"]
+
+        if not raw_map:
+            bm.free()
+            return
+
+        protected_indices = set()
+        for src, tgt in raw_map.items():
+            if any(
+                n1.dot(n2) < OPPOSING_DOT
+                for n1 in (f.normal for f in src.link_faces)
+                for n2 in (f.normal for f in tgt.link_faces)
+            ):
+                protected_indices.add(src.index)
+                protected_indices.add(tgt.index)
+
+        bm.free()
+
+        # Deselecting protected vertices excludes them from the operator's scope.
+        bpy.context.view_layer.objects.active = ob
+        select_only(ob)
+        bpy.ops.object.mode_set(mode='EDIT')
+
+        bm_edit = bmesh.from_edit_mesh(me)
+        bm_edit.verts.ensure_lookup_table()
+        for v in bm_edit.verts:
+            v.select = v.index not in protected_indices
+        bmesh.update_edit_mesh(me, loop_triangles=False, destructive=False)
+
+        try:
+            bpy.ops.mesh.remove_doubles(threshold=MERGE_DIST, use_sharp_edge_from_normals=True)
+        except TypeError:
+            bpy.ops.mesh.remove_doubles(threshold=MERGE_DIST)
+
+        bpy.ops.object.mode_set(mode='OBJECT')
+        print(f"- Merged duplicate vertices in '{ob.name}'")
+
     # -- collection planning --------------------------------------------------
 
     def _plan_collection(self, col: Collection) -> list[ExportTask]:
-        # Check if we need to merge edgelines into the base collection export
         needs_merged_edgeline = any(
             ob.vs.export and ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately
             for ob in col.objects
         )
+        needs_merge_verts = any(
+            ob.vs.export and ob.vs.merge_vertices
+            and is_mesh_compatible(ob) and ob.type in modifier_compatible
+            for ob in col.objects
+        )
 
+        effective_objects: dict[bpy.types.Object, bpy.types.Object] = {}
         target_col = col
-        if needs_temp_base := needs_merged_edgeline:
+
+        if needs_merged_edgeline or needs_merge_verts:
             base_obs = []
             for ob in col.objects:
-                if not ob.vs.export: continue
-                # We must copy to avoid modifying the user's collection mesh
+                if not ob.vs.export:
+                    continue
                 copy = ob.copy()
                 copy.data = ob.data.copy()
                 bpy.context.scene.collection.objects.link(copy)
                 self._owned_objects.append(copy)
+
+                if ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
+                    self._apply_merge_vertices(copy)
+
                 if copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
                     self._edgeline_builder.build(copy, ob.name)
+
+                effective_objects[ob] = copy
                 base_obs.append(copy)
             target_col = self._make_collection(col.name + "_temp_base", base_obs)
+        else:
+            for ob in col.objects:
+                effective_objects[ob] = ob
 
         tasks = [ExportTask(target_col, col.name)]
 
@@ -402,23 +463,23 @@ class ExportPlanner:
             if not is_mesh_compatible(ob) or ob.type not in modifier_compatible:
                 continue
 
-            is_lod_member = self._is_existing_lod(ob.name)
+            working_ob = effective_objects.get(ob, ob)
+            is_lod_member = self._is_existing_lod(working_ob.name)
 
-            if not is_lod_member and ob.vs.generate_lods and ob.vs.lod_count > 0:
-                for lod_idx, lod_ob in self._lod_builder.build_all(ob, ob.name):
+            if not is_lod_member and working_ob.vs.generate_lods and working_ob.vs.lod_count > 0:
+                for lod_idx, lod_ob in self._lod_builder.build_all(working_ob, working_ob.name):
                     self._owned_objects.append(lod_ob)
                     lod_buckets[lod_idx].append(lod_ob)
 
-            # Separate edgeline export
-            if not ob.name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
-                if not bpy.context.scene.vs.do_not_export_edgeline and ob.vs.export_edgeline_separately:
-                    edgeline_ob = self._edgeline_builder.build(ob, ob.name)
-                    if edgeline_ob and edgeline_ob is not ob:
+            if not working_ob.name.endswith("_edgeline") and working_ob.vs.use_toon_edgeline:
+                if not bpy.context.scene.vs.do_not_export_edgeline and working_ob.vs.export_edgeline_separately:
+                    edgeline_ob = self._edgeline_builder.build(working_ob, working_ob.name)
+                    if edgeline_ob and edgeline_ob is not working_ob:
                         self._owned_objects.append(edgeline_ob)
                         edgeline_obs.append(edgeline_ob)
 
         for lod_idx, lod_obs in lod_buckets.items():
-            lod_col = self._make_lod_collection(col, lod_idx, lod_obs)
+            lod_col = self._make_lod_collection(target_col, lod_idx, lod_obs, col.name)
             tasks.append(ExportTask(lod_col, lod_col.name))
 
         if edgeline_obs:
@@ -428,8 +489,8 @@ class ExportPlanner:
 
         return tasks
 
-    def _make_lod_collection(self, source_col: Collection, lod_idx: int, lod_obs: list) -> Collection:
-        col_name = f"{source_col.name}_lod{lod_idx}"
+    def _make_lod_collection(self, source_col: Collection, lod_idx: int, lod_obs: list, base_name: str = None) -> Collection:
+        col_name = f"{base_name or source_col.name}_lod{lod_idx}"
         lod_col = bpy.data.collections.new(col_name)
         bpy.context.scene.collection.children.link(lod_col)
         self._owned_collections.append(lod_col)
@@ -465,16 +526,28 @@ class ExportPlanner:
     # -- object planning ------------------------------------------------------
 
     def _plan_object(self, ob: bpy.types.Object, export_name: str) -> list[ExportTask]:
+        # Apply vertex merge before any derivative work so LODs and edgelines
+        # are generated from the already-merged mesh. Skip for LOD variants
+        # since they derive from the already-merged base.
+        if (ob.vs.merge_vertices
+                and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                and not self._is_existing_lod(export_name)):
+            merged = ob.copy()
+            merged.data = ob.data.copy()
+            bpy.context.scene.collection.objects.link(merged)
+            self._owned_objects.append(merged)
+            State.exportableObjects.add(merged.session_uid)
+            self._apply_merge_vertices(merged)
+            ob = merged
+
         target_ob = ob
-        
-        # Integrated Edgeline Logic
+
         if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
             if not bpy.context.scene.vs.do_not_export_edgeline and not export_name.endswith("_edgeline"):
                 target_ob = ob.copy()
                 target_ob.data = ob.data.copy()
                 bpy.context.scene.collection.objects.link(target_ob)
                 self._owned_objects.append(target_ob)
-                # Build merges the hull into target_ob
                 self._edgeline_builder.build(target_ob, export_name)
                 State.exportableObjects.add(target_ob.session_uid)
 
@@ -485,14 +558,12 @@ class ExportPlanner:
 
         is_lod = self._is_existing_lod(export_name)
 
-        # LOD Generation (Now allows _lod0 as base)
         if not is_lod and ob.vs.generate_lods and ob.vs.lod_count > 0:
             for lod_idx, lod_ob in self._lod_builder.build_all(ob, export_name):
                 self._owned_objects.append(lod_ob)
                 State.exportableObjects.add(lod_ob.session_uid)
                 tasks.append(ExportTask(lod_ob, lod_ob.name))
 
-        # Separate Edgeline logic
         if not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
             if not bpy.context.scene.vs.do_not_export_edgeline and ob.vs.export_edgeline_separately:
                 edgeline_ob = self._edgeline_builder.build(ob, export_name)

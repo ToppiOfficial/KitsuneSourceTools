@@ -104,6 +104,8 @@ exportname_shortcut_keywords = {
     "vbip": "ValveBiped.Bip01"
 }
 
+kitsune_data_keys: list[str] = []
+
 class ExportFormat:
     SMD = 1
     DMX = 2
@@ -1049,6 +1051,73 @@ class SMD_OT_LaunchHLMV(bpy.types.Operator):
 #
 #   ---------------------------------
 
+
+def resolve_kitsuneresource_app(vs) -> str:
+    raw      = vs.kitsuneresource_app_path.strip()
+    resolved = bpy.path.abspath(raw)
+    return resolved if os.path.isfile(resolved) else raw
+
+def resolve_kitsuneresource_project_basedir(vs) -> str:
+    blend_dir    = os.path.dirname(bpy.data.filepath)
+    project_path = bpy.path.abspath(vs.kitsuneresource_project_path) if vs.kitsuneresource_project_path else ""
+    if project_path:
+        return os.path.normpath(
+            os.path.join(blend_dir, project_path) if not os.path.isabs(project_path) else project_path
+        )
+    return blend_dir
+
+def build_base_cmd(vs, app_path: str, config_path: str) -> list:
+    flags = []
+    flags.append('--log')
+    
+    if vs.kitsuneresource_flag_single_addon: flags.append('--single-addon')
+    if vs.kitsuneresource_flag_no_mat_local: flags.append('--no-mat-local')
+
+    if vs.kitsuneresource_package_files:
+        flags.append('--package-files')
+    elif vs.kitsuneresource_flag_game:
+        flags.append('--game')
+
+    free_tokens = vs.kitsuneresource_args.split()
+    return [app_path] + flags + free_tokens + [config_path]
+
+def run_and_report(operator, cmd: list, basedir: str) -> set:
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=basedir,
+        )
+    except FileNotFoundError:
+        operator.report({'ERROR'}, f"Executable not found: {cmd[0]}")
+        return {'CANCELLED'}
+    except Exception as e:
+        operator.report({'ERROR'}, str(e))
+        return {'CANCELLED'}
+
+    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+    errors      = []
+
+    for raw_line in process.stdout:  # pyright: ignore
+        line = ansi_escape.sub('', raw_line.decode('utf-8', errors='replace')).rstrip()
+        print(line)
+        if '[ERROR]' in line:
+            clean = re.sub(r'^\d{2}:\d{2}:\d{2} \| ', '', line.strip())
+            clean = clean.encode('ascii', errors='replace').decode('ascii')
+            errors.append(clean)
+
+    process.wait()
+
+    if errors:
+        for err in errors:
+            operator.report({'WARNING'}, err)
+    else:
+        operator.report({'INFO'}, "Compile finished")
+
+    return {'FINISHED'}
+
+
 #
 #   CONTEXT MANAGERS
 #
@@ -1205,25 +1274,23 @@ def unhide_all(layer_col: bpy.types.LayerCollection):
     if layer_col is None:
         return
 
-    if layer_col.exclude:
-        layer_col.exclude = False
+    layer_col.exclude = False
+    layer_col.hide_viewport = False
 
-    if layer_col.hide_viewport:
-        layer_col.hide_viewport = False
+    col = layer_col.collection
+    col.hide_viewport = False
+    col.hide_render = False
 
-    if layer_col.collection.hide_viewport:
-        layer_col.collection.hide_viewport = False
-
-    for obj in layer_col.collection.objects:
-        if obj.hide_viewport:
-            obj.hide_viewport = False
-
+    for obj in col.objects:
+        obj.hide_viewport = False
+        obj.hide_render = False
+        obj.hide_select = False
+        
         if obj.hide_get():
             obj.hide_set(False)
 
     for child in layer_col.children:
         unhide_all(child)
-        
 
 #
 #   VERTEX GROUPS

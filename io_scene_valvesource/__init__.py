@@ -261,6 +261,9 @@ class JiggleBoneProps():
     jiggle_frequency : FloatProperty(name='Frequency', precision=3, default=0.0, min=0, soft_max=1000)
     jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000)
 
+class KitsuneResourceItem(PropertyGroup):
+    name : StringProperty(name="Name")
+
 class ExportableProps():
     flex_controller_modes = (
         ('SIMPLE',"Simple",get_id("controllers_simple_tip")),
@@ -288,6 +291,7 @@ class ExportableProps():
     generate_lods : BoolProperty(name='Generate LODs on Export', default=False)
     lod_count : IntProperty(name='LOD count', default=1,min=1,soft_max=3)
     decimate_factor : FloatProperty(name='Decimation Per LOD', default=50.0,min=0,soft_max=100,precision=2)
+    merge_vertices : BoolProperty(name='Merge Vertices', default=True)
 
 
 # Property Classes (using mixins)
@@ -330,14 +334,22 @@ class ValveSource_SceneProps(PropertyGroup):
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
     prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
 
-    kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', default='kitsuneresource.exe')
+    defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
+    do_not_export_edgeline : BoolProperty(name='Do Not Write Edgeline/Outline', default=False)
+
+    kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='kitsuneresource.exe')
     kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
     kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    kitsuneresource_args : StringProperty(name='Arguments', default='-game -log')
+    kitsuneresource_args : StringProperty(name='Arguments', default='-exportdir "compiled"')
 
-    defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
-
-    do_not_export_edgeline : BoolProperty(name='Do Not Write Edgeline/Outline', default=False)
+    
+    kitsuneresource_model_entries: CollectionProperty(type=KitsuneResourceItem)
+    kitsuneresource_model_entry_index: IntProperty(name="Active Entry", default=0)
+    kitsuneresource_data_entries: CollectionProperty(type=KitsuneResourceItem)
+    kitsuneresource_flag_game:         BoolProperty(name="Game",         default=True)
+    kitsuneresource_flag_single_addon: BoolProperty(name="Single Addon", default=True)
+    kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", default=True)
+    kitsuneresource_package_files:     BoolProperty(name="Package Files", default=False)
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
@@ -453,6 +465,7 @@ class ValveSource_MaterialProps(PropertyGroup):
 _classes = (
     # Base/Utility Classes
     ValveSource_FloatMapRemap,
+    KitsuneResourceItem,
     HumanoidArmatureMap,
     
     # Simple Item Classes
@@ -481,8 +494,11 @@ _classes = (
     ValveSource_SceneProps,
 
     # KitsuneResource
+    GUI.SMD_UL_KitsuneResourceEntries,
     GUI.SMD_PT_KitsuneResourceCompile,
     GUI.SMD_OT_KitsuneResourceCompile,
+    GUI.SMD_OT_KitsuneResourceCompileData,
+    GUI.SMD_OT_KitsuneResourceLoadEntries,
     
     # GUI - Scene
     GUI.SMD_MT_ExportChoice,

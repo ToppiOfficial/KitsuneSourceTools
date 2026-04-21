@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, sys, re, os, subprocess
+import bpy, sys, os, subprocess, json
 from bpy.types import Menu, Panel, Operator, MeshLoopColorLayer, UILayout, UIList, LoopColors, Collection, Object, UI_UL_list, PoseBone, Bone, EditBone
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty, StringProperty
 from bpy.app.translations import pgettext
@@ -27,6 +27,7 @@ from .export_smd import SmdExporter, PrefabExporter
 from .import_smd import SmdImporter
 from .flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers,DmxWriteFlexControllers
 from .utils import *
+
 
 class SMD_MT_ExportChoice(Menu):
     bl_label = get_id("exportmenu_title")
@@ -105,8 +106,6 @@ class SMD_PT_Scene(Panel):
         row.scale_y = 1.5
         row.operator(SmdImporter.bl_idname, text="Import", icon='IMPORT')
         row.operator(SmdExporter.bl_idname, text="Export", icon='EXPORT')
-        row = l.row()
-        row.row().prop(scene.vs, "prefab_to_clipboard", toggle=True)
 
         box = l.box()
         row = box.row()
@@ -162,17 +161,26 @@ class SMD_PT_Scene(Panel):
         box.prop(scene.vs, "vertex_influence_limit", slider=True)
 
         # OTHERS
-
         box1 = box.box().column(align=True)
         box1.label(text='Options', icon='OPTIONS')
         box1.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
         box1.prop(context.scene.vs,"do_not_export_edgeline")
+        box1.prop(scene.vs, "prefab_to_clipboard")
 
 
 class SMD_MT_ConfigureScene(Menu):
     bl_label = get_id("exporter_report_menu")
     def draw(self, context ) -> None:
         self.layout.label(text=get_id("exporter_err_unconfigured"))
+
+
+class SMD_UL_KitsuneResourceEntries(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname): # pyright: ignore
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.label(text=item.name, icon='MESH_DATA')
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text='', icon='MESH_DATA')
 
 
 class SMD_PT_KitsuneResourceCompile(Panel):
@@ -188,99 +196,163 @@ class SMD_PT_KitsuneResourceCompile(Panel):
 
     def draw(self, context) -> None:
         l = self.layout
+        l.use_property_split = True
+        l.use_property_decorate = False
         scene = context.scene
+        vs = scene.vs
 
         box = l.box()
 
         col = box.column()
-        col.alert = len(scene.vs.kitsuneresource_app_path) == 0
-        col.prop(scene.vs, 'kitsuneresource_app_path')
+        col.alert = len(vs.kitsuneresource_app_path) == 0
+        col.prop(vs, 'kitsuneresource_app_path')
 
         col = box.column()
-        col.enabled = len(scene.vs.kitsuneresource_app_path) > 0
-        col.prop(scene.vs, 'kitsuneresource_config')
+        col.enabled = len(vs.kitsuneresource_app_path) > 0
+        col.prop(vs, 'kitsuneresource_config')
 
         col = box.column()
-        col.enabled = len(scene.vs.kitsuneresource_config) > 0
-        col.prop(scene.vs, 'kitsuneresource_project_path')
+        col.enabled = len(vs.kitsuneresource_config) > 0
+        col.prop(vs, 'kitsuneresource_project_path')
 
         col = box.column()
-        col.enabled = len(scene.vs.kitsuneresource_app_path) > 0
-        col.prop(scene.vs, 'kitsuneresource_args')
+        col.enabled = len(vs.kitsuneresource_app_path) > 0
+        col.prop(vs, 'kitsuneresource_flag_game')
+        col.prop(vs, 'kitsuneresource_flag_single_addon')
+        col.prop(vs, 'kitsuneresource_flag_no_mat_local')
+        col.prop(vs, 'kitsuneresource_package_files')
+        col.prop(vs, 'kitsuneresource_args', text="Extra Args")
 
-        box.column().operator(SMD_OT_KitsuneResourceCompile.bl_idname)
+        col = box.column()
+        col.enabled = len(vs.kitsuneresource_config) > 0
+        row = col.row()
+        row.template_list("SMD_UL_KitsuneResourceEntries", "",vs, "kitsuneresource_model_entries",vs, "kitsuneresource_model_entry_index",rows=4)
+        row.operator(SMD_OT_KitsuneResourceLoadEntries.bl_idname, text="", icon='FILE_REFRESH')
+
+        col = box.column(align=True).row(align=True)
+        col.scale_y = 1.2
+        op = col.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text="Compile All")
+        op.compile_all = True
+        op = col.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text="Compile Selected")
+        op.compile_all = False
+
+        data_row = box.column()
+        data_row.operator(SMD_OT_KitsuneResourceCompileData.bl_idname)
 
 
-class SMD_OT_KitsuneResourceCompile(Operator):
-    bl_idname = "smd.kitsuneresource_compile"
-    bl_label = "Compile"
+class SMD_OT_KitsuneResourceLoadEntries(Operator):
+    bl_idname = "smd.kitsuneresource_load_entries"
+    bl_label = "Reload Model Entries"
     bl_options = {'REGISTER'}
 
     @classmethod
     def poll(cls, context):
-        scene = context.scene
-        return len(scene.vs.kitsuneresource_project_path) > 0 and len(scene.vs.kitsuneresource_app_path) > 0 and len(scene.vs.kitsuneresource_config) > 0
+        return len(context.scene.vs.kitsuneresource_config) > 0
 
     def execute(self, context) -> set:
         vs = context.scene.vs
 
-        raw_app = vs.kitsuneresource_app_path.strip()
+        raw_app  = vs.kitsuneresource_app_path.strip()
         resolved = bpy.path.abspath(raw_app)
         app_path = resolved if os.path.isfile(resolved) else raw_app
 
-        raw_args = vs.kitsuneresource_args.strip()
-        filtered_args = raw_args.strip()
-
-        blend_dir = os.path.dirname(bpy.data.filepath)
-        if vs.kitsuneresource_project_path:
-            project_path = bpy.path.abspath(vs.kitsuneresource_project_path)
-            basedir = os.path.normpath(os.path.join(blend_dir, project_path) if not os.path.isabs(project_path) else project_path)
-        else:
-            basedir = blend_dir
-
-        cmd = [app_path]
-        if filtered_args:
-            cmd += filtered_args.split()
-        cmd += [vs.kitsuneresource_config]
+        config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
 
         try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                cwd=basedir
+            result = subprocess.run(
+                [app_path, "--fetch", config_path],
+                capture_output=True, text=True, timeout=15,
             )
-        except FileNotFoundError:
-            self.report({'ERROR'}, f"Executable not found: {app_path}")
-            return {'CANCELLED'}
+            print(result.stdout)  # <-- add this temporarily
+            data = json.loads(result.stdout)
         except Exception as e:
-            self.report({'ERROR'}, str(e))
+            self.report({'ERROR'}, f"Failed to fetch entries: {e}")
             return {'CANCELLED'}
 
-        ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+        if "error" in data:
+            self.report({'ERROR'}, data["error"])
+            return {'CANCELLED'}
 
-        errors = []
-        for raw_line in process.stdout: # pyright: ignore
-            line = ansi_escape.sub('', raw_line.decode('utf-8', errors='replace')).rstrip()
-            print(line)
-            if '[ERROR]' in line:
-                clean = re.sub(r'^\d{2}:\d{2}:\d{2} \| ', '', line.strip())
-                clean = clean.encode('ascii', errors='replace').decode('ascii')
-                errors.append(clean)
+        models = data.get("model", [])
 
-        process.wait()
+        vs.kitsuneresource_model_entries.clear()
+        for k in data.get("model", []):
+            vs.kitsuneresource_model_entries.add().name = k
+        vs.kitsuneresource_model_entry_index = 0
 
-        if errors:
-            for err in errors:
-                self.report({'WARNING'}, err)
-        else:
-            self.report({'INFO'}, "Compile finished")
+        vs.kitsuneresource_data_entries.clear()
+        for k in data.get("data", []):
+            vs.kitsuneresource_data_entries.add().name = k
 
+        self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} model / {len(vs.kitsuneresource_data_entries)} data entries.")
         return {'FINISHED'}
+
+ 
+class SMD_OT_KitsuneResourceCompile(Operator):
+    bl_idname = "smd.kitsuneresource_compile"
+    bl_label  = "Compile"
+    bl_options = {'REGISTER'}
+
+    compile_all: BoolProperty(name="Compile All", default=True)
+
+    @classmethod
+    def poll(cls, context):
+        vs = context.scene.vs
+        return (
+            len(vs.kitsuneresource_project_path) > 0
+            and len(vs.kitsuneresource_app_path) > 0
+            and len(vs.kitsuneresource_config) > 0
+        )
+
+    def execute(self, context) -> set:
+        vs          = context.scene.vs
+        app_path    = resolve_kitsuneresource_app(vs)
+        basedir     = resolve_kitsuneresource_project_basedir(vs)
+        config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
+        cmd         = build_base_cmd(vs, app_path, config_path)
+
+        if not self.compile_all:
+            idx     = vs.kitsuneresource_model_entry_index
+            entries = vs.kitsuneresource_model_entries
+            if 0 <= idx < len(entries):
+                cmd += ["--only", entries[idx].name]
+            else:
+                self.report({'WARNING'}, "No entry selected; compiling all.")
+
+        return run_and_report(self, cmd, basedir)
+    
+
+class SMD_OT_KitsuneResourceCompileData(Operator):
+    bl_idname = "smd.kitsuneresource_compile_data"
+    bl_label  = "Compile All Data"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        vs = context.scene.vs
+        return (
+            len(vs.kitsuneresource_project_path) > 0
+            and len(vs.kitsuneresource_app_path) > 0
+            and len(vs.kitsuneresource_config) > 0
+            and len(vs.kitsuneresource_data_entries) > 0
+            and not vs.kitsuneresource_flag_game
+        )
+
+    def execute(self, context) -> set:
+        vs          = context.scene.vs
+        app_path    = resolve_kitsuneresource_app(vs)
+        basedir     = resolve_kitsuneresource_project_basedir(vs)
+        config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
+        cmd         = build_base_cmd(vs, app_path, config_path)
+
+        for entry in vs.kitsuneresource_data_entries:
+            cmd += ["--only", entry.name]
+
+        return run_and_report(self, cmd, basedir)
     
 
 class TOOLS_OT_CopySourceBoneProps(Operator):
-    bl_idname = "valvesource.copy_bone_props"
+    bl_idname = "smd.copy_bone_props"
     bl_label = "Copy Source Bone Properties"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -941,6 +1013,12 @@ class SMD_PT_Mesh(Properties_SubPanel):
         if not is_mesh_compatible(active_object):
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
+        
+        vs = active_object.vs
+
+        box = layout.box()
+        box.label(text='Options', icon='OPTIONS')
+        box.prop(vs, 'merge_vertices')
 
   
 class SMD_PT_Shapekey(Properties_SubPanel):
@@ -1849,7 +1927,6 @@ class SMD_OT_CopyBoneExportName(Operator):
     def execute(self, context) -> set:
         active_object = context.active_object
         active_bone = active_object.data.bones.get(context.active_bone.name)
-        active_bone_vs = active_bone.vs
         
         bpy.context.window_manager.clipboard = get_bone_exportname(active_bone, for_write=True)
         self.report({'INFO'}, "Name copied to clipboard.")
@@ -1857,7 +1934,7 @@ class SMD_OT_CopyBoneExportName(Operator):
     
 
 class SMD_OT_AssignBoneRotExportOffset(Operator):
-    bl_idname = 'kitsunetools.assign_bone_rot_export_offset'
+    bl_idname = 'smd.assign_bone_rot_export_offset'
     bl_label = 'Assign Bone Target Forward'
     bl_options: set = {'REGISTER', 'UNDO'}
     bl_description = "Target Bone Forward: Sets the bone's forward direction for export. Blender bones use Y-forward by default in edit mode (check with 'normal' gizmo). This property specifies which axis will be forward in the target engine/application. Example: Setting 'X-forward' rotates the bone +90° around Z on export, converting Y-forward → X-forward. Rotation order on export: Z→Y→X (translation: X→Y→Z)"
@@ -2061,7 +2138,7 @@ class SMD_PT_All_Attachments(Properties_SubPanel):
 
 
 class SMD_OT_CopySourceBoneProps(Operator):
-    bl_idname = "valvesource.copy_bone_props"
+    bl_idname = "smd.copy_bone_props"
     bl_label = "Copy Source Bone Properties"
     bl_options = {"REGISTER", "UNDO"}
 

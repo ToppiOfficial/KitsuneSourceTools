@@ -368,6 +368,35 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         default=True
     )
 
+    only_up_to: BoolProperty(
+        name="Only Up To Selected Bone",
+        description="Only process bones up to the level of the active selected pose bone in the hierarchy",
+        default=False
+    )
+
+    up_to_bone_attr: StringProperty(options={'HIDDEN'}, default="")
+
+    _BODY_PART_TIERS = {
+        'armature_map_pelvis': 0,
+        'armature_map_thigh_l': 0, 'armature_map_thigh_r': 0,
+        'armature_map_knee_l': 0, 'armature_map_knee_r': 0,
+        'armature_map_ankle_l': 0, 'armature_map_ankle_r': 0,
+        'armature_map_toe_l': 0, 'armature_map_toe_r': 0,
+        'armature_map_spine': 1,
+        'armature_map_chest': 2,
+        'armature_map_shoulder_l': 3, 'armature_map_shoulder_r': 3,
+        'armature_map_upperarm_l': 4, 'armature_map_upperarm_r': 4,
+        'armature_map_forearm_l': 4, 'armature_map_forearm_r': 4,
+        'armature_map_wrist_l': 4, 'armature_map_wrist_r': 4,
+        'armature_map_thumb_f_l': 5, 'armature_map_thumb_f_r': 5,
+        'armature_map_index_f_l': 5, 'armature_map_index_f_r': 5,
+        'armature_map_middle_f_l': 5, 'armature_map_middle_f_r': 5,
+        'armature_map_ring_f_l': 5, 'armature_map_ring_f_r': 5,
+        'armature_map_pinky_f_l': 5, 'armature_map_pinky_f_r': 5,
+        'armature_map_head': 7,
+        'armature_map_eye_l': 7, 'armature_map_eye_r': 7,
+    }
+
     def draw(self, context: Context) -> None:
         layout = self.layout
         col = layout.column(align=True)
@@ -396,7 +425,26 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         col.separator()
         col.prop(self, "remove_intermediate_bones")
 
+        if self.up_to_bone_attr:
+            col.separator()
+            box = col.box()
+            label = self.up_to_bone_attr.replace("armature_map_", "").replace("_", " ").title()
+            box.label(text=f"Active Bone: {label}", icon='BONE_DATA')
+            box.prop(self, "only_up_to")
+
     def invoke(self, context: Context, event: Event) -> set:
+        self.only_up_to = False
+        self.up_to_bone_attr = ""
+
+        if context.mode == 'POSE' and context.active_pose_bone:
+            vs = context.active_object.vs
+            active_name = context.active_pose_bone.name
+            for attr in dir(vs):
+                if attr.startswith("armature_map_") and getattr(vs, attr) == active_name:
+                    self.up_to_bone_attr = attr
+                    self.only_up_to = True
+                    break
+
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
@@ -416,6 +464,15 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         
         with preserve_context_mode(arm, 'OBJECT'):
             bone_elements = {entry["BoneName"]: entry for entry in data}
+
+            if self.only_up_to and self.up_to_bone_attr:
+                threshold_tier = HUMANOIDARMATUREMAP_OT_LoadConfig._BODY_PART_TIERS.get(self.up_to_bone_attr, -1)
+                if threshold_tier >= 0:
+                    bone_elements = {
+                        name: entry for name, entry in bone_elements.items()
+                        if self._get_bone_name_tier(name) in (-1, ) or self._get_bone_name_tier(name) <= threshold_tier
+                    }
+
             if arm is None:
                 self.report({"ERROR"}, "No valid armature selected")
                 return {"CANCELLED"}
@@ -802,6 +859,31 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
         actual_name = self._get_actual_bone_name(name)
         return actual_name in bones
 
+    def _get_bone_name_tier(self, bone_name: str) -> int:
+        exact = {
+            'Hips': 0,
+            'Left leg': 0, 'Right leg': 0,
+            'Left knee': 0, 'Right knee': 0,
+            'Left ankle': 0, 'Right ankle': 0,
+            'Left toe': 0, 'Right toe': 0,
+            'Chest': 2,
+            'Left shoulder': 3, 'Right shoulder': 3,
+            'Left arm': 4, 'Right arm': 4,
+            'Left elbow': 4, 'Right elbow': 4,
+            'Left wrist': 4, 'Right wrist': 4,
+            'Head': 7,
+            'Left eye': 7, 'Right eye': 7,
+        }
+        if bone_name in exact:
+            return exact[bone_name]
+        if bone_name == 'Spine' or bone_name.startswith('Lower Spine') or bone_name.startswith('Lower Chest'):
+            return 1
+        if bone_name == 'Neck' or bone_name.startswith('Neck_'):
+            return 6
+        if any(bone_name.startswith(p) for p in ('IndexFinger', 'MiddleFinger', 'RingFinger', 'LittleFinger', 'Thumb')):
+            return 5
+        return -1
+
     def _setup_armature(self, arm: Object, bone_elements: dict) -> None:
         with preserve_context_mode(arm, 'OBJECT'):
             if arm.animation_data is not None:
@@ -815,7 +897,7 @@ class HUMANOIDARMATUREMAP_OT_LoadConfig(Operator):
             self._prepare_pose_bones(arm, default_collection)
             self._process_bones_edit_mode(arm, bone_elements)
             self._process_bones_object_mode(arm, bone_elements)
-            self._assign_hair_bones_to_collection(arm)
+            #self._assign_hair_bones_to_collection(arm)
 
     def _ensure_default_collection(self, arm: Object) -> BoneCollection:
         default_collection = arm.data.collections.get('Default')
