@@ -440,7 +440,12 @@ class ExportPlanner:
                 self._owned_objects.append(copy)
 
                 if ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
-                    self._apply_merge_vertices(copy)
+                    if hasShapes(ob):
+                        self._reporter.warning(
+                            f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
+                        )
+                    else:
+                        self._apply_merge_vertices(copy)
 
                 if copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
                     self._edgeline_builder.build(copy, ob.name)
@@ -532,13 +537,19 @@ class ExportPlanner:
         if (ob.vs.merge_vertices
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
                 and not self._is_existing_lod(export_name)):
-            merged = ob.copy()
-            merged.data = ob.data.copy()
-            bpy.context.scene.collection.objects.link(merged)
-            self._owned_objects.append(merged)
-            State.exportableObjects.add(merged.session_uid)
-            self._apply_merge_vertices(merged)
-            ob = merged
+            
+            if hasShapes(ob):
+                self._reporter.warning(
+                    f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
+                )
+            else:
+                merged = ob.copy()
+                merged.data = ob.data.copy()
+                bpy.context.scene.collection.objects.link(merged)
+                self._owned_objects.append(merged)
+                State.exportableObjects.add(merged.session_uid)
+                self._apply_merge_vertices(merged)
+                ob = merged
 
         target_ob = ob
 
@@ -1090,6 +1101,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     break
 
             if success:
+                if self.export_scene:
+                    self._auto_export_prefabs_scene(context, export_ids)
                 self.errorReport(get_id("exporter_report", True).format(self.files_exported, self.elapsed_time()))
 
         finally:
@@ -1131,6 +1144,84 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 if not isinstance(exportable.item, Collection):
                     ids.append(exportable.item)
         return ids
+
+    def _auto_export_prefabs_scene(self, context, export_ids: list) -> None:
+        arms = set()
+        
+        for item in export_ids:
+            if isinstance(item, bpy.types.Collection):
+                for ob in item.objects:
+                    if ob.type == 'ARMATURE':
+                        arms.add(ob)
+            elif isinstance(item, bpy.types.Object) and item.type == 'ARMATURE':
+                arms.add(item)
+
+        valid_arms = []
+        for arm in arms:
+            if not getattr(arm.vs, 'export', False):
+                #print(f"\nBlender Source Tools: skipping prefab export for armature '{arm.name}'")
+                continue
+
+            if arm.users_collection:
+                has_exportable_col = any(
+                    getattr(col, 'vs', None) and getattr(col.vs, 'export', False)
+                    for col in arm.users_collection
+                )
+                if not has_exportable_col:
+                    #print(f"\nBlender Source Tools: skipping prefab export for armature '{arm.name}'")
+                    continue
+                    
+            valid_arms.append(arm)
+
+        if not valid_arms:
+            return
+            
+        for arm in valid_arms:
+            print(f"\nBlender Source Tools: auto-exporting prefabs for armature '{arm.name}'")
+            self._auto_export_prefabs_for_armature(arm, context)
+        
+        print("\n")
+
+    def _auto_export_prefabs_for_armature(self, arm: bpy.types.Object, context) -> None:
+        runner = _PrefabRunnerAdapter(self.report)
+        vs = arm.vs
+        prefab_types = [
+            ('JIGGLEBONES', vs.jigglebone_prefabfile),
+            ('ATTACHMENTS', vs.attachment_prefabfile),
+            ('HITBOXES',    vs.hitbox_prefabfile),
+        ]
+        for export_type, raw_path in prefab_types:
+            if not raw_path:
+                continue
+            try:
+                export_path, filename, ext = runner.get_filepath(raw_path)
+            except ValueError as e:
+                print(f"  - {export_type}: skipped — {e}")
+                continue
+            ext_lower = ext.lower()
+            if ext_lower in {'.qc', '.qci'}:
+                fmt = 'QC'
+            elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
+                fmt = 'VMDL'
+            else:
+                print(f"  - {export_type}: skipped — unsupported extension '{ext_lower}'")
+                continue
+            warnings = None
+            if export_type == 'JIGGLEBONES':
+                compiled = runner._run_jigglebones(arm, fmt, export_path)
+            elif export_type == 'ATTACHMENTS':
+                compiled = runner._run_attachments(arm, fmt, export_path, context)
+            elif export_type == 'HITBOXES':
+                compiled, warnings = runner._run_hitboxes(arm)
+            else:
+                continue
+            if compiled is None:
+                print(f"  - {export_type}: nothing to export")
+                continue
+            if runner._write_output(compiled, export_path, warnings):
+                print(f"  - {export_type}: exported to {export_path}")
+            else:
+                print(f"  - {export_type}: export failed")
 
     def _export_one(self, context, id) -> bool:
         self.attemptedExports += 1
@@ -3142,3 +3233,28 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             mathutils.Vector((min(c1.x, c2.x), min(c1.y, c2.y), min(c1.z, c2.z))),
             mathutils.Vector((max(c1.x, c2.x), max(c1.y, c2.y), max(c1.z, c2.z))),
         )
+
+# -----------------------------------------------------------------------------
+# Adapter used by SmdExporter._auto_export_prefabs_for_armature to invoke
+# PrefabExporter logic without needing a live Blender operator instance.
+# All PrefabExporter methods are rebound here so internal self.* calls resolve.
+# -----------------------------------------------------------------------------
+
+class _PrefabRunnerAdapter(ExportCheck):
+    def __init__(self, reporter):
+        self.to_clipboard = False
+        self._report_fn = reporter
+
+    def report(self, level, msg):
+        self._report_fn(level, msg)
+
+    get_filepath             = PrefabExporter.get_filepath
+    _write_output            = PrefabExporter._write_output
+    _run_jigglebones         = PrefabExporter._run_jigglebones
+    _jigglebones_qc          = PrefabExporter._jigglebones_qc
+    _jigglebones_vmdl        = PrefabExporter._jigglebones_vmdl
+    _run_attachments         = PrefabExporter._run_attachments
+    _attachments_qc          = PrefabExporter._attachments_qc
+    _attachments_vmdl        = PrefabExporter._attachments_vmdl
+    _run_hitboxes            = PrefabExporter._run_hitboxes
+    _hitbox_bounds           = PrefabExporter._hitbox_bounds

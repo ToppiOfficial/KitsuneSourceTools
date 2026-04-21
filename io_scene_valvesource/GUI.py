@@ -63,7 +63,7 @@ class SMD_MT_ExportChoice(Menu):
         row.operator(SmdExporter.bl_idname, text=get_id("exportmenu_scene", True).format(num_scene_exports), icon='SCENE_DATA').export_scene = True
         row.enabled = num_scene_exports > 0
 
-        active = context.active_object
+        active = context.object
 
         arm = None
         if active:
@@ -402,13 +402,13 @@ for map_name in vertex_maps:
     
         @classmethod
         def poll(cls, context) -> bool:
-            if not is_mesh(context.active_object):
+            if not is_mesh(context.object):
                 return False
-            vc_loop : MeshLoopColorLayer | None = context.active_object.data.vertex_colors.get(cls.vertex_map)
+            vc_loop : MeshLoopColorLayer | None = context.object.data.vertex_colors.get(cls.vertex_map)
             return bool(vc_loop and not vc_loop.active)
 
         def execute(self, context) -> set:
-            context.active_object.data.vertex_colors[self.vertex_map].active = True
+            context.object.data.vertex_colors[self.vertex_map].active = True
             return {'FINISHED'}
 
     class CreateVertexColorMap(Operator):
@@ -420,10 +420,10 @@ for map_name in vertex_maps:
     
         @classmethod
         def poll(cls, context) -> bool:
-            return bool(is_mesh(context.active_object) and cls.vertex_map not in context.active_object.data.vertex_colors)
+            return bool(is_mesh(context.object) and cls.vertex_map not in context.object.data.vertex_colors)
 
         def execute(self, context) -> set:
-            vc : MeshLoopColorLayer = context.active_object.data.vertex_colors.new(name=self.vertex_map)
+            vc : MeshLoopColorLayer = context.object.data.vertex_colors.new(name=self.vertex_map)
             vc.data.foreach_set("color", [1.0] * len(vc.data) * 4)
             SelectVertexColorMap.execute(self, context)
             return {'FINISHED'}
@@ -437,10 +437,10 @@ for map_name in vertex_maps:
     
         @classmethod
         def poll(cls, context) -> bool:
-            return bool(is_mesh(context.active_object) and cls.vertex_map in context.active_object.data.vertex_colors)
+            return bool(is_mesh(context.object) and cls.vertex_map in context.object.data.vertex_colors)
 
         def execute(self, context) -> set:
-            vcs : LoopColors  = context.active_object.data.vertex_colors
+            vcs : LoopColors  = context.object.data.vertex_colors
             vcs.remove(vcs[self.vertex_map])
             return {'FINISHED'}
 
@@ -463,11 +463,11 @@ for map_name in vertex_float_maps:
 
         @classmethod
         def poll(cls, context) -> bool:
-            vg_loop = context.active_object.vertex_groups.get(cls.vertex_map)
-            return bool(vg_loop and not context.active_object.vertex_groups.active == vg_loop)
+            vg_loop = context.object.vertex_groups.get(cls.vertex_map)
+            return bool(vg_loop and not context.object.vertex_groups.active == vg_loop)
 
         def execute(self, context) -> set:
-            context.active_object.vertex_groups.active_index = context.active_object.vertex_groups[self.vertex_map].index
+            context.object.vertex_groups.active_index = context.object.vertex_groups[self.vertex_map].index
             return {'FINISHED'}
 
     class CreateVertexFloatMap(Operator):
@@ -479,19 +479,19 @@ for map_name in vertex_float_maps:
 
         @classmethod
         def poll(cls, context) -> bool:
-            return bool(context.active_object and context.active_object.type == 'MESH' and cls.vertex_map not in context.active_object.vertex_groups)
+            return bool(context.object and context.object.type == 'MESH' and cls.vertex_map not in context.object.vertex_groups)
 
         def execute(self, context) -> set:
-            vc = context.active_object.vertex_groups.new(name=self.vertex_map)
+            vc = context.object.vertex_groups.new(name=self.vertex_map)
 
             found : bool = False
-            for remap in context.active_object.vs.vertex_map_remaps:
+            for remap in context.object.vs.vertex_map_remaps:
                 if remap.group == map_name:
                     found = True
                     break
 
             if not found:
-                remap = context.active_object.vs.vertex_map_remaps.add()
+                remap = context.object.vs.vertex_map_remaps.add()
                 remap.group = map_name
                 remap.min : float = 0.0
                 remap.max : float = 1.0
@@ -508,10 +508,10 @@ for map_name in vertex_float_maps:
 
         @classmethod
         def poll(cls, context) -> bool:
-            return bool(context.active_object and context.active_object.type == 'MESH' and cls.vertex_map in context.active_object.vertex_groups)
+            return bool(context.object and context.object.type == 'MESH' and cls.vertex_map in context.object.vertex_groups)
 
         def execute(self, context) -> set:
-            vgs = context.active_object.vertex_groups
+            vgs = context.object.vertex_groups
             vgs.remove(vgs[self.vertex_map])
             return {'FINISHED'}
 
@@ -600,6 +600,13 @@ class SMD_PT_Properties(Panel):
     
     def draw(self, context) -> None:
         layout = self.layout
+        active_object = context.object
+
+        if active_object is None: return
+
+        box = layout.box().column(align=True)
+        box.label(text='Export Options', icon='SETTINGS')
+        box.prop(active_object.vs, 'export')
 
 
 class Properties_SubPanel(Panel):
@@ -666,13 +673,13 @@ class SMD_PT_Armature(Properties_SubPanel):
     bl_label = ''
 
     def draw_header(self, context):
-        active_object = get_armature(context.active_object)
+        active_object = get_armature(context.object)
         label = '{} ({})'.format(pgettext("Armature"), active_object.name) if active_object else pgettext("Armature")
         self.layout.label(text=label, icon='ARMATURE_DATA')
     
     def draw(self, context):
         layout = self.layout
-        active_object = get_armature(context.active_object)
+        active_object = get_armature(context.object)
         
         if not is_armature(active_object):
             layout.label(text=get_id("panel_select_armature"), icon='ERROR')
@@ -741,11 +748,11 @@ class SMD_PT_BoneData(Properties_SubPanel):
 
     @classmethod
     def poll(cls, context):
-        return is_armature(context.active_object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
+        return is_armature(context.object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
 
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         active_bone = context.active_bone
         
         box = layout.box()
@@ -796,11 +803,11 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
 
     @classmethod
     def poll(cls, context):
-        return is_armature(context.active_object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
+        return is_armature(context.object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         active_armature = get_armature(active_object)
         active_bone = context.active_bone
         
@@ -1002,13 +1009,13 @@ class SMD_PT_Mesh(Properties_SubPanel):
     bl_label = ''
 
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         label = '{} ({})'.format(pgettext("Mesh"), active_object.name) if is_mesh_compatible(active_object) else pgettext("Mesh")
         self.layout.label(text=label, icon='MESH_DATA')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         if not is_mesh_compatible(active_object):
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
@@ -1027,17 +1034,17 @@ class SMD_PT_Shapekey(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.active_object)
+        return is_mesh_compatible(context.object)
     
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         val1, val2 = countShapes(active_object)
         label = '{} ({} Shapes, {} Correctives)'.format(pgettext("Shape keys"), val1, val2) if is_mesh_compatible(active_object) else pgettext("Shape Keys")
         self.layout.label(text=label, icon='SHAPEKEY_DATA')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         if not is_mesh_compatible(active_object):
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
@@ -1180,7 +1187,7 @@ class SMD_PT_Vertexmap(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.active_object)
+        return is_mesh_compatible(context.object)
     
     def draw_header(self, context):
         layout = self.layout
@@ -1188,7 +1195,7 @@ class SMD_PT_Vertexmap(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         box : UILayout = layout.box()
         col = box.column(align=True)
@@ -1213,7 +1220,7 @@ class SMD_PT_Vertexfloatmap(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.active_object)
+        return is_mesh_compatible(context.object)
     
     def draw_header(self, context):
         layout = self.layout
@@ -1221,7 +1228,7 @@ class SMD_PT_Vertexfloatmap(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         layout.operator("wm.url_open", text=get_id("help", True), icon='INTERNET').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
         
@@ -1258,7 +1265,7 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.active_object)
+        return is_mesh_compatible(context.object)
     
     def draw_header(self, context):
         layout = self.layout
@@ -1266,7 +1273,7 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
-        active_object = get_valid_vertexanimation_object(context.active_object)
+        active_object = get_valid_vertexanimation_object(context.object)
         
         op3 = layout.operator("wm.url_open", text='Vertex Animations Help', icon='INTERNET')
         op3.url = "http://developer.valvesoftware.com/wiki/Vertex_animation"
@@ -1295,17 +1302,17 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.active_object)
+        return is_mesh_compatible(context.object)
     
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         is_outline = active_object.vs.use_toon_edgeline
         label = '{} ({})'.format(pgettext("Toon Outline/Edgeline"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Toon Outline/Edgeline")
         self.layout.label(text=label, icon='MOD_SOLIDIFY')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
 
         if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
@@ -1336,17 +1343,17 @@ class SMD_PT_LOD(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.active_object)
+        return is_mesh_compatible(context.object)
     
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         is_outline = active_object.vs.use_toon_edgeline
         label = '{} ({})'.format(pgettext("Level Of Detail"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Level Of Detail")
         self.layout.label(text=label, icon='MOD_DECIM')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
 
         if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
@@ -1398,14 +1405,14 @@ class SMD_PT_Material(Properties_SubPanel):
     bl_label = ''
 
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         active_material = active_object.active_material if is_mesh(active_object) else None
         label = '{} ({})'.format(pgettext("Material"), active_material.name) if active_material else pgettext("Material")
         self.layout.label(text=label, icon='MATERIAL_DATA')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         if not is_mesh_compatible(active_object):
             layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
@@ -1437,13 +1444,13 @@ class SMD_PT_Empty(Properties_SubPanel):
     bl_label = ''
 
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         label = '{} ({})'.format(pgettext("Empty"), active_object.name) if is_empty(active_object) else pgettext("Empty")
         self.layout.label(text=label, icon='EMPTY_DATA')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         if not is_empty(active_object):
             layout.label(text=get_id("panel_select_empty"), icon='ERROR')
@@ -1467,13 +1474,13 @@ class SMD_PT_Curve(Properties_SubPanel):
     bl_label = ''
 
     def draw_header(self, context):
-        active_object = context.active_object
+        active_object = context.object
         label = '{} ({})'.format(pgettext("Curve"), active_object.name) if is_curve(active_object) else pgettext("Curve")
         self.layout.label(text=label, icon='CURVE_DATA')
         
     def draw(self, context):
         layout = self.layout
-        active_object = context.active_object
+        active_object = context.object
         
         if not is_curve(active_object):
             layout.label(text=get_id("panel_select_curve"), icon='ERROR')
@@ -1484,14 +1491,14 @@ class SMD_PT_Curve(Properties_SubPanel):
         done = set()
         
         row = box.split(factor=0.33)
-        row.label(text=context.active_object.data.name + ":",icon=MakeObjectIcon(context.active_object,suffix='_DATA'),translate=False) # type: ignore
-        row.prop(context.active_object.data.vs,"faces",text="")
-        done.add(context.active_object.data)
+        row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False) # type: ignore
+        row.prop(context.object.data.vs,"faces",text="")
+        done.add(context.object.data)
 
    
 class SMD_UL_FlexControllers(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
-        ob = context.active_object
+        ob = context.object
         
         is_basis = False
         if ob.data and ob.data.shape_keys and item.shapekey and len(ob.data.shape_keys.key_blocks) > 0:
@@ -1549,7 +1556,7 @@ class SMD_OT_AddFlexController(Operator):
     bl_options = {'INTERNAL', 'UNDO'}  
 
     def execute(self, context) -> set:
-        ob  = context.active_object
+        ob  = context.object
 
         new_item = ob.vs.dme_flexcontrollers.add()
         ob.vs.dme_flexcontrollers_index = len(ob.vs.dme_flexcontrollers) - 1
@@ -1581,7 +1588,7 @@ class SMD_OT_AddAllFlexControllers(Operator):
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context) -> set:
-        ob = context.active_object
+        ob = context.object
 
         if not hasattr(ob.data, 'shape_keys') or ob.data.shape_keys is None:
             self.report({'WARNING'}, "No shape keys found on active object")
@@ -1613,12 +1620,12 @@ class SMD_OT_RemoveFlexController(Operator):
     
     @classmethod
     def poll(cls, context) -> bool:
-        return bool(len(context.active_object.vs.dme_flexcontrollers) > 0)
+        return bool(len(context.object.vs.dme_flexcontrollers) > 0)
     
     def execute(self, context) -> set:
-        context.active_object.vs.dme_flexcontrollers.remove(context.active_object.vs.dme_flexcontrollers_index)
-        context.active_object.vs.dme_flexcontrollers_index = min(max(0, context.active_object.vs.dme_flexcontrollers_index - 1), 
-                                                 len(context.active_object.vs.dme_flexcontrollers) - 1)
+        context.object.vs.dme_flexcontrollers.remove(context.object.vs.dme_flexcontrollers_index)
+        context.object.vs.dme_flexcontrollers_index = min(max(0, context.object.vs.dme_flexcontrollers_index - 1), 
+                                                 len(context.object.vs.dme_flexcontrollers) - 1)
         return {'FINISHED'}
 
 
@@ -1630,7 +1637,7 @@ class SMD_OT_MoveFlexController(Operator):
     direction: EnumProperty(items=[('UP', "Up", ""), ('DOWN', "Down", "")])
 
     def execute(self, context) -> set:
-        ob = context.active_object
+        ob = context.object
         controllers = ob.vs.dme_flexcontrollers
         index = ob.vs.dme_flexcontrollers_index
 
@@ -1652,12 +1659,12 @@ class SMD_OT_AutoAssignFlexGroups(Operator):
 
     @classmethod
     def poll(cls, context) -> bool:
-        return bool(context.active_object and 
-                hasattr(context.active_object, "vs") and 
-                len(context.active_object.vs.dme_flexcontrollers) > 0)
+        return bool(context.object and 
+                hasattr(context.object, "vs") and 
+                len(context.object.vs.dme_flexcontrollers) > 0)
 
     def execute(self, context) -> set:
-        ob = context.active_object
+        ob = context.object
         controllers = ob.vs.dme_flexcontrollers
         
         mapping = [
@@ -1698,7 +1705,7 @@ class SMD_OT_SortFlexControllers(Operator):
     bl_options = {'INTERNAL', 'UNDO'}
 
     def execute(self, context) -> set:
-        ob = context.active_object
+        ob = context.object
         controllers = ob.vs.dme_flexcontrollers
 
         def sort_key(fc):
@@ -1736,11 +1743,11 @@ class SMD_OT_PreviewFlexController(Operator):
     
     @classmethod
     def poll(cls, context) -> bool:
-        ob = context.active_object
+        ob = context.object
         return bool(ob and ob.type == 'MESH' and ob.data.shape_keys and len(ob.vs.dme_flexcontrollers) > 0)
     
     def execute(self, context) -> set:
-        ob = context.active_object
+        ob = context.object
         shape_keys = ob.data.shape_keys
         current_index = ob.vs.dme_flexcontrollers_index
         
@@ -1769,14 +1776,14 @@ class SMD_OT_ClearFlexControllers(Operator):
     
     @classmethod
     def poll(cls, context) -> bool:
-        return bool(len(context.active_object.vs.dme_flexcontrollers) > 0)
+        return bool(len(context.object.vs.dme_flexcontrollers) > 0)
     
     def invoke(self, context, event) -> set:
         return context.window_manager.invoke_confirm(self, event)
     
     def execute(self, context) -> set:
-        context.active_object.vs.dme_flexcontrollers.clear()
-        context.active_object.vs.dme_flexcontrollers_index = 0
+        context.object.vs.dme_flexcontrollers.clear()
+        context.object.vs.dme_flexcontrollers_index = 0
         return {'FINISHED'}
 
 
@@ -1787,7 +1794,7 @@ class SMD_OT_AddVertexMapRemap(Operator):
     map_name: StringProperty()
 
     def execute(self, context) -> set:
-        active_object = context.active_object
+        active_object = context.object
         if active_object and active_object.type == 'MESH':
             group = active_object.vs.vertex_map_remaps.add()
             group.group = self.map_name
@@ -1818,7 +1825,7 @@ class SMD_OT_AddVertexAnimation(Operator):
     index: IntProperty()
     
     def execute(self,context) -> set:
-        item = get_valid_vertexanimation_object(context.active_object)
+        item = get_valid_vertexanimation_object(context.object)
         item.vs.vertex_animations.add()
         item.vs.active_vertex_animation = len(item.vs.vertex_animations) - 1
         return {'FINISHED'}
@@ -1834,7 +1841,7 @@ class SMD_OT_RemoveVertexAnimation(Operator):
     vertexindex : IntProperty(min=0)
 
     def execute(self, context) -> set:
-        item = get_valid_vertexanimation_object(context.active_object)
+        item = get_valid_vertexanimation_object(context.object)
         if len(item.vs.vertex_animations) > self.vertexindex:
             item.vs.vertex_animations.remove(self.vertexindex)
             item.vs.active_vertex_animation = max(
@@ -1855,7 +1862,7 @@ class SMD_OT_PreviewVertexAnimation(Operator):
     def execute(self, context) -> set:
         scene = context.scene
 
-        item = get_valid_vertexanimation_object(context.active_object)
+        item = get_valid_vertexanimation_object(context.object)
         if self.vertexindex >= len(item.vs.vertex_animations):
             self.report({'ERROR'}, "Invalid vertex animation index")
             return {'CANCELLED'}
@@ -1888,7 +1895,7 @@ class SMD_OT_GenerateVertexAnimationQCSnippet(Operator):
     def execute(self, context) -> set:
         scene = context.scene
 
-        item = get_valid_vertexanimation_object(context.active_object)
+        item = get_valid_vertexanimation_object(context.object)
         fps = scene.render.fps / scene.render.fps_base
         wm = context.window_manager
 
@@ -1922,10 +1929,10 @@ class SMD_OT_CopyBoneExportName(Operator):
 
     @classmethod
     def poll(cls, context):
-        return bool(context.active_object and context.active_object.type == 'ARMATURE' and context.active_bone)
+        return bool(context.object and context.object.type == 'ARMATURE' and context.active_bone)
     
     def execute(self, context) -> set:
-        active_object = context.active_object
+        active_object = context.object
         active_bone = active_object.data.bones.get(context.active_bone.name)
         
         bpy.context.window_manager.clipboard = get_bone_exportname(active_bone, for_write=True)
@@ -2026,20 +2033,20 @@ class SMD_PT_All_Jigglebones(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         return bool(active_armature)
     
     def draw_header(self, context):
         layout = self.layout
         
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         jigglebones = get_jigglebones(active_armature)
 
         self.bl_label = 'All Jigglebones' + ' (' + str(len(jigglebones)) + ')'
     
     def draw(self, context):
         layout = self.layout
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         
         box = layout.box()
         col = box.column(align=True)
@@ -2069,20 +2076,20 @@ class SMD_PT_All_Hitboxes(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         return bool(active_armature)
     
     def draw_header(self, context):
         layout = self.layout
         
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         hitboxes = get_hitboxes(active_armature)
         
         self.bl_label = 'All Hitboxes' + ' (' + str(len(hitboxes)) + ')'
         
     def draw(self, context):
         layout = self.layout
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         
         box = layout.box()
         col = box.column(align=True)
@@ -2108,20 +2115,20 @@ class SMD_PT_All_Attachments(Properties_SubPanel):
     
     @classmethod
     def poll(cls, context):
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         return bool(active_armature)
     
     def draw_header(self, context):
         layout = self.layout
         
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         attachments = get_attachments(active_armature)
         
         self.bl_label = 'All Attachments' + ' (' + str(len(attachments)) + ')'
         
     def draw(self, context):
         layout = self.layout
-        active_armature = get_armature(context.active_object)
+        active_armature = get_armature(context.object)
         
         box = layout.box()
         col = box.column(align=True)
