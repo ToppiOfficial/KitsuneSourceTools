@@ -1073,9 +1073,12 @@ def build_base_cmd(vs, app_path: str, config_path: str) -> list:
     if vs.kitsuneresource_flag_single_addon: flags.append('--single-addon')
     if vs.kitsuneresource_flag_no_mat_local: flags.append('--no-mat-local')
 
-    if vs.kitsuneresource_package_files:
+    if vs.kitsuneresource_flag_game_or_package == 'PACKAGE':
         flags.append('--package-files')
-    elif vs.kitsuneresource_flag_game:
+        if vs.kitsuneresource_flag_archive_old:
+            flags.append('--archive-old-ver')
+
+    elif vs.kitsuneresource_flag_game_or_package == 'GAME':
         flags.append('--game')
 
     free_tokens = vs.kitsuneresource_args.split()

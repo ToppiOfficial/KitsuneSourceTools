@@ -217,10 +217,13 @@ class SMD_PT_KitsuneResourceCompile(Panel):
 
         col = box.column()
         col.enabled = len(vs.kitsuneresource_app_path) > 0
-        col.prop(vs, 'kitsuneresource_flag_game')
-        col.prop(vs, 'kitsuneresource_flag_single_addon')
-        col.prop(vs, 'kitsuneresource_flag_no_mat_local')
-        col.prop(vs, 'kitsuneresource_package_files')
+        col.row(align=True).prop(vs, 'kitsuneresource_flag_game_or_package', expand=True)
+
+        if vs.kitsuneresource_flag_game_or_package == 'PACKAGE':
+            col.prop(vs, 'kitsuneresource_flag_single_addon')
+            col.prop(vs, 'kitsuneresource_flag_no_mat_local')
+            col.prop(vs, 'kitsuneresource_flag_archive_old')
+
         col.prop(vs, 'kitsuneresource_args', text="Extra Args")
 
         col = box.column()
@@ -335,7 +338,7 @@ class SMD_OT_KitsuneResourceCompileData(Operator):
             and len(vs.kitsuneresource_app_path) > 0
             and len(vs.kitsuneresource_config) > 0
             and len(vs.kitsuneresource_data_entries) > 0
-            and not vs.kitsuneresource_flag_game
+            and not vs.kitsuneresource_flag_game_or_package == 'GAME'
         )
 
     def execute(self, context) -> set:
