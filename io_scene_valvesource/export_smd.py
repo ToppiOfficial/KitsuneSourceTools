@@ -435,7 +435,8 @@ class ExportPlanner:
                 if not ob.vs.export:
                     continue
                 copy = ob.copy()
-                copy.data = ob.data.copy()
+                if ob.data:
+                    copy.data = ob.data.copy()
                 bpy.context.scene.collection.objects.link(copy)
                 self._owned_objects.append(copy)
 
@@ -452,6 +453,12 @@ class ExportPlanner:
 
                 effective_objects[ob] = copy
                 base_obs.append(copy)
+
+            for ob, copy in effective_objects.items():
+                for mod in copy.modifiers:
+                    if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
+                        mod.object = effective_objects[mod.object]
+
             target_col = self._make_collection(col.name + "_temp_base", base_obs)
         else:
             for ob in col.objects:
@@ -505,16 +512,25 @@ class ExportPlanner:
             lod_col.objects.link(lod_ob)
             State.exportableObjects.add(lod_ob.session_uid)
 
+        effective_copies = {}
+
         for ob in source_col.objects:
             if ob.vs.export and not ob.vs.generate_lods:
                 copy = ob.copy()
-                copy.data = ob.data.copy()
+                if ob.data:
+                    copy.data = ob.data.copy()
                 copy.vs.export = True
                 copy.vs.generate_lods = False
                 bpy.context.scene.collection.objects.link(copy)
                 lod_col.objects.link(copy)
                 State.exportableObjects.add(copy.session_uid)
                 self._owned_objects.append(copy)
+                effective_copies[ob] = copy
+
+        for lod_ob in lod_col.objects:
+            for mod in lod_ob.modifiers:
+                if hasattr(mod, 'object') and mod.object and mod.object in effective_copies:
+                    mod.object = effective_copies[mod.object]
 
         return lod_col
 
