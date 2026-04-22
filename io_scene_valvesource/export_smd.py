@@ -538,7 +538,8 @@ class ExportPlanner:
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
                 and not self._is_existing_lod(export_name)):
             
-            if hasShapes(ob):
+            flexcontrollers, corrective_shapes = countShapes(ob)
+            if (flexcontrollers > 0 or corrective_shapes > 0):
                 self._reporter.warning(
                     f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
                 )
