@@ -903,6 +903,11 @@ class Baker:
             ops.object.mode_set(mode="OBJECT")
 
         self._delete_faces_by_material(ob, source_ob, quiet=quiet)
+
+        # Not the way I hope to fix it but too bad.
+        if source_ob.vs.use_toon_edgeline and not source_ob.vs.edgeline_per_material:
+            self._collapse_edgeline_materials(ob)
+
         return ob
     
     def _delete_faces_by_material(self, ob: bpy.types.Object, vg_source: bpy.types.Object, quiet: bool = False) -> None:
@@ -947,6 +952,13 @@ class Baker:
         bm.to_mesh(me)
         bm.free()
         me.update()
+
+    def _collapse_edgeline_materials(self, ob: bpy.types.Object) -> None:
+        me = ob.data
+        generic_mat = bpy.data.materials.get(EdgelineBuilder.EDGELINE_MAT) or bpy.data.materials.new(name=EdgelineBuilder.EDGELINE_MAT)
+        for i, mat in enumerate(me.materials):
+            if mat and mat.name != EdgelineBuilder.EDGELINE_MAT and mat.name.endswith("_edgeline"):
+                me.materials[i] = generic_mat
 
     def _bake_shapes(self, source_ob: bpy.types.Object, baked: bpy.types.Object, result: BakeResult, solidify_fill_rim) -> None:
         should_tri = State.exportFormat == ExportFormat.SMD or source_ob.vs.triangulate
