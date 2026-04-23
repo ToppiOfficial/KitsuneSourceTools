@@ -130,7 +130,6 @@ class LODBuilder:
 class EdgelineBuilder:
     EDGELINE_MAT = "edgeline"
     TEMP_MAT = "temp_material"
-    THICKNESS_VG = "Edgeline_Thickness"
     SOLIDIFY_MOD = "Toon_Edgeline"
 
     def __init__(self, reporter):
@@ -151,8 +150,7 @@ class EdgelineBuilder:
         try:
             material_count = self._ensure_material(temp)
             thickness_vg = self._build_thickness_vg(ob, temp)
-            self._apply_material_overrides(ob, temp, thickness_vg)
-            self._apply_edgeline_materials(temp, material_count, ob.vs.edgeline_per_material)
+            self._apply_edgeline_materials(temp, material_count, ob.vs.edgeline_per_material, ob.vs.toon_edgeline_vertexgroup)
             self._apply_solidify(temp, ob, thickness_vg, material_count)
 
             if not ob.vs.export_edgeline_separately:
@@ -188,71 +186,63 @@ class EdgelineBuilder:
         if not getattr(temp, "vertex_groups", None):
             return None
 
-        vg = None
-        if temp.vs.apply_edgeline_thickness_by_weights:
-            vg = temp.vertex_groups.get(self.THICKNESS_VG)
-            if vg is None:
-                vg = temp.vertex_groups.new(name=self.THICKNESS_VG)
-                compute_edgeline_island_weights(temp, vg, 0.3, 0.8)
+        vg_name = ob.vs.toon_edgeline_vertexgroup
+        if not vg_name:
+            return None
 
-        needs_filter_override = any(
-            slot.material and slot.material.vs.face_export_filter in ("BY_MATERIAL", "BY_VGROUP")
-            for slot in temp.material_slots
-        )
-        if not needs_filter_override:
-            return vg
-
+        vg = temp.vertex_groups.get(vg_name)
         if vg is None:
-            vg = temp.vertex_groups.get(self.THICKNESS_VG) or temp.vertex_groups.new(name=self.THICKNESS_VG)
+            self._reporter.warning(
+                f"Toon edgeline vertex group '{vg_name}' not found on '{ob.name}'; "
+                f"thickness weighting will be skipped."
+            )
+            return None
 
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        temp_mesh = temp.evaluated_get(depsgraph).to_mesh()
-        bm = bmesh.new()
-        bm.from_mesh(temp_mesh)
-        bm.verts.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-
-        for slot_idx, slot in enumerate(temp.material_slots):
-            if not slot.material:
-                continue
-            mode = slot.material.vs.face_export_filter
-            if mode == "BY_MATERIAL":
-                affected = {v.index for f in bm.faces if f.material_index == slot_idx for v in f.verts}
-                for vi in affected:
-                    vg.add([vi], 1.0, "REPLACE")
-            elif mode == "BY_VGROUP":
-                src = temp.vertex_groups.get(slot.material.vs.non_exportable_vgroup)
-                if src:
-                    tol = slot.material.vs.non_exportable_vgroup_tolerance
-                    for v in temp_mesh.vertices:
-                        for g in v.groups:
-                            if g.group == src.index and g.weight >= tol:
-                                vg.add([v.index], 1.0, "REPLACE")
-                                break
-
-        bm.free()
-        temp.evaluated_get(depsgraph).to_mesh_clear()
         return vg
 
-    def _apply_material_overrides(self, ob: bpy.types.Object, temp: bpy.types.Object, vg) -> None:
-        pass  # handled inside _build_thickness_vg
 
-    def _apply_edgeline_materials(self, temp: bpy.types.Object, material_count: int, per_material: bool) -> None:
-        if per_material:
-            for slot in list(temp.material_slots):
-                name = f"{slot.material.name}_edgeline" if slot.material else self.EDGELINE_MAT
-                mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
+    def _apply_edgeline_materials(self, temp: bpy.types.Object, material_count: int, per_material: bool, vg_name: str) -> None:
+        slots = list(temp.material_slots)
+
+        def assign_edgeline_mat(slot):
+            src_filter = slot.material.vs.face_export_filter if slot.material else "NONE"
+            name = f"{slot.material.name}_edgeline" if slot.material else self.EDGELINE_MAT
+            mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
+            if src_filter == "BY_MATERIAL":
+                mat.vs.face_export_filter = "BY_MATERIAL"
+            elif vg_name:
                 mat.vs.face_export_filter = "BY_VGROUP"
-                mat.vs.non_exportable_vgroup = self.THICKNESS_VG
-                mat.vs.non_exportable_vgroup_tolerance = 0.95
-                temp.data.materials.append(mat)
+                mat.vs.non_exportable_vgroup = vg_name
+                mat.vs.non_exportable_vgroup_tolerance = 0.90
+            elif src_filter == "BY_VGROUP":
+                mat.vs.face_export_filter = "BY_VGROUP"
+                mat.vs.non_exportable_vgroup = slot.material.vs.non_exportable_vgroup
+                mat.vs.non_exportable_vgroup_tolerance = slot.material.vs.non_exportable_vgroup_tolerance
+            else:
+                mat.vs.face_export_filter = "NONE"
+            return mat
+
+        if per_material:
+            for slot in slots:
+                temp.data.materials.append(assign_edgeline_mat(slot))
         else:
-            mat = bpy.data.materials.get(self.EDGELINE_MAT) or bpy.data.materials.new(name=self.EDGELINE_MAT)
-            mat.vs.face_export_filter = "BY_VGROUP"
-            mat.vs.non_exportable_vgroup = self.THICKNESS_VG
-            mat.vs.non_exportable_vgroup_tolerance = 0.95
-            for _ in range(material_count):
-                temp.data.materials.append(mat)
+            has_non_exportable = any(
+                s.material and s.material.vs.face_export_filter in ("BY_MATERIAL", "BY_VGROUP")
+                for s in slots
+            )
+            if has_non_exportable:
+                for slot in slots:
+                    temp.data.materials.append(assign_edgeline_mat(slot))
+            else:
+                mat = bpy.data.materials.get(self.EDGELINE_MAT) or bpy.data.materials.new(name=self.EDGELINE_MAT)
+                if vg_name:
+                    mat.vs.face_export_filter = "BY_VGROUP"
+                    mat.vs.non_exportable_vgroup = vg_name
+                    mat.vs.non_exportable_vgroup_tolerance = 0.90
+                else:
+                    mat.vs.face_export_filter = "NONE"
+                for _ in range(material_count):
+                    temp.data.materials.append(mat)
 
     def _apply_solidify(self, temp: bpy.types.Object, ob: bpy.types.Object, vg, material_count: int) -> None:
         solid = temp.modifiers.get(self.SOLIDIFY_MOD) or temp.modifiers.new(name=self.SOLIDIFY_MOD, type="SOLIDIFY")
@@ -261,7 +251,12 @@ class EdgelineBuilder:
         solid.material_offset = material_count
         solid.offset = -1.0
         solid.thickness = -1 * round(ob.vs.base_toon_edgeline_thickness, 3)
-        if vg and ob.vs.apply_edgeline_thickness_by_weights:
+
+        # Only bind the vertex group when one was successfully resolved.
+        # If vg is None (empty property or missing group), solidify still runs
+        # with uniform thickness
+        
+        if vg:
             solid.vertex_group = vg.name
             solid.invert_vertex_group = True
 
@@ -907,10 +902,10 @@ class Baker:
                 ops.mesh.flip_normals()
             ops.object.mode_set(mode="OBJECT")
 
-        self._delete_faces_by_material(ob, quiet=quiet)
+        self._delete_faces_by_material(ob, source_ob, quiet=quiet)
         return ob
-
-    def _delete_faces_by_material(self, ob: bpy.types.Object, quiet: bool = False) -> None:
+    
+    def _delete_faces_by_material(self, ob: bpy.types.Object, vg_source: bpy.types.Object, quiet: bool = False) -> None:
         me = ob.data
         if not me.materials:
             return
@@ -926,7 +921,7 @@ class Baker:
                         faces_to_delete.add(poly.index)
             elif mode == "BY_VGROUP":
                 vg_name = getattr(mat.vs, "non_exportable_vgroup", "")
-                vg = ob.vertex_groups.get(vg_name) if vg_name else None
+                vg = vg_source.vertex_groups.get(vg_name) if vg_name else None
                 if vg:
                     tol = mat.vs.non_exportable_vgroup_tolerance
                     for poly in me.polygons:
@@ -2417,6 +2412,19 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     else:
                         self.warning(f"'{bake.name}' has no UV map named {defaultUvLayer} and no fallback was found.")
 
+                # texcoord$1: if a 2nd UV layer exists that isn't already captured by the
+                # $-naming convention, export it under the texcoord$1 attribute name.
+                _second_uv_dmx = "texcoord$1"
+                if _second_uv_dmx not in [l.name for l in uv_layers_to_export]:
+                    _exported_uv_blender_names = {l._layer.name for l in uv_layers_to_export}
+                    _second_uv = next(
+                        (uv for uv in ob.data.uv_layers if uv.name not in _exported_uv_blender_names),
+                        None
+                    )
+                    if _second_uv is not None:
+                        uv_layers_to_export.append(exportLayer(layerGroups.uv[_second_uv.name], _second_uv_dmx))
+                        print(f"- Exporting '{_second_uv.name}' as {_second_uv_dmx}")
+
                 for layer in uv_layers_to_export:
                     uv_set = ordered_set.OrderedSet()
                     uv_indices = []
@@ -2433,6 +2441,22 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
                 for layer in get_bmesh_layers(layerGroups.color):
                     make_vertex_layer(layer, datamodel.Vector4)
+
+                # color: map Blender vertex colour layer names to their Source 2 DMX
+                # attribute names using the shared vertex_maps dict (defined in utils.py).
+                # Layers already captured by the $-naming convention are skipped.
+                _exported_color_dmx_names = {l.name for l in get_bmesh_layers(layerGroups.color)}
+                for _blender_name, _vp_dmx_name in vertex_maps.items():
+                    _vp_dmx_name = _vp_dmx_name.lower()
+                    if _vp_dmx_name in _exported_color_dmx_names:
+                        continue 
+                    # Check byte-color layers first, then float-color (Blender 3.2+).
+                    _vp_bm_layer = layerGroups.color.get(_blender_name)
+                    if _vp_bm_layer is None and hasattr(layerGroups, "float_color"):
+                        _vp_bm_layer = layerGroups.float_color.get(_blender_name)
+                    if _vp_bm_layer is not None:
+                        make_vertex_layer(exportLayer(_vp_bm_layer, _vp_dmx_name), datamodel.Vector4)
+
                 for layer in get_bmesh_layers(layerGroups.float):
                     make_vertex_layer(layer, float)
                 for layer in get_bmesh_layers(layerGroups.int):

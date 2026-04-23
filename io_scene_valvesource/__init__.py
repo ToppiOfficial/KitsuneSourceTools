@@ -25,13 +25,19 @@ from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, C
 import importlib, sys
 
 pkg_name = __name__
+# -------------------------------------------------------------------------------------
+# Reload all modules that belong to this package
+# -------------------------------------------------------------------------------------
 
-# Reload all modules that belong to this package (including subpackages like .kitsunetools, .utils, etc.)
 for modname, module in list(sys.modules.items()):
     if modname.startswith(pkg_name + ".") and module:
         importlib.reload(module)
 
+
+# -------------------------------------------------------------------------------------
 # Clear out any scene update funcs hanging around, e.g. after a script reload
+# -------------------------------------------------------------------------------------
+
 for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post]:
     for func in collection[:]:
         if func.__module__.startswith(pkg_name):
@@ -118,9 +124,11 @@ def draw_copy_armature_map(self, context):
 def draw_copy_bone_props(self, context):
     self.layout.operator(GUI.TOOLS_OT_CopySourceBoneProps.bl_idname)
 
-#
+
+# -------------------------------------------------------------------------------------
 # Property Groups
-#
+# -------------------------------------------------------------------------------------
+
 from bpy.types import PropertyGroup
 
 encodings = []
@@ -130,7 +138,11 @@ for version in set(x for x in [*dmx_versions_source1.values(), *dmx_versions_sou
     formats.append((version.format_enum, version.format_title, ''))
 formats.sort(key = lambda f: f[0])
 
+
+# -------------------------------------------------------------------------------------
 # Simple Item Classes
+# -------------------------------------------------------------------------------------
+
 class PrefabItem(PropertyGroup):
     filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
@@ -181,14 +193,21 @@ class HumanoidArmatureMap(PropertyGroup):
     writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=True)
     parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
 
+
+# -------------------------------------------------------------------------------------
 # Base/Utility Classes
+# -------------------------------------------------------------------------------------
+
 class ValveSource_FloatMapRemap(PropertyGroup):
     group : StringProperty(name="Group name",default="")
     min : FloatProperty(name="Min",description="Maps to 0.0",default=0.0)
     max : FloatProperty(name="Max",description="Maps to 1.0",default=1.0)
 
 
-# Mixin Classes (Properties only, no PropertyGroup inheritance yet)
+# -------------------------------------------------------------------------------------
+# Mixin Classes
+# -------------------------------------------------------------------------------------
+
 class ShapeTypeProps():
     flex_stereo_sharpness : FloatProperty(name=get_id("shape_stereo_sharpness"),description=get_id("shape_stereo_sharpness_tip"),default=90,min=0,max=100,subtype='PERCENTAGE')
     flex_stereo_mode : EnumProperty(name=get_id("shape_stereo_mode"),description=get_id("shape_stereo_mode_tip"),
@@ -280,9 +299,9 @@ class ExportableProps():
     active_vertex_animation : IntProperty(default=-1)
 
     use_toon_edgeline : BoolProperty(name="Export with Toon Edge Line",default=False)
-    base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0, soft_max=0.8, precision=3)
-    apply_edgeline_thickness_by_weights : BoolProperty(name="Apply Egeline Thickness Based on Weights", description="Apply varation of thickness on the outline based on a vertex group \"Edgeline_Thickness\", it will be auto-computed if it doesn't exist", default=False)
     edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
+    base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0.001, soft_max=1.0, precision=3)
+    toon_edgeline_vertexgroup : StringProperty(name='Toon Edge Line Vertex Group',default='')
     export_edgeline_separately : BoolProperty(name="Export Edgeline Separately", default=False)
 
     show_items : BoolProperty()
@@ -294,7 +313,10 @@ class ExportableProps():
     merge_vertices : BoolProperty(name='Merge Vertices', default=True)
 
 
+# -------------------------------------------------------------------------------------
 # Property Classes (using mixins)
+# -------------------------------------------------------------------------------------
+
 class ValveSource_MeshProps(ShapeTypeProps,PropertyGroup):
     pass
 
@@ -463,8 +485,12 @@ class ValveSource_MaterialProps(PropertyGroup):
         default='NONE'
     )
 
-    non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='Non-Exportable Group')
-    non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.95, min=0.8, max=1, precision=2)
+    non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='')
+    non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
+
+# -------------------------------------------------------------------------------------
+# Register
+# -------------------------------------------------------------------------------------
 
 _classes = (
     # Base/Utility Classes
@@ -525,7 +551,6 @@ _classes = (
     GUI.SMD_PT_Vertexanimations,
     GUI.SMD_PT_ToonEdgeline,
     GUI.SMD_PT_LOD,
-    GUI.SMD_OT_ComputeEdgelineWeights,
     GUI.SMD_PT_Empty,
     GUI.SMD_PT_Curve,
     GUI.SMD_PT_All_Hitboxes,

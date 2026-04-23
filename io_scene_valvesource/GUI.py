@@ -1315,6 +1315,7 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
+        
         active_object = context.object
 
         if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
@@ -1323,21 +1324,15 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
 
         vs = active_object.vs
 
-        box = layout.box()
-        box.prop(vs, 'use_toon_edgeline', text="Export with Toon Edge Line", toggle=True)
-
-        col = box.column(align=True)
+        box = layout.box().column(align=True)
+        box.prop(vs, 'use_toon_edgeline', toggle=True)
+        
+        col = box.column(align=True)     
+        col.prop(vs, 'base_toon_edgeline_thickness')   
         col.enabled = vs.use_toon_edgeline
-
-        col.prop(vs, 'edgeline_per_material', text="Edgeline Per Material")
-        col.prop(vs, 'apply_edgeline_thickness_by_weights', text="Apply Edgeline Thickness Based on Weights")
+        col.prop(vs, 'edgeline_per_material')
         col.prop(vs, 'export_edgeline_separately', text="Export Edgeline Separately")
-
-        row = col.row(align=True)
-        row.prop(vs, 'base_toon_edgeline_thickness', text="Toon Edgeline Thickness", slider=True)
-
-        col.separator()
-        col.operator(SMD_OT_ComputeEdgelineWeights.bl_idname, text="Compute Edgeline Weights")
+        col.prop_search(vs, 'toon_edgeline_vertexgroup', active_object, 'vertex_groups', text="Outline Width VertexGroup", icon='GROUP_VERTEX')
 
 
 class SMD_PT_LOD(Properties_SubPanel):
@@ -1374,36 +1369,6 @@ class SMD_PT_LOD(Properties_SubPanel):
         col.prop(vs, 'decimate_factor', slider=True)
 
 
-class SMD_OT_ComputeEdgelineWeights(Operator):
-    bl_idname = "kitsunetools.compute_edgeline_weights"
-    bl_label = "Compute Edgeline Weights"
-    bl_options = {"REGISTER", "UNDO"}
-
-    weight_min: FloatProperty(name="Min Weight", default=0.3, min=0.0, max=1.0)
-    weight_max: FloatProperty(name="Max Weight", default=0.8, min=0.0, max=1.0)
-
-    @classmethod
-    def poll(cls, context):
-        return any(o.type == 'MESH' for o in context.selected_objects)
-
-    def invoke(self, context, event):
-        has_existing = any(
-            ob.vertex_groups.get('Edgeline_Thickness')
-            for ob in context.selected_objects if ob.type == 'MESH'
-        )
-        if has_existing:
-            return context.window_manager.invoke_confirm(self, event)
-        return self.execute(context)
-
-    def execute(self, context) -> set:
-        for ob in context.selected_objects:
-            if ob.type != 'MESH':
-                continue
-            vg = ob.vertex_groups.get('Edgeline_Thickness') or ob.vertex_groups.new(name='Edgeline_Thickness')
-            compute_edgeline_island_weights(ob, vg, self.weight_min, self.weight_max)
-        return {'FINISHED'}
-
-
 class SMD_PT_Material(Properties_SubPanel):
     bl_label = ''
 
@@ -1428,6 +1393,9 @@ class SMD_PT_Material(Properties_SubPanel):
             return
         
         box = layout.box()
+
+        if State.exportFormat == ExportFormat.DMX:
+                box.prop(active_material.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
         
         col = box.column(align=True)
         col.label(text='Filter Vertices and Faces on Export')
@@ -1435,11 +1403,9 @@ class SMD_PT_Material(Properties_SubPanel):
         
         if not active_material.vs.face_export_filter == 'BY_MATERIAL':
             col = box.column()
-            
-            if State.exportFormat == ExportFormat.DMX:
-                col.prop(active_material.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
                 
-            col.prop(active_material.vs, 'non_exportable_vgroup')   
+            #col.prop(active_material.vs, 'non_exportable_vgroup')   
+            col.prop_search(active_material.vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
             col.prop(active_material.vs, 'non_exportable_vgroup_tolerance', slider=True)
 
 

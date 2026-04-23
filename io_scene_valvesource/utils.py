@@ -372,7 +372,12 @@ def getEngineBranch() -> dmx_version | None:
 
 def getCorrectiveShapeSeparator(): return '__' if State.compiler == Compiler.MODELDOC else '_'
 
-vertex_maps = ["valvesource_vertex_paint", "valvesource_vertex_blend", "valvesource_vertex_blend1"]
+vertex_maps = {
+    "valvesource_color":         "Color$0", # ???
+    "valvesource_vertex_paint":  "VertexPaintTintColor$0",
+    "valvesource_vertex_blend":  "VertexPaintBlendParams$0",
+    "valvesource_vertex_blend1": "VertexPaintBlendParams1$0", # ???
+}
 
 # Per vertex Source 2 DMX maps
 vertex_float_maps = [
