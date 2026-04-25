@@ -22,7 +22,7 @@ import bpy, bmesh, collections, re, typing, os
 from bpy import ops
 from bpy.app.translations import pgettext
 from mathutils import Vector, Matrix
-from math import *
+from math import * # pyright: ignore
 from bpy.types import Collection
 
 from .utils import *
@@ -150,7 +150,7 @@ class EdgelineBuilder:
         try:
             material_count = self._ensure_material(temp)
             thickness_vg = self._build_thickness_vg(ob, temp)
-            self._apply_edgeline_materials(temp, material_count, ob.vs.edgeline_per_material, ob.vs.toon_edgeline_vertexgroup)
+            self._apply_edgeline_materials(temp, material_count, ob.vs.edgeline_per_material, ob.vs.toon_edgeline_vertexgroup, ob)
             self._apply_solidify(temp, ob, thickness_vg, material_count)
 
             if not ob.vs.export_edgeline_separately:
@@ -200,47 +200,39 @@ class EdgelineBuilder:
 
         return vg
 
-
-    def _apply_edgeline_materials(self, temp: bpy.types.Object, material_count: int, per_material: bool, vg_name: str) -> None:
+    def _apply_edgeline_materials(
+        self,
+        temp: bpy.types.Object,
+        material_count: int,
+        per_material: bool,
+        vg_name: str,
+        ob: bpy.types.Object,
+    ) -> None:
+        """
+        Appends edgeline material variants to temp.
+        All non-exportable filtering is driven purely by ob.vs (per-object).
+        No material-level filter properties are read or written.
+        """
         slots = list(temp.material_slots)
+        ob_vg     = ob.vs.non_exportable_vgroup
+        ob_vg_tol = ob.vs.non_exportable_vgroup_tolerance
 
-        def assign_edgeline_mat(slot):
-            src_filter = slot.material.vs.face_export_filter if slot.material else "NONE"
+        def make_edgeline_mat(slot):
             name = f"{slot.material.name}_edgeline" if slot.material else self.EDGELINE_MAT
-            mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
-            if src_filter == "BY_MATERIAL":
-                mat.vs.face_export_filter = "BY_MATERIAL"
-            elif vg_name:
-                mat.vs.face_export_filter = "BY_VGROUP"
-                mat.vs.non_exportable_vgroup = vg_name
-                mat.vs.non_exportable_vgroup_tolerance = 0.90
-            elif src_filter == "BY_VGROUP":
-                mat.vs.face_export_filter = "BY_VGROUP"
-                mat.vs.non_exportable_vgroup = slot.material.vs.non_exportable_vgroup
-                mat.vs.non_exportable_vgroup_tolerance = slot.material.vs.non_exportable_vgroup_tolerance
-            else:
-                mat.vs.face_export_filter = "NONE"
-            return mat
+            return bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
 
         if per_material:
             for slot in slots:
-                temp.data.materials.append(assign_edgeline_mat(slot))
+                temp.data.materials.append(make_edgeline_mat(slot))
         else:
-            has_non_exportable = any(
-                s.material and s.material.vs.face_export_filter in ("BY_MATERIAL", "BY_VGROUP")
-                for s in slots
-            )
-            if has_non_exportable:
+            if ob_vg:
+                # Object has a non-exportable vgroup — need per-slot edgeline mats
+                # so each one can be individually resolved during export.
                 for slot in slots:
-                    temp.data.materials.append(assign_edgeline_mat(slot))
+                    temp.data.materials.append(make_edgeline_mat(slot))
             else:
+                # No filtering at all — one shared edgeline material covers everything.
                 mat = bpy.data.materials.get(self.EDGELINE_MAT) or bpy.data.materials.new(name=self.EDGELINE_MAT)
-                if vg_name:
-                    mat.vs.face_export_filter = "BY_VGROUP"
-                    mat.vs.non_exportable_vgroup = vg_name
-                    mat.vs.non_exportable_vgroup_tolerance = 0.90
-                else:
-                    mat.vs.face_export_filter = "NONE"
                 for _ in range(material_count):
                     temp.data.materials.append(mat)
 
@@ -251,11 +243,9 @@ class EdgelineBuilder:
         solid.material_offset = material_count
         solid.offset = -1.0
         solid.thickness = -1 * round(ob.vs.base_toon_edgeline_thickness, 3)
+        solid.use_quality_normals = True
+        solid.thickness_clamp = 3.5
 
-        # Only bind the vertex group when one was successfully resolved.
-        # If vg is None (empty property or missing group), solidify still runs
-        # with uniform thickness
-        
         if vg:
             solid.vertex_group = vg.name
             solid.invert_vertex_group = True
@@ -280,17 +270,10 @@ class EdgelineBuilder:
         edgeline.name = base_name + "_edgeline"
         bpy.context.scene.collection.objects.link(edgeline)
 
-        for slot in edgeline.material_slots:
-            if not slot.material:
-                continue
-            if not (slot.material.name == self.EDGELINE_MAT or slot.material.name.endswith("_edgeline")):
-                local_mat = slot.material.copy()
-                local_mat.vs.face_export_filter = "BY_MATERIAL"
-                slot.material = local_mat
-
         edgeline.vs.use_toon_edgeline = False
         edgeline.vs.export_edgeline_separately = False
         edgeline.vs.generate_lods = False
+        edgeline.vs.is_edgeline_only = True
 
         no_mat = edgeline.data.materials.find(self.TEMP_MAT)
         if no_mat != -1:
@@ -321,9 +304,10 @@ class EdgelineBuilder:
 # -----------------------------------------------------------------------------
 
 class ExportTask:
-    def __init__(self, source_id, export_name: str):
+    def __init__(self, source_id, export_name: str, allowed_uids: set = None):
         self.source_id = source_id
         self.export_name = export_name
+        self.allowed_uids = allowed_uids if allowed_uids is not None else set()
 
     def __repr__(self):
         return f"<ExportTask {self.export_name!r}>"
@@ -436,7 +420,8 @@ class ExportPlanner:
                 self._owned_objects.append(copy)
 
                 if ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
-                    if hasShapes(ob):
+                    flexcontrollers, corrective_shapes = countShapes(ob)
+                    if flexcontrollers > 0 or corrective_shapes > 0:
                         self._reporter.warning(
                             f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
                         )
@@ -459,7 +444,13 @@ class ExportPlanner:
             for ob in col.objects:
                 effective_objects[ob] = ob
 
-        tasks = [ExportTask(target_col, col.name)]
+        base_allowed_uids = {
+            ob.session_uid
+            for ob in target_col.objects
+            if ob.vs.export
+        }
+        
+        tasks = [ExportTask(target_col, col.name, base_allowed_uids)]
 
         lod_buckets: dict[int, list[bpy.types.Object]] = collections.defaultdict(list)
         edgeline_obs: list[bpy.types.Object] = []
@@ -487,12 +478,14 @@ class ExportPlanner:
 
         for lod_idx, lod_obs in lod_buckets.items():
             lod_col = self._make_lod_collection(target_col, lod_idx, lod_obs, col.name)
-            tasks.append(ExportTask(lod_col, lod_col.name))
+            lod_allowed_uids = {ob.session_uid for ob in lod_col.objects if ob.vs.export}
+            tasks.append(ExportTask(lod_col, lod_col.name, lod_allowed_uids))
 
         if edgeline_obs:
             base_name = re.sub(r"_lod\d+$", "", col.name)
             edgeline_col = self._make_collection(base_name + "_edgeline", edgeline_obs)
-            tasks.append(ExportTask(edgeline_col, edgeline_col.name))
+            edge_allowed_uids = {ob.session_uid for ob in edgeline_col.objects if ob.vs.export}
+            tasks.append(ExportTask(edgeline_col, edgeline_col.name, edge_allowed_uids))
 
         return tasks
 
@@ -542,15 +535,13 @@ class ExportPlanner:
     # -- object planning ------------------------------------------------------
 
     def _plan_object(self, ob: bpy.types.Object, export_name: str) -> list[ExportTask]:
-        # Apply vertex merge before any derivative work so LODs and edgelines
-        # are generated from the already-merged mesh. Skip for LOD variants
-        # since they derive from the already-merged base.
+        allowed_uids = set()
+
         if (ob.vs.merge_vertices
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
                 and not self._is_existing_lod(export_name)):
-            
             flexcontrollers, corrective_shapes = countShapes(ob)
-            if (flexcontrollers > 0 or corrective_shapes > 0):
+            if flexcontrollers > 0 or corrective_shapes > 0:
                 self._reporter.warning(
                     f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
                 )
@@ -563,6 +554,7 @@ class ExportPlanner:
                 self._apply_merge_vertices(merged)
                 ob = merged
 
+        allowed_uids.add(ob.session_uid)
         target_ob = ob
 
         if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
@@ -573,8 +565,9 @@ class ExportPlanner:
                 self._owned_objects.append(target_ob)
                 self._edgeline_builder.build(target_ob, export_name)
                 State.exportableObjects.add(target_ob.session_uid)
+                allowed_uids.add(target_ob.session_uid)
 
-        tasks = [ExportTask(target_ob, export_name)]
+        tasks = [ExportTask(target_ob, export_name, allowed_uids.copy())]
 
         if not is_mesh_compatible(ob) or ob.type not in modifier_compatible:
             return tasks
@@ -585,7 +578,8 @@ class ExportPlanner:
             for lod_idx, lod_ob in self._lod_builder.build_all(ob, export_name):
                 self._owned_objects.append(lod_ob)
                 State.exportableObjects.add(lod_ob.session_uid)
-                tasks.append(ExportTask(lod_ob, lod_ob.name))
+                lod_uids = {lod_ob.session_uid}
+                tasks.append(ExportTask(lod_ob, lod_ob.name, lod_uids))
 
         if not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
             if not bpy.context.scene.vs.do_not_export_edgeline and ob.vs.export_edgeline_separately:
@@ -594,7 +588,7 @@ class ExportPlanner:
                     self._owned_objects.append(edgeline_ob)
                     State.exportableObjects.add(edgeline_ob.session_uid)
                     base = re.sub(r"_lod[1-9]\d*$", "", export_name)
-                    tasks.append(ExportTask(edgeline_ob, base + "_edgeline"))
+                    tasks.append(ExportTask(edgeline_ob, base + "_edgeline", {edgeline_ob.session_uid}))
 
         return tasks
 
@@ -902,7 +896,7 @@ class Baker:
                 ops.mesh.flip_normals()
             ops.object.mode_set(mode="OBJECT")
 
-        self._delete_faces_by_material(ob, source_ob, quiet=quiet)
+        self._delete_filtered_faces(ob, source_ob, quiet=quiet)
 
         # Not the way I hope to fix it but too bad.
         if source_ob.vs.use_toon_edgeline and not source_ob.vs.edgeline_per_material:
@@ -910,33 +904,69 @@ class Baker:
 
         return ob
     
-    def _delete_faces_by_material(self, ob: bpy.types.Object, vg_source: bpy.types.Object, quiet: bool = False) -> None:
+    def _delete_filtered_faces(self, ob: bpy.types.Object, vg_source: bpy.types.Object, quiet: bool = False) -> None:
         me = ob.data
-        if not me.materials:
+        if not getattr(vg_source, "vs", None):
             return
 
+        # Non-exportable vgroup: base faces (and their edgeline shell counterparts)
+        # where all vertices meet the weight threshold are removed.
+        nonexp_vg_name = getattr(vg_source.vs, "non_exportable_vgroup", "")
+        nonexp_vg      = vg_source.vertex_groups.get(nonexp_vg_name) if nonexp_vg_name else None
+        nonexp_tol     = getattr(vg_source.vs, "non_exportable_vgroup_tolerance", 0.90)
+
+        # Edgeline thickness vgroup: shell faces where all vertices are fully weighted
+        # (>= 0.90) are pruned — this is where the user intentionally hides the outline.
+        edge_vg_name = getattr(vg_source.vs, "toon_edgeline_vertexgroup", "")
+        edge_vg      = vg_source.vertex_groups.get(edge_vg_name) if edge_vg_name else None
+        EDGE_VG_TOL  = 0.90
+
+        # Reliable separate-edgeline detection — survives Baker's ob.copy() rename.
+        is_separate_edgeline = getattr(vg_source.vs, "is_edgeline_only", False)
+
+        if not nonexp_vg and not edge_vg and not is_separate_edgeline:
+            return
+
+        def all_verts_weighted(poly, vg, tol) -> bool:
+            return all(
+                any(g.group == vg.index and g.weight >= tol for g in me.vertices[v].groups)
+                for v in poly.vertices
+            )
+
         faces_to_delete = set()
-        for slot_index, mat in enumerate(me.materials):
-            if not mat:
-                continue
-            mode = getattr(mat.vs, "face_export_filter", "NONE")
-            if mode == "BY_MATERIAL":
-                for poly in me.polygons:
-                    if poly.material_index == slot_index:
-                        faces_to_delete.add(poly.index)
-            elif mode == "BY_VGROUP":
-                vg_name = getattr(mat.vs, "non_exportable_vgroup", "")
-                vg = vg_source.vertex_groups.get(vg_name) if vg_name else None
-                if vg:
-                    tol = mat.vs.non_exportable_vgroup_tolerance
-                    for poly in me.polygons:
-                        if poly.material_index != slot_index:
-                            continue
-                        if all(
-                            any(g.group == vg.index and g.weight >= tol for g in me.vertices[v].groups)
-                            for v in poly.vertices
-                        ):
-                            faces_to_delete.add(poly.index)
+
+        for poly in me.polygons:
+            mat = (
+                me.materials[poly.material_index]
+                if me.materials and poly.material_index < len(me.materials)
+                else None
+            )
+            is_edgeline_face = mat and (
+                mat.name == EdgelineBuilder.EDGELINE_MAT
+                or mat.name.endswith("_edgeline")
+            )
+
+            if is_edgeline_face:
+                # Shell faces are pruned when:
+                # 1. The edgeline thickness VG fully weights all verts (outline intentionally
+                #    hidden at those vertices).
+                if edge_vg and all_verts_weighted(poly, edge_vg, EDGE_VG_TOL):
+                    faces_to_delete.add(poly.index)
+                    continue
+                # 2. The non-exportable VG marks all verts as excluded — so the shell
+                #    face that sits on top of a deleted base face is also removed.
+                if nonexp_vg and all_verts_weighted(poly, nonexp_vg, nonexp_tol):
+                    faces_to_delete.add(poly.index)
+            else:
+                # Base mesh faces:
+                # For a separate edgeline object, ALL base faces must be stripped —
+                # they belong to the original mesh and must not appear in the edgeline export.
+                if is_separate_edgeline:
+                    faces_to_delete.add(poly.index)
+                    continue
+                # Non-exportable vgroup filter on the base mesh.
+                if nonexp_vg and all_verts_weighted(poly, nonexp_vg, nonexp_tol):
+                    faces_to_delete.add(poly.index)
 
         if not faces_to_delete:
             return
@@ -947,12 +977,14 @@ class Baker:
         geom = [f for f in bm.faces if f.index in faces_to_delete]
         if geom:
             if not quiet:
-                print(f"- Deleting {len(geom)} faces")
+                print(f"- Deleting {len(geom)} non-exportable faces")
             bmesh.ops.delete(bm, geom=geom, context="FACES")
         bm.to_mesh(me)
         bm.free()
         me.update()
 
+
+    # SmdExporter — _collapse_edgeline_materials (unchanged)
     def _collapse_edgeline_materials(self, ob: bpy.types.Object) -> None:
         me = ob.data
         generic_mat = bpy.data.materials.get(EdgelineBuilder.EDGELINE_MAT) or bpy.data.materials.new(name=EdgelineBuilder.EDGELINE_MAT)
@@ -1306,7 +1338,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             group_vmaps = valvesource_vertex_maps(source)
             baked_metaballs = []
 
-            for ob in [ob for ob in source.objects if ob.vs.export and ob.session_uid in State.exportableObjects]:
+            for ob in [ob for ob in source.objects if ob.vs.export and ob.session_uid in task.allowed_uids]:
                 if ob.type == "META":
                     ob = self._find_basis_metaball(ob)
                     if ob in baked_metaballs:
@@ -1721,7 +1753,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 mat_name = sanitize_string(mat_id.name, allow_unicode=True)
         if mat_name:
             self.materials_used.add((mat_name, mat_id))
-            return mat_name, True
+            return mat_name, True # pyright: ignore
         return "no_material", ob.display_type != "TEXTURED"
 
     def getTopParent(self, id: bpy.types.Object) -> bpy.types.Object:
@@ -2384,7 +2416,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             bench.report("verts")
 
             for loop in [ob.data.loops[i] for poly in ob.data.polygons for i in poly.loop_indices]:
-                texcoIndices[loop.index] = texco.add(datamodel.Vector2(uv_layer[loop.index].uv))
+                texcoIndices[loop.index] = texco.add(datamodel.Vector2(uv_layer[loop.index].uv)) # pyright: ignore
                 norms[loop.index] = datamodel.Vector3(loop.normal)
                 Indices[loop.index] = loop.vertex_index
 
@@ -2622,7 +2654,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             dl = delta.length
                             if abs(dl) > 1e-5:
                                 if cache_deltas:
-                                    delta_lengths[ob_vert.index] = dl
+                                    delta_lengths[ob_vert.index] = dl # pyright: ignore
                                 shape_pos.append(datamodel.Vector3(delta))
                                 shape_posIdx.append(ob_vert.index)
 

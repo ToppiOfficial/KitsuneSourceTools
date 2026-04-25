@@ -1018,6 +1018,8 @@ class SMD_PT_Mesh(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
         active_object = context.object
         
         if not is_mesh_compatible(active_object):
@@ -1026,8 +1028,11 @@ class SMD_PT_Mesh(Properties_SubPanel):
         
         vs = active_object.vs
 
-        box = layout.box()
-        box.label(text='Options', icon='OPTIONS')
+        box = layout.box().column(align=True)
+        box.prop_search(vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
+        box.separator(factor=0.5)
+        box.prop(vs, 'non_exportable_vgroup_tolerance')
+        
         box.prop(vs, 'merge_vertices')
 
   
@@ -1315,6 +1320,8 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
         
         active_object = context.object
 
@@ -1325,13 +1332,13 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
         vs = active_object.vs
 
         box = layout.box().column(align=True)
-        box.prop(vs, 'use_toon_edgeline', toggle=True)
+        box.prop(vs, 'use_toon_edgeline')
         
         col = box.column(align=True)     
-        col.prop(vs, 'base_toon_edgeline_thickness')   
         col.enabled = vs.use_toon_edgeline
         col.prop(vs, 'edgeline_per_material')
         col.prop(vs, 'export_edgeline_separately', text="Export Edgeline Separately")
+        col.prop(vs, 'base_toon_edgeline_thickness', text='Thickness')   
         col.prop_search(vs, 'toon_edgeline_vertexgroup', active_object, 'vertex_groups', text="Outline Width VertexGroup", icon='GROUP_VERTEX')
 
 
@@ -1395,18 +1402,7 @@ class SMD_PT_Material(Properties_SubPanel):
         box = layout.box()
 
         if State.exportFormat == ExportFormat.DMX:
-                box.prop(active_material.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
-        
-        col = box.column(align=True)
-        col.label(text='Filter Vertices and Faces on Export')
-        col.row(align=True).prop(active_material.vs, 'face_export_filter',expand=True)
-        
-        if not active_material.vs.face_export_filter == 'BY_MATERIAL':
-            col = box.column()
-                
-            #col.prop(active_material.vs, 'non_exportable_vgroup')   
-            col.prop_search(active_material.vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
-            col.prop(active_material.vs, 'non_exportable_vgroup_tolerance', slider=True)
+            box.prop(active_material.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
 
 
 class SMD_PT_Empty(Properties_SubPanel):

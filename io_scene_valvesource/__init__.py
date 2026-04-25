@@ -43,7 +43,7 @@ for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-from . import datamodel, import_smd, export_smd, flex, GUI, humanoid_armature_mapper
+from . import datamodel, import_smd, export_smd, flex, GUI
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -118,9 +118,6 @@ def update_sanitize_name(self, context):
     if self.controller_name != legal_name:
         self.controller_name = legal_name
 
-def draw_copy_armature_map(self, context):
-    self.layout.operator(humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_CopyToSelected.bl_idname)
-
 def draw_copy_bone_props(self, context):
     self.layout.operator(GUI.TOOLS_OT_CopySourceBoneProps.bl_idname)
 
@@ -169,29 +166,6 @@ class VertexAnimation(PropertyGroup):
     start : IntProperty(name="Start",description=get_id("vca_start_tip"),default=0)
     end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
     export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
-
-class HumanoidArmatureMap(PropertyGroup):
-    boneExportName : StringProperty(
-        name='Bone',
-        description="The original bone name in the source armature. Used when writing JSON for retargeting."
-    )
-
-    boneName : StringProperty(
-        name='Target Name',
-        description="The target name that this bone should be mapped to during retargeting. When loading JSON, any bone matching this name will be treated as the original bone."
-    )
-    
-    writeRotation : EnumProperty(name='Write Rotation', items=[
-        ('NONE', 'Do Not Write', ''),
-        ('ROTATION', 'Rotation', ''),
-        ('ROLL', 'Roll Only', '')
-    ], default='ROLL')
-    
-    writeTwistBone : BoolProperty(name='Write TwistBone', default=False)
-    twistBoneTarget : StringProperty(name='TwistBone Target Bone')
-    twistBoneCount : IntProperty(name='TwistBone Count', default=1, min=1, soft_max=5)
-    writeExportRotationOffset : BoolProperty(name='Write Export Rotation Offset', default=True)
-    parentBone : StringProperty(name='Parent Bone', default='', description='Overwrite Parent bone on JSON parse')
 
 
 # -------------------------------------------------------------------------------------
@@ -298,11 +272,17 @@ class ExportableProps():
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
 
-    use_toon_edgeline : BoolProperty(name="Export with Toon Edge Line",default=False)
+    merge_vertices : BoolProperty(name='Merge Vertices on Export', default=True)
+
+    use_toon_edgeline : BoolProperty(name="Use Toon Edge Line",default=False)
     edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
-    base_toon_edgeline_thickness : FloatProperty(name="Toon Edgeline Thickness",default=0.15, min=0.001, soft_max=1.0, precision=3)
-    toon_edgeline_vertexgroup : StringProperty(name='Toon Edge Line Vertex Group',default='')
+    base_toon_edgeline_thickness : FloatProperty(name="Thickness",default=0.15, min=0.001, soft_max=1.0, precision=3)
+    toon_edgeline_vertexgroup : StringProperty(name='Vertex Group Ratio',default='')
     export_edgeline_separately : BoolProperty(name="Export Edgeline Separately", default=False)
+    is_edgeline_only : BoolProperty(name='Is Edgeline Only Shell', default=False)
+
+    non_exportable_vgroup : StringProperty(name='Non-Exportable Vertex Group', default='')
+    non_exportable_vgroup_tolerance : FloatProperty(name='Non-Exportable Weight Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
 
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
@@ -310,7 +290,6 @@ class ExportableProps():
     generate_lods : BoolProperty(name='Generate LODs on Export', default=False)
     lod_count : IntProperty(name='LOD count', default=1,min=1,soft_max=3)
     decimate_factor : FloatProperty(name='Decimation Per LOD', default=50.0,min=0,soft_max=100,precision=2)
-    merge_vertices : BoolProperty(name='Merge Vertices', default=True)
 
 
 # -------------------------------------------------------------------------------------
@@ -355,8 +334,6 @@ class ValveSource_SceneProps(PropertyGroup):
 
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
     prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
-
-    defineArmatureCategory : EnumProperty(name='Define Armature Category',items=[('LOAD', 'Load', ''),('WRITE', 'Write', ''),])
     do_not_export_edgeline : BoolProperty(name='Do Not Write Edgeline/Outline', default=False)
 
     kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='kitsuneresource.exe')
@@ -408,43 +385,6 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup):
     attachment_prefabfile : StringProperty(name='Attachments Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     hitbox_prefabfile : StringProperty(name='Hitbox Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
-    humanoid_armature_map_bonecollections : CollectionProperty(name='JSON Bone Collection',type=HumanoidArmatureMap)
-    humanoid_armature_map_bonecollections_index : IntProperty()
-    
-    armature_map_pelvis : StringProperty(name="Pelvis")
-    armature_map_chest  : StringProperty(name="Chest")
-    armature_map_spine  : StringProperty(name="Spine")
-    armature_map_head   : StringProperty(name="Head")
-    armature_map_thigh_l : StringProperty(name="Left Thigh")
-    armature_map_ankle_l : StringProperty(name="Left Ankle")
-    armature_map_toe_l   : StringProperty(name="Left Toe")
-    armature_map_thigh_r : StringProperty(name="Right Thigh")
-    armature_map_ankle_r : StringProperty(name="Right Ankle")
-    armature_map_toe_r   : StringProperty(name="Right Toe")
-    armature_map_shoulder_l : StringProperty(name="Left Shoulder")
-    armature_map_wrist_l    : StringProperty(name="Left Wrist")
-    armature_map_index_f_l  : StringProperty(name="Left Index Finger")
-    armature_map_middle_f_l : StringProperty(name="Left Middle Finger")
-    armature_map_ring_f_l   : StringProperty(name="Left Ring Finger")
-    armature_map_pinky_f_l  : StringProperty(name="Left Pinky Finger")
-    armature_map_thumb_f_l  : StringProperty(name="Left Thumb Finger")
-    armature_map_shoulder_r : StringProperty(name="Right Shoulder")
-    armature_map_wrist_r    : StringProperty(name="Right Wrist")
-    armature_map_index_f_r  : StringProperty(name="Right Index Finger")
-    armature_map_middle_f_r : StringProperty(name="Right Middle Finger")
-    armature_map_ring_f_r   : StringProperty(name="Right Ring Finger")
-    armature_map_pinky_f_r  : StringProperty(name="Right Pinky Finger")
-    armature_map_thumb_f_r  : StringProperty(name="Right Thumb Finger")
-    armature_map_eye_l  : StringProperty(name="Left Eye")
-    armature_map_eye_r  : StringProperty(name="Right Eye")
-    
-    armature_map_upperarm_l: StringProperty(name="Left Upper Arm",)
-    armature_map_upperarm_r: StringProperty(name="Right Upper Arm",)
-    armature_map_forearm_l: StringProperty(name="Left Fore Arm",)
-    armature_map_forearm_r: StringProperty(name="Right Fore Arm",)
-    armature_map_knee_l: StringProperty(name="Left Knee",)
-    armature_map_knee_r: StringProperty(name="Right Knee",)
-
 class ValveSource_ArmatureProps(PropertyGroup):
     implicit_zero_bone : BoolProperty(name=get_id("dummy_bone"),default=True,description=get_id("dummy_bone_tip"))
     arm_modes = (
@@ -474,20 +414,6 @@ class ValveSource_CollectionProps(ExportableProps,PropertyGroup):
 class ValveSource_MaterialProps(PropertyGroup):
     override_dmx_export_path : StringProperty(name='Material Path', default='')
 
-    face_export_filter : EnumProperty(
-        name='Face Export Filter',
-        description='Filter faces to exclude from export',
-        items=[
-            ('NONE', 'None', 'Export all faces'),
-            ('BY_MATERIAL', 'Material', 'Exclude faces based on material'),
-            ('BY_VGROUP', 'Vertex Group', 'Exclude faces based on vertex group membership'),
-        ],
-        default='NONE'
-    )
-
-    non_exportable_vgroup : StringProperty(name='Vertex Group Filter', default='')
-    non_exportable_vgroup_tolerance : FloatProperty(name='Do Not Export Face Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
-
 # -------------------------------------------------------------------------------------
 # Register
 # -------------------------------------------------------------------------------------
@@ -496,7 +422,6 @@ _classes = (
     # Base/Utility Classes
     ValveSource_FloatMapRemap,
     KitsuneResourceItem,
-    HumanoidArmatureMap,
     
     # Simple Item Classes
     FlexControllerItem,
@@ -578,17 +503,6 @@ _classes = (
     GUI.SMD_OT_CopyBoneExportName,
     GUI.SMD_OT_AssignBoneRotExportOffset,
     GUI.SMD_OT_CopySourceBoneProps,
-
-    # Humanoid Armature Mapper
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_PT_Panel,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_CopyToSelected,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_LoadPreset,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_LoadConfig,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_WriteConfig,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_RemoveItem,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_AddItem,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_UL_ConfigList,
-    humanoid_armature_mapper.HUMANOIDARMATUREMAP_OT_MirrorBoneNames,
     
     # Flex and Export/Import
     flex.DmxWriteFlexControllers,
@@ -612,7 +526,6 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.MESH_MT_shape_key_context_menu.append(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
-    bpy.types.VIEW3D_MT_object.append(draw_copy_armature_map)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
         
     try: bpy.ops.wm.addon_disable('EXEC_SCREEN',module="io_smd_tools")
@@ -641,7 +554,6 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.types.MESH_MT_shape_key_context_menu.remove(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
-    bpy.types.VIEW3D_MT_object.remove(draw_copy_armature_map)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)
 
     bpy.app.translations.unregister(__name__)

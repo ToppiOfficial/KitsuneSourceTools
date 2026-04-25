@@ -373,7 +373,6 @@ def getEngineBranch() -> dmx_version | None:
 def getCorrectiveShapeSeparator(): return '__' if State.compiler == Compiler.MODELDOC else '_'
 
 vertex_maps = {
-    "valvesource_color":         "Color$0", # ???
     "valvesource_vertex_paint":  "VertexPaintTintColor$0",
     "valvesource_vertex_blend":  "VertexPaintBlendParams$0",
     "valvesource_vertex_blend1": "VertexPaintBlendParams1$0", # ???
@@ -2128,27 +2127,6 @@ def get_bone_exportname(bone: bpy.types.Bone | bpy.types.PoseBone | None, for_wr
         export_names[b.name] = final_name
 
     return export_names[data_bone.name]
-
-def get_canonical_bonename(export_name: str) -> str:
-    """Convert an exported bone name back to its canonical form:
-       - Replaces directional markers with ' * '
-       - Converts expanded shortcut names back to '!shortcut!' form
-       - Converts underscores to spaces
-       - Collapses multiple spaces into a single space
-    """
-    # Reverse shortcut expansion
-    reversed_shortcuts = {v: k for k, v in exportname_shortcut_keywords.items()}
-    for full, shortcut in reversed_shortcuts.items():
-        export_name = export_name.replace(full, f"!{shortcut}!")
-
-    for k, v in bonename_direction_map.items():
-        export_name = export_name.replace(k, " * ")
-
-
-    export_name = export_name.replace("_", " ")
-    export_name = re.sub(r'\s+', ' ', export_name).strip()
-
-    return export_name
 
 def get_bone_matrix(data: bpy.types.PoseBone | mathutils.Matrix, bone: bpy.types.PoseBone | None = None,
                     rest_space : bool = False) -> mathutils.Matrix:

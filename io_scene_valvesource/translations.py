@@ -170,9 +170,6 @@ _data = {
     'valvesource_vertex_paint': {
         'en': "Vertex Paint",
     },
-    'valvesource_color': {
-        'en': "Vertex Color",
-    },
     'controllers_mode_tip': {
         'en': "How flex controllers are defined",
     },
