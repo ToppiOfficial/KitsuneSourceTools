@@ -320,6 +320,10 @@ class ExportPlanner:
         self._edgeline_builder = EdgelineBuilder(reporter)
         self._owned_objects: list[bpy.types.Object] = []
         self._owned_collections: list[bpy.types.Collection] = []
+        self._name_map: dict[int, str] = {}
+
+    def original_name(self, uid: int) -> str | None:
+        return self._name_map.get(uid)
 
     def build_queue(self, id) -> list[ExportTask]:
         if isinstance(id, Collection):
@@ -418,6 +422,7 @@ class ExportPlanner:
                     copy.data = ob.data.copy()
                 bpy.context.scene.collection.objects.link(copy)
                 self._owned_objects.append(copy)
+                self._name_map[copy.session_uid] = ob.name
 
                 if ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
                     flexcontrollers, corrective_shapes = countShapes(ob)
@@ -513,6 +518,7 @@ class ExportPlanner:
                 lod_col.objects.link(copy)
                 State.exportableObjects.add(copy.session_uid)
                 self._owned_objects.append(copy)
+                self._name_map[copy.session_uid] = ob.name
                 effective_copies[ob] = copy
 
         for lod_ob in lod_col.objects:
@@ -551,6 +557,7 @@ class ExportPlanner:
                 bpy.context.scene.collection.objects.link(merged)
                 self._owned_objects.append(merged)
                 State.exportableObjects.add(merged.session_uid)
+                self._name_map[merged.session_uid] = ob.name
                 self._apply_merge_vertices(merged)
                 ob = merged
 
@@ -566,6 +573,7 @@ class ExportPlanner:
                 self._edgeline_builder.build(target_ob, export_name)
                 State.exportableObjects.add(target_ob.session_uid)
                 allowed_uids.add(target_ob.session_uid)
+                self._name_map[target_ob.session_uid] = export_name
 
         tasks = [ExportTask(target_ob, export_name, allowed_uids.copy())]
 
@@ -812,11 +820,7 @@ class Baker:
 
     def _pre_bake_mesh_ops(self, ob: bpy.types.Object) -> None:
         if not hasShapes(ob):
-            normalize_object_vertexgroups(
-                ob=ob,
-                vgroup_limit=bpy.context.scene.vs.vertex_influence_limit,
-                clean_tolerance=bpy.context.scene.vs.weightlink_threshold,
-            )
+            VertexGroupNormalizer(ob,vgroup_limit=bpy.context.scene.vs.vertex_influence_limit, clean_tolerance=bpy.context.scene.vs.weightlink_threshold).run()
             ops.object.mode_set(mode="EDIT")
             ops.mesh.reveal()
             if ob.matrix_world.is_negative:
@@ -834,11 +838,7 @@ class Baker:
         else:
             self._normalize_shapekeys(ob)
 
-        normalize_object_vertexgroups(
-            ob=ob,
-            vgroup_limit=bpy.context.scene.vs.vertex_influence_limit,
-            clean_tolerance=bpy.context.scene.vs.weightlink_threshold,
-        )
+        VertexGroupNormalizer(ob,vgroup_limit=bpy.context.scene.vs.vertex_influence_limit, clean_tolerance=bpy.context.scene.vs.weightlink_threshold).run()
 
         ops.object.mode_set(mode="EDIT")
         ops.mesh.reveal()
@@ -1309,7 +1309,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             bench.report("planning")
 
             for task in tasks:
-                if not self._execute_task(context, id, task, path, bench):
+                if not self._execute_task(context, id, task, path, bench, planner):
                     return False
         finally:
             planner.cleanup()
@@ -1317,7 +1317,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         self._warn_unicode(id)
         return True
 
-    def _execute_task(self, context, original_id, task: ExportTask, path: str, bench: BenchMarker) -> bool:
+    def _execute_task(self, context, original_id, task: ExportTask, path: str,
+                      bench: BenchMarker, planner: ExportPlanner = None) -> bool:
         source = task.source_id
 
         if isinstance(source, Collection) and not any(ob.vs.export for ob in source.objects):
@@ -1347,6 +1348,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
                 bake = baker.bake(ob)
                 if bake:
+                    if planner:
+                        orig = planner.original_name(ob.session_uid)
+                        if orig:
+                            bake.name = orig
                     for vmap_name in group_vmaps:
                         if vmap_name not in bake.object.data.vertex_colors:
                             vc = bake.object.data.vertex_colors.new(name=vmap_name)
@@ -1358,6 +1363,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             else:
                 bake = baker.bake(source)
             if bake:
+                if planner:
+                    orig = planner.original_name(source.session_uid)
+                    if orig:
+                        bake.name = orig
                 bake_results.append(bake)
 
         bench.report("bake", len(bake_results))
@@ -3264,6 +3273,10 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             if not (obj.parent and obj.parent == arm and obj.parent_type == 'BONE' and obj.parent_bone):
                 continue
 
+            original_pose_mode = arm.data.pose_position
+            arm.data.pose_position = 'REST'
+            bpy.context.view_layer.update()
+
             rot = obj.rotation_euler
             if abs(rot.x) > 0.0001 or abs(rot.y) > 0.0001 or abs(rot.z) > 0.0001:
                 rotated.append(obj.name)
@@ -3283,6 +3296,9 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                 'min':       bounds[0],
                 'max':       bounds[1],
             })
+
+            arm.data.pose_position = original_pose_mode
+            bpy.context.view_layer.update()
 
         if not hitbox_data:
             self.report({'WARNING'}, "No hitboxes found")

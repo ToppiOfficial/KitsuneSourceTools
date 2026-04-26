@@ -1957,7 +1957,7 @@ class SMD_OT_AssignBoneRotExportOffset(Operator):
             if self.only_active_bone:
                 selected_bones = [arm.data.bones.active] if arm.data.bones.active else []
             else:
-                selected_bones = get_selected_bones(arm, bone_type='BONE')
+                selected_bones = [b for b in arm.data.bones if not b.hide_select and b.select]
 
             if not selected_bones:
                 continue

@@ -1124,155 +1124,6 @@ def run_and_report(operator, cmd: list, basedir: str) -> set:
 
     return {'FINISHED'}
 
-
-#
-#   CONTEXT MANAGERS
-#
-
-_undo_depth = 0
-
-@contextmanager
-def _undo_guard():
-    global _undo_depth
-    ctx = bpy.context
-
-    if _undo_depth == 0:
-        _undo_enabled = ctx.preferences.edit.use_global_undo
-        ctx.preferences.edit.use_global_undo = False
-        # bruh
-        was_in_edit = ctx.mode in ('EDIT_MESH', 'EDIT_ARMATURE', 'EDIT_CURVE', 'EDIT_SURFACE', 'EDIT_METABALL', 'EDIT_TEXT', 'EDIT_LATTICE')
-        active_obj = ctx.view_layer.objects.active
-    else:
-        was_in_edit = False
-        active_obj = None
-
-    _undo_depth += 1
-    try:
-        yield
-    except Exception:
-        _undo_depth = 0
-        ctx.preferences.edit.use_global_undo = True
-        raise
-    finally:
-        if _undo_depth > 0:
-            _undo_depth -= 1
-        if _undo_depth == 0:
-            if was_in_edit and active_obj and active_obj.name in bpy.data.objects:
-                try:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    bpy.ops.ed.undo_push(message="Kitsune Operation")
-                    bpy.ops.object.mode_set(mode='EDIT')
-                except RuntimeError:
-                    bpy.ops.ed.undo_push(message="Kitsune Operation")
-            else:
-                bpy.ops.ed.undo_push(message="Kitsune Operation")
-            ctx.preferences.edit.use_global_undo = _undo_enabled
-
-@contextmanager
-def preserve_context_mode(obj: bpy.types.Object | None = None, mode: str = "EDIT"):
-    with _undo_guard():
-        ctx = bpy.context
-        view_layer = ctx.view_layer
- 
-        prev_selected = list(view_layer.objects.selected)
-        prev_active = view_layer.objects.active
-        prev_mode = ctx.mode
-        prev_vgroup_index = None
-        prev_bone_name = None
-        prev_bone_mode = None
-        prev_bone_selected = None
- 
-        target_obj = obj or prev_active
- 
-        if target_obj:
-            if target_obj.type == "MESH":
-                prev_vgroup_index = target_obj.vertex_groups.active_index
-            elif target_obj.type == "ARMATURE":
-                data = target_obj.data
-                if prev_mode == "EDIT_ARMATURE" and data.edit_bones.active:
-                    prev_bone_name = data.edit_bones.active.name
-                    prev_bone_mode = "EDIT"
-                    prev_bone_selected = data.edit_bones.active.select
-                elif prev_mode == "POSE" and data.bones.active:
-                    prev_bone_name = data.bones.active.name
-                    prev_bone_mode = "POSE"
-                    prev_bone_selected = target_obj.pose.bones[prev_bone_name].bone.select
- 
-        if target_obj and target_obj.name in bpy.data.objects:
-            try:
-                bpy.ops.object.mode_set(mode="OBJECT")
-            except RuntimeError:
-                pass
- 
-            view_layer.objects.active = target_obj
-            target_obj.select_set(True)
- 
-            try:
-                bpy.ops.object.mode_set(mode=mode)
-            except RuntimeError:
-                pass
- 
-        try:
-            if mode == "EDIT" and target_obj and target_obj.type == "ARMATURE":
-                yield target_obj.data.edit_bones
-            elif mode == "POSE" and target_obj and target_obj.type == "ARMATURE":
-                yield target_obj.pose.bones
-            else:
-                yield target_obj
-        finally:
-            try:
-                bpy.ops.object.mode_set(mode="OBJECT")
-            except RuntimeError:
-                pass
- 
-            bpy.ops.object.select_all(action="DESELECT")
-            for sel in prev_selected:
-                try:
-                    if sel and sel.name in bpy.data.objects and sel.name in view_layer.objects:
-                        sel.select_set(True)
-                except ReferenceError:
-                    pass
- 
-            if prev_active:
-                try:
-                    if prev_active.name in bpy.data.objects and prev_active.name in view_layer.objects:
-                        view_layer.objects.active = prev_active
-                except ReferenceError:
-                    pass
- 
-            mapped_mode = MODE_MAP.get(prev_mode, "OBJECT")
-            try:
-                bpy.ops.object.mode_set(mode=mapped_mode)
-            except RuntimeError:
-                if prev_active:
-                    try:
-                        if prev_active.type == "ARMATURE":
-                            bpy.ops.object.mode_set(mode="POSE")
-                        elif prev_active.type == "MESH":
-                            bpy.ops.object.mode_set(mode="OBJECT")
-                    except ReferenceError:
-                        pass
- 
-            if prev_active:
-                try:
-                    if prev_active.type == "MESH" and prev_vgroup_index is not None:
-                        if 0 <= prev_vgroup_index < len(prev_active.vertex_groups):
-                            prev_active.vertex_groups.active_index = prev_vgroup_index
-                    elif prev_active.type == "ARMATURE" and prev_bone_name and prev_bone_mode:
-                        data = prev_active.data
-                        if mapped_mode == "EDIT" and prev_bone_mode == "EDIT":
-                            edit_bone = data.edit_bones.get(prev_bone_name)
-                            if edit_bone:
-                                data.edit_bones.active = edit_bone
-                                edit_bone.select = prev_bone_selected
-                        elif mapped_mode == "POSE" and prev_bone_mode == "POSE":
-                            bone = data.bones.get(prev_bone_name)
-                            if bone:
-                                data.bones.active = bone
-                                bone.select = prev_bone_selected
-                except ReferenceError:
-                    pass
-
 #
 #   SCENE
 #
@@ -1303,94 +1154,61 @@ def unhide_all(layer_col: bpy.types.LayerCollection):
 #   VERTEX GROUPS
 #
 
-def compute_edgeline_island_weights(id, edgeline_vertexgroup, weight_min=0.3, weight_max=0.8):
-    bm = bmesh.new()
-    bm.from_mesh(id.data)
+class VertexGroupNormalizer:
+    def __init__(self, ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
+        self.ob = ob
+        self.vgroup_limit = vgroup_limit
+        self.clean_tolerance = clean_tolerance
+        self.arm = get_armature(ob)
+        self.bone_names = {b.name for b in self.arm.data.bones if b.use_deform} if self.arm else set()
 
-    islands = []
-    verts_to_visit = set(bm.verts)
+    def run(self):
+        if not self.arm:
+            return
+        self._clean_weights()
+        self._limit_influence()
+        self._normalize_weights()
 
-    while verts_to_visit:
-        start_v = next(iter(verts_to_visit))
-        island = [start_v]
-        verts_to_visit.remove(start_v)
-        stack = [start_v]
-        while stack:
-            v = stack.pop()
-            for edge in v.link_edges:
-                other_v = edge.other_vert(v)
-                if other_v in verts_to_visit:
-                    verts_to_visit.remove(other_v)
-                    island.append(other_v)
-                    stack.append(other_v)
-        islands.append(island)
+    def _clean_weights(self):
+        to_remove = []
+        for v in self.ob.data.vertices:
+            for g in v.groups:
+                if g.group < len(self.ob.vertex_groups) and self.ob.vertex_groups[g.group].name in self.bone_names:
+                    if g.weight < self.clean_tolerance:
+                        to_remove.append((g.group, v.index))
 
-    if islands:
-        island_data = []
-        for island_verts in islands:
-            island_set = set(island_verts)
-            size = sum(f.calc_area() for v in island_verts for f in v.link_faces
-                    if all(fv in island_set for fv in f.verts))
-            island_data.append((island_verts, size))
+        for group_idx, vertex_idx in to_remove:
+            if group_idx < len(self.ob.vertex_groups):
+                self.ob.vertex_groups[group_idx].remove([vertex_idx])
 
-        sizes = [d[1] for d in island_data]
-        min_s, max_s = min(sizes), max(sizes)
-        s_range = max_s - min_s
+    def _limit_influence(self):
+        bones_by_name = {b.name: b for b in self.arm.data.bones if b.name in self.bone_names}
+        to_remove = []
 
-        for verts, size in island_data:
-            weight = weight_max
-            if s_range > 0:
-                factor = (max_s - size) / s_range
-                weight = weight_min + (factor * (weight_max - weight_min))
-            for v in verts:
-                edgeline_vertexgroup.add([v.index], weight, 'REPLACE')
+        for v in self.ob.data.vertices:
+            groups = sorted(
+                (g for g in v.groups if g.group < len(self.ob.vertex_groups) and self.ob.vertex_groups[g.group].name in self.bone_names),
+                key=lambda g: (bones_by_name[self.ob.vertex_groups[g.group].name].vs.bone_sort_order, -g.weight)
+            )
+            for g in groups[self.vgroup_limit:]:
+                to_remove.append((g.group, v.index))
 
-    bm.free()
+        for group_idx, vertex_idx in to_remove:
+            if group_idx < len(self.ob.vertex_groups):
+                self.ob.vertex_groups[group_idx].remove([vertex_idx])
 
-def limit_vertexgroup_influence(ob: bpy.types.Object, bone_names: set[str], arm: bpy.types.Object, limit: int = 4):
-    """Keep only the top N weights per vertex, respecting bone_sort_order priority."""
-    bones_by_name = {b.name: b for b in arm.data.bones if b.name in bone_names}
-    to_remove = []
+    def _normalize_weights(self):
+        for v in self.ob.data.vertices:
+            groups = [
+                (self.ob.vertex_groups[g.group], g.weight)
+                for g in v.groups
+                if g.group < len(self.ob.vertex_groups) and self.ob.vertex_groups[g.group].name in self.bone_names
+            ]
+            total = sum(w for _, w in groups)
+            if total > 0:
+                for vg, w in groups:
+                    vg.add([v.index], w / total, 'REPLACE')
 
-    for v in ob.data.vertices:
-        groups = sorted(
-            (g for g in v.groups if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names),
-            key=lambda g: (bones_by_name[ob.vertex_groups[g.group].name].vs.bone_sort_order, -g.weight)
-        )
-
-        for g in groups[limit:]:
-            to_remove.append((g.group, v.index))
-
-    for group_idx, vertex_idx in to_remove:
-        if group_idx < len(ob.vertex_groups):
-            ob.vertex_groups[group_idx].remove([vertex_idx])
-
-def normalize_vertexgroup_weights(ob: bpy.types.Object, bone_names: set[str]):
-    """Normalize remaining weights so they sum to 1.0 per vertex."""
-    for v in ob.data.vertices:
-        groups = [
-            (ob.vertex_groups[g.group], g.weight)
-            for g in v.groups
-            if g.group < len(ob.vertex_groups) and ob.vertex_groups[g.group].name in bone_names
-        ]
-
-        total = sum(weight for _, weight in groups)
-        if total > 0:
-            for vg, weight in groups:
-                vg.add([v.index], weight / total, 'REPLACE')
-
-def normalize_object_vertexgroups(ob: bpy.types.Object, vgroup_limit: int = 4, clean_tolerance: float = 0.001):
-    """Full pipeline: clean, limit, normalize."""
-    arm = get_armature(ob)
-    if arm is None:
-        return
-    
-    deform_bones = [b for b in arm.data.bones if b.use_deform]
-    deform_bone_names = {b.name for b in deform_bones}
-    
-    limit_vertexgroup_influence(ob, deform_bone_names, arm, limit=vgroup_limit)
-    normalize_vertexgroup_weights(ob, deform_bone_names)
-    
 #
 #   IMPORT
 #
@@ -1937,81 +1755,6 @@ def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bp
             return get_armature(ctx_obj)
         return None
 
-def get_selected_bones(armature : bpy.types.Object | None,
-                     bone_type : str = 'BONE',
-                     sort_type : str | None = 'TO_LAST',
-                     exclude_active : bool = False,
-                     select_all : bool = False) -> list[bpy.types.Bone | bpy.types.PoseBone | bpy.types.EditBone | None]:
-    """
-    Returns bones from an armature with optional selection, visibility, and sorting filters.
-
-    Args:
-        armature (bpy.types.Object): Target armature object (must be type 'ARMATURE').
-        bone_type (str, optional): Type of bones to return: 'BONE', 'EDITBONE', or 'POSEBONE'. 
-                                   If invalid, it is inferred from the current mode.
-        sort_type (str, optional): Sorting order: 'TO_LAST' (default), 'TO_FIRST', or no sorting.
-        exclude_active (bool, optional): If True, exclude the active bone from the result.
-        select_all (bool, optional): If True, ignore selection and visibility filters.
-
-    Returns:
-        list[bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone]:
-            A list of bone objects based on the filters applied.
-
-    Notes:
-        - Selection is checked in OBJECT mode.
-        - If any bone collections are soloed, only those bones are returned.
-        - If none are soloed, only bones from visible collections are included.
-    """
-    if not is_armature(armature): return []
-    
-    if bone_type not in ['BONE', 'EDITBONE', 'POSEBONE']:
-        if armature.mode == 'EDIT': bone_type = 'EDITBONE'
-        elif armature.mode == 'POSE': bone_type = 'POSEBONE'
-        else: bone_type = 'BONE'
-        
-    if sort_type is None: sort_type = ''
-    
-    # we can evaluate the selected bones through object mode
-    with preserve_context_mode(armature, 'OBJECT'): 
-        selectedBones = []
-        
-        armatureBones = armature.data.bones
-        armatureBoneCollections = armature.data.collections_all
-        
-        solo_BoneCollections = [col for col in armatureBoneCollections if col.is_solo]
-        
-        if exclude_active and armature.data.bones.active is not None:
-            active_name = armature.data.bones.active.name
-            armatureBones = [b for b in armatureBones if b.name != active_name]
-            
-        if sort_type in ['TO_LAST', 'TO_FIRST']:
-            armatureBones = sort_bone_by_hierarchy(armatureBones)
-            
-            if sort_type == 'TO_FIRST':
-                armatureBones.reverse()
-        
-        for bone in armatureBones:
-            if not select_all:
-                if bone.hide_select or not bone.select:
-                    continue
-                    
-                if armatureBoneCollections and bone.collections:
-                    boneCollections = bone.collections
-                    # If there are solo collections, skip bones not in any of them
-                    if solo_BoneCollections:
-                        if not any(col in solo_BoneCollections for col in boneCollections):
-                            continue
-                    else:
-                        # If no solo mode, skip bones in hidden collections
-                        if not any(col.is_visible for col in boneCollections):
-                            continue
-
-            selectedBones.append(bone.name)
-    
-    if bone_type == 'POSEBONE': return [armature.pose.bones.get(b) for b in selectedBones]
-    if bone_type == 'EDITBONE': return [armature.data.edit_bones.get(b) for b in selectedBones]
-    else: return [armature.data.bones.get(b) for b in selectedBones]
-
 def get_collection_parent(ob, scene) -> bpy.types.Collection | None:
     for collection in scene.collection.children_recursive:
         if ob.name in collection.objects:
@@ -2176,53 +1919,6 @@ def get_bone_matrix(data: bpy.types.PoseBone | mathutils.Matrix, bone: bpy.types
 
     # Apply offsets in bone space
     return matrix @ offset_matrix
-
-def get_relative_target_matrix( slave: bpy.types.PoseBone, master: bpy.types.PoseBone | None = None, axis: str = 'XYZ',
-                               mode: str = 'ROTATION', is_string: bool = False, rest_space : bool = True) -> typing.Union[list[float], str]:
-    """
-    Returns relative translation or rotation of `slave` to `master`.
-
-    Args:
-        slave: PoseBone - the bone to measure.
-        master: PoseBone - optional reference bone. If None, uses armature space.
-        axis: str - which axes to include (default: 'XYZ').
-        mode: str - 'LOCATION' or 'ROTATION'.
-        is_string: bool - if True, returns space-separated string.
-
-    Returns:
-        list[float] or str: relative location or rotation
-    """
-    try:
-        # Get the matrices (pose space)
-        slave_matrix = get_bone_matrix(slave, rest_space=rest_space)
-        master_matrix = get_bone_matrix(master, rest_space=rest_space) if master else mathutils.Matrix.Identity(4)
-
-        # Compute relative matrix: master → slave
-        local_offset = master_matrix.inverted_safe() @ slave_matrix
-
-        # Convert to rotation or location
-        if mode.upper() == 'ROTATION':
-            euler = local_offset.to_euler()
-            values = [
-                math.degrees(euler.x),
-                math.degrees(euler.y),
-                math.degrees(euler.z)
-            ]
-        elif mode.upper() == 'LOCATION':
-            translation = local_offset.to_translation()
-            values = [translation.x, translation.y, translation.z]
-        else:
-            raise ValueError("mode must be 'LOCATION' or 'ROTATION'")
-
-        # Filter only selected axes
-        axis_map = {'X': values[0], 'Y': values[1], 'Z': values[2]}
-        result = [axis_map[a] for a in axis if a in axis_map]
-
-        return " ".join(f"{v:.6f}" for v in result) if is_string else result
-
-    except Exception:
-        return "0.0 0.0 0.0" if is_string else [0.0, 0.0, 0.0]
-
 
 #
 #   BOOL
