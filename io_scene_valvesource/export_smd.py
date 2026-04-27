@@ -112,6 +112,21 @@ class LODBuilder:
             lod.name = f"{export_name}_lod{idx}"
             bpy.context.scene.collection.objects.link(lod)
 
+            # LODs don't need morph targets.
+            if lod.data.shape_keys:
+                lod.shape_key_clear()
+
+            # Decimate corrupts custom split normals; reset to auto-computed.
+            # This is horrible but Blender forced my hands.
+            prev_active = bpy.context.view_layer.objects.active
+            bpy.context.view_layer.objects.active = lod
+            select_only(lod)
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.normals_tools(mode='RESET')
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.context.view_layer.objects.active = prev_active
+
             mod = lod.modifiers.new(name="Decimate_LOD", type="DECIMATE")
             mod.ratio = ratio
             lod.vs.generate_lods = False
@@ -142,7 +157,7 @@ class EdgelineBuilder:
         - Otherwise: modifies ob in-place and returns ob.
         Returns None if nothing should be done.
         """
-        if not ob.vs.use_toon_edgeline or bpy.context.scene.vs.do_not_export_edgeline:
+        if not ob.vs.use_toon_edgeline:
             return None
 
         base_name = re.sub(r"_lod[1-9]\d*$", "", export_name)
@@ -273,7 +288,7 @@ class EdgelineBuilder:
         edgeline.vs.use_toon_edgeline = False
         edgeline.vs.export_edgeline_separately = False
         edgeline.vs.generate_lods = False
-        edgeline.vs.is_edgeline_only = True
+        edgeline["is_edgeline_only"] = True
 
         no_mat = edgeline.data.materials.find(self.TEMP_MAT)
         if no_mat != -1:
@@ -304,10 +319,11 @@ class EdgelineBuilder:
 # -----------------------------------------------------------------------------
 
 class ExportTask:
-    def __init__(self, source_id, export_name: str, allowed_uids: set = None):
+    def __init__(self, source_id, export_name: str, allowed_uids: set = None, companions: list = None):
         self.source_id = source_id
         self.export_name = export_name
         self.allowed_uids = allowed_uids if allowed_uids is not None else set()
+        self.companions = companions if companions is not None else []
 
     def __repr__(self):
         return f"<ExportTask {self.export_name!r}>"
@@ -414,6 +430,8 @@ class ExportPlanner:
 
         if needs_merged_edgeline or needs_merge_verts:
             base_obs = []
+            edgeline_copies = []
+
             for ob in col.objects:
                 if not ob.vs.export:
                     continue
@@ -434,13 +452,24 @@ class ExportPlanner:
                         self._apply_merge_vertices(copy)
 
                 if copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
-                    self._edgeline_builder.build(copy, ob.name)
+                    copy.vs.export_edgeline_separately = True
+                    edgeline_copy = self._edgeline_builder.build(copy, ob.name)
+                    copy.vs.export_edgeline_separately = False
+                    if edgeline_copy and edgeline_copy is not copy:
+                        self._owned_objects.append(edgeline_copy)
+                        base_obs.append(edgeline_copy)
+                        edgeline_copies.append(edgeline_copy)
 
                 effective_objects[ob] = copy
                 base_obs.append(copy)
 
             for ob, copy in effective_objects.items():
                 for mod in copy.modifiers:
+                    if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
+                        mod.object = effective_objects[mod.object]
+
+            for edgeline_ob in edgeline_copies:
+                for mod in edgeline_ob.modifiers:
                     if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
                         mod.object = effective_objects[mod.object]
 
@@ -475,7 +504,7 @@ class ExportPlanner:
                     lod_buckets[lod_idx].append(lod_ob)
 
             if not working_ob.name.endswith("_edgeline") and working_ob.vs.use_toon_edgeline:
-                if not bpy.context.scene.vs.do_not_export_edgeline and working_ob.vs.export_edgeline_separately:
+                if working_ob.vs.export_edgeline_separately:
                     edgeline_ob = self._edgeline_builder.build(working_ob, working_ob.name)
                     if edgeline_ob and edgeline_ob is not working_ob:
                         self._owned_objects.append(edgeline_ob)
@@ -563,19 +592,36 @@ class ExportPlanner:
 
         allowed_uids.add(ob.session_uid)
         target_ob = ob
+        companions = []
 
         if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
-            if not bpy.context.scene.vs.do_not_export_edgeline and not export_name.endswith("_edgeline"):
-                target_ob = ob.copy()
-                target_ob.data = ob.data.copy()
-                bpy.context.scene.collection.objects.link(target_ob)
-                self._owned_objects.append(target_ob)
-                self._edgeline_builder.build(target_ob, export_name)
-                State.exportableObjects.add(target_ob.session_uid)
-                allowed_uids.add(target_ob.session_uid)
-                self._name_map[target_ob.session_uid] = export_name
+            if not export_name.endswith("_edgeline"):
 
-        tasks = [ExportTask(target_ob, export_name, allowed_uids.copy())]
+                # TODO: Check if smd and vta export properly
+                # TODO: is this even necessary??
+                if State.exportFormat == ExportFormat.SMD:
+                    # SMD can't handle multiple mesh objects in one file;
+                    # merge the edgeline into a copy of the base instead.
+                    merged = ob.copy()
+                    merged.data = ob.data.copy()
+                    bpy.context.scene.collection.objects.link(merged)
+                    self._owned_objects.append(merged)
+                    State.exportableObjects.add(merged.session_uid)
+                    self._name_map[merged.session_uid] = ob.name
+                    self._edgeline_builder.build(merged, export_name)  # merges in-place
+                    target_ob = merged
+                    allowed_uids = {merged.session_uid}
+                else:
+                    # DMX: keep edgeline as a companion bake result in the same file.
+                    ob.vs.export_edgeline_separately = True
+                    edgeline_ob = self._edgeline_builder.build(ob, export_name)
+                    ob.vs.export_edgeline_separately = False
+                    if edgeline_ob and edgeline_ob is not ob:
+                        self._owned_objects.append(edgeline_ob)
+                        State.exportableObjects.add(edgeline_ob.session_uid)
+                        companions.append(edgeline_ob)
+
+        tasks = [ExportTask(target_ob, export_name, allowed_uids.copy(), companions)]
 
         if not is_mesh_compatible(ob) or ob.type not in modifier_compatible:
             return tasks
@@ -590,7 +636,7 @@ class ExportPlanner:
                 tasks.append(ExportTask(lod_ob, lod_ob.name, lod_uids))
 
         if not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
-            if not bpy.context.scene.vs.do_not_export_edgeline and ob.vs.export_edgeline_separately:
+            if ob.vs.export_edgeline_separately:
                 edgeline_ob = self._edgeline_builder.build(ob, export_name)
                 if edgeline_ob and edgeline_ob is not ob:
                     self._owned_objects.append(edgeline_ob)
@@ -922,7 +968,7 @@ class Baker:
         EDGE_VG_TOL  = 0.90
 
         # Reliable separate-edgeline detection — survives Baker's ob.copy() rename.
-        is_separate_edgeline = getattr(vg_source.vs, "is_edgeline_only", False)
+        is_separate_edgeline = vg_source.get("is_edgeline_only", False)
 
         if not nonexp_vg and not edge_vg and not is_separate_edgeline:
             return
@@ -1069,8 +1115,8 @@ class Baker:
             mesh = eval_ob.to_mesh()
             count = len(mesh.vertices)
             print(f"- Vertices count for {result.name}: {count}")
-            if count > 16384:
-                self._exporter.warning(f"Vertices count for {result.name} is over 16384!")
+            #if count > 16384:
+            #    self._exporter.warning(f"Vertices count for {result.name} is over 16384!")
         finally:
             eval_ob.to_mesh_clear()
 
@@ -1368,6 +1414,11 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     if orig:
                         bake.name = orig
                 bake_results.append(bake)
+
+            for companion in task.companions:
+                comp_bake = baker.bake(companion)
+                if comp_bake:
+                    bake_results.append(comp_bake)
 
         bench.report("bake", len(bake_results))
 

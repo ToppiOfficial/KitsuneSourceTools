@@ -164,7 +164,6 @@ class SMD_PT_Scene(Panel):
         box1 = box.box().column(align=True)
         box1.label(text='Options', icon='OPTIONS')
         box1.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
-        box1.prop(context.scene.vs,"do_not_export_edgeline")
         box1.prop(scene.vs, "prefab_to_clipboard")
 
 

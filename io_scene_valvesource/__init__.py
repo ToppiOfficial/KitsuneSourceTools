@@ -279,7 +279,6 @@ class ExportableProps():
     base_toon_edgeline_thickness : FloatProperty(name="Thickness",default=0.15, min=0.001, soft_max=1.0, precision=3)
     toon_edgeline_vertexgroup : StringProperty(name='Vertex Group Ratio',default='')
     export_edgeline_separately : BoolProperty(name="Export Edgeline Separately", default=False)
-    is_edgeline_only : BoolProperty(name='Is Edgeline Only Shell', default=False)
 
     non_exportable_vgroup : StringProperty(name='Non-Exportable Vertex Group', default='')
     non_exportable_vgroup_tolerance : FloatProperty(name='Non-Exportable Weight Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
@@ -334,7 +333,6 @@ class ValveSource_SceneProps(PropertyGroup):
 
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
     prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
-    do_not_export_edgeline : BoolProperty(name='Do Not Write Edgeline/Outline', default=False)
 
     kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='kitsuneresource.exe')
     kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
