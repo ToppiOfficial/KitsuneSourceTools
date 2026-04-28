@@ -945,7 +945,10 @@ class Baker:
         self._delete_filtered_faces(ob, source_ob, quiet=quiet)
 
         # Not the way I hope to fix it but too bad.
-        if source_ob.vs.use_toon_edgeline and not source_ob.vs.edgeline_per_material:
+        # if source_ob.vs.use_toon_edgeline and not source_ob.vs.edgeline_per_material:
+        # oh ffs.
+        #
+        if (source_ob.vs.use_toon_edgeline or source_ob.get("is_edgeline_only")) and not source_ob.vs.edgeline_per_material:
             self._collapse_edgeline_materials(ob)
 
         return ob
