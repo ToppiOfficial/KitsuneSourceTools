@@ -159,6 +159,12 @@ class EdgelineBuilder:
         """
         if not ob.vs.use_toon_edgeline:
             return None
+        
+        # Likely a physics mesh? "apply_edgeline_materials" does support no material but I keep running into the habit
+        # of exporting ragdoll/collision mesh with outline which is catastrophic.
+        if not ob.data or not ob.data.materials:
+            self._reporter.warning(f"Toon Edgeline is disabled due to lacking of materials in {export_name}")
+            return None
 
         base_name = re.sub(r"_lod[1-9]\d*$", "", export_name)
         temp = self._make_temp_copy(ob)

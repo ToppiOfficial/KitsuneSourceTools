@@ -256,6 +256,7 @@ class JiggleBoneProps():
 
 class KitsuneResourceItem(PropertyGroup):
     name : StringProperty(name="Name")
+    export : BoolProperty(name="Export",default=True)
 
 class ExportableProps():
     flex_controller_modes = (
@@ -289,7 +290,6 @@ class ExportableProps():
     generate_lods : BoolProperty(name='Generate LODs on Export', default=False)
     lod_count : IntProperty(name='LOD count', default=1,min=1,soft_max=3)
     decimate_factor : FloatProperty(name='Decimation Per LOD', default=50.0,min=0,soft_max=100,precision=2)
-
 
 # -------------------------------------------------------------------------------------
 # Property Classes (using mixins)
@@ -339,18 +339,12 @@ class ValveSource_SceneProps(PropertyGroup):
     kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     kitsuneresource_args : StringProperty(name='Arguments', default='-exportdir "compiled"')
 
-    
     kitsuneresource_model_entries: CollectionProperty(type=KitsuneResourceItem)
     kitsuneresource_model_entry_index: IntProperty(name="Active Entry", default=0)
-    kitsuneresource_data_entries: CollectionProperty(type=KitsuneResourceItem)
     kitsuneresource_flag_single_addon: BoolProperty(name="Single Addon", default=True)
     kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", default=True)
     kitsuneresource_flag_archive_old: BoolProperty(name="Archive Previous Version", default=True)
-
-    kitsuneresource_flag_game_or_package : EnumProperty(name="Game or Package",items=[
-        ('GAME', 'Game', ''),
-        ('PACKAGE', 'Package', ''),
-    ],default='GAME')
+    kitsuneresource_flag_game_or_package : EnumProperty(name="Game or Package",items=[('GAME', 'Game', ''),('PACKAGE', 'Package', '')],default='GAME')
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
@@ -447,11 +441,11 @@ _classes = (
     ValveSource_SceneProps,
 
     # KitsuneResource
+    GUI.SMD_MT_KitsuneCompileChoice,
     GUI.SMD_UL_KitsuneResourceEntries,
-    GUI.SMD_PT_KitsuneResourceCompile,
     GUI.SMD_OT_KitsuneResourceCompile,
-    GUI.SMD_OT_KitsuneResourceCompileData,
     GUI.SMD_OT_KitsuneResourceLoadEntries,
+    GUI.SMD_PT_KitsuneResource,
     
     # GUI - Scene
     GUI.SMD_MT_ExportChoice,

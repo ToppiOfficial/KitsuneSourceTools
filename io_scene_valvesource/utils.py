@@ -781,78 +781,90 @@ def getSelectedExportables():
         for exportable in getExportablesForObject(bpy.context.active_object):
             yield exportable
 
-def make_export_list(scene : bpy.types.Scene):
+def make_export_list(scene: bpy.types.Scene):
     scene.vs.export_list.clear()
-    
-    def makeDisplayName(item,name=None):
+
+    def makeDisplayName(item, name=None):
         return os.path.join(item.vs.subdir if item.vs.subdir != "." else "", (name if name else item.name) + getFileExt())
-    
-    if State.exportableObjects:		
-        ungrouped_object_ids = State.exportableObjects.copy()
-        
-        groups_sorted = bpy.data.collections[:]
-        groups_sorted.sort(key=lambda g: g.name.lower())
-        
-        scene_groups = []
-        for group in groups_sorted:
-            valid = False
-            for obj in [obj for obj in group.objects if obj.session_uid in State.exportableObjects]:
-                if not group.vs.mute and obj.type != 'ARMATURE' and obj.session_uid in ungrouped_object_ids:
-                    ungrouped_object_ids.remove(obj.session_uid)
-                valid = True
-            if valid:
-                scene_groups.append(group)
-                
-        for g in scene_groups:
-            i = scene.vs.export_list.add()
-            if g.vs.mute:
-                i.name = "{} {}".format(g.name,pgettext(get_id("exportables_group_mute_suffix",True)))
-            else:
-                i.name = makeDisplayName(g)
-            i.collection = g
-            i.ob_type = "COLLECTION"
-            i.icon = "GROUP"
-        
-        ungrouped_objects = list(ob for ob in scene.objects if ob.session_uid in ungrouped_object_ids)
-        ungrouped_objects.sort(key=lambda s: s.name.lower())
-        for ob in ungrouped_objects:
-            if ob.type == 'FONT':
-                ob.vs.triangulate = True # preserved if the user converts to mesh
-            
-            i_name = i_type = i_icon = None
-            if ob.type == 'ARMATURE':
-                ad = ob.animation_data
-                if ad:
-                    if State.useActionSlots:
-                        i_icon = i_type = "ACTION_SLOT"
-                        if ob.data.vs.action_selection != 'CURRENT':
-                            export_slots = ob.data.vs.action_selection == 'FILTERED'
-                            exportables_count = len(actionSlotsForFilter(ob) if export_slots else actionsForFilter(ob.vs.action_filter))
-                            if not export_slots or (ob.vs.action_filter and ob.vs.action_filter != "*"):
-                                i_name = get_id("exportables_arm_filter_result",True).format(ob.vs.action_filter,exportables_count)
-                            else:
-                                i_name = get_id("exportables_arm_no_slot_filter",True).format(exportables_count, ob.name)
-                        elif ad.action_slot:
-                            i_name = makeDisplayName(ob, actionSlotExportName(ad))
-                    else:
-                        i_icon = i_type = "ACTION"
-                        if ob.data.vs.action_selection == 'FILTERED':
-                            i_name = get_id("exportables_arm_filter_result",True).format(ob.vs.action_filter,len(actionsForFilter(ob.vs.action_filter)))
-                        elif ad.action:
-                            i_name = makeDisplayName(ob,ad.action.name)
-                        elif len(ad.nla_tracks):
-                            i_name = makeDisplayName(ob)
-                            i_icon = "NLA"
-            else:
-                i_name = makeDisplayName(ob)
-                i_icon = MakeObjectIcon(ob,prefix="OUTLINER_OB_")
-                i_type = "OBJECT"
-            if i_name:
-                i = scene.vs.export_list.add()
-                i.name = i_name
-                i.ob_type = i_type
-                i.icon = i_icon
-                i.obj = ob
+
+    if not State.exportableObjects:
+        return
+
+    pending = []
+
+    # Collections
+    ungrouped_object_ids = State.exportableObjects.copy()
+
+    scene_groups = []
+    for group in sorted(bpy.data.collections, key=lambda g: g.name.lower()):
+        valid = False
+        for obj in [obj for obj in group.objects if obj.session_uid in State.exportableObjects]:
+            if not group.vs.mute and obj.type != 'ARMATURE' and obj.session_uid in ungrouped_object_ids:
+                ungrouped_object_ids.remove(obj.session_uid)
+            valid = True
+        if valid:
+            scene_groups.append(group)
+
+    for g in scene_groups:
+        label = "{} {}".format(g.name, pgettext(get_id("exportables_group_mute_suffix", True))) if g.vs.mute else makeDisplayName(g)
+        pending.append((0, label, "COLLECTION", "GROUP", None, g))
+
+    # Ungrouped objects
+    ungrouped_objects = sorted(
+        (ob for ob in scene.objects if ob.session_uid in ungrouped_object_ids),
+        key=lambda ob: ob.name.lower()
+    )
+
+    TYPE_BUCKET = {"ACTION_SLOT": 1, "ACTION": 2, "OBJECT": 3}
+
+    for ob in ungrouped_objects:
+        if ob.type == 'FONT':
+            ob.vs.triangulate = True
+
+        i_name = i_type = i_icon = None
+        if ob.type == 'ARMATURE':
+            ad = ob.animation_data
+            if ad:
+                if State.useActionSlots:
+                    i_icon = i_type = "ACTION_SLOT"
+                    if ob.data.vs.action_selection != 'CURRENT':
+                        export_slots = ob.data.vs.action_selection == 'FILTERED'
+                        exportables_count = len(actionSlotsForFilter(ob) if export_slots else actionsForFilter(ob.vs.action_filter))
+                        if not export_slots or (ob.vs.action_filter and ob.vs.action_filter != "*"):
+                            i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, exportables_count)
+                        else:
+                            i_name = get_id("exportables_arm_no_slot_filter", True).format(exportables_count, ob.name)
+                    elif ad.action_slot:
+                        i_name = makeDisplayName(ob, actionSlotExportName(ad))
+                else:
+                    i_icon = i_type = "ACTION"
+                    if ob.data.vs.action_selection == 'FILTERED':
+                        i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, len(actionsForFilter(ob.vs.action_filter)))
+                    elif ad.action:
+                        i_name = makeDisplayName(ob, ad.action.name)
+                    elif len(ad.nla_tracks):
+                        i_name = makeDisplayName(ob)
+                        i_icon = "NLA"
+        else:
+            i_name = makeDisplayName(ob)
+            i_icon = MakeObjectIcon(ob, prefix="OUTLINER_OB_")
+            i_type = "OBJECT"
+
+        if i_name:
+            pending.append((TYPE_BUCKET[i_type], i_name, i_type, i_icon, ob, None))
+
+    # Sort: type bucket first, then display name
+    pending.sort(key=lambda p: (p[0], p[1].lower()))
+
+    for _, name, ob_type, icon, obj, collection in pending:
+        i = scene.vs.export_list.add()
+        i.name = name
+        i.ob_type = ob_type
+        i.icon = icon
+        if obj:
+            i.obj = obj
+        if collection:
+            i.collection = collection
 
 def update_vmdl_container(container_class: str, nodes: list[keyvalues3.KVNode] | keyvalues3.KVNode, export_path: str | None = None,
                           to_clipboard: bool = False) -> keyvalues3.KVDocument | bool:

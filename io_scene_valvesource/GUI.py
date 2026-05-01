@@ -91,6 +91,30 @@ class SMD_MT_ExportChoice(Menu):
                     l.operator(PrefabExporter.bl_idname, text=f"Attachments ({len(get_attachments(arm))}) \"{arm.name}\"", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
 
 
+class SMD_MT_KitsuneCompileChoice(Menu):
+    bl_label  = "KitsuneResource"
+
+    def draw(self, context):
+        layout = self.layout
+        vs     = context.scene.vs
+        checked_count = sum(1 for e in vs.kitsuneresource_model_entries if e.export)
+
+        op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text="Compile All", icon='WORLD')
+        op.export_choice = 'ALL'
+        op.entry_index   = -1
+
+        op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=f"Compile ({checked_count})", icon='CHECKBOX_HLT')
+        op.export_choice = 'CHECKED'
+        op.entry_index   = -1
+
+        if vs.kitsuneresource_model_entries:
+            layout.separator()
+            for i, entry in enumerate(vs.kitsuneresource_model_entries):
+                op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=entry.name, icon='MESH_DATA')
+                op.export_choice = 'ENTRY'
+                op.entry_index   = i
+
+
 class SMD_PT_Scene(Panel):
     bl_label = get_id("exportpanel_title")
     bl_category = 'KitsuneSrcTool'
@@ -175,23 +199,19 @@ class SMD_MT_ConfigureScene(Menu):
 
 class SMD_UL_KitsuneResourceEntries(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname): # pyright: ignore
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.label(text=item.name, icon='MESH_DATA')
-        elif self.layout_type == 'GRID':
+        if self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
-            layout.label(text='', icon='MESH_DATA')
+
+        layout.prop(item, "export", text="", icon='CHECKBOX_HLT' if item.export else 'CHECKBOX_DEHLT', emboss = False)
+        layout.label(text=item.name, icon='MESH_DATA')
 
 
-class SMD_PT_KitsuneResourceCompile(Panel):
+class SMD_PT_KitsuneResource(Panel):
     bl_label = 'Kitsune Resource Compile'
     bl_category = 'KitsuneSrcTool'
     bl_region_type = 'UI'
     bl_space_type = 'VIEW_3D'
     bl_options = {'DEFAULT_CLOSED'}
-
-    @classmethod
-    def poll(cls, context):
-        return sys.platform == 'win32'
 
     def draw(self, context) -> None:
         l = self.layout
@@ -199,6 +219,10 @@ class SMD_PT_KitsuneResourceCompile(Panel):
         l.use_property_decorate = False
         scene = context.scene
         vs = scene.vs
+
+        col = l.column(align=True).row(align=True)
+        col.scale_y = 1.2
+        col.operator(SMD_OT_KitsuneResourceCompile.bl_idname)
 
         box = l.box()
 
@@ -228,18 +252,8 @@ class SMD_PT_KitsuneResourceCompile(Panel):
         col = box.column()
         col.enabled = len(vs.kitsuneresource_config) > 0
         row = col.row()
-        row.template_list("SMD_UL_KitsuneResourceEntries", "",vs, "kitsuneresource_model_entries",vs, "kitsuneresource_model_entry_index",rows=4)
+        row.template_list("SMD_UL_KitsuneResourceEntries", "", vs, "kitsuneresource_model_entries", vs, "kitsuneresource_model_entry_index", rows=4)
         row.operator(SMD_OT_KitsuneResourceLoadEntries.bl_idname, text="", icon='FILE_REFRESH')
-
-        col = box.column(align=True).row(align=True)
-        col.scale_y = 1.2
-        op = col.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text="Compile All")
-        op.compile_all = True
-        op = col.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text="Compile Selected")
-        op.compile_all = False
-
-        data_row = box.column()
-        data_row.operator(SMD_OT_KitsuneResourceCompileData.bl_idname)
 
 
 class SMD_OT_KitsuneResourceLoadEntries(Operator):
@@ -265,7 +279,7 @@ class SMD_OT_KitsuneResourceLoadEntries(Operator):
                 [app_path, "--fetch", config_path],
                 capture_output=True, text=True, timeout=15,
             )
-            print(result.stdout)  # <-- add this temporarily
+            print(result.stdout)
             data = json.loads(result.stdout)
         except Exception as e:
             self.report({'ERROR'}, f"Failed to fetch entries: {e}")
@@ -275,27 +289,30 @@ class SMD_OT_KitsuneResourceLoadEntries(Operator):
             self.report({'ERROR'}, data["error"])
             return {'CANCELLED'}
 
-        models = data.get("model", [])
+        previously_checked = {e.name for e in vs.kitsuneresource_model_entries if e.export}
 
         vs.kitsuneresource_model_entries.clear()
         for k in data.get("model", []):
-            vs.kitsuneresource_model_entries.add().name = k
+            entry = vs.kitsuneresource_model_entries.add()
+            entry.name = k
+            entry.export = k in previously_checked
         vs.kitsuneresource_model_entry_index = 0
 
-        vs.kitsuneresource_data_entries.clear()
-        for k in data.get("data", []):
-            vs.kitsuneresource_data_entries.add().name = k
-
-        self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} model / {len(vs.kitsuneresource_data_entries)} data entries.")
+        self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} model")
         return {'FINISHED'}
 
- 
+
 class SMD_OT_KitsuneResourceCompile(Operator):
     bl_idname = "smd.kitsuneresource_compile"
-    bl_label  = "Compile"
+    bl_label  = "KitsuneResource Compile"
     bl_options = {'REGISTER'}
 
-    compile_all: BoolProperty(name="Compile All", default=True)
+    export_choice: EnumProperty(items=[
+        ('ALL',     'All',     ''),
+        ('CHECKED', 'Checked', ''),
+        ('ENTRY',   'Entry',   ''),
+    ], default='ALL')
+    entry_index: IntProperty(default=-1)
 
     @classmethod
     def poll(cls, context):
@@ -304,7 +321,12 @@ class SMD_OT_KitsuneResourceCompile(Operator):
             len(vs.kitsuneresource_project_path) > 0
             and len(vs.kitsuneresource_app_path) > 0
             and len(vs.kitsuneresource_config) > 0
+            and len(vs.kitsuneresource_model_entries) > 0
         )
+
+    def invoke(self, context, event) -> set:
+        bpy.ops.wm.call_menu(name="SMD_MT_KitsuneCompileChoice")
+        return {'PASS_THROUGH'}
 
     def execute(self, context) -> set:
         vs          = context.scene.vs
@@ -313,42 +335,21 @@ class SMD_OT_KitsuneResourceCompile(Operator):
         config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
         cmd         = build_base_cmd(vs, app_path, config_path)
 
-        if not self.compile_all:
-            idx     = vs.kitsuneresource_model_entry_index
+        if self.export_choice == 'ENTRY':
             entries = vs.kitsuneresource_model_entries
-            if 0 <= idx < len(entries):
-                cmd += ["--only", entries[idx].name]
+            if 0 <= self.entry_index < len(entries):
+                cmd += ["--only", entries[self.entry_index].name]
             else:
-                self.report({'WARNING'}, "No entry selected; compiling all.")
+                self.report({'WARNING'}, "Invalid entry index.")
+                return {'CANCELLED'}
 
-        return run_and_report(self, cmd, basedir)
-    
-
-class SMD_OT_KitsuneResourceCompileData(Operator):
-    bl_idname = "smd.kitsuneresource_compile_data"
-    bl_label  = "Compile All Data"
-    bl_options = {'REGISTER'}
-
-    @classmethod
-    def poll(cls, context):
-        vs = context.scene.vs
-        return (
-            len(vs.kitsuneresource_project_path) > 0
-            and len(vs.kitsuneresource_app_path) > 0
-            and len(vs.kitsuneresource_config) > 0
-            and len(vs.kitsuneresource_data_entries) > 0
-            and not vs.kitsuneresource_flag_game_or_package == 'GAME'
-        )
-
-    def execute(self, context) -> set:
-        vs          = context.scene.vs
-        app_path    = resolve_kitsuneresource_app(vs)
-        basedir     = resolve_kitsuneresource_project_basedir(vs)
-        config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
-        cmd         = build_base_cmd(vs, app_path, config_path)
-
-        for entry in vs.kitsuneresource_data_entries:
-            cmd += ["--only", entry.name]
+        elif self.export_choice == 'CHECKED':
+            checked = [e.name for e in vs.kitsuneresource_model_entries if e.export]
+            if not checked:
+                self.report({'WARNING'}, "No entries checked for export.")
+                return {'CANCELLED'}
+            for name in checked:
+                cmd += ["--only", name]
 
         return run_and_report(self, cmd, basedir)
     
