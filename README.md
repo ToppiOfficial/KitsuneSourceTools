@@ -1,29 +1,53 @@
 # KitsuneSourceTool [Blender 4.5+]
 
-A fork of [BlenderSourceTools by Artfunkel](https://github.com/Artfunkel/BlenderSourceTools) specifically tailored for character modding
+A character-modding-centric fork of [BlenderSourceTools](https://github.com/Artfunkel/BlenderSourceTools) by Artfunkel. This tool is designed to modernize and streamline workflows for Source Engine modding, with a heavy emphasis on DMX-based pipelines and automated post-processing.
 
-## Features
+## Core Philosophy
+- **DMX First:** SMD and VTA formats are legacy and maintained only for compatibility. DMX is the recommended format for all new projects.
+- **Automation over Manual QC:** KitsuneSourceTool replaces manual QC compilation with integration into [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource).
+- **Post-Processing on Export:** Perform complex mesh cleanup, toon-outline, and vertex group normalization automatically during the export process.
 
-### Bone Controls
-- Custom export name, rotation, and position per bone
-- Swap bone axes and assign different names on export
+## Key Features
 
-### QC / VMDL Export
-- Export Jigglebones, Hitboxes, and Attachments to QC or VMDL
-- KeyValues3.py
+### Advanced Bone Controls
+- **Flexible Offsets:** Custom export name, rotation, and position overrides per bone.
+- **Axis Remapping:** Swap bone axes during export to match target engine requirements.
 
-### Source 2 Cloth *(ported from [Rectus](https://github.com/Rectus/BlenderSourceTools))*
-- Export cloth proxy meshes using `VertexFloatMap`
+### DMX / QC Export
+- Export Jigglebones, Hitboxes, and Attachments directly to QC or VMDL formats.
+- Native support for KeyValues3 structures.
 
-### Post-Processing on Export
-- **Toon Outline** — Solidify modifier export that mimics edgeline/outline effects
-- **Mesh Cleanup** — Remove faces/vertices via vertex groups or materials before export
-- **Flexcontrollers** — Export specific shapekeys and DMX config using `Build` mode
-- **DMX Attachments** — Export attachments directly in DMX format
-- **Transform Override** — Export at a specific height, scale, and forward axis
-- **Vertex Group Normalization** — Limit and normalize vertex group influences per vertex on export, with per-bone priority control via `Bone Sort Order`
+### Source 2 Cloth Support
+- Export cloth proxy meshes leveraging `VertexFloatMap` attributes.
+
+### Powerful Post-Processing
+- **Toon Outline:** Automated Solidify-based outline generation for stylized character models.
+- **Mesh Cleanup:** Contextual removal of faces/vertices via vertex groups or materials.
+- **Vertex Animation:** Dedicated toolset for baking and exporting vertex animations.
+- **Weight Normalization:** Limit and normalize vertex group influences per-vertex with per-bone priority via `Bone Sort Order`.
+- **DMX Attachments:** Direct DMX-native attachment export.
+- **Transform Overrides:** Set specific export-time height, scale, and forward axis configurations.
+
+## Getting Started
+
+1. **Installation:** Install as a standard Blender Add-on.
+2. **Setup:** Configure your `Export Path` and `Engine Path` in the 3D View Sidebar under the `KitsuneSrcTool` tab.
+3. **Workflow:** 
+    - Use the **Kitsune Resource Compile** panel to set up your project path and config file.
+    - Export your meshes using the standard Export operator.
+    - Leverage Vertex Maps (found under Mesh Properties) for Source 2 attributes like cloth physics.
+
+## Documentation & Links
+- [KitsuneResource Compiler](https://github.com/ToppiOfficial/KitsuneResource)
+- [Valve Developer Wiki: DMX/Source 2 Vertex Attributes](http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes)
+
+## Acknowledgements
+KitsuneSourceTool incorporates code from the following forks of BlenderSourceTools:
+- [compucolor/BlenderSourceTools](https://github.com/compucolor/BlenderSourceTools)
+- [Rectus/BlenderSourceTools](https://github.com/Rectus/BlenderSourceTools)
+
+Additionally, `io_scene_valvesource/datamodel.py` has been modified; the base was an older version, which has been integrated with the latest version and custom patches to support newer functionality.
 
 ## Note
-- SMD, VTA are hardly maintained and updated. I recommend using DMX for export.
-- Vertex Animation is not considered to work with the new post-processing features and is completely untested.
-- Compile QC is completely removed and KitsuneResource Compile replaced it. see: [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource)
+- Vertex Animation features are experimental and primarily for DMX-based pipelines.
+- Legacy formats (SMD/VTA) are supported but receive minimal updates.
