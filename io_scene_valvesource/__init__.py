@@ -287,6 +287,10 @@ class ExportableProps():
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
 
+    generate_backface : BoolProperty(name='Generate Backface', default=False)
+    backface_vgroup : StringProperty(name='Backface Group', default='')
+    backface_vgroup_tolerance : FloatProperty(name='Backface Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
+
     generate_lods : BoolProperty(name='Generate LODs on Export', default=False)
     lod_count : IntProperty(name='LOD count', default=1,min=1,soft_max=3)
     decimate_factor : FloatProperty(name='Decimation Per LOD', default=50.0,min=0,soft_max=100,precision=2)
@@ -341,6 +345,8 @@ class ValveSource_SceneProps(PropertyGroup):
 
     kitsuneresource_model_entries: CollectionProperty(type=KitsuneResourceItem)
     kitsuneresource_model_entry_index: IntProperty(name="Active Entry", default=0)
+    kitsuneresource_data_entries: CollectionProperty(type=KitsuneResourceItem)
+    kitsuneresource_data_entry_index: IntProperty(name="Active Entry", default=0)
     kitsuneresource_flag_single_addon: BoolProperty(name="Single Addon", default=True)
     kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", default=True)
     kitsuneresource_flag_archive_old: BoolProperty(name="Archive Previous Version", default=True)
@@ -484,6 +490,7 @@ _classes = (
     GUI.SMD_OT_RemoveFlexController,
     GUI.SMD_OT_MoveFlexController,
     GUI.SMD_OT_SortFlexControllers,
+    GUI.SMD_OT_CopyFlexControllers,
     GUI.SMD_OT_ClearFlexControllers,
     GUI.SMD_OT_PreviewFlexController,
     GUI.SMD_OT_AddVertexMapRemap,

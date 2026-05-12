@@ -97,7 +97,9 @@ class SMD_MT_KitsuneCompileChoice(Menu):
     def draw(self, context):
         layout = self.layout
         vs     = context.scene.vs
-        checked_count = sum(1 for e in vs.kitsuneresource_model_entries if e.export)
+        checked_model_count = sum(1 for e in vs.kitsuneresource_model_entries if e.export)
+        checked_data_count  = sum(1 for e in vs.kitsuneresource_data_entries if e.export)
+        checked_count = checked_model_count + checked_data_count
 
         op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text="Compile All", icon='WORLD')
         op.export_choice = 'ALL'
@@ -107,10 +109,17 @@ class SMD_MT_KitsuneCompileChoice(Menu):
         op.export_choice = 'CHECKED'
         op.entry_index   = -1
 
-        if vs.kitsuneresource_model_entries:
+        if vs.kitsuneresource_model_entries or vs.kitsuneresource_data_entries:
             layout.separator()
             for i, entry in enumerate(vs.kitsuneresource_model_entries):
                 op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=entry.name, icon='MESH_DATA')
+                op.export_choice = 'ENTRY'
+                op.entry_index   = i
+
+            layout.separator()
+
+            for i, entry in enumerate(vs.kitsuneresource_data_entries):
+                op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=entry.name, icon='FILE')
                 op.export_choice = 'ENTRY'
                 op.entry_index   = i
 
@@ -252,7 +261,9 @@ class SMD_PT_KitsuneResource(Panel):
         col = box.column()
         col.enabled = len(vs.kitsuneresource_config) > 0
         row = col.row()
-        row.template_list("SMD_UL_KitsuneResourceEntries", "", vs, "kitsuneresource_model_entries", vs, "kitsuneresource_model_entry_index", rows=4)
+        col = row.column()
+        col.template_list("SMD_UL_KitsuneResourceEntries", "model", vs, "kitsuneresource_model_entries", vs, "kitsuneresource_model_entry_index", rows=4)
+        col.template_list("SMD_UL_KitsuneResourceEntries", "data", vs, "kitsuneresource_data_entries", vs, "kitsuneresource_data_entry_index", rows=4)
         row.operator(SMD_OT_KitsuneResourceLoadEntries.bl_idname, text="", icon='FILE_REFRESH')
 
 
@@ -289,16 +300,24 @@ class SMD_OT_KitsuneResourceLoadEntries(Operator):
             self.report({'ERROR'}, data["error"])
             return {'CANCELLED'}
 
-        previously_checked = {e.name for e in vs.kitsuneresource_model_entries if e.export}
+        previously_checked_model = {e.name for e in vs.kitsuneresource_model_entries if e.export}
+        previously_checked_data  = {e.name for e in vs.kitsuneresource_data_entries if e.export}
 
         vs.kitsuneresource_model_entries.clear()
         for k in data.get("model", []):
             entry = vs.kitsuneresource_model_entries.add()
             entry.name = k
-            entry.export = k in previously_checked
+            entry.export = k in previously_checked_model
         vs.kitsuneresource_model_entry_index = 0
 
-        self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} model")
+        vs.kitsuneresource_data_entries.clear()
+        for k in data.get("data", []):
+            entry = vs.kitsuneresource_data_entries.add()
+            entry.name = k
+            entry.export = k in previously_checked_data
+        vs.kitsuneresource_data_entry_index = 0
+
+        self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} models, {len(vs.kitsuneresource_data_entries)} data")
         return {'FINISHED'}
 
 
@@ -313,6 +332,7 @@ class SMD_OT_KitsuneResourceCompile(Operator):
         ('ENTRY',   'Entry',   ''),
     ], default='ALL')
     entry_index: IntProperty(default=-1)
+    entry_type: StringProperty(default='MODEL')
 
     @classmethod
     def poll(cls, context):
@@ -321,7 +341,7 @@ class SMD_OT_KitsuneResourceCompile(Operator):
             len(vs.kitsuneresource_project_path) > 0
             and len(vs.kitsuneresource_app_path) > 0
             and len(vs.kitsuneresource_config) > 0
-            and len(vs.kitsuneresource_model_entries) > 0
+            and (len(vs.kitsuneresource_model_entries) > 0 or len(vs.kitsuneresource_data_entries) > 0)
         )
 
     def invoke(self, context, event) -> set:
@@ -336,20 +356,24 @@ class SMD_OT_KitsuneResourceCompile(Operator):
         cmd         = build_base_cmd(vs, app_path, config_path)
 
         if self.export_choice == 'ENTRY':
-            entries = vs.kitsuneresource_model_entries
+            entries = vs.kitsuneresource_model_entries if self.entry_type == 'MODEL' else vs.kitsuneresource_data_entries
             if 0 <= self.entry_index < len(entries):
-                cmd += ["--only", entries[self.entry_index].name]
+                cmd += ["--only", f"{self.entry_type.lower()}:{entries[self.entry_index].name}"]
             else:
                 self.report({'WARNING'}, "Invalid entry index.")
                 return {'CANCELLED'}
 
         elif self.export_choice == 'CHECKED':
-            checked = [e.name for e in vs.kitsuneresource_model_entries if e.export]
-            if not checked:
+            for e in vs.kitsuneresource_model_entries:
+                if e.export:
+                    cmd += ["--only", f"{e.name}"]
+            for e in vs.kitsuneresource_data_entries:
+                if e.export:
+                    cmd += ["--only", f"{e.name}"]
+            
+            if len(cmd) == len(build_base_cmd(vs, app_path, config_path)):
                 self.report({'WARNING'}, "No entries checked for export.")
                 return {'CANCELLED'}
-            for name in checked:
-                cmd += ["--only", name]
 
         return run_and_report(self, cmd, basedir)
     
@@ -1017,23 +1041,34 @@ class SMD_PT_Mesh(Properties_SubPanel):
         self.layout.label(text=label, icon='MESH_DATA')
         
     def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
         active_object = context.object
         
         if not is_mesh_compatible(active_object):
-            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            self.layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
             return
         
         vs = active_object.vs
+
+        layout = self.layout
+        layout.use_property_split = False
+        layout.use_property_decorate = False
+
+        layout.box().prop(vs, 'merge_vertices')
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
 
         box = layout.box().column(align=True)
         box.prop_search(vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
         box.separator(factor=0.5)
         box.prop(vs, 'non_exportable_vgroup_tolerance')
-        
-        box.prop(vs, 'merge_vertices')
+
+        box = layout.box().column(align=True)
+        box.prop(vs, 'generate_backface')
+        box.prop_search(vs, 'backface_vgroup', active_object, 'vertex_groups')
+        box.separator(factor=0.5)
+        box.prop(vs, 'backface_vgroup_tolerance')
 
   
 class SMD_PT_Shapekey(Properties_SubPanel):
@@ -1511,6 +1546,7 @@ class SMD_MT_FlexControllerSpecials(Menu):
         layout.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='IMPORT', text="Add All")
         layout.operator(SMD_OT_SortFlexControllers.bl_idname, icon='SORTALPHA', text="Sort by Name")
         layout.operator(SMD_OT_AutoAssignFlexGroups.bl_idname, icon='GROUP')
+        layout.operator(SMD_OT_CopyFlexControllers.bl_idname, icon='PASTEDOWN')
         layout.separator()
         layout.operator(SMD_OT_ClearFlexControllers.bl_idname, icon='TRASH', text="Delete All")
 
@@ -1661,6 +1697,48 @@ class SMD_OT_AutoAssignFlexGroups(Operator):
                     break
             
         self.report({'INFO'}, f"Categorized {assigned_count} controllers")
+        return {'FINISHED'}
+
+
+class SMD_OT_CopyFlexControllers(Operator):
+    bl_idname = "smd.copy_flexcontrollers"
+    bl_label = "Copy Flex Controllers to Selected"
+    bl_description = "Copy all flex controller entries from the active object to other selected mesh objects"
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object and 
+                hasattr(context.active_object, "vs") and 
+                len(context.active_object.vs.dme_flexcontrollers) > 0 and
+                len(context.selected_objects) > 1)
+
+    def execute(self, context):
+        active_ob = context.active_object
+        targets = [ob for ob in context.selected_objects if ob != active_ob]
+        src_controllers = active_ob.vs.dme_flexcontrollers
+
+        for target in targets:
+            target.vs.dme_flexcontrollers.clear()
+            missing_keys = []
+            
+            for src_item in src_controllers:
+                new_item = target.vs.dme_flexcontrollers.add()
+                new_item.controller_name = src_item.controller_name
+                new_item.raw_delta_name  = src_item.raw_delta_name
+                new_item.shapekey        = src_item.shapekey
+                new_item.eyelid          = src_item.eyelid
+                new_item.stereo          = src_item.stereo
+                new_item.flexgroup       = src_item.flexgroup
+                
+                if src_item.shapekey:
+                    if not (hasattr(target.data, "shape_keys") and target.data.shape_keys and src_item.shapekey in target.data.shape_keys.key_blocks):
+                        missing_keys.append(src_item.shapekey)
+            
+            if missing_keys:
+                self.report({'WARNING'}, f"'{target.name}' is missing shape keys: {', '.join(missing_keys)}")
+
+        self.report({'INFO'}, f"Copied controllers to {len(targets)} object(s)")
         return {'FINISHED'}
 
 

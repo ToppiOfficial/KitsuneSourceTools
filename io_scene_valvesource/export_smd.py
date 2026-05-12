@@ -159,6 +159,8 @@ class EdgelineBuilder:
         """
         if not ob.vs.use_toon_edgeline:
             return None
+        if not is_mesh_compatible(ob):
+            return None
         
         # Likely a physics mesh? "apply_edgeline_materials" does support no material but I keep running into the habit
         # of exporting ragdoll/collision mesh with outline which is catastrophic.
@@ -312,6 +314,151 @@ class EdgelineBuilder:
 
 
 # -----------------------------------------------------------------------------
+# Backface builder
+# Produces a backface for double sided faces
+# NOTE: Not to be confused with $nocull 1, this is for cases where to have backface
+# but not render the lighting on both side.
+# -----------------------------------------------------------------------------
+
+class BackfaceBuilder:
+    def __init__(self, reporter):
+        self._reporter = reporter
+
+    def build(self, ob: bpy.types.Object, export_name: str) -> typing.Optional[bpy.types.Object]:
+        """
+        Returns a new object containing only the vgroup-weighted faces with flipped normals.
+        Caller owns the returned object. Returns None if not applicable or no geometry.
+        """
+        if not ob.vs.generate_backface:
+            return None
+        if not is_mesh_compatible(ob):
+            return None
+        if not ob.data or not ob.data.materials:
+            self._reporter.warning(f"Backface disabled due to lack of materials on '{export_name}'")
+            return None
+
+        vg_name = ob.vs.backface_vgroup
+        if not vg_name:
+            return None
+        vg = ob.vertex_groups.get(vg_name)
+        if vg is None:
+            self._reporter.warning(
+                f"Backface vertex group '{vg_name}' not found on '{ob.name}'; skipping."
+            )
+            return None
+
+        tol = ob.vs.backface_vgroup_tolerance
+        base_name = re.sub(r"_lod[1-9]\d*$", "", export_name)
+
+        bf = ob.copy()
+        bf.data = ob.data.copy()
+        bf.name = base_name + "_backface"
+        bpy.context.scene.collection.objects.link(bf)
+
+        me = bf.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        deform = bm.verts.layers.deform.active
+        if deform is None:
+            bm.free()
+            bpy.context.scene.collection.objects.unlink(bf)
+            bpy.data.objects.remove(bf, do_unlink=True)
+            return None
+
+        def all_verts_weighted(face):
+            return all(
+                vg.index in v[deform] and v[deform][vg.index] >= tol
+                for v in face.verts
+            )
+
+        # Non-exportable faces are excluded here — the nonexp_vg filter in
+        # Baker._delete_filtered_faces handles them on the baked result, matching
+        # the same rule applied to edgeline faces.
+        faces_to_delete = [f for f in bm.faces if not all_verts_weighted(f)]
+        if faces_to_delete:
+            bmesh.ops.delete(bm, geom=faces_to_delete, context="FACES")
+
+        if not bm.faces:
+            bm.free()
+            bpy.context.scene.collection.objects.unlink(bf)
+            bpy.data.objects.remove(bf, do_unlink=True)
+            return None
+
+        bmesh.ops.reverse_faces(bm, faces=list(bm.faces))
+        bm.to_mesh(me)
+        bm.free()
+        me.update()
+
+        bf["is_backface_only"] = True
+        bf.vs.generate_backface = False
+        bf.vs.use_toon_edgeline = False
+        bf.vs.generate_lods = False
+
+        return bf
+
+    def build_merged(self, ob: bpy.types.Object, export_name: str) -> bool:
+        """
+        Appends flipped duplicates of the vgroup-weighted faces into ob.data in-place.
+        Used for SMD export (single mesh object per file). Non-exportable faces are left
+        for Baker._delete_filtered_faces to remove via the nonexp_vg filter.
+        Returns True if any faces were added.
+        """
+        if not ob.vs.generate_backface:
+            return False
+        if not is_mesh_compatible(ob):
+            return False
+        if not ob.data or not ob.data.materials:
+            self._reporter.warning(f"Backface disabled due to lack of materials on '{export_name}'")
+            return False
+
+        vg_name = ob.vs.backface_vgroup
+        if not vg_name:
+            return False
+        vg = ob.vertex_groups.get(vg_name)
+        if vg is None:
+            self._reporter.warning(
+                f"Backface vertex group '{vg_name}' not found on '{ob.name}'; skipping."
+            )
+            return False
+
+        tol = ob.vs.backface_vgroup_tolerance
+        me = ob.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        deform = bm.verts.layers.deform.active
+        if deform is None:
+            bm.free()
+            return False
+
+        def all_verts_weighted(face):
+            return all(
+                vg.index in v[deform] and v[deform][vg.index] >= tol
+                for v in face.verts
+            )
+
+        candidates = [f for f in bm.faces if all_verts_weighted(f)]
+        if not candidates:
+            bm.free()
+            return False
+
+        result = bmesh.ops.duplicate(bm, geom=candidates)
+        new_faces = [e for e in result["geom"] if isinstance(e, bmesh.types.BMFace)]
+        if new_faces:
+            bmesh.ops.reverse_faces(bm, faces=new_faces)
+
+        bm.to_mesh(me)
+        bm.free()
+        me.update()
+        return bool(new_faces)
+
+
+# -----------------------------------------------------------------------------
 # Export planning
 #
 # ExportPlanner takes a single export target (Collection or Object) and returns
@@ -340,6 +487,7 @@ class ExportPlanner:
         self._reporter = reporter
         self._lod_builder = LODBuilder(reporter)
         self._edgeline_builder = EdgelineBuilder(reporter)
+        self._backface_builder = BackfaceBuilder(reporter)
         self._owned_objects: list[bpy.types.Object] = []
         self._owned_collections: list[bpy.types.Collection] = []
         self._name_map: dict[int, str] = {}
@@ -430,11 +578,27 @@ class ExportPlanner:
             and is_mesh_compatible(ob) and ob.type in modifier_compatible
             for ob in col.objects
         )
+        needs_backface_smd = (
+            State.exportFormat == ExportFormat.SMD
+            and any(
+                ob.vs.export and ob.vs.generate_backface
+                and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                for ob in col.objects
+            )
+        )
+        needs_merged_backface_dmx = (
+            State.exportFormat == ExportFormat.DMX
+            and any(
+                ob.vs.export and ob.vs.generate_backface
+                and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                for ob in col.objects
+            )
+        )
 
         effective_objects: dict[bpy.types.Object, bpy.types.Object] = {}
         target_col = col
 
-        if needs_merged_edgeline or needs_merge_verts:
+        if needs_merged_edgeline or needs_merge_verts or needs_backface_smd or needs_merged_backface_dmx:
             base_obs = []
             edgeline_copies = []
 
@@ -448,6 +612,18 @@ class ExportPlanner:
                 self._owned_objects.append(copy)
                 self._name_map[copy.session_uid] = ob.name
 
+                if needs_backface_smd and copy.vs.generate_backface \
+                        and is_mesh_compatible(copy) and copy.type in modifier_compatible:
+                    self._backface_builder.build_merged(copy, ob.name)
+
+                bf_copy = None
+                if needs_merged_backface_dmx and copy.vs.generate_backface \
+                        and is_mesh_compatible(copy) and copy.type in modifier_compatible:
+                    bf_copy = self._backface_builder.build(copy, ob.name)
+                    if bf_copy:
+                        self._owned_objects.append(bf_copy)
+                        base_obs.append(bf_copy)
+
                 if ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
                     flexcontrollers, corrective_shapes = countShapes(ob)
                     if flexcontrollers > 0 or corrective_shapes > 0:
@@ -456,6 +632,8 @@ class ExportPlanner:
                         )
                     else:
                         self._apply_merge_vertices(copy)
+                        if bf_copy:
+                            self._apply_merge_vertices(bf_copy)
 
                 if copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
                     copy.vs.export_edgeline_separately = True
@@ -508,6 +686,15 @@ class ExportPlanner:
                 for lod_idx, lod_ob in self._lod_builder.build_all(working_ob, working_ob.name):
                     self._owned_objects.append(lod_ob)
                     lod_buckets[lod_idx].append(lod_ob)
+                    # Backface after decimation so geometry matches the LOD mesh.
+                    if working_ob.vs.generate_backface:
+                        if State.exportFormat == ExportFormat.SMD:
+                            self._backface_builder.build_merged(lod_ob, lod_ob.name)
+                        else:
+                            bf_lod = self._backface_builder.build(lod_ob, lod_ob.name)
+                            if bf_lod:
+                                self._owned_objects.append(bf_lod)
+                                lod_buckets[lod_idx].append(bf_lod)
 
             if not working_ob.name.endswith("_edgeline") and working_ob.vs.use_toon_edgeline:
                 if working_ob.vs.export_edgeline_separately:
@@ -578,24 +765,6 @@ class ExportPlanner:
     def _plan_object(self, ob: bpy.types.Object, export_name: str) -> list[ExportTask]:
         allowed_uids = set()
 
-        if (ob.vs.merge_vertices
-                and is_mesh_compatible(ob) and ob.type in modifier_compatible
-                and not self._is_existing_lod(export_name)):
-            flexcontrollers, corrective_shapes = countShapes(ob)
-            if flexcontrollers > 0 or corrective_shapes > 0:
-                self._reporter.warning(
-                    f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
-                )
-            else:
-                merged = ob.copy()
-                merged.data = ob.data.copy()
-                bpy.context.scene.collection.objects.link(merged)
-                self._owned_objects.append(merged)
-                State.exportableObjects.add(merged.session_uid)
-                self._name_map[merged.session_uid] = ob.name
-                self._apply_merge_vertices(merged)
-                ob = merged
-
         allowed_uids.add(ob.session_uid)
         target_ob = ob
         companions = []
@@ -627,6 +796,51 @@ class ExportPlanner:
                         State.exportableObjects.add(edgeline_ob.session_uid)
                         companions.append(edgeline_ob)
 
+        # Backface for base export.
+        # SMD: merge in-place (requires a copy if one wasn't already made for edgeline).
+        # DMX: companion DmeMesh in the same file, matching edgeline's pattern.
+        bf_ob = None
+        if not export_name.endswith("_backface") and ob.vs.generate_backface:
+            if State.exportFormat == ExportFormat.SMD:
+                if target_ob is ob:
+                    merged = ob.copy()
+                    merged.data = ob.data.copy()
+                    bpy.context.scene.collection.objects.link(merged)
+                    self._owned_objects.append(merged)
+                    State.exportableObjects.add(merged.session_uid)
+                    self._name_map[merged.session_uid] = ob.name
+                    target_ob = merged
+                    allowed_uids = {merged.session_uid}
+                self._backface_builder.build_merged(target_ob, export_name)
+            else:
+                bf_ob = self._backface_builder.build(ob, export_name)
+                if bf_ob:
+                    self._owned_objects.append(bf_ob)
+                    State.exportableObjects.add(bf_ob.session_uid)
+                    companions.append(bf_ob)
+
+        if (ob.vs.merge_vertices
+                and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                and not self._is_existing_lod(export_name)):
+            flexcontrollers, corrective_shapes = countShapes(ob)
+            if flexcontrollers > 0 or corrective_shapes > 0:
+                self._reporter.warning(
+                    f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
+                )
+            else:
+                if target_ob is ob:
+                    merged = ob.copy()
+                    merged.data = ob.data.copy()
+                    bpy.context.scene.collection.objects.link(merged)
+                    self._owned_objects.append(merged)
+                    State.exportableObjects.add(merged.session_uid)
+                    self._name_map[merged.session_uid] = ob.name
+                    target_ob = merged
+                    allowed_uids = {merged.session_uid}
+                self._apply_merge_vertices(target_ob)
+                if bf_ob:
+                    self._apply_merge_vertices(bf_ob)
+
         tasks = [ExportTask(target_ob, export_name, allowed_uids.copy(), companions)]
 
         if not is_mesh_compatible(ob) or ob.type not in modifier_compatible:
@@ -639,7 +853,20 @@ class ExportPlanner:
                 self._owned_objects.append(lod_ob)
                 State.exportableObjects.add(lod_ob.session_uid)
                 lod_uids = {lod_ob.session_uid}
-                tasks.append(ExportTask(lod_ob, lod_ob.name, lod_uids))
+                lod_companions = []
+
+                # Backface after decimation so it matches the LOD geometry.
+                if not export_name.endswith("_backface") and ob.vs.generate_backface:
+                    if State.exportFormat == ExportFormat.SMD:
+                        self._backface_builder.build_merged(lod_ob, lod_ob.name)
+                    else:
+                        bf_lod = self._backface_builder.build(lod_ob, lod_ob.name)
+                        if bf_lod:
+                            self._owned_objects.append(bf_lod)
+                            State.exportableObjects.add(bf_lod.session_uid)
+                            lod_companions.append(bf_lod)
+
+                tasks.append(ExportTask(lod_ob, lod_ob.name, lod_uids, lod_companions))
 
         if not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
             if ob.vs.export_edgeline_separately:
