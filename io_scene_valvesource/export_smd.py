@@ -242,7 +242,12 @@ class EdgelineBuilder:
 
         def make_edgeline_mat(slot):
             name = f"{slot.material.name}_edgeline" if slot.material else self.EDGELINE_MAT
-            return bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
+            mat = bpy.data.materials.get(name) or bpy.data.materials.new(name=name)
+
+            if slot.material and slot.material.vs.override_dmx_export_path.strip():
+                mat.vs.override_dmx_export_path = slot.material.vs.override_dmx_export_path
+
+            return mat
 
         if per_material:
             for slot in slots:
@@ -459,6 +464,223 @@ class BackfaceBuilder:
 
 
 # -----------------------------------------------------------------------------
+# MeshsplitBuilder
+# Splits a mesh object into per-order submeshes.
+# Each "mesh split {n}" vertex group drives one split: faces where every vertex
+# meets the weight threshold are peeled off into a new object named
+# "{base_name}_split{n}".  Those faces are then removed from the original.
+#
+# Parameters mirrored from EdgelineBuilder / BackfaceBuilder:
+#   ob.vs.use_mesh_split            – master enable/disable
+#   ob.vs.export_mesh_split_separately   – True  → separate ExportTask per order
+#                                          False → companions in the same task
+#   ob.vs.mesh_split_threshold  – per-vertex weight threshold (0.8–1.0)
+#   ob.vs.max_mesh_split        – cap on n (1–MAX_MESH_SPLIT)
+# -----------------------------------------------------------------------------
+ 
+class MeshSplitBuilder:
+    def __init__(self, reporter):
+        self._reporter = reporter
+ 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+ 
+    def build(
+        self,
+        ob: bpy.types.Object,
+        export_name: str,
+    ) -> list[bpy.types.Object]:
+        """
+        Splits obf in-place (removing the order-assigned faces from ob.data)
+        and returns a list of new objects, one per discovered order group.
+ 
+        The caller owns all returned objects and must unlink/remove them when done.
+        Returns an empty list if the feature is disabled or no groups are found.
+ 
+        NOTE: ob is modified in-place — order-group faces are deleted from it.
+        """
+        if not ob.vs.use_mesh_split:
+            return []
+        if not self._is_mesh_compatible(ob):
+            return []
+        if not ob.data or not ob.data.materials:
+            self._reporter.warning(
+                f"Mesh Split separation disabled on '{export_name}': no materials."
+            )
+            return []
+ 
+        threshold = ob.vs.mesh_split_threshold
+        max_n     = min(ob.vs.max_mesh_split, MAX_MESH_SPLIT)
+ 
+        # Collect valid split groups present on this object, sorted by n.
+        split_groups: list[tuple[int, bpy.types.VertexGroup]] = []
+        for vg in ob.vertex_groups:
+            n = parse_order_vg_name(vg.name)
+            if n is None or n >= max_n:
+                continue
+            split_groups.append((n, vg))
+        split_groups.sort(key=lambda x: x[0])
+ 
+        if not split_groups:
+            return []
+ 
+        base_name = re.sub(r"_lod[1-9]\d*$", "", export_name)
+        results: list[bpy.types.Object] = []
+ 
+        total_faces = len(ob.data.polygons)
+        all_claimed: set[int] = set()
+ 
+        for n, vg in split_groups:
+            order_faces = self._faces_for_vg(ob, vg, threshold)
+            if not order_faces:
+                continue
+ 
+            # Overlap correction: lowest split_n wins because we sorted split_groups.
+            overlap = order_faces & all_claimed
+            if overlap:
+                self._reporter.warning(
+                    f"Mesh Split overlap on '{export_name}': Group {n} ('{vg.name}') "
+                    f"shares {len(overlap)} faces with higher-priority groups."
+                )
+
+            # Skip faces already claimed by an earlier (lower) split.
+            new_faces = order_faces - all_claimed
+            if not new_faces:
+                continue
+
+            # Base mesh integrity security: don't leave the base mesh empty.
+            if len(all_claimed) + len(new_faces) >= total_faces:
+                self._reporter.warning(
+                    f"Mesh Split separation skipped for Group {n} ('{vg.name}') on '{export_name}': "
+                    f"at least one face must remain in the base mesh."
+                )
+                continue
+ 
+            split_ob = self._extract_faces(ob, new_faces, f"{base_name}_split{n}")
+            if split_ob is None:
+                continue
+            
+            all_claimed |= new_faces
+ 
+            split_ob["is_mesh_split"] = True
+            split_ob["mesh_split_n"]  = n
+            split_ob.vs.use_mesh_split = False   # prevent recursion
+            split_ob.vs.generate_lods       = False   # LOD intentionally excluded
+            results.append(split_ob)
+ 
+        # Remove all claimed faces from the original mesh.
+        if all_claimed:
+            self._delete_faces_from_ob(ob, all_claimed)
+ 
+        return results
+ 
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+ 
+    @staticmethod
+    def _is_mesh_compatible(ob: bpy.types.Object) -> bool:
+        return ob is not None and ob.type == "MESH"
+ 
+    def _faces_for_vg(
+        self,
+        ob: bpy.types.Object,
+        vg: bpy.types.VertexGroup,
+        threshold: float,
+    ) -> set[int]:
+        """Return the set of face indices where every vertex meets the threshold."""
+        me = ob.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.faces.ensure_lookup_table()
+ 
+        deform = bm.verts.layers.deform.active
+        if deform is None:
+            bm.free()
+            return set()
+ 
+        result = {
+            f.index
+            for f in bm.faces
+            if all(
+                vg.index in v[deform] and v[deform][vg.index] >= threshold
+                for v in f.verts
+            )
+        }
+        bm.free()
+        return result
+ 
+    def _extract_faces(
+        self,
+        ob: bpy.types.Object,
+        face_indices: set[int],
+        new_name: str,
+    ) -> bpy.types.Object | None:
+        """
+        Create a new object containing only the faces in face_indices,
+        with split normals preserved via bpy.ops.mesh.split().
+ 
+        Returns the new object (already linked to the scene collection),
+        or None if no geometry remained after extraction.
+        """
+        # Duplicate the source object so we can destructively trim it
+        copy = ob.copy()
+        copy.data = ob.data.copy()
+        copy.name = new_name
+        bpy.context.scene.collection.objects.link(copy)
+ 
+        # Delete faces NOT in face_indices from the copy
+        me = copy.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.faces.ensure_lookup_table()
+ 
+        to_delete = [f for f in bm.faces if f.index not in face_indices]
+        if to_delete:
+            bmesh.ops.delete(bm, geom=to_delete, context="FACES")
+ 
+        if not bm.faces:
+            bm.free()
+            bpy.context.scene.collection.objects.unlink(copy)
+            bpy.data.objects.remove(copy, do_unlink=True)
+            return None
+ 
+        bm.to_mesh(me)
+        bm.free()
+        me.update()
+ 
+        # Split the mesh to preserve custom split normals
+        # bpy.ops.mesh.split() duplicates shared verts at seam edges so
+        # each face owns its own loop normals independently.
+        prev_active = bpy.context.view_layer.objects.active
+        bpy.context.view_layer.objects.active = copy
+        select_only(copy)
+ 
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.split()    # preserves custom split normals
+        bpy.ops.object.mode_set(mode="OBJECT")
+ 
+        bpy.context.view_layer.objects.active = prev_active
+        return copy
+ 
+    @staticmethod
+    def _delete_faces_from_ob(ob: bpy.types.Object, face_indices: set[int]) -> None:
+        """Remove the given face indices from ob.data in-place."""
+        me = ob.data
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.faces.ensure_lookup_table()
+        geom = [f for f in bm.faces if f.index in face_indices]
+        if geom:
+            bmesh.ops.delete(bm, geom=geom, context="FACES")
+        bm.to_mesh(me)
+        bm.free()
+        me.update()
+
+
+# -----------------------------------------------------------------------------
 # Export planning
 #
 # ExportPlanner takes a single export target (Collection or Object) and returns
@@ -488,6 +710,7 @@ class ExportPlanner:
         self._lod_builder = LODBuilder(reporter)
         self._edgeline_builder = EdgelineBuilder(reporter)
         self._backface_builder = BackfaceBuilder(reporter)
+        self._mesh_split_builder = MeshSplitBuilder(reporter)
         self._owned_objects: list[bpy.types.Object] = []
         self._owned_collections: list[bpy.types.Collection] = []
         self._name_map: dict[int, str] = {}
@@ -594,11 +817,18 @@ class ExportPlanner:
                 for ob in col.objects
             )
         )
+        needs_use_mesh_split = any(
+            ob.vs.export and ob.vs.use_mesh_split
+            and is_mesh_compatible(ob) and ob.type in modifier_compatible
+            for ob in col.objects
+        )
 
         effective_objects: dict[bpy.types.Object, bpy.types.Object] = {}
+        pre_split_copies: dict[bpy.types.Object, bpy.types.Object] = {}
         target_col = col
 
-        if needs_merged_edgeline or needs_merge_verts or needs_backface_smd or needs_merged_backface_dmx:
+        if (needs_merged_edgeline or needs_merge_verts or needs_backface_smd
+                or needs_merged_backface_dmx or needs_use_mesh_split):
             base_obs = []
             edgeline_copies = []
 
@@ -611,6 +841,15 @@ class ExportPlanner:
                 bpy.context.scene.collection.objects.link(copy)
                 self._owned_objects.append(copy)
                 self._name_map[copy.session_uid] = ob.name
+
+                # MESH SPLIT — split before edgeline / backface / merge
+                pre_split_copies[ob] = copy
+                order_split_obs: list[bpy.types.Object] = []
+                if copy.vs.use_mesh_split and is_mesh_compatible(copy) and copy.type in modifier_compatible:
+                    order_split_obs = self._mesh_split_builder.build(copy, ob.name)
+                    for so in order_split_obs:
+                        self._owned_objects.append(so)
+                        base_obs.append(so)
 
                 if needs_backface_smd and copy.vs.generate_backface \
                         and is_mesh_compatible(copy) and copy.type in modifier_compatible:
@@ -680,14 +919,15 @@ class ExportPlanner:
                 continue
 
             working_ob = effective_objects.get(ob, ob)
+            pre_split_copy = pre_split_copies.get(ob, working_ob)
             is_lod_member = self._is_existing_lod(working_ob.name)
 
-            if not is_lod_member and working_ob.vs.generate_lods and working_ob.vs.lod_count > 0:
-                for lod_idx, lod_ob in self._lod_builder.build_all(working_ob, working_ob.name):
+            if not is_lod_member and pre_split_copy.vs.generate_lods and pre_split_copy.vs.lod_count > 0:
+                for lod_idx, lod_ob in self._lod_builder.build_all(pre_split_copy, pre_split_copy.name):
                     self._owned_objects.append(lod_ob)
                     lod_buckets[lod_idx].append(lod_ob)
                     # Backface after decimation so geometry matches the LOD mesh.
-                    if working_ob.vs.generate_backface:
+                    if pre_split_copy.vs.generate_backface:
                         if State.exportFormat == ExportFormat.SMD:
                             self._backface_builder.build_merged(lod_ob, lod_ob.name)
                         else:
@@ -768,6 +1008,40 @@ class ExportPlanner:
         allowed_uids.add(ob.session_uid)
         target_ob = ob
         companions = []
+
+        # MESH SPLIT
+        order_tasks: list[ExportTask] = []
+        if (ob.vs.use_mesh_split
+                and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                and not export_name.endswith(("_order", "_edgeline", "_backface"))):
+
+            # We need a working copy to split from (same pattern as edgeline/backface).
+            if target_ob is ob:
+                merged = ob.copy()
+                merged.data = ob.data.copy()
+                bpy.context.scene.collection.objects.link(merged)
+                self._owned_objects.append(merged)
+                State.exportableObjects.add(merged.session_uid)
+                self._name_map[merged.session_uid] = ob.name
+                target_ob = merged
+                allowed_uids = {merged.session_uid}
+
+            order_obs = self._mesh_split_builder.build(target_ob, export_name)
+            for so in order_obs:
+                self._owned_objects.append(so)
+                State.exportableObjects.add(so.session_uid)
+                n = so.get("mesh_split_n", 0)
+                base = re.sub(r"_lod[1-9]\d*$", "", export_name)
+                so_name = f"{base}_split{n}"
+
+                if ob.vs.export_mesh_split_separately:
+                    # Each order is its own ExportTask / file.
+                    order_tasks.append(
+                        ExportTask(so, so_name, {so.session_uid})
+                    )
+                else:
+                    # All orders ride as companions in the base task.
+                    companions.append(so)
 
         if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
             if not export_name.endswith("_edgeline"):
@@ -877,6 +1151,7 @@ class ExportPlanner:
                     base = re.sub(r"_lod[1-9]\d*$", "", export_name)
                     tasks.append(ExportTask(edgeline_ob, base + "_edgeline", {edgeline_ob.session_uid}))
 
+        tasks.extend(order_tasks)
         return tasks
 
     def _armature_export_name(self, id: bpy.types.Object) -> str:

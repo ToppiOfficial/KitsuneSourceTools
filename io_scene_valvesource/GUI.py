@@ -358,7 +358,7 @@ class SMD_OT_KitsuneResourceCompile(Operator):
         if self.export_choice == 'ENTRY':
             entries = vs.kitsuneresource_model_entries if self.entry_type == 'MODEL' else vs.kitsuneresource_data_entries
             if 0 <= self.entry_index < len(entries):
-                cmd += ["--only", f"{self.entry_type.lower()}:{entries[self.entry_index].name}"]
+                cmd += ["--only", f"{entries[self.entry_index].name}"]
             else:
                 self.report({'WARNING'}, "Invalid entry index.")
                 return {'CANCELLED'}
@@ -1064,12 +1064,6 @@ class SMD_PT_Mesh(Properties_SubPanel):
         box.separator(factor=0.5)
         box.prop(vs, 'non_exportable_vgroup_tolerance')
 
-        box = layout.box().column(align=True)
-        box.prop(vs, 'generate_backface')
-        box.prop_search(vs, 'backface_vgroup', active_object, 'vertex_groups')
-        box.separator(factor=0.5)
-        box.prop(vs, 'backface_vgroup_tolerance')
-
   
 class SMD_PT_Shapekey(Properties_SubPanel):
     bl_label = ''
@@ -1387,8 +1381,8 @@ class SMD_PT_LOD(Properties_SubPanel):
     
     def draw_header(self, context):
         active_object = context.object
-        is_outline = active_object.vs.use_toon_edgeline
-        label = '{} ({})'.format(pgettext("Level Of Detail"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Level Of Detail")
+        is_lod = active_object.vs.generate_lods
+        label = '{} ({})'.format(pgettext("Level Of Detail"), str(is_lod)) if is_mesh_compatible(active_object) else pgettext("Level Of Detail")
         self.layout.label(text=label, icon='MOD_DECIM')
         
     def draw(self, context):
@@ -1409,6 +1403,76 @@ class SMD_PT_LOD(Properties_SubPanel):
 
         col.prop(vs, 'lod_count', slider=True)
         col.prop(vs, 'decimate_factor', slider=True)
+
+
+class SMD_PT_MESHSPLIT(Properties_SubPanel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+    
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object)
+    
+    def draw_header(self, context):
+        active_object = context.object
+        is_meshsplited = active_object.vs.use_mesh_split
+        label = '{} ({})'.format(pgettext("Mesh Split"), str(is_meshsplited)) if is_mesh_compatible(active_object) else pgettext("Mesh Split")
+        self.layout.label(text=label, icon='TEXTURE_DATA')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box()
+        box.prop(vs, 'use_mesh_split', toggle=True)
+
+        col = box.column(align=True)
+        col.enabled = vs.use_mesh_split
+
+        col.prop(vs, 'export_mesh_split_separately')
+        col.prop(vs, 'max_mesh_split', slider=True)
+        col.prop(vs, 'mesh_split_threshold', slider=True)
+
+
+class SMD_PT_BACKFACE(Properties_SubPanel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+    
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object)
+    
+    def draw_header(self, context):
+        active_object = context.object
+        generate_backface = active_object.vs.generate_backface
+        label = '{} ({})'.format(pgettext("Backface"), str(generate_backface)) if is_mesh_compatible(active_object) else pgettext("Backface")
+        self.layout.label(text=label, icon='NORMALS_FACE')
+        
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box()
+        col = box.column(align=True)
+        col.prop(vs, 'generate_backface', toggle=True)
+
+        col = box.column(align=True)
+        col.enabled = vs.generate_backface
+        col.prop_search(vs, 'backface_vgroup', active_object, 'vertex_groups')
+        col.separator(factor=0.5)
+        col.prop(vs, 'backface_vgroup_tolerance')
 
 
 class SMD_PT_Material(Properties_SubPanel):
@@ -1707,13 +1771,13 @@ class SMD_OT_CopyFlexControllers(Operator):
     bl_options = {'UNDO'}
 
     @classmethod
-    def poll(cls, context):
-        return (context.active_object and 
+    def poll(cls, context) -> bool:
+        return bool(context.active_object and 
                 hasattr(context.active_object, "vs") and 
                 len(context.active_object.vs.dme_flexcontrollers) > 0 and
                 len(context.selected_objects) > 1)
 
-    def execute(self, context):
+    def execute(self, context) -> set:
         active_ob = context.active_object
         targets = [ob for ob in context.selected_objects if ob != active_ob]
         src_controllers = active_ob.vs.dme_flexcontrollers

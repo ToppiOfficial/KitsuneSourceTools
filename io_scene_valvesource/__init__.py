@@ -284,6 +284,11 @@ class ExportableProps():
     non_exportable_vgroup : StringProperty(name='Non-Exportable Vertex Group', default='')
     non_exportable_vgroup_tolerance : FloatProperty(name='Non-Exportable Weight Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
 
+    use_mesh_split : BoolProperty(name='Separate Mesh Split', default=False)
+    export_mesh_split_separately : BoolProperty(name='Export Mesh Split Separately', default=False)
+    mesh_split_threshold : FloatProperty(name='Mesh Split Threshold', default=0.95, min=0.8, max=1.0, precision=2)
+    max_mesh_split : IntProperty(name='Max Order Number', default=16, max=16, min=1)
+
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
 
@@ -473,6 +478,8 @@ _classes = (
     GUI.SMD_PT_Vertexfloatmap,
     GUI.SMD_PT_Vertexanimations,
     GUI.SMD_PT_ToonEdgeline,
+    GUI.SMD_PT_BACKFACE,
+    GUI.SMD_PT_MESHSPLIT,
     GUI.SMD_PT_LOD,
     GUI.SMD_PT_Empty,
     GUI.SMD_PT_Curve,

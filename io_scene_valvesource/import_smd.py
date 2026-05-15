@@ -1020,6 +1020,10 @@ class SmdImporter(bpy.types.Operator, Logger):
                         self.warning(get_id("qc_warn_noarmature_hbox", True).format(filename))
                         continue
 
+                prev_pose_position = qc.a.data.pose_position
+                qc.a.data.pose_position = 'REST'
+                bpy.context.view_layer.update()
+
                 hitbox_lines = [line_str]
                 for next_line in file:
                     if next_line.strip().startswith('$hbox'):
@@ -1028,6 +1032,10 @@ class SmdImporter(bpy.types.Operator, Logger):
                         break
 
                 created, skipped, bones = import_hitboxes_from_content(''.join(hitbox_lines), qc.a, bpy.context, self.createCollections)
+
+                qc.a.data.pose_position = prev_pose_position
+                bpy.context.view_layer.update()
+
                 if created > 0:
                     self.imported_hitboxes += created
                     print(f"- Imported {created} hitbox(es) from QC")
