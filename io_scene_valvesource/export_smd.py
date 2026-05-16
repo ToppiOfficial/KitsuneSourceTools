@@ -472,8 +472,8 @@ class BackfaceBuilder:
 #
 # Parameters mirrored from EdgelineBuilder / BackfaceBuilder:
 #   ob.vs.use_mesh_split            – master enable/disable
-#   ob.vs.export_mesh_split_separately   – True  → separate ExportTask per order
-#                                          False → companions in the same task
+#   ob.vs.export_mesh_split_separately   – True  -> separate ExportTask per order
+#                                          False -> companions in the same task
 #   ob.vs.mesh_split_threshold  – per-vertex weight threshold (0.8–1.0)
 #   ob.vs.max_mesh_split        – cap on n (1–MAX_MESH_SPLIT)
 # -----------------------------------------------------------------------------
@@ -768,6 +768,54 @@ class ExportPlanner:
                 protected_indices.add(src.index)
                 protected_indices.add(tgt.index)
 
+        # -- Collect post-process VG names to preserve ----------------------------
+        pp_vg_names = set()
+        for name in (
+            getattr(ob.vs, "toon_edgeline_vertexgroup", ""),
+            getattr(ob.vs, "backface_vgroup", ""),
+            getattr(ob.vs, "non_exportable_vgroup", ""),
+        ):
+            if name:
+                pp_vg_names.add(name)
+
+        pp_vg_index_to_name = {
+            vg.index: vg.name
+            for vg in ob.vertex_groups
+            if vg.name in pp_vg_names
+        }
+
+        # Snapshot: target vert position (tuple) -> {vg_name: max_weight}
+        # We accumulate max weights from both the target vert itself and any
+        # src verts that would merge into it — all resolved now while BMVerts
+        # still map 1:1 with me.vertices indices.
+        pos_to_weights: dict[tuple, dict[str, float]] = {}
+
+        if pp_vg_index_to_name:
+            def _vert_pp_weights(vert_index: int) -> dict[str, float]:
+                return {
+                    pp_vg_index_to_name[g.group]: g.weight
+                    for g in me.vertices[vert_index].groups
+                    if g.group in pp_vg_index_to_name
+                }
+
+            def _accumulate(pos_key: tuple, weights: dict[str, float]) -> None:
+                if not weights:
+                    return
+                entry = pos_to_weights.setdefault(pos_key, {})
+                for vg_name, w in weights.items():
+                    if w > entry.get(vg_name, 0.0):
+                        entry[vg_name] = w
+
+            for src_bv, tgt_bv in raw_map.items():
+                src_w = _vert_pp_weights(src_bv.index)
+                if not src_w:
+                    continue
+                # Key on the TARGET's position — that's the vert that survives.
+                pos_key = (round(tgt_bv.co.x, 6), round(tgt_bv.co.y, 6), round(tgt_bv.co.z, 6))
+                # Also carry the target's own weights so we take the max.
+                _accumulate(pos_key, _vert_pp_weights(tgt_bv.index))
+                _accumulate(pos_key, src_w)
+
         bm.free()
 
         # Deselecting protected vertices excludes them from the operator's scope.
@@ -787,6 +835,19 @@ class ExportPlanner:
             bpy.ops.mesh.remove_doubles(threshold=MERGE_DIST)
 
         bpy.ops.object.mode_set(mode='OBJECT')
+
+        # Restore post-process weights by position lookup
+        if pos_to_weights:
+            for v in me.vertices:
+                pos_key = (round(v.co.x, 6), round(v.co.y, 6), round(v.co.z, 6))
+                target_weights = pos_to_weights.get(pos_key)
+                if not target_weights:
+                    continue
+                for vg_name, w in target_weights.items():
+                    vg = ob.vertex_groups.get(vg_name)
+                    if vg:
+                        vg.add([v.index], w, 'REPLACE')
+
         print(f"- Merged duplicate vertices in '{ob.name}'")
 
     # -- collection planning --------------------------------------------------
