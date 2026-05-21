@@ -1184,20 +1184,22 @@ class VertexGroupNormalizer:
         self._normalize_weights()
 
     def _clean_weights(self):
-        to_remove = []
+        # Collect all vertices to remove per group, then batch-remove in one call per group
+        # instead of one Blender C-API call per vertex.
+        to_remove: dict[int, list[int]] = collections.defaultdict(list)
         for v in self.ob.data.vertices:
             for g in v.groups:
                 if g.group < len(self.ob.vertex_groups) and self.ob.vertex_groups[g.group].name in self.bone_names:
                     if g.weight < self.clean_tolerance:
-                        to_remove.append((g.group, v.index))
+                        to_remove[g.group].append(v.index)
 
-        for group_idx, vertex_idx in to_remove:
+        for group_idx, vert_indices in to_remove.items():
             if group_idx < len(self.ob.vertex_groups):
-                self.ob.vertex_groups[group_idx].remove([vertex_idx])
+                self.ob.vertex_groups[group_idx].remove(vert_indices)
 
     def _limit_influence(self):
         bones_by_name = {b.name: b for b in self.arm.data.bones if b.name in self.bone_names}
-        to_remove = []
+        to_remove: dict[int, list[int]] = collections.defaultdict(list)
 
         for v in self.ob.data.vertices:
             groups = sorted(
@@ -1205,11 +1207,11 @@ class VertexGroupNormalizer:
                 key=lambda g: (bones_by_name[self.ob.vertex_groups[g.group].name].vs.bone_sort_order, -g.weight)
             )
             for g in groups[self.vgroup_limit:]:
-                to_remove.append((g.group, v.index))
+                to_remove[g.group].append(v.index)
 
-        for group_idx, vertex_idx in to_remove:
+        for group_idx, vert_indices in to_remove.items():
             if group_idx < len(self.ob.vertex_groups):
-                self.ob.vertex_groups[group_idx].remove([vertex_idx])
+                self.ob.vertex_groups[group_idx].remove(vert_indices)
 
     def _normalize_weights(self):
         for v in self.ob.data.vertices:

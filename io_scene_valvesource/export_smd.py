@@ -806,14 +806,25 @@ class ExportPlanner:
                     if w > entry.get(vg_name, 0.0):
                         entry[vg_name] = w
 
+            def _ultimate_tgt(bv):
+                # find_doubles can chain (A->B->C); follow to the vertex that survives.
+                seen = set()
+                while bv in raw_map:
+                    if bv in seen:
+                        break
+                    seen.add(bv)
+                    bv = raw_map[bv]
+                return bv
+
             for src_bv, tgt_bv in raw_map.items():
                 src_w = _vert_pp_weights(src_bv.index)
-                if not src_w:
+                tgt_w = _vert_pp_weights(tgt_bv.index)
+                if not src_w and not tgt_w:
                     continue
-                # Key on the TARGET's position — that's the vert that survives.
-                pos_key = (round(tgt_bv.co.x, 6), round(tgt_bv.co.y, 6), round(tgt_bv.co.z, 6))
-                # Also carry the target's own weights so we take the max.
-                _accumulate(pos_key, _vert_pp_weights(tgt_bv.index))
+                # Follow the merge chain: tgt_bv itself may be merged further.
+                final_tgt = _ultimate_tgt(tgt_bv)
+                pos_key = (round(final_tgt.co.x, 6), round(final_tgt.co.y, 6), round(final_tgt.co.z, 6))
+                _accumulate(pos_key, tgt_w)
                 _accumulate(pos_key, src_w)
 
         bm.free()
@@ -1104,56 +1115,6 @@ class ExportPlanner:
                     # All orders ride as companions in the base task.
                     companions.append(so)
 
-        if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
-            if not export_name.endswith("_edgeline"):
-
-                # TODO: Check if smd and vta export properly
-                # TODO: is this even necessary??
-                if State.exportFormat == ExportFormat.SMD:
-                    # SMD can't handle multiple mesh objects in one file;
-                    # merge the edgeline into a copy of the base instead.
-                    merged = ob.copy()
-                    merged.data = ob.data.copy()
-                    bpy.context.scene.collection.objects.link(merged)
-                    self._owned_objects.append(merged)
-                    State.exportableObjects.add(merged.session_uid)
-                    self._name_map[merged.session_uid] = ob.name
-                    self._edgeline_builder.build(merged, export_name)  # merges in-place
-                    target_ob = merged
-                    allowed_uids = {merged.session_uid}
-                else:
-                    # DMX: keep edgeline as a companion bake result in the same file.
-                    ob.vs.export_edgeline_separately = True
-                    edgeline_ob = self._edgeline_builder.build(ob, export_name)
-                    ob.vs.export_edgeline_separately = False
-                    if edgeline_ob and edgeline_ob is not ob:
-                        self._owned_objects.append(edgeline_ob)
-                        State.exportableObjects.add(edgeline_ob.session_uid)
-                        companions.append(edgeline_ob)
-
-        # Backface for base export.
-        # SMD: merge in-place (requires a copy if one wasn't already made for edgeline).
-        # DMX: companion DmeMesh in the same file, matching edgeline's pattern.
-        bf_ob = None
-        if not export_name.endswith("_backface") and ob.vs.generate_backface:
-            if State.exportFormat == ExportFormat.SMD:
-                if target_ob is ob:
-                    merged = ob.copy()
-                    merged.data = ob.data.copy()
-                    bpy.context.scene.collection.objects.link(merged)
-                    self._owned_objects.append(merged)
-                    State.exportableObjects.add(merged.session_uid)
-                    self._name_map[merged.session_uid] = ob.name
-                    target_ob = merged
-                    allowed_uids = {merged.session_uid}
-                self._backface_builder.build_merged(target_ob, export_name)
-            else:
-                bf_ob = self._backface_builder.build(ob, export_name)
-                if bf_ob:
-                    self._owned_objects.append(bf_ob)
-                    State.exportableObjects.add(bf_ob.session_uid)
-                    companions.append(bf_ob)
-
         if (ob.vs.merge_vertices
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
                 and not self._is_existing_lod(export_name)):
@@ -1173,8 +1134,57 @@ class ExportPlanner:
                     target_ob = merged
                     allowed_uids = {merged.session_uid}
                 self._apply_merge_vertices(target_ob)
+
+        if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
+            if not export_name.endswith("_edgeline"):
+
+                # TODO: Check if smd and vta export properly
+                # TODO: is this even necessary??
+                if State.exportFormat == ExportFormat.SMD:
+                    # SMD can't handle multiple mesh objects in one file;
+                    # merge the edgeline into a copy of the base instead.
+                    if target_ob is ob:
+                        copy = ob.copy()
+                        copy.data = ob.data.copy()
+                        bpy.context.scene.collection.objects.link(copy)
+                        self._owned_objects.append(copy)
+                        State.exportableObjects.add(copy.session_uid)
+                        self._name_map[copy.session_uid] = ob.name
+                        target_ob = copy
+                        allowed_uids = {copy.session_uid}
+                    self._edgeline_builder.build(target_ob, export_name)  # merges in-place
+                else:
+                    # DMX: keep edgeline as a companion bake result in the same file.
+                    target_ob.vs.export_edgeline_separately = True
+                    edgeline_ob = self._edgeline_builder.build(target_ob, export_name)
+                    target_ob.vs.export_edgeline_separately = False
+                    if edgeline_ob and edgeline_ob is not target_ob:
+                        self._owned_objects.append(edgeline_ob)
+                        State.exportableObjects.add(edgeline_ob.session_uid)
+                        companions.append(edgeline_ob)
+
+        # Backface for base export.
+        # SMD: merge in-place (requires a copy if one wasn't already made for edgeline/merge).
+        # DMX: companion DmeMesh in the same file, matching edgeline's pattern.
+        bf_ob = None
+        if not export_name.endswith("_backface") and ob.vs.generate_backface:
+            if State.exportFormat == ExportFormat.SMD:
+                if target_ob is ob:
+                    merged = ob.copy()
+                    merged.data = ob.data.copy()
+                    bpy.context.scene.collection.objects.link(merged)
+                    self._owned_objects.append(merged)
+                    State.exportableObjects.add(merged.session_uid)
+                    self._name_map[merged.session_uid] = ob.name
+                    target_ob = merged
+                    allowed_uids = {merged.session_uid}
+                self._backface_builder.build_merged(target_ob, export_name)
+            else:
+                bf_ob = self._backface_builder.build(target_ob, export_name)
                 if bf_ob:
-                    self._apply_merge_vertices(bf_ob)
+                    self._owned_objects.append(bf_ob)
+                    State.exportableObjects.add(bf_ob.session_uid)
+                    companions.append(bf_ob)
 
         tasks = [ExportTask(target_ob, export_name, allowed_uids.copy(), companions)]
 
@@ -1205,8 +1215,8 @@ class ExportPlanner:
 
         if not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
             if ob.vs.export_edgeline_separately:
-                edgeline_ob = self._edgeline_builder.build(ob, export_name)
-                if edgeline_ob and edgeline_ob is not ob:
+                edgeline_ob = self._edgeline_builder.build(target_ob, export_name)
+                if edgeline_ob and edgeline_ob is not target_ob:
                     self._owned_objects.append(edgeline_ob)
                     State.exportableObjects.add(edgeline_ob.session_uid)
                     base = re.sub(r"_lod[1-9]\d*$", "", export_name)
@@ -1387,7 +1397,7 @@ class Baker:
 
         # -- shape key baking -------------------------------------------------
         if not shapes_invalid and hasShapes(ob):
-            self._bake_shapes(ob, baked, result, solidify_fill_rim)
+            self._bake_shapes(ob, result, solidify_fill_rim)
 
         for mod in ob.modifiers:
             mod.show_viewport = False
@@ -1545,10 +1555,19 @@ class Baker:
         if not nonexp_vg and not edge_vg and not is_separate_edgeline:
             return
 
-        def all_verts_weighted(poly, vg, tol) -> bool:
-            return all(
-                any(g.group == vg.index and g.weight >= tol for g in me.vertices[v].groups)
-                for v in poly.vertices
+        # Pre-build per-vertex weighted sets so the polygon loop does O(1) set lookups
+        # instead of rescanning all vertex groups for every polygon vertex.
+        nonexp_weighted: frozenset[int] = frozenset()
+        edge_weighted:   frozenset[int] = frozenset()
+        if nonexp_vg:
+            nonexp_weighted = frozenset(
+                v.index for v in me.vertices
+                if any(g.group == nonexp_vg.index and g.weight >= nonexp_tol for g in v.groups)
+            )
+        if edge_vg:
+            edge_weighted = frozenset(
+                v.index for v in me.vertices
+                if any(g.group == edge_vg.index and g.weight >= EDGE_VG_TOL for g in v.groups)
             )
 
         faces_to_delete = set()
@@ -1568,12 +1587,12 @@ class Baker:
                 # Shell faces are pruned when:
                 # 1. The edgeline thickness VG fully weights all verts (outline intentionally
                 #    hidden at those vertices).
-                if edge_vg and all_verts_weighted(poly, edge_vg, EDGE_VG_TOL):
+                if edge_weighted and all(vi in edge_weighted for vi in poly.vertices):
                     faces_to_delete.add(poly.index)
                     continue
                 # 2. The non-exportable VG marks all verts as excluded — so the shell
                 #    face that sits on top of a deleted base face is also removed.
-                if nonexp_vg and all_verts_weighted(poly, nonexp_vg, nonexp_tol):
+                if nonexp_weighted and all(vi in nonexp_weighted for vi in poly.vertices):
                     faces_to_delete.add(poly.index)
             else:
                 # Base mesh faces:
@@ -1583,7 +1602,7 @@ class Baker:
                     faces_to_delete.add(poly.index)
                     continue
                 # Non-exportable vgroup filter on the base mesh.
-                if nonexp_vg and all_verts_weighted(poly, nonexp_vg, nonexp_tol):
+                if nonexp_weighted and all(vi in nonexp_weighted for vi in poly.vertices):
                     faces_to_delete.add(poly.index)
 
         if not faces_to_delete:
@@ -1610,7 +1629,7 @@ class Baker:
             if mat and mat.name != EdgelineBuilder.EDGELINE_MAT and mat.name.endswith("_edgeline"):
                 me.materials[i] = generic_mat
 
-    def _bake_shapes(self, source_ob: bpy.types.Object, baked: bpy.types.Object, result: BakeResult, solidify_fill_rim) -> None:
+    def _bake_shapes(self, source_ob: bpy.types.Object, result: BakeResult, solidify_fill_rim) -> None:
         should_tri = State.exportFormat == ExportFormat.SMD or source_ob.vs.triangulate
         normalize = source_ob.data.vs.normalize_shapekeys
         source_ob.show_only_shape_key = not normalize
@@ -1642,17 +1661,6 @@ class Baker:
             baked_shape_data.name = f"{source_ob.name} -> {shape.name}"
 
             shape_ob = self._put_in_object(source_ob, baked_shape_data, solidify_fill_rim, quiet=True)
-
-            if preserve_basis_normals:
-                prev_idx = source_ob.active_shape_key_index
-                source_ob.active_shape_key_index = 0
-                mod = shape_ob.modifiers.new(name="PreserveBasisNormals", type="DATA_TRANSFER")
-                mod.object = baked
-                mod.use_loop_data = True
-                mod.data_types_loops = {"CUSTOM_NORMAL"}
-                mod.loop_mapping = "TOPOLOGY"
-                apply_modifier(mod=mod, silent=True)
-                source_ob.active_shape_key_index = prev_idx
 
             result.shapes[shape.name] = shape_ob.data
 
@@ -2335,25 +2343,37 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
         model_mat = amod_ob.matrix_world.inverted() @ ob.matrix_world
         num_verts = len(ob.data.vertices)
+        progress_step = max(50, num_verts // 100)
+
+        # Pre-build vg_index -> bone_id map so the inner loop is O(1) instead of doing
+        # ob.vertex_groups lookup + pose.bones.get + list-contains per vertex per group.
+        exportable_bone_names = {b.name for b in self.exportable_bones}
+        vg_to_bone_id: dict[int, int] = {}
+        if amod.use_vertex_groups:
+            for vg in ob.vertex_groups:
+                bone = amod_ob.pose.bones.get(vg.name)
+                if bone and bone.name in exportable_bone_names:
+                    vg_to_bone_id[vg.index] = self.bone_ids[bone.name]
+
+        # Pre-filter exportable bones list for envelope fallback.
+        exportable_bones_list = [pb for pb in amod_ob.pose.bones if pb in self.exportable_bones] \
+            if amod.use_bone_envelopes else []
 
         for v in ob.data.vertices:
             weights = []
             total_weight = 0
-            if len(out) % 50 == 0:
+            if len(out) % progress_step == 0:
                 bpy.context.window_manager.progress_update(len(out) / num_verts)
 
             if amod.use_vertex_groups:
                 for v_group in v.groups:
-                    if v_group.group >= len(ob.vertex_groups):
-                        continue
-                    ob_group = ob.vertex_groups[v_group.group]
-                    bone = amod_ob.pose.bones.get(ob_group.name)
-                    if bone and bone in self.exportable_bones:
-                        weights.append([self.bone_ids[bone.name], v_group.weight])
+                    bone_id = vg_to_bone_id.get(v_group.group)
+                    if bone_id is not None:
+                        weights.append([bone_id, v_group.weight])
                         total_weight += v_group.weight
 
             if amod.use_bone_envelopes and total_weight == 0:
-                for pb in [pb for pb in amod_ob.pose.bones if pb in self.exportable_bones]:
+                for pb in exportable_bones_list:
                     weight = pb.bone.envelope_weight * pb.evaluate_envelope(model_mat @ v.co)
                     if weight:
                         weights.append([self.bone_ids[pb.name], weight])
@@ -2542,13 +2562,34 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 bad_face_mats = 0
                 multi_weight_verts = set()
 
+                # Pre-compute per-vertex weight strings so vertices shared across polygons
+                # don't repeat the same string-building work on every loop.
+                weight_strs: dict[int, str] = {}
+                if weights and not ob_weight_str:
+                    for vi, w_list in enumerate(weights):
+                        valid = [(bi, bw) for bi, bw in w_list if bw > 0]
+                        if not goldsrc:
+                            weight_strs[vi] = " {}{}".format(
+                                len(valid),
+                                "".join(f" {bi} {getSmdFloat(bw)}" for bi, bw in valid),
+                            )
+                        else:
+                            if not valid:
+                                weight_strs[vi] = "0"
+                            else:
+                                weight_strs[vi] = str(valid[0][0])
+
+                num_polys = len(ob.data.polygons)
+                poly_progress_step = max(10, num_polys // 100)
+                lines = []
+
                 for p, poly in enumerate(ob.data.polygons):
-                    if p % 10 == 0:
-                        bpy.context.window_manager.progress_update(p / len(ob.data.polygons))
+                    if p % poly_progress_step == 0:
+                        bpy.context.window_manager.progress_update(p / num_polys)
                     mat_name, mat_ok = self.GetMaterialName(ob, poly.material_index)
                     if not mat_ok:
                         bad_face_mats += 1
-                    self.smd_file.write(mat_name + "\n")
+                    lines.append(mat_name + "\n")
 
                     for loop in [ob.data.loops[l] for l in poly.loop_indices]:
                         v = ob.data.vertices[loop.vertex_index]
@@ -2556,24 +2597,19 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                         uv = " ".join(getSmdFloat(j) for j in uv_loop[loop.index].uv)
 
                         if not goldsrc:
-                            if ob_weight_str:
-                                ws = ob_weight_str
-                            else:
-                                valid = [(link[0], link[1]) for link in weights[v.index] if link[1] > 0]
-                                ws = " {}{}".format(len(valid), "".join(f" {bi} {getSmdFloat(bw)}" for bi, bw in valid))
-                            self.smd_file.write("0" + pos_norm + uv + ws + "\n")
+                            ws = ob_weight_str if ob_weight_str else weight_strs.get(v.index, " 0")
+                            lines.append("0" + pos_norm + uv + ws + "\n")
                         else:
                             if ob_weight_str:
                                 ws = ob_weight_str
                             else:
+                                ws = weight_strs.get(v.index, "0")
                                 gw = [link for link in weights[v.index] if link[1] > 0]
-                                if not gw:
-                                    ws = "0"
-                                else:
-                                    if len(gw) > 1:
-                                        multi_weight_verts.add(v)
-                                    ws = str(gw[0][0])
-                            self.smd_file.write(ws + pos_norm + uv + "\n")
+                                if len(gw) > 1:
+                                    multi_weight_verts.add(v)
+                            lines.append(ws + pos_norm + uv + "\n")
+
+                self.smd_file.writelines(lines)
 
                 if goldsrc and multi_weight_verts:
                     self.warning(get_id("exporterr_goldsrc_multiweights", format_string=True).format(len(multi_weight_verts), bake.src.data.name))
@@ -2622,13 +2658,19 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     if not shape:
                         continue
                     vi = bake.offset
+                    preserve_basis_normals = bake.src.data.vs.bake_shapekey_as_basis_normals
                     for ml in [bake.object.data.loops[l] for poly in bake.object.data.polygons for l in poly.loop_indices]:
                         sv = shape.vertices[ml.vertex_index]
-                        sl = shape.loops[ml.index]
                         mv = bake.object.data.vertices[ml.vertex_index]
-                        if sv.co - mv.co > epsilon or sl.normal - ml.normal > epsilon:
-                            self.smd_file.write(f"{vi} {getSmdVec(sv.co)} {getSmdVec(sl.normal)}\n")
-                            total_verts += 1
+                        if preserve_basis_normals:
+                            if sv.co - mv.co > epsilon:
+                                self.smd_file.write(f"{vi} {getSmdVec(sv.co)} {getSmdVec(ml.normal)}\n")
+                                total_verts += 1
+                        else:
+                            sl = shape.loops[ml.index]
+                            if sv.co - mv.co > epsilon or sl.normal - ml.normal > epsilon:
+                                self.smd_file.write(f"{vi} {getSmdVec(sv.co)} {getSmdVec(sl.normal)}\n")
+                                total_verts += 1
                         vi += 1
 
             self.smd_file.write("end\n")
@@ -3301,9 +3343,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             else:
                                 self.warning(get_id("exporter_err_missing_corrective_target", format_string=True).format(shape_name, ct_name))
 
+                    preserve_basis_normals = bake.src.data.vs.bake_shapekey_as_basis_normals
                     for ob_loop in ob.data.loops:
                         sl = shape.loops[ob_loop.index]
-                        norm = sl.normal
+                        norm = ob_loop.normal if preserve_basis_normals else sl.normal
                         if corrective:
                             base = ob_loop.normal.copy()
                             for ct in corrective_target_shapes:
