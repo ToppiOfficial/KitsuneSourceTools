@@ -130,6 +130,7 @@ from bpy.types import PropertyGroup
 
 encodings = []
 for enc in datamodel.list_support()['binary']: encodings.append( (str(enc), f"Binary {enc}", '' ) )
+encodings.append( ('kv2', 'ASCII (KeyValues2)', '') )
 formats = []
 for version in set(x for x in [*dmx_versions_source1.values(), *dmx_versions_source2.values()] if x.format != 0):
     formats.append((version.format_enum, version.format_title, ''))
@@ -331,7 +332,6 @@ class ValveSource_SceneProps(PropertyGroup):
     material_path : StringProperty(name=get_id("dmx_mat_path"),description=get_id("dmx_mat_path_tip"))
     export_list_active : IntProperty(name=get_id("active_exportable"),default=0,min=0,update=export_active_changed)
     export_list : CollectionProperty(type=ValveSource_Exportable,options={'SKIP_SAVE','HIDDEN'})
-    use_kv2 : BoolProperty(name="Write KeyValues2 (DEBUG)",description="Write ASCII DMX files",default=False)
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
     
     enable_gui_console : BoolProperty(name='Enable Console GUI',default=True, 
@@ -373,7 +373,7 @@ class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4)
     
 class ValveSource_ObjectProps(ExportableProps, PropertyGroup):
-    action_filter : StringProperty(name=get_id("slot_filter") if State.useActionSlots else get_id("action_filter"),description=get_id("slot_filter_tip") if State.useActionSlots else get_id("action_filter_tip"),default="*")
+    action_filter : StringProperty(name=get_id("slot_filter"),description=get_id("slot_filter_tip"),default="*")
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
     
@@ -394,15 +394,11 @@ class ValveSource_ArmatureProps(PropertyGroup):
         ('CURRENT',get_id("action_slot_current"),get_id("action_slot_selection_current_tip")),
         ('FILTERED',get_id("slot_filter"),get_id("slot_filter_tip")),
         ('FILTERED_ACTIONS',get_id("action_filter"),get_id("action_selection_filter_tip")),
-    ) if State.useActionSlots else (
-        ('CURRENT',get_id("action_selection_current"),get_id("action_selection_current_tip")),
-        ('FILTERED',get_id("action_filter"),get_id("action_selection_filter_tip"))		
     )
 
     reset_pose_per_anim : BoolProperty(name='Reset Pose Per Animation Export', description="Reset all bones to rest pose before each export to prevent pose carry-over between animations",default=True)
 
     action_selection : EnumProperty(name=get_id("action_selection_mode"), items=arm_modes,description=get_id("action_selection_mode_tip"),default='FILTERED')
-    legacy_rotation : BoolProperty(name=get_id("bone_rot_legacy"),description=get_id("bone_rot_legacy_tip"),default=False)
 
     ignore_bone_exportnames : BoolProperty(name=get_id("ignore_bone_exportnames"))
     bone_direction_naming_left : StringProperty(name='Left Bone Dir', default='L')

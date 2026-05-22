@@ -23,7 +23,7 @@ from bpy import ops
 from bpy.app.translations import pgettext
 from bpy.props import StringProperty, CollectionProperty, BoolProperty, EnumProperty
 from mathutils import Quaternion, Euler
-from math import ceil
+from math import ceil, radians
 from typing import cast
 from .utils import *
 from . import datamodel, ordered_set, flex, keyvalues3
@@ -43,7 +43,7 @@ class SmdImporter(bpy.types.Operator, Logger):
     files: CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN'})
     directory: StringProperty(maxlen=1024, default="", subtype='FILE_PATH', options={'HIDDEN'})
     filter_folder: BoolProperty(name="Filter Folders", description="", default=True, options={'HIDDEN'})
-    filter_glob: StringProperty(default="*.smd;*.vta;*.dmx;*.qc;*.qci;*.vmdl;*.vmdl_prefab", options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.smd;*.vta;*.dmx;*.qc;*.qci", options={'HIDDEN'})
 
     # Custom properties
     doAnim: BoolProperty(name=get_id("importer_doanims"), default=True)
@@ -90,7 +90,7 @@ class SmdImporter(bpy.types.Operator, Logger):
 
         for filepath in [os.path.join(self.directory, file.name) for file in self.files] if self.files else [self.filepath]:
             filepath_lc = filepath.lower()
-            if filepath_lc.endswith(('.qc', '.qci', '.vmdl', '.vmdl_prefab')):
+            if filepath_lc.endswith(('.qc', '.qci')):
                 self.num_files_imported = self.readQC(filepath, False, self.properties.doAnim, self.properties.makeCamera, self.properties.rotMode, outer_qc=True)
                 bpy.context.view_layer.objects.active = self.qc.a
             elif filepath_lc.endswith('.smd'):
@@ -405,26 +405,6 @@ class SmdImporter(bpy.types.Operator, Logger):
                     keyframe.matrix = getUpAxisMat(smd.upAxis) @ keyframe.matrix
                 phantom_keyframes[frameIndex].append(keyframe)
 
-        for ID, parentID in smd.phantomParentIDs.items():
-            bone_id = smd.boneIDs.get(ID)
-            bone = smd.a.pose.bones.get(bone_id) if bone_id else None
-            if not bone:
-                continue
-            for phantom_keyframe in phantom_keyframes[bone]:
-                phantom_parent = parentID
-                if len(keyframes[bone]) >= phantom_keyframe.frame:
-                    while phantom_keyframes.get(phantom_parent):
-                        phantom_source_frame = phantom_keyframe.frame
-                        while not phantom_keyframes[phantom_parent].get(phantom_keyframe.frame):
-                            if phantom_source_frame == 0:
-                                continue
-                            phantom_source_frame -= 1
-                        keyframes[bone][phantom_keyframe.frame].matrix = (
-                            phantom_keyframes[phantom_parent][phantom_source_frame]
-                            @ keyframes[bone][phantom_keyframe.frame].matrix
-                        )
-                        phantom_parent = smd.phantomParentIDs.get(phantom_parent)
-
         self.applyFrames(keyframes, num_frames)
 
     def applyFrames(self, keyframes: dict[bpy.types.PoseBone, list[KeyFrame]], num_frames: int):
@@ -486,16 +466,9 @@ class SmdImporter(bpy.types.Operator, Logger):
             if not smd.a.animation_data:
                 smd.a.animation_data_create()
 
-            if State.useActionSlots:
-                channelbag = channelBagForNewActionSlot(smd.a, smd.jobName)
-                fcurves = channelbag.fcurves
-                groups = channelbag.groups
-            else:
-                action = bpy.data.actions.new(smd.jobName)
-                action.use_fake_user = True
-                smd.a.animation_data.action = action
-                fcurves = action.fcurves
-                groups = action.groups
+            channelbag = channelBagForNewActionSlot(smd.a, smd.jobName)
+            fcurves = channelbag.fcurves
+            groups = channelbag.groups
 
             ops.object.mode_set(mode='POSE')
 
@@ -530,11 +503,8 @@ class SmdImporter(bpy.types.Operator, Logger):
                     group = groups.new(name=bone.name)
 
                     for keyframe in keys:
-                        if smd.a.data.vs.legacy_rotation:
-                            keyframe.matrix @= mat_BlenderToSMD.inverted()
-
                         if bone.parent:
-                            parentMat = (bone.parent.matrix @ mat_BlenderToSMD) if smd.a.data.vs.legacy_rotation else bone.parent.matrix
+                            parentMat = bone.parent.matrix
                             bone.matrix = parentMat @ keyframe.matrix
                         else:
                             bone.matrix = getUpAxisMat(smd.upAxis) @ keyframe.matrix
@@ -637,7 +607,7 @@ class SmdImporter(bpy.types.Operator, Logger):
             return
 
         mesh_name = smd.jobName
-        if smd.jobType == REF and not smd.jobName.lower().find("reference") and not smd.jobName.lower().endswith("ref"):
+        if smd.jobType == REF and "reference" not in smd.jobName.lower() and not smd.jobName.lower().endswith("ref"):
             mesh_name += " ref"
         mesh_name = self.truncate_id_name(mesh_name, bpy.types.Mesh)
 
@@ -866,7 +836,6 @@ class SmdImporter(bpy.types.Operator, Logger):
                     making_base_shape = False
 
                 if not making_base_shape:
-                    smd.m.shape_key_add(name=shape_name if shape_name else values[1])
                     sk = smd.m.shape_key_add(name=shape_name if shape_name else values[1])
                     sk.value = 0.0
                     num_shapes += 1
@@ -916,35 +885,9 @@ class SmdImporter(bpy.types.Operator, Logger):
             qc = self.qc
 
         filepath_lc = filepath.lower()
-        if filepath_lc.endswith(('.vmdl', '.vmdl_prefab')):
-            print(f"\nJigglebone IMPORTER: now working on {filename}")
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    vmdl_text = f.read()
-            except IOError as e:
-                self.error(f"Could not read file {filepath}: {e}")
-                return 0
-
-            arm = qc.a or self.findArmature()
-            if not arm:
-                self.warning(f"No armature found to apply jigglebones from {filename}.")
-                return 0
-
-            try:
-                parser = keyvalues3.KVParser(vmdl_text)
-                kv_doc = parser.parse()
-                imported_count, missing_bones = import_jigglebones_from_kv3(kv_doc, arm)
-                if imported_count > 0:
-                    self.imported_jigglebones += imported_count
-                    print(f"- Imported {imported_count} jigglebone(s) from {filename}")
-                else:
-                    print(f"- No jigglebones imported from {filename}.")
-                if missing_bones:
-                    self.warning(f"Could not find bones for {len(missing_bones)} jigglebone(s) in {filename}: {', '.join(missing_bones)}")
-            except Exception as e:
-                self.error(f"Failed to parse or import jigglebones from {filename}: {e}")
-
-            return 1
+        # VMDL import disabled — implementation kept in _import_vmdl() below
+        # if filepath_lc.endswith(('.vmdl', '.vmdl_prefab')):
+        #     return self._import_vmdl(filepath, qc, rotMode)
 
         try:
             with open(filepath, 'r') as f:
@@ -1024,14 +967,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 qc.a.data.pose_position = 'REST'
                 bpy.context.view_layer.update()
 
-                hitbox_lines = [line_str]
-                for next_line in file:
-                    if next_line.strip().startswith('$hbox'):
-                        hitbox_lines.append(next_line)
-                    elif next_line.strip() and not next_line.startswith('//'):
-                        break
-
-                created, skipped, bones = import_hitboxes_from_content(''.join(hitbox_lines), qc.a, bpy.context, self.createCollections)
+                created, skipped, bones = import_hitboxes_from_content(line_str, qc.a, bpy.context, self.createCollections)
 
                 qc.a.data.pose_position = prev_pose_position
                 bpy.context.view_layer.update()
@@ -1289,6 +1225,12 @@ class SmdImporter(bpy.types.Operator, Logger):
         if target_arm:
             smd.a = target_arm
 
+        is_vmdl_backed = (
+            target_arm is not None
+            and self.qc is not None
+            and len(getattr(self.qc, 'vmdl_bone_list', [])) > 0
+        )
+
         ob = bone = smd.atch = None
         smd.layer = target_layer
         if bpy.context.active_object:
@@ -1377,7 +1319,7 @@ class SmdImporter(bpy.types.Operator, Logger):
             # -----------------------------------------------------------------
             bone_matrices: dict[str, Matrix] = {}
 
-            if target_arm:
+            if target_arm and not is_vmdl_backed:
                 # Validate / append against existing armature
                 missing_bones: list[str] = []
                 bpy.context.view_layer.objects.active = smd.a
@@ -1419,7 +1361,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                     self.warning(get_id("importer_err_missingbones", True).format(smd.jobName, len(missing_bones), smd.a.name))
                     print("\n".join(missing_bones))
 
-            else:
+            elif not target_arm:
                 # No existing armature — inspect what the DMX contains
                 skeleton_items = list(enumerateBonesAndAttachments(DmeModel))
                 has_actual_bones = any(isBone(e) for e, _ in skeleton_items)
@@ -1647,12 +1589,17 @@ class SmdImporter(bpy.types.Operator, Logger):
 
                         for jidx in weighted_bone_indices:
                             jname: str | None = None
-                            try:
-                                if joints_list:
-                                    jname = joints_list[jidx].name or None
-                            except (IndexError, KeyError, TypeError):
-                                pass
-                            # Fall back to generic naming when no joint name available
+                            if is_vmdl_backed:
+                                # Source 2 VMDL: blendindices are direct global skeleton indices
+                                vbl = self.qc.vmdl_bone_list
+                                if jidx < len(vbl):
+                                    jname = vbl[jidx]
+                            else:
+                                try:
+                                    if joints_list:
+                                        jname = joints_list[jidx].name or None
+                                except (IndexError, KeyError, TypeError):
+                                    pass
                             deform_group_names.add(jname if jname else f"joint_{jidx}")
 
                     for face_set in DmeMesh["faceSets"]:
@@ -1868,3 +1815,209 @@ class SmdImporter(bpy.types.Operator, Logger):
             bpy.context.scene.vs.dmx_format = version.format_enum
         if State.datamodelEncoding < version.encoding:
             bpy.context.scene.vs.dmx_encoding = str(version.encoding)
+
+    # -------------------------------------------------------------------------
+    # VMDL helpers
+    # -------------------------------------------------------------------------
+
+    def _extract_vmdl_bones(self, skeleton_node) -> list[tuple[str, object]]:
+        result = []
+        def _dfs(node):
+            name = node.properties.get("name")
+            if name:
+                result.append((name, node))
+            for child in node.children:
+                if child.properties.get("_class") == "Bone":
+                    _dfs(child)
+        for child in skeleton_node.children:
+            if child.properties.get("_class") == "Bone":
+                _dfs(child)
+        return result
+
+    def _resolve_dmx_ref(self, vmdl_path: str, dmx_ref: str) -> str | None:
+        vmdl_dir = os.path.dirname(vmdl_path)
+        normalized = dmx_ref.replace("\\", os.sep).replace("/", os.sep)
+        basename = os.path.basename(normalized)
+        candidates = [
+            os.path.join(vmdl_dir, basename),
+            os.path.normpath(os.path.join(vmdl_dir, normalized)),
+        ]
+        if State.gamePath:
+            candidates.append(os.path.normpath(os.path.join(State.gamePath, normalized)))
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+        return None
+
+    def _import_vmdl(self, filepath: str, qc: QcInfo, rotMode: str) -> int:
+        filename = os.path.basename(filepath)
+        print(f"\nVMDL IMPORTER: now working on {filename}")
+
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                vmdl_text = f.read()
+        except IOError as e:
+            self.error(f"Could not read {filepath}: {e}")
+            return 0
+
+        try:
+            kv_doc = keyvalues3.KVParser(vmdl_text).parse()
+        except Exception as e:
+            self.error(f"Failed to parse {filename}: {e}")
+            return 0
+
+        root_node = kv_doc.roots.get("rootNode")
+        if not root_node:
+            self.error(f"{filename}: no rootNode")
+            return 0
+
+        # Initialize self.smd so createArmature() can read self.smd.isDMX
+        smd = self.smd = SmdInfo(qc.jobName)
+        smd.isDMX = 1
+        smd.jobType = REF
+        smd.upAxis = qc.upAxis
+        smd.rotMode = rotMode
+        self.createCollection()
+
+        # -----------------------------------------------------------------
+        # Skeleton
+        # -----------------------------------------------------------------
+        skeleton_node = root_node.get(recursive=True, _class="Skeleton")
+        if not skeleton_node:
+            self.warning(f"{filename}: no Skeleton — only jigglebones imported")
+            arm = qc.a or self.findArmature()
+            if arm:
+                cnt, missing = import_jigglebones_from_kv3(kv_doc, arm)
+                self.imported_jigglebones += cnt
+            return 1
+
+        bone_pairs = self._extract_vmdl_bones(skeleton_node)
+        if not bone_pairs:
+            self.warning(f"{filename}: Skeleton has no Bone children")
+            return 0
+
+        qc.vmdl_bone_list = [name for name, _ in bone_pairs]
+
+        arm_name = self.truncate_id_name(qc.jobName + "_skeleton", bpy.types.Armature)
+        arm = self.createArmature(arm_name)
+        qc.a = smd.a = arm
+
+        bpy.context.view_layer.objects.active = arm
+        ops.object.mode_set(mode='EDIT')
+
+        edit_bone_map: dict[str, bpy.types.EditBone] = {}
+        bone_matrices: dict[str, Matrix] = {}
+
+        def _create_edit_bone(name: str, node, parent_name: str | None):
+            eb = arm.data.edit_bones.new(self.truncate_id_name(name, bpy.types.Bone))
+            eb.tail = (0, 5, 0)
+            edit_bone_map[name] = eb
+            if parent_name and parent_name in edit_bone_map:
+                eb.parent = edit_bone_map[parent_name]
+            origin = node.properties.get("origin", [0.0, 0.0, 0.0])
+            angles_deg = node.properties.get("angles", [0.0, 0.0, 0.0])
+            p, y, r = angles_deg[0], angles_deg[1], angles_deg[2]
+            bone_matrices[eb.name] = (
+                Matrix.Translation(Vector(origin))
+                @ Euler([radians(r), radians(p), radians(y)], 'XYZ').to_matrix().to_4x4()
+            )
+
+        def _dfs_create(node, parent_name: str | None):
+            name = node.properties.get("name")
+            if name:
+                _create_edit_bone(name, node, parent_name)
+                for child in node.children:
+                    if child.properties.get("_class") == "Bone":
+                        _dfs_create(child, name)
+
+        for child in skeleton_node.children:
+            if child.properties.get("_class") == "Bone":
+                _dfs_create(child, None)
+
+        ops.object.mode_set(mode='OBJECT')
+        print(f"- Created {len(edit_bone_map)} bones from VMDL Skeleton")
+
+        self.appliedReferencePose = False
+        rest_data: dict[bpy.types.PoseBone, list[KeyFrame]] = {}
+        for pbone in arm.pose.bones:
+            mat = bone_matrices.get(pbone.name)
+            if mat:
+                kf = KeyFrame()
+                kf.matrix = mat
+                rest_data[pbone] = [kf]
+        if rest_data:
+            self.applyFrames(rest_data, 1)
+
+        # -----------------------------------------------------------------
+        # Meshes (RenderMeshList)
+        # -----------------------------------------------------------------
+        render_mesh_list = root_node.get(recursive=False, _class="RenderMeshList")
+        if render_mesh_list:
+            for rmf in render_mesh_list.children:
+                if rmf.properties.get("_class") != "RenderMeshFile":
+                    continue
+                dmx_ref = rmf.properties.get("filename", "")
+                if not dmx_ref:
+                    continue
+                dmx_path = self._resolve_dmx_ref(filepath, dmx_ref)
+                if not dmx_path:
+                    self.warning(f"{filename}: could not find DMX '{dmx_ref}'")
+                    continue
+                if dmx_path not in qc.imported_smds:
+                    qc.imported_smds.append(dmx_path)
+                    prev_append = self.append
+                    self.append = 'VALIDATE'
+                    self.num_files_imported += self.readDMX(dmx_path, qc.upAxis, rotMode, False, REF)
+                    self.append = prev_append
+
+        # -----------------------------------------------------------------
+        # Attachments (AttachmentList)
+        # -----------------------------------------------------------------
+        att_list = root_node.get(recursive=False, _class="AttachmentList")
+        if att_list:
+            coll = smd.g if smd.g else bpy.context.scene.collection
+            imported_att = 0
+            for att in att_list.children:
+                if att.properties.get("_class") != "Attachment":
+                    continue
+                att_name = att.properties.get("name", "")
+                parent_bone = att.properties.get("parent_bone", "")
+                if not att_name:
+                    continue
+                if parent_bone and parent_bone not in arm.data.bones:
+                    self.warning(f"Attachment '{att_name}': bone '{parent_bone}' not found — skipped")
+                    continue
+                origin = att.properties.get("relative_origin", [0.0, 0.0, 0.0])
+                angles_deg = att.properties.get("relative_angles", [0.0, 0.0, 0.0])
+                p, y, r = angles_deg[0], angles_deg[1], angles_deg[2]
+                mat = (
+                    Matrix.Translation(Vector(origin))
+                    @ Euler([radians(r), radians(p), radians(y)], 'XYZ').to_matrix().to_4x4()
+                )
+                atch = bpy.data.objects.new(
+                    name=self.truncate_id_name(att_name, "Attachment"), object_data=None)
+                coll.objects.link(atch)
+                atch.show_in_front = True
+                atch.empty_display_type = 'ARROWS'
+                atch.parent = arm
+                if parent_bone:
+                    atch.parent_type = 'BONE'
+                    atch.parent_bone = parent_bone
+                atch.vs.dmx_attachment = True
+                atch.matrix_local = mat
+                imported_att += 1
+            if imported_att:
+                print(f"- Imported {imported_att} attachment(s)")
+
+        # -----------------------------------------------------------------
+        # Jigglebones
+        # -----------------------------------------------------------------
+        cnt, missing = import_jigglebones_from_kv3(kv_doc, arm)
+        if cnt:
+            self.imported_jigglebones += cnt
+            print(f"- Imported {cnt} jigglebone(s) from {filename}")
+        if missing:
+            self.warning(f"Could not find bones for {len(missing)} jigglebone(s): {', '.join(missing)}")
+
+        printTimeMessage(qc.startTime, filename, "import", "VMDL")
+        return self.num_files_imported or 1

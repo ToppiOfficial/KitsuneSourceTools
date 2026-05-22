@@ -1231,12 +1231,8 @@ class ExportPlanner:
             return id.name
         if id.data.vs.action_selection in ("FILTERED", "FILTERED_ACTIONS"):
             return id.name
-        if ad.action and not State.useActionSlots:
-            return ad.action.name
-        if ad.action_slot and State.useActionSlots:
+        if ad.action_slot:
             return actionSlotExportName(ad)
-        if ad.nla_tracks and not State.useActionSlots:
-            return id.name
         return id.name
 
 
@@ -1729,7 +1725,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
     def execute(self, context) -> set:
         if State.datamodelEncoding != 0 and context.scene.vs.export_format == "DMX":
             datamodel.check_support("binary", State.datamodelEncoding)
-            if State.datamodelEncoding < 3 and State.datamodelFormat > 11 and not context.scene.vs.use_kv2:
+            if State.datamodelEncoding < 3 and State.datamodelFormat > 11 and not State.use_kv2:
                 self.report({"ERROR"}, "DMX format \"Model {}\" requires DMX encoding \"Binary 3\" or later".format(State.datamodelFormat))
                 return {"CANCELLED"}
         if not context.scene.vs.export_path:
@@ -2071,7 +2067,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
         if isinstance(source, bpy.types.Object) and source.type == "ARMATURE" and source.data.vs.action_selection != "CURRENT":
             baked_armature = bake_results[0].object
-            if State.useActionSlots and source.data.vs.action_selection == "FILTERED":
+            if source.data.vs.action_selection == "FILTERED":
                 for slot in actionSlotsForFilter(baked_armature):
                     baked_armature.animation_data.action_slot = slot
                     self.files_exported += write_func(source, bake_results, self.sanitiseFilename(slot.name_display), path)
@@ -2527,12 +2523,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             parent = parent.parent
 
                         mat = get_bone_matrix(pb, rest_space=not is_anim)
-                        if self.armature.data.vs.legacy_rotation:
-                            mat @= mat_BlenderToSMD
                         if parent:
                             pmat = get_bone_matrix(parent, rest_space=not is_anim)
-                            if self.armature.data.vs.legacy_rotation:
-                                pmat @= mat_BlenderToSMD
                             mat = pmat.inverted() @ mat
                         else:
                             mat = self.armature.matrix_world @ mat
@@ -2541,7 +2533,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
                 self.smd_file.write("end\n")
                 ops.object.mode_set(mode="OBJECT")
-                print(f"- Exported {anim_len} frames{' (legacy rotation)' if self.armature.data.vs.legacy_rotation else ''}")
+                print(f"- Exported {anim_len} frames")
 
             done_header = False
             for bake in [b for b in bake_results if b.object.type != "ARMATURE"]:
@@ -3448,11 +3440,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     bpy.ops.object.mode_set(mode="POSE")
                     ops.pose.armature_apply()
 
-                    if State.useActionSlots:
-                        fcurves = channelBagForNewActionSlot(vca_arm, vca_name).fcurves
-                    else:
-                        action = vca_arm.animation_data_create().action = bpy.data.actions.new("vcaanim_" + vca_name)
-                        fcurves = action.fcurves
+                    fcurves = channelBagForNewActionSlot(vca_arm, vca_name).fcurves
 
                     for ax in range(2):
                         fc = fcurves.new(f'pose.bones["vcabone_{vca_name}"].location', index=ax)
@@ -3571,7 +3559,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         bpy.context.window_manager.progress_update(0.99)
         print("- Writing DMX...")
         try:
-            if bpy.context.scene.vs.use_kv2:
+            if State.use_kv2:
                 dm.write(filepath, "keyvalues2", 1)
             else:
                 dm.write(filepath, "binary", State.datamodelEncoding)

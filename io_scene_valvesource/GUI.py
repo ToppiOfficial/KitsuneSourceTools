@@ -153,7 +153,7 @@ class SMD_PT_Scene(Panel):
 
         if State.datamodelEncoding != 0:
             row = box.row().split(factor=0.33)
-            row.label(text=get_id("export_format") + ":")
+            row.label(text=get_id("export_format", True) + ":")
             row.row().prop(scene.vs, "export_format", expand=True)
 
         if scene.vs.export_format == 'DMX':
@@ -168,25 +168,25 @@ class SMD_PT_Scene(Panel):
                 box.prop(scene.vs, "material_path")
         else:
             row = box.split(factor=0.33)
-            row.label(text=get_id("smd_format") + ":")
+            row.label(text=get_id("smd_format", True) + ":")
             row.row().prop(scene.vs, "smd_format", expand=True)
 
         #Scene
         
         row = box.row().split(factor=0.33)
-        row.label(text=get_id("up_axis") + ":")
+        row.label(text=get_id("up_axis", True) + ":")
         row.row().prop(scene.vs, "up_axis", expand=True)
 
         row = box.row().split(factor=0.33)
-        row.label(text=get_id("up_axis_offset") + ":")
+        row.label(text=get_id("up_axis_offset", True) + ":")
         row.row().prop(scene.vs, "up_axis_offset", expand=True)
 
         row = box.row().split(factor=0.33)
-        row.label(text=get_id("forward_axis") + ":")
+        row.label(text=get_id("forward_axis", True) + ":")
         row.row().prop(scene.vs, "forward_axis", expand=True)
 
         row = box.row().split(factor=0.33)
-        row.label(text=get_id("world_scale") + ":")
+        row.label(text=get_id("world_scale", True) + ":")
         row.row().prop(scene.vs, "world_scale")
 
         # Mesh
@@ -195,8 +195,7 @@ class SMD_PT_Scene(Panel):
 
         # OTHERS
         box1 = box.box().column(align=True)
-        box1.label(text='Options', icon='OPTIONS')
-        box1.prop(context.scene.vs,"use_kv2", text='Write ASCII DMX File')
+        box1.label(text=get_id('label_options', format_string=True), icon='OPTIONS')
         box1.prop(scene.vs, "prefab_to_clipboard")
 
 
@@ -256,7 +255,7 @@ class SMD_PT_KitsuneResource(Panel):
             col.prop(vs, 'kitsuneresource_flag_no_mat_local')
             col.prop(vs, 'kitsuneresource_flag_archive_old')
 
-        col.prop(vs, 'kitsuneresource_args', text="Extra Args")
+        col.prop(vs, 'kitsuneresource_args', text=get_id('label_extra_args', True))
 
         col = box.column()
         col.enabled = len(vs.kitsuneresource_config) > 0
@@ -632,7 +631,7 @@ class SMD_PT_Properties(Panel):
         if active_object is None: return
 
         box = layout.box().column(align=True)
-        box.label(text='Export Options', icon='SETTINGS')
+        box.label(text=get_id('label_export_options', format_string=True), icon='SETTINGS')
         box.prop(active_object.vs, 'export')
 
 
@@ -722,23 +721,19 @@ class SMD_PT_Armature(Properties_SubPanel):
         col = box.column()
         col.row().prop(active_object.data.vs, "action_selection", expand=True)
         if active_object.data.vs.action_selection != 'CURRENT':
-            is_slot_filter = active_object.data.vs.action_selection == 'FILTERED' and State.useActionSlots
+            is_slot_filter = active_object.data.vs.action_selection == 'FILTERED'
             col.prop(active_object.vs, "action_filter", text=get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
             col.prop(active_object.data.vs, "reset_pose_per_anim")
-
-        if active_object.animation_data and not State.useActionSlots:
-            col.template_ID(active_object.animation_data, "action", new="action.new")
 
         box = layout.box()
         col = box.column()
         col.enabled = bool(State.exportFormat == ExportFormat.SMD)
         col.prop(active_object.data.vs,"implicit_zero_bone")
-        col.prop(active_object.data.vs,"legacy_rotation")
 
         box = layout.box()
         col = box.column(align=True)
         col.prop(active_object.data.vs, "ignore_bone_exportnames")
-        col.label(text='Direction Naming:')
+        col.label(text=get_id('label_direction_naming', format_string=True))
         
         row = col.row()
         row.prop(active_object.data.vs, 'bone_direction_naming_left', text='Left')
@@ -794,14 +789,14 @@ class SMD_PT_BoneData(Properties_SubPanel):
         col.prop(active_bone.vs, 'export_name', placeholder=active_bone_exportname, text='')
         col.separator()
         col.prop(active_bone.vs, 'bone_sort_order', slider=True)
-        col.label(text='Export Name: {}'.format(active_bone_exportname))
+        col.label(text='{}: {}'.format(get_id('label_export_name_format', True), active_bone_exportname))
 
         col.operator(SMD_OT_CopyBoneExportName.bl_idname, icon='COPY_ID')
         
         split = box.split(factor=0.5)
         
         col_left = split.column(align=True)
-        col_left.label(text='Location Offset:', icon='ORIENTATION_LOCAL')
+        col_left.label(text=get_id('label_location_offset', format_string=True), icon='ORIENTATION_LOCAL')
         col_left.prop(active_bone_vs, 'ignore_location_offset', text='Ignore', toggle=True)
         
         sub1 = col_left.column(align=True)
@@ -811,7 +806,7 @@ class SMD_PT_BoneData(Properties_SubPanel):
         sub1.prop(active_bone_vs, 'export_location_offset_z')
         
         col_right = split.column(align=True)
-        col_right.label(text='Rotation Offset:', icon='ORIENTATION_GIMBAL')
+        col_right.label(text=get_id('label_rotation_offset', format_string=True), icon='ORIENTATION_GIMBAL')
         col_right.prop(active_bone_vs, 'ignore_rotation_offset', text='Ignore', toggle=True)
         
         sub2 = col_right.column(align=True)
@@ -837,9 +832,9 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         active_object = context.object
         active_armature = get_armature(active_object)
         active_bone = context.active_bone
-        
+
         box = layout.box()
-        box.label(text='Jigglebone Properties')
+        box.label(text=get_id('label_jigglebone_properties', format_string=True))
         if active_bone and active_bone.select:
             copyop = box.operator(SMD_OT_CopySourceBoneProps.bl_idname, text='Copy Jigglebone Properties')
             copyop.to_invoke = False
@@ -850,7 +845,7 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
             self.draw_jigglebone_properties(box, active_bone)
         else:
             box = box.box()
-            box.label(text='Select a Valid Bone', icon='ERROR')
+            box.label(text=get_id('label_select_valid_bone', format_string=True), icon='ERROR')
         
     def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.25, 
                             clipboard_text= 'Write to Clipboard',
@@ -882,10 +877,10 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         box = layout
         col = box.column(align=False)
         
-        col.label(text='Jiggle Type:', icon='DRIVER')
+        col.label(text=get_id('label_jiggle_type', format_string=True), icon='DRIVER')
         subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_flex_type', text='Flexibility')
-        subcol.prop(vs_bone, 'jiggle_base_type', text='Base Type')
+        subcol.prop(vs_bone, 'jiggle_flex_type', text=get_id('label_jiggle_flexibility', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_type', text=get_id('label_base_type', format_string=True))
         
         col.separator(factor=0.5)
         
@@ -903,32 +898,32 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         box = layout.box()
         col = box.column(align=False)
         
-        col.label(text='Physical Properties:', icon='PHYSICS')
+        col.label(text=get_id('label_physical_properties', format_string=True), icon='PHYSICS')
         subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text='Use Bone Length')
+        subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text=get_id('label_use_bone_length', format_string=True))
         if not vs_bone.use_bone_length_for_jigglebone_length:
-            subcol.prop(vs_bone, 'jiggle_length', text='Length')
-        subcol.prop(vs_bone, 'jiggle_tip_mass', text='Tip Mass')
+            subcol.prop(vs_bone, 'jiggle_length', text=get_id('label_jiggle_length', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_tip_mass', text=get_id('label_jiggle_tip_mass', format_string=True))
         
         if vs_bone.jiggle_flex_type == 'FLEXIBLE':
             col.separator(factor=0.5)
-            col.label(text='Stiffness & Damping:', icon='FORCE_TURBULENCE')
+            col.label(text=get_id('label_stiffness_damping', format_string=True), icon='FORCE_TURBULENCE')
             
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True, text='Yaw Stiffness')
-            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True, text='Yaw Damping')
+            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True, text=get_id('label_yaw_stiffness', format_string=True))
+            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True, text=get_id('label_yaw_damping', format_string=True))
             
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True, text='Pitch Stiffness')
-            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True, text='Pitch Damping')
+            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True, text=get_id('label_pitch_stiffness', format_string=True))
+            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True, text=get_id('label_pitch_damping', format_string=True))
             
             col.separator(factor=0.5)
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True, text='Allow Length Flex')
+            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True, text=get_id('label_allow_length_flex', format_string=True))
             
             if vs_bone.jiggle_allow_length_flex:
-                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True, text='Along Stiffness')
-                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True, text='Along Damping')
+                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True, text=get_id('label_along_stiffness', format_string=True))
+                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True, text=get_id('label_along_damping', format_string=True))
         
         layout.separator(factor=0.5)
         self._draw_angle_constraints(layout, vs_bone)
@@ -937,11 +932,11 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         box = layout.box()
         col = box.column(align=False)
         
-        col.label(text='Angle Constraints:', icon='CON_ROTLIMIT')
+        col.label(text=get_id('label_angle_constraints', format_string=True), icon='CON_ROTLIMIT')
         row = col.row(align=True)
-        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True, text='Angle')
-        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True, text='Yaw')
-        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True, text='Pitch')
+        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True, text=get_id('label_angle', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True, text=get_id('label_yaw', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True, text=get_id('label_pitch', format_string=True))
         
         has_any = any([
             vs_bone.jiggle_has_angle_constraint,
@@ -960,37 +955,37 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         
         if vs_bone.jiggle_has_yaw_constraint:
             subcol = col.column(align=False)
-            subcol.label(text='Yaw Limits:', icon='EMPTY_SINGLE_ARROW')
+            subcol.label(text=get_id('label_yaw_limits', format_string=True), icon='EMPTY_SINGLE_ARROW')
             row = subcol.row(align=True)
-            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True, text='Min')
-            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text='Max')
-            subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text='Friction')
+            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True, text=get_id('label_min', format_string=True))
+            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text=get_id('label_max', format_string=True))
+            subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text=get_id('label_friction', format_string=True))
             col.separator(factor=0.3)
         
         if vs_bone.jiggle_has_pitch_constraint:
             subcol = col.column(align=False)
-            subcol.label(text='Pitch Limits:', icon='EMPTY_SINGLE_ARROW')
+            subcol.label(text=get_id('label_pitch_limits', format_string=True), icon='EMPTY_SINGLE_ARROW')
             row = subcol.row(align=True)
-            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True, text='Min')
-            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True, text='Max')
-            subcol.prop(vs_bone, 'jiggle_pitch_friction', slider=True, text='Friction')
+            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True, text=get_id('label_min', format_string=True))
+            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True, text=get_id('label_max', format_string=True))
+            subcol.prop(vs_bone, 'jiggle_pitch_friction', slider=True, text=get_id('label_friction', format_string=True))
     
     def _draw_basespring_props(self, layout: UILayout, vs_bone) -> None:
         box = layout.box()
         col = box.column(align=False)
         
-        col.label(text='Base Spring Properties:', icon='FORCE_HARMONIC')
+        col.label(text=get_id('label_base_spring_properties', format_string=True), icon='FORCE_HARMONIC')
         subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_base_stiffness', slider=True, text='Stiffness')
-        subcol.prop(vs_bone, 'jiggle_base_damping', slider=True, text='Damping')
-        subcol.prop(vs_bone, 'jiggle_base_mass', slider=True, text='Mass')
+        subcol.prop(vs_bone, 'jiggle_base_stiffness', slider=True, text=get_id('label_stiffness', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_damping', slider=True, text=get_id('label_damping', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_mass', slider=True, text=get_id('label_mass', format_string=True))
         
         col.separator(factor=0.5)
-        col.label(text='Side Constraints:', icon='CON_LOCLIMIT')
+        col.label(text=get_id('label_side_constraints', format_string=True), icon='CON_LOCLIMIT')
         row = col.row(align=True)
-        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True, text='Side')
-        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True, text='Up')
-        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True, text='Forward')
+        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True, text=get_id('label_side', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True, text=get_id('label_up', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True, text=get_id('label_forward', format_string=True))
         
         has_any = any([
             vs_bone.jiggle_has_left_constraint,
@@ -1023,13 +1018,13 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         box = layout.box()
         col = box.column(align=False)
         
-        col.label(text='Boing Properties:', icon='FORCE_FORCE')
+        col.label(text=get_id('label_boing_properties', format_string=True), icon='FORCE_FORCE')
         subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True, text='Impact Speed')
-        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True, text='Impact Angle')
-        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True, text='Damping Rate')
-        subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text='Frequency')
-        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text='Amplitude')
+        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True, text=get_id('label_impact_speed', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True, text=get_id('label_impact_angle', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True, text=get_id('label_damping_rate', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text=get_id('label_frequency', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text=get_id('label_amplitude', format_string=True))
 
     
 class SMD_PT_Mesh(Properties_SubPanel):
@@ -1238,9 +1233,9 @@ class SMD_PT_Vertexmap(Properties_SubPanel):
         col = box.column(align=True)
         
         if State.exportFormat != ExportFormat.DMX:
-            box.label(text='Only Applicable in DMX!', icon='ERROR')
+            box.label(text=get_id('label_dmx_only', format_string=True), icon='ERROR')
         
-        col.label(text='Vertex Maps:')
+        col.label(text=get_id('label_vertex_maps', format_string=True))
         for map_name in vertex_maps:
             r = col.row()
             r.label(text=get_id(map_name),icon='GROUP_VCOL')
@@ -1272,7 +1267,7 @@ class SMD_PT_Vertexfloatmap(Properties_SubPanel):
         box : UILayout = layout.box()
 
         col = box.column()
-        col.label(text='Vertex Float Maps:')
+        col.label(text=get_id('label_vertex_float_maps', format_string=True))
         
         col.scale_y = 1.15
         
@@ -1320,8 +1315,8 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
             return
             
         box = layout.box()
-        
-        box.label(text="Target Object: {}".format(active_object.name), icon='MESH_DATA' if is_mesh_compatible(active_object) else "OUTLINER_COLLECTION")
+
+        box.label(text='{}: {}'.format(get_id('label_target_object', True), active_object.name), icon='MESH_DATA' if is_mesh_compatible(active_object) else "OUTLINER_COLLECTION")
         row = box.row(align=True)
         row.operator(SMD_OT_AddVertexAnimation.bl_idname, icon="ADD", text="Add")
         
@@ -1344,7 +1339,7 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
     def draw_header(self, context):
         active_object = context.object
         is_outline = active_object.vs.use_toon_edgeline
-        label = '{} ({})'.format(pgettext("Toon Outline/Edgeline"), str(is_outline)) if is_mesh_compatible(active_object) else pgettext("Toon Outline/Edgeline")
+        label = '{} ({})'.format(get_id("panel_toon_outline_edgeline", True), str(is_outline)) if is_mesh_compatible(active_object) else get_id("panel_toon_outline_edgeline", True)
         self.layout.label(text=label, icon='MOD_SOLIDIFY')
         
     def draw(self, context):
@@ -1382,7 +1377,7 @@ class SMD_PT_LOD(Properties_SubPanel):
     def draw_header(self, context):
         active_object = context.object
         is_lod = active_object.vs.generate_lods
-        label = '{} ({})'.format(pgettext("Level Of Detail"), str(is_lod)) if is_mesh_compatible(active_object) else pgettext("Level Of Detail")
+        label = '{} ({})'.format(get_id("panel_level_of_detail", True), str(is_lod)) if is_mesh_compatible(active_object) else get_id("panel_level_of_detail", True)
         self.layout.label(text=label, icon='MOD_DECIM')
         
     def draw(self, context):
@@ -1416,7 +1411,7 @@ class SMD_PT_MESHSPLIT(Properties_SubPanel):
     def draw_header(self, context):
         active_object = context.object
         is_meshsplited = active_object.vs.use_mesh_split
-        label = '{} ({})'.format(pgettext("Mesh Split"), str(is_meshsplited)) if is_mesh_compatible(active_object) else pgettext("Mesh Split")
+        label = '{} ({})'.format(get_id("panel_mesh_split", True), str(is_meshsplited)) if is_mesh_compatible(active_object) else get_id("panel_mesh_split", True)
         self.layout.label(text=label, icon='TEXTURE_DATA')
         
     def draw(self, context):
@@ -1451,7 +1446,7 @@ class SMD_PT_BACKFACE(Properties_SubPanel):
     def draw_header(self, context):
         active_object = context.object
         generate_backface = active_object.vs.generate_backface
-        label = '{} ({})'.format(pgettext("Backface"), str(generate_backface)) if is_mesh_compatible(active_object) else pgettext("Backface")
+        label = '{} ({})'.format(get_id("panel_backface", True), str(generate_backface)) if is_mesh_compatible(active_object) else get_id("panel_backface", True)
         self.layout.label(text=label, icon='NORMALS_FACE')
         
     def draw(self, context):
@@ -1607,8 +1602,8 @@ class SMD_MT_FlexControllerSpecials(Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='IMPORT', text="Add All")
-        layout.operator(SMD_OT_SortFlexControllers.bl_idname, icon='SORTALPHA', text="Sort by Name")
+        layout.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='IMPORT', text=get_id('label_add_all', True))
+        layout.operator(SMD_OT_SortFlexControllers.bl_idname, icon='SORTALPHA', text=get_id('label_sort_by_name', True))
         layout.operator(SMD_OT_AutoAssignFlexGroups.bl_idname, icon='GROUP')
         layout.operator(SMD_OT_CopyFlexControllers.bl_idname, icon='PASTEDOWN')
         layout.separator()
@@ -2149,7 +2144,7 @@ class SMD_PT_All_Jigglebones(Properties_SubPanel):
         active_armature = get_armature(context.object)
         jigglebones = get_jigglebones(active_armature)
 
-        self.bl_label = 'All Jigglebones' + ' (' + str(len(jigglebones)) + ')'
+        self.bl_label = '{} ({})'.format(get_id('label_all_jigglebones', True), len(jigglebones))
     
     def draw(self, context):
         layout = self.layout
@@ -2191,8 +2186,8 @@ class SMD_PT_All_Hitboxes(Properties_SubPanel):
         
         active_armature = get_armature(context.object)
         hitboxes = get_hitboxes(active_armature)
-        
-        self.bl_label = 'All Hitboxes' + ' (' + str(len(hitboxes)) + ')'
+
+        self.bl_label = '{} ({})'.format(get_id('label_all_hitboxes', True), len(hitboxes))
         
     def draw(self, context):
         layout = self.layout
@@ -2230,8 +2225,8 @@ class SMD_PT_All_Attachments(Properties_SubPanel):
         
         active_armature = get_armature(context.object)
         attachments = get_attachments(active_armature)
-        
-        self.bl_label = 'All Attachments' + ' (' + str(len(attachments)) + ')'
+
+        self.bl_label = '{} ({})'.format(get_id('label_all_attachments', True), len(attachments))
         
     def draw(self, context):
         layout = self.layout

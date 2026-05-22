@@ -2,916 +2,1698 @@
 _languages = ['ja']
 
 _data = {
-    'vca_sequence': {
-        'ja': "シクウェンスを生成します",
-        'en': "Generate Sequence",
-    },
-    'controllers_simple_tip': {
-        'en': "Generate one flex controller per shape key",
-    },
-    'vertmap_group_props': {
-        'en': "Vertex Maps",
-    },
-    'vertmap_group_props_float': {
-        'en': "Float Maps",
+    'action_filter': {
+        'en': "Action Filter",
+        'ja': "アクションフィルター",
     },
     'action_selection_filter_tip': {
         'en': "All actions that match the armature's filter term and have users",
-    },
-    'curve_poly_side_fwd': {
-        'en': "Forward (outer) side",
-    },
-    'action_selection_current_tip': {
-        'en': "The armature's currently assigned action or NLA tracks",
-    },
-    'action_slot_selection_current_tip': {
-        'en': "The armature's active action slot",
-    },
-    'valvesource_cloth_enable': {
-        'en': "Cloth Physics Enable",
-    },
-    'subdir_tip': {
-        'en': "Optional path relative to scene output folder",
-    },
-    'controllers_mode': {
-        'ja': "DMXフレックスのコントローラー生成",
-        'en': "DMX Flex Controller generation",
-    },
-    'scene_export': {
-        'ja': "シーンをエクスポート",
-        'en': "Scene Export",
-    },
-    'shape_stereo_mode_tip': {
-        'en': "How stereo split balance should be defined",
-    },
-    'bone_rot_legacy': {
-        'en': "Legacy rotation",
-    },
-    'controllers_advanced_tip': {
-        'en': "Insert the flex controllers of an existing DMX file",
-    },
-    'controllers_strict_tip': {
-        'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored.",
-    },
-    'triangulate_tip': {
-        'en': "Avoids concave DMX faces, which are not supported by Source",
-    },
-    'action_filter': {
-        'ja': "アクションフィルター",
-        'en': "Action Filter",
-    },
-    'slot_filter': {
-        'en': "Slot Filter",
-    },
-    'vca_start_tip': {
-        'en': "Scene frame at which to start recording Vertex Animation",
-    },
-    'action_filter_tip': {
-        'en': "Actions with names matching this filter pattern and which have users will be exported",
-    },
-    'slot_filter_tip': {
-        'en': "Slots of the assigned Action with names matching this wildcard filter pattern will be exported (blank to export everything)",
-    },
-    'shape_stereo_sharpness_tip': {
-        'en': "How sharply stereo flex shapes should transition from left to right",
-    },
-    'vca_sequence_tip': {
-        'en': "On export, generate an animation sequence that drives this Vertex Animation",
-    },
-    'shape_stereo_mode': {
-        'en': "DMX stereo split mode",
-    },
-    'dummy_bone': {
-        'en': "Implicit motionless bone",
-    },
-    'vca_group_props': {
-        'ja': "頂点アニメーション",
-        'en': "Vertex Animation",
-    },
-    'curve_poly_side': {
-        'ja': "ポリゴン生成",
-        'en': "Polygon Generation",
-    },
-    'group_merge_mech': {
-        'ja': "メカニカルな局部は結合",
-        'en': "Merge mechanical parts",
-    },
-    'action_selection_mode_tip': {
-        'en': "How actions are selected for export",
-    },
-    'use_scene_export_tip': {
-        'en': "Export this item with the scene",
-    },
-    'curve_poly_side_back': {
-        'en': "Backward (inner) side",
-    },
-    'valvesource_vertex_blend': {
-        'en': "Blend Params RGB",
-    },
-    'bone_rot_legacy_tip': {
-        'en': "Remaps the Y axis of bones in this armature to Z, for backwards compatibility with old imports (SMD only)",
-    },
-    'controller_source': {
-        'ja': "DMXフレックスのコントローラーのソースファイル ",
-        'en': "DMX Flex Controller source",
-    },
-    'group_suppress_tip': {
-        'en': "Export this group's objects individually",
-    },
-    'action_selection_current': {
-        'ja': "現在 / NLA",
-        'en': "Current / NLA",
-    },
-    'action_slot_current': {
-        'ja': "現在のアクションスロット",
-        'en': "Current Action Slot",
-    },
-    'shape_stereo_sharpness': {
-        'en': "DMX stereo split sharpness",
-    },
-    'group_suppress': {
-        'ja': "ミュート",
-        'en': "Suppress",
-    },
-    'shape_stereo_vgroup': {
-        'en': "DMX stereo split vertex group",
-    },
-    'shape_stereo_vgroup_tip': {
-        'en': "The vertex group that defines stereo balance (0=Left, 1=Right)",
-    },
-    'controllers_source_tip': {
-        'en': "A DMX file (or Text datablock) containing flex controllers",
-    },
-    'valvesource_vertex_blend1': {
-        'en': "Blend Params Extra (?)",
-    },
-    'curve_poly_side_tip': {
-        'en': "Determines which side(s) of this curve will generate polygons when exported",
-    },
-    'triangulate': {
-        'ja': "三角測量",
-        'en': "Triangulate",
-    },
-    'curve_poly_side_both': {
-        'en': "Both sides",
-    },
-    'group_merge_mech_tip': {
-        'en': "Optimises DMX export of meshes sharing the same parent bone",
+        'ja': "アーマチュアのフィルターに一致するすべてのアクション",
     },
     'action_selection_mode': {
         'en': "Action Selection",
+        'ja': "アクション選択",
     },
-    'shape_stereo_mode_vgroup': {
-        'en': "Use a vertex group to define stereo balance",
+    'action_selection_mode_tip': {
+        'en': "How actions are selected for export",
+        'ja': "アクションのエクスポート選択方法",
     },
-    'vca_end_tip': {
-        'en': "Scene frame at which to stop recording Vertex Animation",
+    'action_slot_current': {
+        'en': "Current Action Slot",
+        'ja': "現在のアクションスロット",
     },
-    'valvesource_vertex_paint': {
-        'en': "Vertex Paint",
+    'action_slot_selection_current_tip': {
+        'en': "The armature's active action slot",
+        'ja': "アーマチュアのアクティブなアクションスロット",
     },
-    'controllers_mode_tip': {
-        'en': "How flex controllers are defined",
+    'activate_dep_shapes': {
+        'en': "Activate Dependency Shapes",
+        'ja': "依存シェイプを有効化",
     },
-    'subdir': {
-        'en': "Subfolder",
+    'activate_dep_shapes_success': {
+        'en': "Activated {0} dependency shapes",
+        'ja': "{0}個の依存シェイプを有効化しました",
     },
-    'dummy_bone_tip': {
-        'en': "Create a dummy bone for vertices which don't move. Emulates Blender's behaviour in Source, but may break compatibility with existing files (SMD only)",
-    },
-    'exportpanel_steam': {
-        'ja': "Steam コミュニティ",
-        'en': "Steam Community",
-    },
-    'exportables_arm_filter_result': {
-        'ja': "「{0}」アクション～{1}",
-        'en': "\"{0}\" actions ({1})",
-    },
-    'exportables_arm_no_slot_filter': {
-        'en': "All action slots ({0}) for \"{1}\"",
-    },
-    'exportables_flex_count_corrective': {
-        'ja': "是正シェイプ：{0}",
-        'en': "Corrective Shapes: {0}",
-    },
-    'exportables_curve_polyside': {
-        'ja': "ポリゴン生成：",
-        'en': "Polygon Generation:",
-    },
-    'exportmenu_title': {
-        'ja': "Source Tools エクスポート",
-        'en': "Source Tools Export",
-    },
-    'exportables_flex_help': {
-        'ja': "フレックス・コントローラーのヘレプ",
-        'en': "Flex Controller Help",
-    },
-    'exportpanel_title': {
-        'ja': "Source Engine エクスポート",
-        'en': "Source Engine Export",
-    },
-    'exportables_flex_src': {
-        'ja': "コントローラーのソースファイル ",
-        'en': "Controller Source",
-    },
-    'exportmenu_invalid': {
-        'en': "Cannot export selection",
-    },
-    'qc_title': {
-        'ja': "Source Engine QCのコンパイル",
-        'en': "Source Engine QC Compiles",
-    },
-    'exportables_flex_props': {
-        'ja': "フレックスのプロパティ",
-        'en': "Flex Properties",
-    },
-    'exportables_flex_generate': {
-        'ja': "コントローラーを生成します",
-        'en': "Generate Controllers",
-    },
-    'exportables_flex_split': {
-        'ja': "ステレオフルックスの差額：",
-        'en': "Stereo Flex Balance:",
-    },
-    'exportables_group_mute_suffix': {
-        'ja': "(ミユト)",
-        'en': "(suppressed)",
-    },
-    'exportmenu_scene': {
-        'ja': "シーンをエクスポート ({0}つファイル)",
-        'en': "Scene export ({0} files)",
-    },
-    'exportpanel_dmxver': {
-        'ja': "DMXのバージョン：",
-        'en': "DMX Version:",
-    },
-    'exportpanel_update': {
-        'ja': "更新アドオンの確認",
-        'en': "Check for updates",
-    },
-    'exportables_title': {
-        'ja': "Source Engineのエクスポート可能",
-        'en': "Source Engine Exportables",
-    },
-    'exportables_armature_props': {
-        'ja': "アーマティアのプロパティ",
-        'en': "Armature Properties ({0})",
-    },
-    'qc_bad_enginepath': {
-        'ja': "エンジンのパスが無効です",
-        'en': "Invalid Engine Path",
-    },
-    'qc_invalid_source2': {
-        'ja': "Source Engine 2はQCファイルが使いません",
-        'en': "QC files do not exist in Source 2",
-    },
-    'exportmenu_selected': {
-        'en': "Selected objects ({0} files)",
-    },
-    'qc_no_enginepath': {
-        'ja': "エンジンのパスはありません",
-        'en': "No Engine Path provided",
-    },
-    'exportables_curve_props': {
-        'ja': "カーブのプロパティ",
-        'en': "Curve Properties",
-    },
-    'exportables_flex_count': {
-        'ja': "シェイプ：{0}",
-        'en': "Shapes: {0}",
+    'activate_dep_shapes_tip': {
+        'en': "Activates shapes found in the name of the current shape (underscore delimited)",
+        'ja': "現在のシェイプ名からアンダースコア区切りで依存シェイプを有効化",
     },
     'activate_dependency_shapes': {
         'en': "Activate dependency shapes",
+        'ja': "依存シェイプを有効化",
     },
-    'settings_prop': {
-        'en': "Blender Source Tools settings",
+    'active_exportable': {
+        'en': "Active exportable",
+        'ja': "アクティブ・エクスポート可能",
     },
-    'bl_info_description': {
-        'en': "Importer and exporter for Valve Software's Source Engine. Supports SMD\\VTA, DMX and QC.",
+    'apply_drivers': {
+        'en': "Regenerate Shape Key Names From Drivers",
+        'ja': "ドライバーからシェイプキー名を再生成",
+    },
+    'apply_drivers_success': {
+        'en': "{0} shapes renamed.",
+        'ja': "{0}個のシェイプを名前変更しました。",
+    },
+    'apply_drivers_tip': {
+        'en': "Renames corrective shape keys so that each their names are a combination of the shape keys that control them (via Blender animation drivers)",
+        'ja': "ドライバーの組み合わせから是正シェイプキーを名前変更",
+    },
+    'bake_shapekey_as_basis_normals': {
+        'en': "Use Basis Normals For Shapekeys",
+        'ja': "シェイプキーにベースの法線を使用",
+    },
+    'bake_shapekey_as_basis_normals_tip': {
+        'en': "Preserve the basis shape normals when exporting, applying them to all shapekeys (useful for anime-style models)",
+        'ja': "すべてのシェイプキーにベースシェイプの法線を保持（アニメスタイル向け）",
+    },
+    'controller_source': {
+        'en': "DMX Flex Controller source",
+        'ja': "DMXフレックスのコントローラーのソースファイル ",
+    },
+    'controllers_advanced_tip': {
+        'en': "Insert the flex controllers of an existing DMX file",
+        'ja': "既存のDMXファイルからフレックスコントローラーを挿入",
+    },
+    'controllers_mode': {
+        'en': "DMX Flex Controller generation",
+        'ja': "DMXフレックスのコントローラー生成",
+    },
+    'controllers_mode_tip': {
+        'en': "How flex controllers are defined",
+        'ja': "フレックスコントローラーの定義方法",
+    },
+    'controllers_simple_tip': {
+        'en': "Generate one flex controller per shape key",
+        'ja': "シェイプキーごとに1つのフレックスコントローラーを生成",
+    },
+    'controllers_source_tip': {
+        'en': "A DMX file (or Text datablock) containing flex controllers",
+        'ja': "フレックスコントローラーを含むDMXファイルまたはテキストブロック",
+    },
+    'controllers_strict_tip': {
+        'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored.",
+        'ja': "明示的にリストされたシェイプキーのみエクスポート",
+    },
+    'curve_poly_side': {
+        'en': "Polygon Generation",
+        'ja': "ポリゴン生成",
+    },
+    'curve_poly_side_back': {
+        'en': "Backward (inner) side",
+        'ja': "背面（内側）",
+    },
+    'curve_poly_side_both': {
+        'en': "Both sides",
+        'ja': "両面",
+    },
+    'curve_poly_side_fwd': {
+        'en': "Forward (outer) side",
+        'ja': "前面（外側）",
+    },
+    'curve_poly_side_tip': {
+        'en': "Determines which side(s) of this curve will generate polygons when exported",
+        'ja': "カーブのどちら側にポリゴンを生成するか",
+    },
+    'dmx_encoding': {
+        'en': "DMX encoding",
+        'ja': "DMXの符号化",
+    },
+    'dmx_encoding_tip': {
+        'en': "Manual override for binary DMX encoding version",
+        'ja': "バイナリDMXエンコーディングバージョンの手動上書き",
+    },
+    'dmx_format': {
+        'en': "DMX format",
+        'ja': "DMXのフォーマット",
+    },
+    'dmx_format_tip': {
+        'en': "Manual override for DMX model format version",
+        'ja': "DMXモデルフォーマットバージョンの手動上書き",
+    },
+    'dmx_mat_path': {
+        'en': "Material Path",
+        'ja': "マテリアルのパス",
+    },
+    'dmx_mat_path_tip': {
+        'en': "Folder relative to game root containing VMTs referenced in this scene (DMX only)",
+        'ja': "VMTを含むゲームルートからの相対フォルダー（DMXのみ）",
+    },
+    'dummy_bone': {
+        'en': "Implicit motionless bone",
+        'ja': "暗黙の静止ボーン",
+    },
+    'dummy_bone_tip': {
+        'en': "Create a dummy bone for vertices which don't move. Emulates Blender's behaviour in Source, but may break compatibility with existing files (SMD only)",
+        'ja': "動かない頂点用のダミーボーンを作成（SMDのみ）",
+    },
+    'engine_path': {
+        'en': "Engine Path",
+        'ja': "エンジンのパス",
+    },
+    'engine_path_tip': {
+        'en': "Directory containing studiomdl (Source 1) or resourcecompiler (Source 2)",
+        'ja': "studiomdlまたはresourcecompilerを含むディレクトリ",
+    },
+    'export_format': {
+        'en': "Export Format",
+        'ja': "エクスポートのフォーマット",
     },
     'export_menuitem': {
         'en': "Source Engine (.smd, .vta, .dmx)",
+        'ja': "Source Engine (.smd, .vta, .dmx)",
     },
-    'help': {
-        'ja': "ヘレプ",
-        'en': "Help",
+    'exportables_arm_filter_result': {
+        'en': "\"{0}\" actions ({1})",
+        'ja': "「{0}」アクション～{1}",
     },
-    'bl_info_location': {
-        'ja': "ファイル > インポート / エクスポート、シーンのプロパティ",
-        'en': "File > Import/Export, Scene properties",
+    'exportables_arm_no_slot_filter': {
+        'en': "All action slots ({0}) for \"{1}\"",
+        'ja': "「{1}」のすべてのアクションスロット（{0}）",
     },
-    'import_menuitem': {
-        'en': "Source Engine (.smd, .vta, .dmx, .qc, .qci)",
+    'exportables_flex_count': {
+        'en': "Shapes: {0}",
+        'ja': "シェイプ：{0}",
     },
-    'exporter_err_nogroupitems': {
-        'en': "Nothing in Group \"{0}\" is enabled for export",
+    'exportables_flex_count_corrective': {
+        'en': "Corrective Shapes: {0}",
+        'ja': "是正シェイプ：{0}",
     },
-    'exporter_report_qc': {
-        'en': "{0} files exported and {2} QCs compiled ({3}/{4}) in {1} seconds",
+    'exportables_flex_generate': {
+        'en': "Generate Controllers",
+        'ja': "コントローラーを生成します",
     },
-    'exporter_err_relativeunsaved': {
-        'en': "Cannot export to a relative path until the blend file has been saved.",
+    'exportables_flex_help': {
+        'en': "Flex Controller Help",
+        'ja': "フレックス・コントローラーのヘレプ",
     },
-    'exporter_err_nopolys': {
-        'en': "Object {0} has no polygons, skipping",
+    'exportables_flex_split': {
+        'en': "Stereo Flex Balance:",
+        'ja': "ステレオフルックスの差額：",
     },
-    'exporter_err_hidden': {
-        'en': "Skipping {0}: object cannot be selected, probably due to being hidden by an animation driver.",
+    'exportables_flex_src': {
+        'en': "Controller Source",
+        'ja': "コントローラーのソースファイル ",
+    },
+    'exportables_group_mute_suffix': {
+        'en': "(suppressed)",
+        'ja': "(ミユト)",
+    },
+    'exportables_title': {
+        'en': "Source Engine Exportables",
+        'ja': "Source Engineのエクスポート可能",
     },
     'exporter_err_arm_nonuniform': {
         'en': "Armature \"{0}\" has non-uniform scale. Mesh deformation in Source will differ from Blender.",
-    },
-    'exporter_err_facesnotex_ormat': {
-        'en': "{0} faces on {1} did not have a Material or Texture assigned",
-    },
-    'exporter_err_arm_noanims': {
-        'en': "Couldn't find any animation for Armature \"{0}\"",
-    },
-    'exporter_err_dupeenv_arm': {
-        'en': "Armature modifier \"{0}\" found on \"{1}\", which already has a bone parent or constraint. Ignoring.",
+        'ja': "アーマチュア「{0}」のスケールが均一ではありません",
     },
     'exporter_err_bonelimit': {
         'en': "Exported {0} bones, but SMD only supports {1}!",
-    },
-    'exporter_err_unmergable': {
-        'en': "Skipping vertex animations on Group \"{0}\", which could not be merged into a single DMX object due to its envelope. To fix this, either ensure that the entire Group has the same bone parent or remove all envelopes.",
-    },
-    'exporter_warn_source2names': {
-        'en': "Consider renaming \"{0}\": in Source 2, model names can contain only lower-case characters, digits, and/or underscores.",
-    },
-    'exporter_warn_unicode': {
-        'ja': "{0}「{1}」の名前はUnicode文字を含みます。間違ってコンパイルすることが可能です。",
-        'en': "Name of {0} \"{1}\" contains Unicode characters. This may not compile correctly!",
-    },
-    'exporter_err_flexctrl_loadfail': {
-        'en': "Could not load flex controllers. Python reports: {0}",
-    },
-    'qc_compile_err_nofiles': {
-        'en': "Cannot compile, no QCs provided. The Blender Source Tools do not generate QCs.",
-    },
-    'exporter_err_missing_corrective_target': {
-        'en': "Found corrective shape key \"{0}\", but not target shape \"{1}\"",
-    },
-    'qc_compile_complete': {
-        'ja': "{0}つ「{1}」QCがコンパイルしました",
-        'en': "Compiled {0} {1} QCs",
-    },
-    'exporter_err_shapes_decimate': {
-        'en': "Cannot export shape keys from \"{0}\" because it has a '{1}' Decimate modifier. Only Un-Subdivide mode is supported.",
-    },
-    'exporterr_goldsrc_multiweights': {
-        'en': "{0} verts on \"{1}\" have multiple weight links. GoldSrc does not support this!",
-    },
-    'exporter_err_splitvgroup_undefined': {
-        'en': "Object \"{0}\" uses Vertex Group stereo split, but does not define a Vertex Group to use.",
-    },
-    'exporter_err_open': {
-        'en': "Could not create {0} file. Python reports: {1}.",
-    },
-    'qc_compile_title': {
-        'ja': "QCコンパイル",
-        'en': "Compile QC",
-    },
-    'exporter_err_noexportables': {
-        'en': "Found no valid objects for export",
-    },
-    'exporter_warn_sanitised_filename': {
-        'en': "Sanitised exportable name \"{0}\" to \"{1}\"",
-    },
-    'exporter_warn_correctiveshape_duplicate': {
-        'en': "Corrective shape key \"{0}\" has the same activation conditions ({1}) as \"{2}\". Skipping.",
-    },
-    'exporter_err_flexctrl_missing': {
-        'en': "No flex controller defined for shape {0}.",
-    },
-    'qc_compile_err_compiler': {
-        'en': "Could not execute studiomdl from \"{0}\"",
-    },
-    'exporter_err_facesnotex': {
-        'en': "{0} faces on {1} did not have a Texture assigned",
-    },
-    'exporter_err_flexctrl_undefined': {
-        'en': "Could not find flex controllers for \"{0}\"",
-    },
-    'exporter_warn_source2smdsupport': {
-        'en': "Source 2 no longer supports SMD.",
-    },
-    'exporter_tip': {
-        'en': "Export and compile Source Engine models",
-    },
-    'exporter_warn_weightlinks_culled': {
-        'en': "{0} excess weight links beneath scene threshold of {1:0.2} culled on \"{2}\".",
-    },
-    'exporter_prop_scene_tip': {
-        'en': "Export all items selected in the Source Engine Exportables panel",
-    },
-    'exporter_err_dmxenc': {
-        'en': "DMX format \"Model {0}\" requires DMX encoding \"Binary 3\" or later",
-    },
-    'exporter_prop_group': {
-        'ja': "グループの名前",
-        'en': "Group Name",
-    },
-    'qc_compile_tip': {
-        'en': "Compile QCs with the Source SDK",
-    },
-    'exporter_report_suffix': {
-        'en': " with {0} Errors and {1} Warnings",
-    },
-    'exporter_err_groupempty': {
-        'en': "Group {0} has no active objects",
+        'ja': "{0}ボーンをエクスポートしましたが、SMDは{1}ボーンまでしかサポートしていません",
     },
     'exporter_err_dmxother': {
         'en': "Cannot export DMX. Resolve errors with the SOURCE ENGINE EXPORT panel in SCENE PROPERTIES.",
+        'ja': "DMXをエクスポートできません。SCENE PROPERTIESのSOURCE ENGINE EXPORTパネルでエラーを解決してください",
     },
-    'exporter_prop_group_tip': {
-        'ja': "エクスポートにグループの名前",
-        'en': "Name of the Group to export",
-    },
-    'exporter_warn_multiarmature': {
-        'en': "Multiple armatures detected",
-    },
-    'exporter_err_solidifyinside': {
-        'en': "Curve {0} has the Solidify modifier with rim fill, but is still exporting polys on both sides.",
+    'exporter_err_dupeenv_arm': {
+        'en': "Armature modifier \"{0}\" found on \"{1}\", which already has a bone parent or constraint. Ignoring.",
+        'ja': "「{1}」にアーマチュアモディファイアー「{0}」が見つかりましたが、既にボーン親または制約があります。無視します",
     },
     'exporter_err_dupeenv_con': {
         'en': "Bone constraint \"{0}\" found on \"{1}\", which already has a bone parent. Ignoring.",
+        'ja': "「{1}」にボーン制約「{0}」が見つかりましたが、既にボーン親があります。無視します",
     },
-    'exporter_err_unconfigured': {
-        'en': "Scene unconfigured. See the SOURCE ENGINE EXPORT panel in SCENE PROPERTIES.",
+    'exporter_err_facesnotex_ormat': {
+        'en': "{0} faces on {1} did not have a Material or Texture assigned",
+        'ja': "{1}の{0}面にマテリアルまたはテクスチャが割り当てられていません",
+    },
+    'exporter_err_flexctrl_loadfail': {
+        'en': "Could not load flex controllers. Python reports: {0}",
+        'ja': "フレックスコントローラーを読み込めませんでした。Pythonの報告: {0}",
+    },
+    'exporter_err_flexctrl_missing': {
+        'en': "No flex controller defined for shape {0}.",
+        'ja': "シェイプ{0}のフレックスコントローラーが定義されていません",
+    },
+    'exporter_err_flexctrl_undefined': {
+        'en': "Could not find flex controllers for \"{0}\"",
+        'ja': "「{0}」のフレックスコントローラーが見つかりません",
+    },
+    'exporter_err_groupempty': {
+        'en': "Group {0} has no active objects",
+        'ja': "グループ{0}にアクティブなオブジェクトがありません",
+    },
+    'exporter_err_groupmuted': {
+        'en': "Group {0} is suppressed",
+        'ja': "ゲルーポ「{0}」はミュートです",
+    },
+    'exporter_err_hidden': {
+        'en': "Skipping {0}: object cannot be selected, probably due to being hidden by an animation driver.",
+        'ja': "{0}をスキップ: おそらくアニメーションドライバーにより非表示です",
     },
     'exporter_err_makedirs': {
         'en': "Could not create export folder. Python reports: {0}",
+        'ja': "エクスポートフォルダーを作成できませんでした。Pythonの報告: {0}",
+    },
+    'exporter_err_missing_corrective_target': {
+        'en': "Found corrective shape key \"{0}\", but not target shape \"{1}\"",
+        'ja': "是正シェイプキー「{0}」が見つかりましたが、ターゲットシェイプ「{1}」が見つかりません",
+    },
+    'exporter_err_nogroupitems': {
+        'en': "Nothing in Group \"{0}\" is enabled for export",
+        'ja': "グループ「{0}」でエクスポートが有効なオブジェクトがありません",
+    },
+    'exporter_err_nopolys': {
+        'en': "Object {0} has no polygons, skipping",
+        'ja': "オブジェクト{0}にポリゴンがありません。スキップします",
+    },
+    'exporter_err_open': {
+        'en': "Could not create {0} file. Python reports: {1}.",
+        'ja': "{0}ファイルを作成できませんでした。Pythonの報告: {1}",
+    },
+    'exporter_err_relativeunsaved': {
+        'en': "Cannot export to a relative path until the blend file has been saved.",
+        'ja': "blendファイルが保存されるまで相対パスにエクスポートできません",
+    },
+    'exporter_err_shapes_decimate': {
+        'en': "Cannot export shape keys from \"{0}\" because it has a '{1}' Decimate modifier. Only Un-Subdivide mode is supported.",
+        'ja': "「{0}」に'{1}'デシメートモディファイアーがあるためシェイプキーをエクスポートできません",
+    },
+    'exporter_err_solidifyinside': {
+        'en': "Curve {0} has the Solidify modifier with rim fill, but is still exporting polys on both sides.",
+        'ja': "カーブ{0}はリムフィル付きSolidifyモディファイアーがありますが、両面でポリゴンをエクスポートしています",
+    },
+    'exporter_err_unconfigured': {
+        'en': "Scene unconfigured. See the SOURCE ENGINE EXPORT panel in SCENE PROPERTIES.",
+        'ja': "シーンが未設定です。SCENE PROPERTIESのSOURCE ENGINE EXPORTパネルを確認してください",
+    },
+    'exporter_err_unmergable': {
+        'en': "Skipping vertex animations on Group \"{0}\", which could not be merged into a single DMX object due to its envelope. To fix this, either ensure that the entire Group has the same bone parent or remove all envelopes.",
+        'ja': "グループ「{0}」の頂点アニメーションをスキップします",
+    },
+    'exporter_prop_group': {
+        'en': "Group Name",
+        'ja': "グループの名前",
+    },
+    'exporter_prop_group_tip': {
+        'en': "Name of the Group to export",
+        'ja': "エクスポートにグループの名前",
+    },
+    'exporter_prop_scene_tip': {
+        'en': "Export all items selected in the Source Engine Exportables panel",
+        'ja': "Source Engine Exportablesパネルで選択されたすべてのアイテムをエクスポート",
+    },
+    'exporter_report': {
+        'en': "{0} files exported in {1} seconds",
+        'ja': "{0}つファイルは{1}秒エクスポート",
+    },
+    'exporter_report_menu': {
+        'en': "Source Tools Error Report",
+        'ja': "レポート：Source Tools エラー",
+    },
+    'exporter_report_suffix': {
+        'en': " with {0} Errors and {1} Warnings",
+        'ja': "エラー{0}個・警告{1}個",
+    },
+    'exporter_tip': {
+        'en': "Export and compile Source Engine models",
+        'ja': "Source Engineモデルをエクスポートおよびコンパイル",
+    },
+    'exporter_title': {
+        'en': "Export SMD/VTA/DMX",
+        'ja': "SMD/VTA/DMXをエクスポート",
+    },
+    'exporter_warn_correctiveshape_duplicate': {
+        'en': "Corrective shape key \"{0}\" has the same activation conditions ({1}) as \"{2}\". Skipping.",
+        'ja': "是正シェイプキー「{0}」は「{2}」と同じ有効化条件({1})です。スキップします",
+    },
+    'exporter_warn_multiarmature': {
+        'en': "Multiple armatures detected",
+        'ja': "複数のアーマチュアが検出されました",
+    },
+    'exporter_warn_sanitised_filename': {
+        'en': "Sanitised exportable name \"{0}\" to \"{1}\"",
+        'ja': "エクスポート名「{0}」を「{1}」にサニタイズしました",
+    },
+    'exporter_warn_source2names': {
+        'en': "Consider renaming \"{0}\": in Source 2, model names can contain only lower-case characters, digits, and/or underscores.",
+        'ja': "「{0}」の名前変更を検討してください: Source 2では英小文字・数字・アンダースコアのみ使用可",
+    },
+    'exporter_warn_source2smdsupport': {
+        'en': "Source 2 no longer supports SMD.",
+        'ja': "Source 2はSMDをサポートしていません",
+    },
+    'exporter_warn_unicode': {
+        'en': "Name of {0} \"{1}\" contains Unicode characters. This may not compile correctly!",
+        'ja': "{0}「{1}」の名前はUnicode文字を含みます。間違ってコンパイルすることが可能です。",
     },
     'exporter_warn_weightlinks_excess': {
         'en': "{0} verts on \"{1}\" have over {2} weight links. Source does not support this!",
+        'ja': "「{1}」の{0}頂点が{2}個を超えるウェイトリンクを持っています",
     },
-    'exporter_report_menu': {
-        'ja': "レポート：Source Tools エラー",
-        'en': "Source Tools Error Report",
+    'exporterr_goldsrc_multiweights': {
+        'en': "{0} verts on \"{1}\" have multiple weight links. GoldSrc does not support this!",
+        'ja': "「{1}」の{0}頂点に複数のウェイトリンクがあります。GoldSrcはサポートしていません",
     },
-    'exporter_report': {
-        'ja': "{0}つファイルは{1}秒エクスポート",
-        'en': "{0} files exported in {1} seconds",
+    'exportmenu_invalid': {
+        'en': "Cannot export selection",
+        'ja': "選択をエクスポートできません",
     },
-    'exporter_err_groupmuted': {
-        'ja': "ゲルーポ「{0}」はミュートです",
-        'en': "Group {0} is suppressed",
+    'exportmenu_scene': {
+        'en': "Scene export ({0} files)",
+        'ja': "シーンをエクスポート ({0}つファイル)",
     },
-    'exporter_title': {
-        'ja': "SMD/VTA/DMXをエクスポート",
-        'en': "Export SMD/VTA/DMX",
+    'exportmenu_selected': {
+        'en': "Selected objects ({0} files)",
+        'ja': "選択オブジェクト（{0}ファイル）",
     },
-    'qc_compile_err_unknown': {
-        'en': "Compile of {0} failed. Check the console for details",
+    'exportmenu_title': {
+        'en': "Source Tools Export",
+        'ja': "Source Tools エクスポート",
     },
-    'exporter_err_splitvgroup_missing': {
-        'en': "Could not find stereo split Vertex Group \"{0}\" on object \"{1}\"",
+    'exportname': {
+        'en': "Export Name",
+        'ja': "エクスポート名",
     },
-    'importer_complete': {
-        'en': "Imported {0} files in {1} seconds",
+    'exportpanel_dmxver': {
+        'en': "DMX Version:",
+        'ja': "DMXのバージョン：",
     },
-    'importer_bonemode': {
-        'ja': "ボーンカスタムシェイプ",
-        'en': "Bone shapes",
+    'exportpanel_title': {
+        'en': "Source Engine Export",
+        'ja': "Source Engine エクスポート",
     },
-    'importer_err_nofile': {
-        'ja': "選択ファイルはありません",
-        'en': "No file selected",
+    'exportroot': {
+        'en': "Export Path",
+        'ja': "エクスポートのパス",
     },
-    'importer_err_smd': {
-        'en': "Could not open SMD file \"{0}\": {1}",
+    'exportroot_tip': {
+        'en': "The root folder into which SMD and DMX exports from this scene are written",
+        'ja': "このシーンのSMD/DMXエクスポートのルートフォルダー",
     },
-    'importer_qc_macroskip': {
-        'en': "Skipping macro in QC {0}",
+    'forward_axis': {
+        'en': "Target Forward Axis",
+        'ja': "ターゲット前方軸",
     },
-    'importer_bones_validate_desc': {
-        'en': "Report new bones as missing without making any changes to the target Armature",
+    'game_path': {
+        'en': "Game Path",
+        'ja': "ゲームのパス",
     },
-    'importer_tip': {
-        'en': "Imports uncompiled Source Engine model data",
+    'game_path_tip': {
+        'en': "Directory containing gameinfo.txt (if unset, the system VPROJECT will be used)",
+        'ja': "gameinfo.txtを含むディレクトリ",
     },
-    'importer_title': {
-        'ja': "インポート SMD/VTA, DMX, QC",
-        'en': "Import SMD/VTA, DMX, QC",
+    'gen_block': {
+        'en': "Generate DMX Flex Controller block",
+        'ja': "DMXフレックスのコントローラーの抜粋を生成します",
     },
-    'importer_makecamera': {
-        'ja': "$originにカメラを生成",
-        'en': "Make Camera At $origin",
+    'gen_block_success': {
+        'en': "DMX written to text block \"{0}\"",
+        'ja': "DMXテキストブロック「{0}」に書き込みました",
     },
-    'importer_bone_parent_miss': {
-        'en': "Parent mismatch for bone \"{0}\": \"{1}\" in Blender, \"{2}\" in {3}.",
+    'gen_block_tip': {
+        'en': "Generate a simple Flex Controller DMX block",
+        'ja': "シンプルなフレックスコントローラーDMXブロックを生成",
     },
-    'importer_makecamera_tip': {
-        'en': "For use in viewmodel editing; if not set, an Empty will be created instead",
+    'gen_drivers': {
+        'en': "Generate Corrective Shape Key Drivers",
+        'ja': "是正シェイプキーのドライバーを生成します",
     },
-    'importer_err_shapetarget': {
-        'en': "Could not import shape keys: no valid target object found",
+    'gen_drivers_tip': {
+        'en': "Adds Blender animation drivers to corrective Source engine shapes",
+        'ja': "Source Engineの是正シェイプキーにドライバーを追加",
     },
-    'importer_rotmode_tip': {
-        'en': "Determines the type of rotation Keyframes created when importing bones or animation",
+    'group_merge_mech': {
+        'en': "Merge mechanical parts",
+        'ja': "メカニカルな局部は結合",
     },
-    'importer_skipremdoubles_tip': {
-        'en': "Import raw, disconnected polygons from SMD files; these are harder to edit but a closer match to the original mesh",
+    'group_merge_mech_tip': {
+        'en': "Optimises DMX export of meshes sharing the same parent bone",
+        'ja': "同じ親ボーンを持つメッシュのDMXエクスポートを最適化",
+    },
+    'group_suppress': {
+        'en': "Suppress",
+        'ja': "ミュート",
+    },
+    'group_suppress_tip': {
+        'en': "Export this group's objects individually",
+        'ja': "このグループのオブジェクトを個別にエクスポート",
+    },
+    'help': {
+        'en': "Help",
+        'ja': "ヘレプ",
+    },
+    'ignore_bone_exportnames': {
+        'en': "Ignore Bone Export Names",
+        'ja': "ボーンエクスポート名を無視",
+    },
+    'import_menuitem': {
+        'en': "Source Engine (.smd, .vta, .dmx, .qc, .qci)",
+        'ja': "Source Engine (.smd, .vta, .dmx, .qc, .qci)",
     },
     'importer_balance_group': {
         'en': "DMX Stereo Balance",
+        'ja': "DMXステレオバランス",
     },
-    'importer_bones_mode_desc': {
-        'en': "How to behave when a reference mesh import introduces new bones to the target Armature (ignored for QCs)",
+    'importer_bone_parent_miss': {
+        'en': "Parent mismatch for bone \"{0}\": \"{1}\" in Blender, \"{2}\" in {3}.",
+        'ja': "ボーン「{0}」の親が一致しません: Blenderでは「{1}」、{3}では「{2}」",
     },
-    'importer_rotmode': {
-        'ja': "回転モード",
-        'en': "Rotation mode",
-    },
-    'importer_skipremdoubles': {
-        'ja': "SMDのポリゴンと法線を保持",
-        'en': "Preserve SMD Polygons & Normals",
+    'importer_bonemode': {
+        'en': "Bone shapes",
+        'ja': "ボーンカスタムシェイプ",
     },
     'importer_bonemode_tip': {
         'en': "How bones in new Armatures should be displayed",
+        'ja': "新しいアーマチュアでのボーンの表示方法",
     },
     'importer_bones_append': {
-        'ja': "対象で追加",
         'en': "Append to Target",
-    },
-    'importer_err_qci': {
-        'en': "Could not open QC $include file \"{0}\" - skipping!",
-    },
-    'importer_up_tip': {
-        'en': "Which axis represents 'up' (ignored for QCs)",
-    },
-    'importer_err_namelength': {
-        'en': "{0} name \"{1}\" is too long to import. Truncating to \"{2}\"",
+        'ja': "対象で追加",
     },
     'importer_bones_append_desc': {
         'en': "Add new bones to the target Armature",
+        'ja': "ターゲットアーマチュアに新しいボーンを追加",
     },
-    'importer_err_unmatched_mesh': {
-        'en': "{0} VTA vertices ({1}%) were not matched to a mesh vertex! An object with a vertex group has been created to show where the VTA file's vertices are.",
+    'importer_bones_mode': {
+        'en': "Bone Append Mode",
+        'ja': "ボーンの追加がモード",
     },
-    'importer_bones_validate': {
-        'ja': "対象で確認",
-        'en': "Validate Against Target",
+    'importer_bones_mode_desc': {
+        'en': "How to behave when a reference mesh import introduces new bones to the target Armature (ignored for QCs)",
+        'ja': "参照メッシュのインポート時に新しいボーンが追加された場合の動作",
     },
-    'importer_name_nomat': {
-        'ja': "UndefinedMaterial",
-        'en': "UndefinedMaterial",
+    'importer_bones_newarm': {
+        'en': "Make New Armature",
+        'ja': "アーマティアを生成",
     },
     'importer_bones_newarm_desc': {
         'en': "Make a new Armature for this import",
+        'ja': "このインポート用に新しいアーマチュアを作成",
     },
-    'importer_err_refanim': {
-        'en': "Found animation in reference mesh \"{0}\", ignoring!",
+    'importer_bones_validate': {
+        'en': "Validate Against Target",
+        'ja': "対象で確認",
     },
-    'importer_bones_mode': {
-        'ja': "ボーンの追加がモード",
-        'en': "Bone Append Mode",
+    'importer_bones_validate_desc': {
+        'en': "Report new bones as missing without making any changes to the target Armature",
+        'ja': "変更せずにターゲットアーマチュアで不足ボーンを報告",
     },
-    'importer_err_badweights': {
-        'en': "{0} vertices weighted to invalid bones on {1}",
+    'importer_complete': {
+        'en': "Imported {0} files in {1} seconds",
+        'ja': "{0}ファイルを{1}秒でインポートしました",
     },
-    'importer_err_bonelimit_smd': {
-        'en': "SMD only supports 128 bones!",
+    'importer_doanims': {
+        'en': "Import Animations",
+        'ja': "アニメーションをインポート",
     },
     'importer_err_badfile': {
         'en': "Format of {0} not recognised",
+        'ja': "{0}のフォーマットが認識されません",
     },
-    'importer_err_smd_ver': {
-        'en': "Unrecognised/invalid SMD file. Import will proceed, but may fail!",
+    'importer_err_badweights': {
+        'en': "{0} vertices weighted to invalid bones on {1}",
+        'ja': "{1}の{0}頂点が無効なボーンにウェイト付けされています",
     },
-    'importer_doanims': {
-        'ja': "アニメーションをインポート",
-        'en': "Import Animations",
-    },
-    'importer_use_collections':{
-        'en': "Create Collections",	
-    },
-    'importer_use_collections_tip':{
-        'en': "Create a Blender collection for each imported mesh file. This retains the original file structure (important for DMX) and makes it easy to switch between LODs etc. with the number keys",
+    'importer_err_bonelimit_smd': {
+        'en': "SMD only supports 128 bones!",
+        'ja': "SMDは128ボーンまでしかサポートしていません",
     },
     'importer_err_missingbones': {
         'en': "{0} contains {1} bones not present in {2}. Check the console for a list.",
+        'ja': "{0}に{2}にないボーンが{1}個含まれています。詳細はコンソールを確認",
+    },
+    'importer_err_namelength': {
+        'en': "{0} name \"{1}\" is too long to import. Truncating to \"{2}\"",
+        'ja': "{0}の名前「{1}」はインポートには長すぎます。「{2}」に切り詰めます",
     },
     'importer_err_noanimationbones': {
         'en': "No bones imported for animation {0}",
+        'ja': "アニメーション{0}のボーンがインポートされていません",
+    },
+    'importer_err_nofile': {
+        'en': "No file selected",
+        'ja': "選択ファイルはありません",
+    },
+    'importer_err_qci': {
+        'en': "Could not open QC $include file \"{0}\" - skipping!",
+        'ja': "QC $includeファイル「{0}」を開けませんでした - スキップします",
+    },
+    'importer_err_refanim': {
+        'en': "Found animation in reference mesh \"{0}\", ignoring!",
+        'ja': "参照メッシュ「{0}」にアニメーションが見つかりました。無視します",
+    },
+    'importer_err_shapetarget': {
+        'en': "Could not import shape keys: no valid target object found",
+        'ja': "シェイプキーをインポートできません: 有効なターゲットオブジェクトが見つかりません",
+    },
+    'importer_err_smd': {
+        'en': "Could not open SMD file \"{0}\": {1}",
+        'ja': "SMDファイル「{0}」を開けませんでした: {1}",
+    },
+    'importer_err_smd_ver': {
+        'en': "Unrecognised/invalid SMD file. Import will proceed, but may fail!",
+        'ja': "認識できない/無効なSMDファイルです。インポートは続行しますが失敗する可能性があります",
+    },
+    'importer_err_unmatched_mesh': {
+        'en': "{0} VTA vertices ({1}%) were not matched to a mesh vertex! An object with a vertex group has been created to show where the VTA file's vertices are.",
+        'ja': "{0}個のVTA頂点（{1}%）がメッシュ頂点と一致しませんでした",
+    },
+    'importer_makecamera': {
+        'en': "Make Camera At $origin",
+        'ja': "$originにカメラを生成",
+    },
+    'importer_makecamera_tip': {
+        'en': "For use in viewmodel editing; if not set, an Empty will be created instead",
+        'ja': "ビューモデル編集用; 未設定の場合はEmptyが作成されます",
+    },
+    'importer_name_nomat': {
+        'en': "UndefinedMaterial",
+        'ja': "UndefinedMaterial",
     },
     'importer_name_unmatchedvta': {
         'en': "Unmatched VTA",
     },
-    'importer_bones_newarm': {
-        'ja': "アーマティアを生成",
-        'en': "Make New Armature",
+    'importer_qc_macroskip': {
+        'en': "Skipping macro in QC {0}",
+        'ja': "QC {0}のマクロをスキップします",
     },
-    'qc_warn_noarmature': {
-        'en': "Skipping {0}; no armature found.",
+    'importer_rotmode': {
+        'en': "Rotation mode",
+        'ja': "回転モード",
     },
-    'qc_warn_noarmature_hbox': {
-        'en': "Skipping $hbox import in {0}; no armature found.",
+    'importer_rotmode_tip': {
+        'en': "Determines the type of rotation Keyframes created when importing bones or animation",
+        'ja': "ボーンまたはアニメーションのインポート時に作成されるキーフレームの回転タイプ",
     },
-    'exportstate_pattern_tip': {
-        'en': "Visible objects with this string in their name will be affected",
+    'importer_tip': {
+        'en': "Imports uncompiled Source Engine model data",
+        'ja': "未コンパイルのSource Engineモデルデータをインポート",
     },
-    'exportstate': {
-        'en': "Set Source Tools export state",
+    'importer_title': {
+        'en': "Import SMD/VTA, DMX, QC",
+        'ja': "インポート SMD/VTA, DMX, QC",
     },
-    'activate_dep_shapes': {
-        'en': "Activate Dependency Shapes",
+    'importer_up_tip': {
+        'en': "Which axis represents 'up' (ignored for QCs)",
+        'ja': "上方向軸を設定（QCは無視）",
     },
-    'gen_block_success': {
-        'en': "DMX written to text block \"{0}\"",
+    'importer_use_collections': {
+        'en': "Create Collections",
     },
-    'gen_block': {
-        'ja': "DMXフレックスのコントローラーの抜粋を生成します",
-        'en': "Generate DMX Flex Controller block",
-    },
-    'vca_add_tip': {
-        'en': "Add a Vertex Animation to the active Source Tools exportable",
+    'importer_use_collections_tip': {
+        'en': "Create a Blender collection for each imported mesh file. This retains the original file structure (important for DMX) and makes it easy to switch between LODs etc. with the number keys",
+        'ja': "インポートされたメッシュファイルごとにBlenderコレクションを作成",
     },
     'insert_uuid': {
         'en': "Insert UUID",
-    },
-    'launch_hlmv_tip': {
-        'en': "Launches Half-Life Model Viewer",
-    },
-    'vertmap_remove': {
-        'en': "Remove Source 2 Vertex Map",
-    },
-    'activate_dep_shapes_tip': {
-        'en': "Activates shapes found in the name of the current shape (underscore delimited)",
-    },
-    'vca_qcgen_tip': {
-        'en': "Copies a QC segment for this object's Vertex Animations to the clipboard",
-    },
-    'vca_remove_tip': {
-        'en': "Remove the active Vertex Animation from the active Source Tools exportable",
-    },
-    'vca_add': {
-        'en': "Add Vertex Animation",
-    },
-    'vertmap_select': {
-        'en': "Select Source 2 Vertex Map",
-    },
-    'vca_preview': {
-        'ja': "頂点アニメーションを再生します",
-        'en': "Preview Vertex Animation",
-    },
-    'activate_dep_shapes_success': {
-        'en': "Activated {0} dependency shapes",
-    },
-    'launch_hlmv': {
-        'ja': "HLMVを開始",
-        'en': "Launch HLMV",
-    },
-    'exportstate_pattern': {
-        'en': "Search pattern",
+        'ja': "UUIDを挿入",
     },
     'insert_uuid_tip': {
         'en': "Inserts a random UUID at the current location",
+        'ja': "現在の位置にランダムなUUIDを挿入",
     },
-    'gen_block_tip': {
-        'en': "Generate a simple Flex Controller DMX block",
+    'label_activate': {
+        'en': "Activate",
+        'ja': "有効化",
     },
-    'gen_drivers': {
-        'ja': "是正シェイプキーのドライバーを生成します",
-        'en': "Generate Corrective Shape Key Drivers",
+    'label_add_all': {
+        'en': "Add All",
+        'ja': "すべて追加",
     },
-    'apply_drivers':{
-        'en': "Regenerate Shape Key Names From Drivers",
+    'label_all_attachments': {
+        'en': "All Attachments",
+        'ja': "すべてのアタッチメント",
     },
-    'apply_drivers_tip':{
-        'en': "Renames corrective shape keys so that each their names are a combination of the shape keys that control them (via Blender animation drivers)",
+    'label_all_hitboxes': {
+        'en': "All Hitboxes",
+        'ja': "すべてのヒットボックス",
     },
-    'apply_drivers_success':{
-        'en': "{0} shapes renamed.",
+    'label_all_jigglebones': {
+        'en': "All Jigglebones",
+        'ja': "すべてのジグルボーン",
     },
-    'vca_qcgen': {
-        'ja': "QCの抜粋を生成します",
-        'en': "Generate QC Segment",
+    'label_allow_length_flex': {
+        'en': "Allow Length Flex",
+        'ja': "長さフレックスを許可",
     },
-    'vertmap_create': {
-        'en': "Create Source 2 Vertex Map",
+    'label_along_damping': {
+        'en': "Along Damping",
+        'ja': "沿方向減衰",
     },
-    'vca_preview_tip': {
-        'en': "Plays the active Source Tools Vertex Animation using scene preview settings",
+    'label_along_stiffness': {
+        'en': "Along Stiffness",
+        'ja': "沿方向剛性",
     },
-    'vca_remove': {
-        'en': "Remove Vertex Animation",
+    'label_amplitude': {
+        'en': "Amplitude",
+        'ja': "振幅",
     },
-    'gen_drivers_tip': {
-        'en': "Adds Blender animation drivers to corrective Source engine shapes",
+    'label_angle': {
+        'en': "Angle",
+        'ja': "角度",
     },
-    'engine_path': {
-        'ja': "エンジンのパス",
-        'en': "Engine Path",
+    'label_angle_constraints': {
+        'en': "Angle Constraints:",
+        'ja': "角度制約:",
     },
-    'game_path_tip': {
-        'en': "Directory containing gameinfo.txt (if unset, the system VPROJECT will be used)",
+    'label_attachment_no_parent': {
+        'en': "Attachment cannot be a parent",
+        'ja': "アタッチメントは親になれません",
     },
-    'visible_only': {
-        'ja': "たった可視のレイヤー",
-        'en': "Visible layers only",
+    'label_base_spring_properties': {
+        'en': "Base Spring Properties:",
+        'ja': "ベーススプリングプロパティ:",
     },
-    'dmx_encoding': {
-        'ja': "DMXの符号化",
-        'en': "DMX encoding",
+    'label_base_type': {
+        'en': "Base Type",
+        'ja': "ベースタイプ",
     },
-    'game_path': {
-        'ja': "ゲームのパス",
-        'en': "Game Path",
+    'label_boing_properties': {
+        'en': "Boing Properties:",
+        'ja': "バネ動作プロパティ:",
     },
-    'up_axis': {
-        'ja': "対象の上昇軸",
-        'en': "Target Up Axis",
+    'label_controller_name': {
+        'en': "Controller Name",
+        'ja': "コントローラー名",
     },
-    'up_axis_offset': {
-        'en': "Target Up Axis Offset",
+    'label_damping': {
+        'en': "Damping",
+        'ja': "減衰",
     },
-    'forward_axis': {
-        'en': "Target Forward Axis",
+    'label_damping_rate': {
+        'en': "Damping Rate",
+        'ja': "減衰率",
     },
-    'world_scale': {
-        'en': "World Scale",
+    'label_delete_all': {
+        'en': "Delete All",
+        'ja': "すべて削除",
     },
-    'world_scale_tip': {
-        'en': 'Scales the the objects in the world proportionally',
+    'label_delta_name': {
+        'en': "Delta Name",
+        'ja': "デルタ名",
     },
-    'dmx_format': {
-        'ja': "DMXのフォーマット",
-        'en': "DMX format",
+    'label_direction_naming': {
+        'en': "Direction Naming:",
+        'ja': "方向命名:",
     },
-    'ignore_materials': {
-        'ja': "Blenderのマテリアルを軽視",
-        'en': "Ignore Blender Materials",
+    'label_dmx_only': {
+        'en': "Only Applicable in DMX!",
+        'ja': "DMXのみ適用可能!",
     },
-    'visible_only_tip': {
-        'en': "Ignore objects in hidden layers",
+    'label_export_name_format': {
+        'en': "Export Name: {0}",
+        'ja': "エクスポート名: {0}",
     },
-    'active_exportable': {
-        'ja': "アクティブ・エクスポート可能",
-        'en': "Active exportable",
+    'label_export_options': {
+        'en': "Export Options",
+        'ja': "エクスポートオプション",
     },
-    'exportroot_tip': {
-        'en': "The root folder into which SMD and DMX exports from this scene are written",
+    'label_extra_args': {
+        'en': "Extra Args",
+        'ja': "追加引数",
     },
-    'qc_compilenow': {
-        'ja': "今全てはコンパイル",
-        'en': "Compile All Now",
+    'label_flex_type': {
+        'en': "Flex Type",
+        'ja': "フレックスタイプ",
     },
-    'up_axis_tip': {
-        'en': "Use for compatibility with data from other 3D tools",
+    'label_forward': {
+        'en': "Forward",
+        'ja': "前方",
     },
-    'smd_format': {
-        'ja': "対象のエンジン",
-        'en': "Target Engine",
+    'label_forward_limits': {
+        'en': "Forward Limits:",
+        'ja': "前方制限:",
     },
-    'dmx_mat_path_tip': {
-        'en': "Folder relative to game root containing VMTs referenced in this scene (DMX only)",
+    'label_frequency': {
+        'en': "Frequency",
+        'ja': "周波数",
     },
-    'qc_compileall_tip': {
-        'en': "Compile all QC files whenever anything is exported",
+    'label_friction': {
+        'en': "Friction",
+        'ja': "摩擦",
     },
-    'qc_nogamepath': {
-        'en': "No Game Path and invalid VPROJECT",
+    'label_generate_lods': {
+        'en': "Generate LODs on export",
+        'ja': "エクスポート時にLODを生成",
     },
-    'dmx_mat_path': {
-        'ja': "マテリアルのパス",
-        'en': "Material Path",
+    'label_hitbox_group': {
+        'en': "Hitbox Group",
+        'ja': "ヒットボックスグループ",
     },
-    'exportroot': {
-        'ja': "エクスポートのパス",
-        'en': "Export Path",
+    'label_ignore': {
+        'en': "Ignore",
+        'ja': "無視",
     },
-    'export_format': {
-        'ja': "エクスポートのフォーマット",
-        'en': "Export Format",
+    'label_impact_angle': {
+        'en': "Impact Angle",
+        'ja': "衝撃角度",
     },
-    'qc_compileall': {
-        'ja': "エクスポートから、みんあがコンパイル",
-        'en': "Compile all on export",
+    'label_impact_speed': {
+        'en': "Impact Speed",
+        'ja': "衝撃速度",
     },
-    'weightlinkcull': {
-        'ja': "ウェイト・リンクの間引きのしきい値",
-        'en': "Weight Link Cull Threshold",
+    'label_in_multiple_collection': {
+        'en': "In Multiple Collection",
+        'ja': "複数のコレクションに存在",
     },
-    'weightlinkcull_tip': {
-        'en': "The minimum weight value below which vertex weights are removed to eliminate noise.",
+    'label_is_eyelid': {
+        'en': "Is Eyelid",
+        'ja': "まぶた",
     },
-    'dmx_encoding_tip': {
-        'en': "Manual override for binary DMX encoding version",
+    'label_is_stereo': {
+        'en': "Is Stereo",
+        'ja': "ステレオ",
     },
-    'dmx_format_tip': {
-        'en': "Manual override for DMX model format version",
+    'label_jiggle_flexibility': {
+        'en': "Flexibility",
+        'ja': "柔軟性",
     },
-    'engine_path_tip': {
-        'en': "Directory containing studiomdl (Source 1) or resourcecompiler (Source 2)",
+    'label_jiggle_tip_mass': {
+        'en': "Tip Mass",
+        'ja': "先端質量",
     },
-    'ignore_materials_tip': {
-        'en': "Only export face-assigned image filenames",
+    'label_jiggle_type': {
+        'en': "Jiggle Type:",
+        'ja': "ジグルタイプ:",
     },
-    'updater_title': {
-        'ja': "更新Source Toolsの確認",
-        'en': "Check for Source Tools updates",
+    'label_jigglebone_properties': {
+        'en': "Jigglebone Properties",
+        'ja': "ジグルボーンプロパティ",
     },
-    'update_err_downloadfailed': {
-        'en': "Could not complete download:",
+    'label_location_offset': {
+        'en': "Location Offset:",
+        'ja': "位置オフセット:",
     },
-    'offerchangelog_offer': {
-        'en': "Restart Blender to complete the update. Click to view the changelog.",
+    'label_mass': {
+        'en': "Mass",
+        'ja': "質量",
     },
-    'update_err_outdated': {
-        'en': "The latest Source Tools require Blender {0}. Please upgrade.",
+    'label_max': {
+        'en': "Max",
+        'ja': "最大",
     },
-    'update_err_unknown': {
-        'en': "Could not install update:",
+    'label_min': {
+        'en': "Min",
+        'ja': "最小",
     },
-    'offerchangelog_title': {
-        'en': "Source Tools Update",
+    'label_no_attachments': {
+        'en': "No Attachments",
+        'ja': "アタッチメントなし",
     },
-    'update_err_corruption': {
-        'en': "Update was downloaded, but file was not valid",
+    'label_no_hitboxes': {
+        'en': "No Hitboxes",
+        'ja': "ヒットボックスなし",
     },
-    'update_done': {
-        'en': "Installed Source Tools {0}!",
+    'label_no_jigglebones': {
+        'en': "No Jigglebones",
+        'ja': "ジグルボーンなし",
     },
-    'updater_title_tip': {
-        'en': "Connects to http://steamreview.org/BlenderSourceTools/latest.php",
+    'label_not_in_collection': {
+        'en': "Not in Collection",
+        'ja': "コレクションに未登録",
     },
-    'update_alreadylatest': {
-        'en': "The latest Source Tools ({0}) are already installed.",
+    'label_options': {
+        'en': "Options",
+        'ja': "オプション",
     },
-    'introduction_message': {
-        'en': "This modified BlenderSourceTool is currently in Alpha, so you may encounter bugs or issues while using it. Please report any problems on the GitHub page.",
-        'ja': "この改良版BlenderSourceToolは現在アルファ版のため、使用中にバグや問題が発生する可能性があります。問題があればGitHubページで報告してください。",
+    'label_physical_properties': {
+        'en': "Physical Properties:",
+        'ja': "物理プロパティ:",
+    },
+    'label_pitch': {
+        'en': "Pitch",
+        'ja': "ピッチ",
+    },
+    'label_pitch_damping': {
+        'en': "Pitch Damping",
+        'ja': "ピッチ減衰",
+    },
+    'label_pitch_limits': {
+        'en': "Pitch Limits:",
+        'ja': "ピッチ制限:",
+    },
+    'label_pitch_stiffness': {
+        'en': "Pitch Stiffness",
+        'ja': "ピッチ剛性",
+    },
+    'label_preview_additive': {
+        'en': "Preview (Additive)",
+        'ja': "プレビュー (加算)",
+    },
+    'label_preview_reset': {
+        'en': "Preview (Reset)",
+        'ja': "プレビュー (リセット)",
+    },
+    'label_properties_to_copy': {
+        'en': "Properties to copy:",
+        'ja': "コピーするプロパティ:",
+    },
+    'label_rotation_offset': {
+        'en': "Rotation Offset:",
+        'ja': "回転オフセット:",
+    },
+    'label_select_valid_bone': {
+        'en': "Select a Valid Bone",
+        'ja': "有効なボーンを選択",
+    },
+    'label_shapekey': {
+        'en': "Shapekey",
+        'ja': "シェイプキー",
+    },
+    'label_side': {
+        'en': "Side",
+        'ja': "サイド",
+    },
+    'label_side_constraints': {
+        'en': "Side Constraints:",
+        'ja': "サイド制約:",
+    },
+    'label_side_limits': {
+        'en': "Side Limits:",
+        'ja': "サイド制限:",
+    },
+    'label_sort_by_name': {
+        'en': "Sort by Name",
+        'ja': "名前でソート",
+    },
+    'label_stiffness': {
+        'en': "Stiffness",
+        'ja': "剛性",
+    },
+    'label_stiffness_damping': {
+        'en': "Stiffness & Damping:",
+        'ja': "剛性と減衰:",
+    },
+    'label_target_object': {
+        'en': "Target Object:",
+        'ja': "ターゲットオブジェクト:",
+    },
+    'label_up': {
+        'en': "Up",
+        'ja': "上",
+    },
+    'label_up_limits': {
+        'en': "Up Limits:",
+        'ja': "上方制限:",
+    },
+    'label_use_bone_length': {
+        'en': "Use Bone Length",
+        'ja': "ボーンの長さを使用",
+    },
+    'label_vertex_animations_help': {
+        'en': "Vertex Animations Help",
+        'ja': "頂点アニメーションのヘルプ",
+    },
+    'label_vertex_float_maps': {
+        'en': "Vertex Float Maps:",
+        'ja': "頂点フロートマップ:",
+    },
+    'label_vertex_maps': {
+        'en': "Vertex Maps:",
+        'ja': "頂点マップ:",
+    },
+    'label_write_ascii_dmx': {
+        'en': "Write ASCII DMX File",
+        'ja': "ASCII DMXファイルに書き込む",
+    },
+    'label_y_to': {
+        'en': "Y to...",
+        'ja': "Yを...",
+    },
+    'label_yaw': {
+        'en': "Yaw",
+        'ja': "ヨー",
+    },
+    'label_yaw_damping': {
+        'en': "Yaw Damping",
+        'ja': "ヨー減衰",
+    },
+    'label_yaw_limits': {
+        'en': "Yaw Limits:",
+        'ja': "ヨー制限:",
+    },
+    'label_yaw_stiffness': {
+        'en': "Yaw Stiffness",
+        'ja': "ヨー剛性",
     },
     'maxvertexinfluence': {
         'en': "Max Vertex Influence",
+        'ja': "最大頂点影響数",
     },
     'maxvertexinfluence_tip': {
         'en': "The maximum number of bones that can influence a single vertex.",
+        'ja': "1頂点に影響できるボーンの最大数",
     },
-    'exportname': {
-        'en': "Export Name",
+    'menu_flex_controller_specials': {
+        'en': "Flex Controller Specials",
+        'ja': "フレックスコントローラー特別メニュー",
     },
-    'ignore_bone_exportnames': {
-        'en': "Ignore Bone Export Names",
+    'menu_kitsune_compile_choice': {
+        'en': "KitsuneResource",
+        'ja': "KitsuneResource",
     },
-    'bake_shapekey_as_basis_normals': {
-        'en': "Use Basis Normals For Shapekeys",
+    'op_add_all_flex_controllers': {
+        'en': "Add All Flex Controllers",
+        'ja': "すべてのフレックスコントローラーを追加",
     },
-    'bake_shapekey_as_basis_normals_tip': {
-        'en': "Preserve the basis shape normals when exporting, applying them to all shapekeys (useful for anime-style models)",
+    'op_add_flex_controller': {
+        'en': "Add Flex Controller",
+        'ja': "フレックスコントローラーを追加",
     },
-    'panel_context_object': {
-        'en': "Object Properties",
+    'op_apply_remap_range': {
+        'en': "Apply Remap Range",
+        'ja': "リマップ範囲を適用",
     },
-    'panel_context_material': {
-        'en': "Materials Properties",
+    'op_assign_bone_rot_export_offset': {
+        'en': "Assign Bone Target Forward",
+        'ja': "ボーンターゲット前方を割り当て",
     },
-    'panel_context_bone': {
-        'en': "Bone Properties",
+    'op_assign_bone_rot_export_offset_tip': {
+        'en': "Sets the bone's forward direction for export",
+        'ja': "エクスポート時のボーンの前方方向を設定",
     },
-    'panel_context_armature': {
-        'en': "Armature Properties",
+    'op_auto_assign_flex_groups': {
+        'en': "Auto Assign Flex Groups",
+        'ja': "フレックスグループを自動割り当て",
     },
-    'panel_context_empty': {
-        'en': "Empty Properties",
+    'op_auto_assign_flex_groups_tip': {
+        'en': "Automatically categorize flex controllers based on keywords",
+        'ja': "キーワードに基づいてフレックスコントローラーを自動分類",
     },
-    'panel_context_mesh': {
-        'en': "Mesh Properties",
+    'op_clear_flex_controllers': {
+        'en': "Clear All Flex Controllers",
+        'ja': "すべてのフレックスコントローラーをクリア",
     },
-    'panel_select_object': {
-        'en': "Select an object",
+    'op_copy_bone_export_name': {
+        'en': "Copy Name to Clipboard",
+        'ja': "クリップボードに名前をコピー",
     },
-    'panel_select_group': {
-        'en': "Select a collection",
+    'op_copy_flex_controllers': {
+        'en': "Copy Flex Controllers to Selected",
+        'ja': "選択オブジェクトにフレックスコントローラーをコピー",
+    },
+    'op_copy_flex_controllers_tip': {
+        'en': "Copy all flex controller entries from the active object to other selected mesh objects",
+        'ja': "アクティブオブジェクトのすべてのフレックスコントローラーを選択メッシュにコピー",
+    },
+    'op_copy_jigglebone_props': {
+        'en': "Copy Jigglebone Properties",
+        'ja': "ジグルボーンプロパティをコピー",
+    },
+    'op_copy_source_bone_props': {
+        'en': "Copy Source Bone Properties",
+        'ja': "Sourceボーンプロパティをコピー",
+    },
+    'op_kitsune_compile': {
+        'en': "KitsuneResource Compile",
+        'ja': "KitsuneResourceコンパイル",
+    },
+    'op_kitsune_load_entries': {
+        'en': "Reload Model Entries",
+        'ja': "モデルエントリーを再読み込み",
+    },
+    'op_move_flex_controller': {
+        'en': "Move Flex Controller",
+        'ja': "フレックスコントローラーを移動",
+    },
+    'op_preview_flex_controller': {
+        'en': "Preview Flex Controller",
+        'ja': "フレックスコントローラーをプレビュー",
+    },
+    'op_remove_flex_controller': {
+        'en': "Remove Flex Controller",
+        'ja': "フレックスコントローラーを削除",
+    },
+    'op_sort_flex_controllers': {
+        'en': "Sort Flex Controllers",
+        'ja': "フレックスコントローラーをソート",
+    },
+    'panel_backface': {
+        'en': "Backface",
+        'ja': "裏面",
+    },
+    'panel_bone_data': {
+        'en': "Bone Data",
+        'ja': "ボーンデータ",
+    },
+    'panel_jigglebones': {
+        'en': "Jigglebones",
+        'ja': "ジグルボーン",
+    },
+    'panel_kitsune_resource': {
+        'en': "Kitsune Resource Compile",
+        'ja': "Kitsuneリソースコンパイル",
+    },
+    'panel_level_of_detail': {
+        'en': "Level Of Detail",
+        'ja': "詳細度レベル",
+    },
+    'panel_mesh_split': {
+        'en': "Mesh Split",
+        'ja': "メッシュ分割",
     },
     'panel_select_armature': {
         'en': "Select an armature",
-    },
-    'panel_select_mesh': {
-        'en': "Select a Mesh",
-    },
-    'panel_select_mesh_vgroup': {
-        'en': "Select a mesh with vertex groups in Weight Paint Mode, or an armature in Pose Mode.",
-    },
-    'panel_select_mesh_mat': {
-        'en': "Select a material",
-    },
-    'panel_select_mesh_sk': {
-        'en': "Select a mesh with shapekeys",
+        'ja': "アーマチュアを選択",
     },
     'panel_select_curve': {
         'en': "Select a curve",
+        'ja': "カーブを選択",
     },
     'panel_select_empty': {
         'en': "Select an empty",
+        'ja': "エンプティを選択",
+    },
+    'panel_select_group': {
+        'en': "Select a collection",
+        'ja': "コレクションを選択",
+    },
+    'panel_select_mesh': {
+        'en': "Select a Mesh",
+        'ja': "メッシュを選択",
+    },
+    'panel_select_mesh_mat': {
+        'en': "Select a material",
+        'ja': "マテリアルを選択",
     },
     'panel_select_noneditbone': {
         'en': "Select a non-edit bone",
+        'ja': "非編集ボーンを選択",
+    },
+    'panel_toon_outline_edgeline': {
+        'en': "Toon Outline/Edgeline",
+        'ja': "トゥーンアウトライン/エッジライン",
+    },
+    'panel_vertex_animations': {
+        'en': "Vertex Animations",
+        'ja': "頂点アニメーション",
+    },
+    'panel_vertex_float_maps': {
+        'en': "Vertex Float Maps",
+        'ja': "頂点フロートマップ",
+    },
+    'panel_vertex_maps': {
+        'en': "Vertex Maps",
+        'ja': "頂点マップ",
     },
     'prefab_to_clipboard': {
         'en': "Prefab to Clipboard",
+        'ja': "プレハブをクリップボードへ",
+    },
+    'prop_attachment_prefabfile': {
+        'en': "Attachments Prefab",
+        'ja': "アタッチメントプレハブ",
+    },
+    'prop_backface_vgroup': {
+        'en': "Backface Group",
+        'ja': "裏面グループ",
+    },
+    'prop_backface_vgroup_tolerance': {
+        'en': "Backface Tolerance",
+        'ja': "裏面許容値",
+    },
+    'prop_bone_dir_left': {
+        'en': "Left Bone Dir",
+        'ja': "左ボーン方向",
+    },
+    'prop_bone_dir_right': {
+        'en': "Right Bone Dir",
+        'ja': "右ボーン方向",
+    },
+    'prop_bone_is_jigglebone': {
+        'en': "Bone is JiggleBone",
+        'ja': "ボーンはジグルボーン",
+    },
+    'prop_bone_name_startcount': {
+        'en': "Bone Name Starting Count",
+        'ja': "ボーン名開始番号",
+    },
+    'prop_bone_sort_order': {
+        'en': "Bone Sort Order",
+        'ja': "ボーンソート順",
+    },
+    'prop_controller_name': {
+        'en': "Controller Name",
+        'ja': "コントローラー名",
+    },
+    'prop_decimate_factor': {
+        'en': "Decimation Per LOD",
+        'ja': "LODあたりの削減率",
+    },
+    'prop_delta_name': {
+        'en': "Delta Name",
+        'ja': "デルタ名",
+    },
+    'prop_dme_flexcontrollers': {
+        'en': "Flex Controllers",
+        'ja': "フレックスコントローラー",
+    },
+    'prop_dmx_attachment': {
+        'en': "Is Attachment",
+        'ja': "アタッチメントとして使用",
+    },
+    'prop_edgeline_per_material': {
+        'en': "Edgeline Per Material",
+        'ja': "マテリアルごとのエッジライン",
+    },
+    'prop_edgeline_thickness': {
+        'en': "Thickness",
+        'ja': "太さ",
+    },
+    'prop_edgeline_vgroup': {
+        'en': "Vertex Group Ratio",
+        'ja': "頂点グループ比率",
+    },
+    'prop_enable_gui_console': {
+        'en': "Enable Console GUI",
+        'ja': "コンソールGUIを有効化",
+    },
+    'prop_enable_gui_console_tip': {
+        'en': "Show console overlay with live progress updates (~20% extra time)",
+        'ja': "ライブ進捗オーバーレイを表示（約20%の処理時間増加）",
+    },
+    'prop_export_edgeline_separately': {
+        'en': "Export Edgeline Separately",
+        'ja': "エッジラインを別ファイルでエクスポート",
+    },
+    'prop_export_mesh_split_separately': {
+        'en': "Export Mesh Split Separately",
+        'ja': "メッシュ分割を別ファイルでエクスポート",
+    },
+    'prop_eyelid': {
+        'en': "Eyelid",
+        'ja': "まぶた",
+    },
+    'prop_flex_type': {
+        'en': "Flex Type",
+        'ja': "フレックスタイプ",
+    },
+    'prop_generate_backface': {
+        'en': "Generate Backface",
+        'ja': "裏面を生成",
+    },
+    'prop_generate_lods': {
+        'en': "Generate LODs on Export",
+        'ja': "エクスポート時にLODを生成",
+    },
+    'prop_hitbox_prefabfile': {
+        'en': "Hitbox Prefab",
+        'ja': "ヒットボックスプレハブ",
+    },
+    'prop_ignore_location_offset': {
+        'en': "Ignore Location Offsets",
+        'ja': "位置オフセットを無視",
+    },
+    'prop_ignore_rotation_offset': {
+        'en': "Ignore Rotation Offsets",
+        'ja': "回転オフセットを無視",
+    },
+    'prop_jiggle_allow_length_flex': {
+        'en': "Allow Length Flex",
+        'ja': "長さフレックスを許可",
+    },
+    'prop_jiggle_allow_length_flex_tip': {
+        'en': "Allow the jigglebone to stretch along its length",
+        'ja': "ジグルボーンの長さに沿ったストレッチを許可",
+    },
+    'prop_jiggle_along_damping': {
+        'en': "Along Damping",
+        'ja': "沿方向減衰",
+    },
+    'prop_jiggle_along_damping_tip': {
+        'en': "Damping along the bone length",
+        'ja': "ボーンの長さ方向の減衰",
+    },
+    'prop_jiggle_along_stiffness': {
+        'en': "Along Stiffness",
+        'ja': "沿方向剛性",
+    },
+    'prop_jiggle_along_stiffness_tip': {
+        'en': "Spring strength along the bone length",
+        'ja': "ボーンの長さ方向のばね力",
+    },
+    'prop_jiggle_amplitude': {
+        'en': "Amplitude",
+        'ja': "振幅",
+    },
+    'prop_jiggle_angle_constraint': {
+        'en': "Angle Constraint",
+        'ja': "角度制約",
+    },
+    'prop_jiggle_angle_constraint_tip': {
+        'en': "Enable overall angular rotation limit",
+        'ja': "全体的な角度回転制限を有効化",
+    },
+    'prop_jiggle_angular_constraint': {
+        'en': "Angular Constraint",
+        'ja': "最大角度変位",
+    },
+    'prop_jiggle_base_damping': {
+        'en': "Base Damping",
+        'ja': "ベース減衰",
+    },
+    'prop_jiggle_base_damping_tip': {
+        'en': "Damping at the base spring of the jigglebone",
+        'ja': "ジグルボーンのベーススプリングの減衰",
+    },
+    'prop_jiggle_base_mass': {
+        'en': "Base Mass",
+        'ja': "ベース質量",
+    },
+    'prop_jiggle_base_mass_tip': {
+        'en': "Mass applied at the jigglebone base",
+        'ja': "ジグルボーンベースの質量",
+    },
+    'prop_jiggle_base_stiffness': {
+        'en': "Base Stiffness",
+        'ja': "ベース剛性",
+    },
+    'prop_jiggle_base_stiffness_tip': {
+        'en': "Spring stiffness at the base of the jigglebone",
+        'ja': "ジグルボーンのベースのばね剛性",
+    },
+    'prop_jiggle_base_type': {
+        'en': "Base Type",
+        'ja': "ベースタイプ",
+    },
+    'prop_jiggle_damping_rate': {
+        'en': "Damping Rate",
+        'ja': "減衰率",
+    },
+    'prop_jiggle_flex_type': {
+        'en': "Flexible Type",
+        'ja': "柔軟タイプ",
+    },
+    'prop_jiggle_forward_constraint': {
+        'en': "Forward Constraint",
+        'ja': "前方制約",
+    },
+    'prop_jiggle_forward_constraint_tip': {
+        'en': "Enable forward/backward constraint",
+        'ja': "前後制約を有効化",
+    },
+    'prop_jiggle_frequency': {
+        'en': "Frequency",
+        'ja': "周波数",
+    },
+    'prop_jiggle_impact_angle': {
+        'en': "Impact Angle",
+        'ja': "衝撃角度",
+    },
+    'prop_jiggle_impact_speed': {
+        'en': "Impact Speed",
+        'ja': "衝撃速度",
+    },
+    'prop_jiggle_length': {
+        'en': "Length",
+        'ja': "長さ",
+    },
+    'prop_jiggle_length_tip': {
+        'en': "Rest length of the jigglebone segment",
+        'ja': "ジグルボーンセグメントの静止長",
+    },
+    'prop_jiggle_pitch_constraint': {
+        'en': "Pitch Constraint",
+        'ja': "ピッチ制約",
+    },
+    'prop_jiggle_pitch_constraint_tip': {
+        'en': "Enable pitch rotation constraint",
+        'ja': "ピッチ回転制約を有効化",
+    },
+    'prop_jiggle_pitch_damping': {
+        'en': "Pitch Damping",
+        'ja': "ピッチ減衰",
+    },
+    'prop_jiggle_pitch_damping_tip': {
+        'en': "Resistance that slows down pitch motion over time",
+        'ja': "ピッチ運動を時間とともに減速させる抵抗",
+    },
+    'prop_jiggle_pitch_stiffness': {
+        'en': "Pitch Stiffness",
+        'ja': "ピッチ剛性",
+    },
+    'prop_jiggle_pitch_stiffness_tip': {
+        'en': "Spring strength resisting pitch rotation",
+        'ja': "ピッチ回転に抵抗するばね力",
+    },
+    'prop_jiggle_side_constraint': {
+        'en': "Side Constraint",
+        'ja': "サイド制約",
+    },
+    'prop_jiggle_side_constraint_tip': {
+        'en': "Enable side constraints to limit sideways motion",
+        'ja': "横方向の動きを制限するサイド制約を有効化",
+    },
+    'prop_jiggle_tip_mass': {
+        'en': "Tip Mass",
+        'ja': "先端質量",
+    },
+    'prop_jiggle_tip_mass_tip': {
+        'en': "Mass at the end of the jigglebone",
+        'ja': "ジグルボーン先端の質量",
+    },
+    'prop_jiggle_up_constraint': {
+        'en': "Up Constraint",
+        'ja': "上方制約",
+    },
+    'prop_jiggle_up_constraint_tip': {
+        'en': "Enable vertical up/down constraint",
+        'ja': "垂直上下制約を有効化",
+    },
+    'prop_jiggle_yaw_constraint': {
+        'en': "Yaw Constraint",
+        'ja': "ヨー制約",
+    },
+    'prop_jiggle_yaw_constraint_tip': {
+        'en': "Enable yaw rotation constraint",
+        'ja': "ヨー回転制約を有効化",
+    },
+    'prop_jiggle_yaw_damping': {
+        'en': "Yaw Damping",
+        'ja': "ヨー減衰",
+    },
+    'prop_jiggle_yaw_damping_tip': {
+        'en': "Resistance that slows down yaw motion over time",
+        'ja': "ヨー運動を時間とともに減速させる抵抗",
+    },
+    'prop_jiggle_yaw_stiffness': {
+        'en': "Yaw Stiffness",
+        'ja': "ヨー剛性",
+    },
+    'prop_jiggle_yaw_stiffness_tip': {
+        'en': "Spring strength resisting yaw rotation",
+        'ja': "ヨー回転に抵抗するばね力",
+    },
+    'prop_jigglebone_prefabfile': {
+        'en': "Jigglebone Prefab",
+        'ja': "ジグルボーンプレハブ",
+    },
+    'prop_kitsuneresource_active_entry': {
+        'en': "Active Entry",
+        'ja': "アクティブエントリー",
+    },
+    'prop_kitsuneresource_archive_old': {
+        'en': "Archive Previous Version",
+        'ja': "旧バージョンをアーカイブ",
+    },
+    'prop_kitsuneresource_args': {
+        'en': "Arguments",
+        'ja': "引数",
+    },
+    'prop_kitsuneresource_config': {
+        'en': "Config",
+        'ja': "設定ファイル",
+    },
+    'prop_kitsuneresource_executable': {
+        'en': "Executable",
+        'ja': "実行ファイル",
+    },
+    'prop_kitsuneresource_game_or_package': {
+        'en': "Game or Package",
+        'ja': "ゲームまたはパッケージ",
+    },
+    'prop_kitsuneresource_no_mat_local': {
+        'en': "No Mat Local",
+        'ja': "ローカルマテリアルなし",
+    },
+    'prop_kitsuneresource_project_dir': {
+        'en': "Project Directory",
+        'ja': "プロジェクトディレクトリ",
+    },
+    'prop_kitsuneresource_single_addon': {
+        'en': "Single Addon",
+        'ja': "シングルアドオン",
+    },
+    'prop_location_x': {
+        'en': "Location X",
+        'ja': "位置 X",
+    },
+    'prop_location_y': {
+        'en': "Location Y",
+        'ja': "位置 Y",
+    },
+    'prop_location_z': {
+        'en': "Location Z",
+        'ja': "位置 Z",
+    },
+    'prop_lod_count': {
+        'en': "LOD count",
+        'ja': "LOD数",
+    },
+    'prop_max_mesh_split': {
+        'en': "Max Order Number",
+        'ja': "最大順序番号",
+    },
+    'prop_merge_vertices': {
+        'en': "Merge Vertices on Export",
+        'ja': "エクスポート時に頂点をマージ",
+    },
+    'prop_mesh_split_threshold': {
+        'en': "Mesh Split Threshold",
+        'ja': "メッシュ分割しきい値",
+    },
+    'prop_non_exportable_vgroup': {
+        'en': "Non-Exportable Vertex Group",
+        'ja': "エクスポート除外頂点グループ",
+    },
+    'prop_non_exportable_vgroup_tolerance': {
+        'en': "Non-Exportable Weight Tolerance",
+        'ja': "エクスポート除外ウェイト許容値",
+    },
+    'prop_normalize_shapekeys': {
+        'en': "Normalize Shapekeys",
+        'ja': "シェイプキーを正規化",
+    },
+    'prop_normalize_shapekeys_tip': {
+        'en': "Normalize shapekeys so max value is 1 and min is -1 or 0",
+        'ja': "シェイプキーの最大値を1、最小値を-1または0に正規化",
+    },
+    'prop_reset_pose_per_anim': {
+        'en': "Reset Pose Per Animation Export",
+        'ja': "アニメーションエクスポートごとにポーズをリセット",
+    },
+    'prop_reset_pose_per_anim_tip': {
+        'en': "Reset all bones to rest pose before each export",
+        'ja': "各エクスポート前にすべてのボーンを静止ポーズにリセット",
+    },
+    'prop_rotation_x': {
+        'en': "Rotation X",
+        'ja': "回転 X",
+    },
+    'prop_rotation_y': {
+        'en': "Rotation Y",
+        'ja': "回転 Y",
+    },
+    'prop_rotation_z': {
+        'en': "Rotation Z",
+        'ja': "回転 Z",
+    },
+    'prop_shapekey': {
+        'en': "ShapeKey",
+        'ja': "シェイプキー",
+    },
+    'prop_smd_hitbox': {
+        'en': "Is Hitbox",
+        'ja': "ヒットボックスとして使用",
+    },
+    'prop_smd_hitbox_group': {
+        'en': "Hitbox Group",
+        'ja': "ヒットボックスグループ",
+    },
+    'prop_stereo': {
+        'en': "Stereo",
+        'ja': "ステレオ",
+    },
+    'prop_use_bone_length_for_jb': {
+        'en': "Use Bone's Length for JiggleBone Length",
+        'ja': "ボーンの長さをジグルボーンの長さに使用",
+    },
+    'prop_use_mesh_split': {
+        'en': "Separate Mesh Split",
+        'ja': "メッシュ分割",
+    },
+    'prop_use_toon_edgeline': {
+        'en': "Use Toon Edge Line",
+        'ja': "トゥーンエッジラインを使用",
+    },
+    'qc_warn_noarmature': {
+        'en': "Skipping {0}; no armature found.",
+        'ja': "{0}をスキップ: アーマチュアが見つかりません",
+    },
+    'qc_warn_noarmature_hbox': {
+        'en': "Skipping $hbox import in {0}; no armature found.",
+        'ja': "{0}の$hboxインポートをスキップ: アーマチュアが見つかりません",
+    },
+    'scene_export': {
+        'en': "Scene Export",
+        'ja': "シーンをエクスポート",
+    },
+    'settings_prop': {
+        'en': "Blender Source Tools settings",
+        'ja': "Blender Source Tools 設定",
+    },
+    'shape_stereo_mode': {
+        'en': "DMX stereo split mode",
+        'ja': "DMXステレオ分割モード",
+    },
+    'shape_stereo_mode_tip': {
+        'en': "How stereo split balance should be defined",
+        'ja': "ステレオ分割バランスの定義方法",
+    },
+    'shape_stereo_mode_vgroup': {
+        'en': "Use a vertex group to define stereo balance",
+        'ja': "頂点グループでステレオバランスを定義",
+    },
+    'shape_stereo_sharpness': {
+        'en': "DMX stereo split sharpness",
+        'ja': "DMXステレオ分割シャープネス",
+    },
+    'shape_stereo_sharpness_tip': {
+        'en': "How sharply stereo flex shapes should transition from left to right",
+        'ja': "ステレオフレックスシェイプの左右遷移のシャープさ",
+    },
+    'shape_stereo_vgroup': {
+        'en': "DMX stereo split vertex group",
+        'ja': "DMXステレオ分割頂点グループ",
+    },
+    'shape_stereo_vgroup_tip': {
+        'en': "The vertex group that defines stereo balance (0=Left, 1=Right)",
+        'ja': "ステレオバランスを定義する頂点グループ (0=左, 1=右)",
+    },
+    'slot_filter': {
+        'en': "Slot Filter",
+        'ja': "スロットフィルター",
+    },
+    'slot_filter_tip': {
+        'en': "Slots of the assigned Action with names matching this wildcard filter pattern will be exported (blank to export everything)",
+        'ja': "ワイルドカードフィルターに一致するスロットをエクスポート",
+    },
+    'smd_format': {
+        'en': "Target Engine",
+        'ja': "対象のエンジン",
+    },
+    'subdir': {
+        'en': "Subfolder",
+        'ja': "サブフォルダー",
+    },
+    'subdir_tip': {
+        'en': "Optional path relative to scene output folder",
+        'ja': "シーン出力フォルダーからの相対パス（省略可）",
+    },
+    'triangulate': {
+        'en': "Triangulate",
+        'ja': "三角測量",
+    },
+    'triangulate_tip': {
+        'en': "Avoids concave DMX faces, which are not supported by Source",
+    },
+    'up_axis': {
+        'en': "Target Up Axis",
+        'ja': "対象の上昇軸",
+    },
+    'up_axis_offset': {
+        'en': "Target Up Axis Offset",
+        'ja': "ターゲット上昇軸オフセット",
+    },
+    'up_axis_tip': {
+        'en': "Use for compatibility with data from other 3D tools",
+        'ja': "他の3Dツールとの互換性のために使用",
+    },
+    'use_scene_export_tip': {
+        'en': "Export this item with the scene",
+        'ja': "このアイテムをシーンと一緒にエクスポート",
+    },
+    'valvesource_vertex_blend': {
+        'en': "Blend Params RGB",
+        'ja': "ブレンドパラメーター RGB",
+    },
+    'valvesource_vertex_blend1': {
+        'en': "Blend Params Extra (?)",
+        'ja': "ブレンドパラメーター 追加(?)",
+    },
+    'valvesource_vertex_paint': {
+        'en': "Vertex Paint",
+        'ja': "頂点ペイント",
+    },
+    'vca_add': {
+        'en': "Add Vertex Animation",
+        'ja': "頂点アニメーションを追加",
+    },
+    'vca_add_tip': {
+        'en': "Add a Vertex Animation to the active Source Tools exportable",
+        'ja': "アクティブなエクスポート可能に頂点アニメーションを追加",
+    },
+    'vca_end_tip': {
+        'en': "Scene frame at which to stop recording Vertex Animation",
+        'ja': "頂点アニメーションの記録を停止するシーンフレーム",
+    },
+    'vca_group_props': {
+        'en': "Vertex Animation",
+        'ja': "頂点アニメーション",
+    },
+    'vca_preview': {
+        'en': "Preview Vertex Animation",
+        'ja': "頂点アニメーションを再生します",
+    },
+    'vca_preview_tip': {
+        'en': "Plays the active Source Tools Vertex Animation using scene preview settings",
+        'ja': "シーンプレビュー設定で頂点アニメーションを再生",
+    },
+    'vca_qcgen': {
+        'en': "Generate QC Segment",
+        'ja': "QCの抜粋を生成します",
+    },
+    'vca_qcgen_tip': {
+        'en': "Copies a QC segment for this object's Vertex Animations to the clipboard",
+        'ja': "頂点アニメーションのQCセグメントをクリップボードにコピー",
+    },
+    'vca_remove': {
+        'en': "Remove Vertex Animation",
+        'ja': "頂点アニメーションを削除",
+    },
+    'vca_remove_tip': {
+        'en': "Remove the active Vertex Animation from the active Source Tools exportable",
+        'ja': "アクティブな頂点アニメーションを削除",
+    },
+    'vca_sequence': {
+        'en': "Generate Sequence",
+        'ja': "シクウェンスを生成します",
+    },
+    'vca_sequence_tip': {
+        'en': "On export, generate an animation sequence that drives this Vertex Animation",
+        'ja': "エクスポート時にこの頂点アニメーションを駆動するシークエンスを生成",
+    },
+    'vca_start_tip': {
+        'en': "Scene frame at which to start recording Vertex Animation",
+        'ja': "頂点アニメーションの記録を開始するシーンフレーム",
+    },
+    'vertmap_create': {
+        'en': "Create Source 2 Vertex Map",
+        'ja': "Source 2 頂点マップを作成",
+    },
+    'vertmap_remove': {
+        'en': "Remove Source 2 Vertex Map",
+        'ja': "Source 2 頂点マップを削除",
+    },
+    'vertmap_select': {
+        'en': "Select Source 2 Vertex Map",
+        'ja': "Source 2 頂点マップを選択",
+    },
+    'weightlinkcull': {
+        'en': "Weight Link Cull Threshold",
+        'ja': "ウェイト・リンクの間引きのしきい値",
+    },
+    'weightlinkcull_tip': {
+        'en': "The minimum weight value below which vertex weights are removed to eliminate noise.",
+        'ja': "頂点ウェイトが削除される最小ウェイト値",
+    },
+    'world_scale': {
+        'en': "World Scale",
+        'ja': "ワールドスケール",
+    },
+    'world_scale_tip': {
+        'en': "Scales the the objects in the world proportionally",
+        'ja': "ワールドのすべてのオブジェクトを比例してスケーリング",
     },
 }
 

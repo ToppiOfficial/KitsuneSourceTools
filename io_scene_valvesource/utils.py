@@ -42,8 +42,6 @@ rx90n = Matrix.Rotation(radians(-90),4,'X')
 ry90n = Matrix.Rotation(radians(-90),4,'Y')
 rz90n = Matrix.Rotation(radians(-90),4,'Z')
 
-mat_BlenderToSMD = ry90 @ rz90 # for legacy support only
-
 epsilon = Vector([0.0001] * 3)
 
 implicit_bone_name = "blender_implicit"
@@ -192,7 +190,6 @@ class _StateMeta(type): # class properties are not supported below Python 3.9, s
         cls.last_export_refresh = 0
         cls._engineBranch = None
         cls._gamePathValid = False
-        cls._use_action_slots = bpy.app.version >= (4,4,0)
         cls._legacySlotTranslations = getAllDataNameTranslations("Legacy Slot")
 
     @property
@@ -202,7 +199,14 @@ class _StateMeta(type): # class properties are not supported below Python 3.9, s
     def engineBranch(cls) -> dmx_version | None: return cls._engineBranch
 
     @property
-    def datamodelEncoding(cls): return cls._engineBranch.encoding if cls._engineBranch else int(bpy.context.scene.vs.dmx_encoding)
+    def datamodelEncoding(cls):
+        if cls._engineBranch: return cls._engineBranch.encoding
+        enc = bpy.context.scene.vs.dmx_encoding
+        return 1 if enc == 'kv2' else int(enc)
+
+    @property
+    def use_kv2(cls):
+        return not cls._engineBranch and bpy.context.scene.vs.dmx_encoding == 'kv2'
 
     @property
     def datamodelFormat(cls): return cls._engineBranch.format if cls._engineBranch else int(bpy.context.scene.vs.dmx_format.split("_")[0])
@@ -219,9 +223,6 @@ class _StateMeta(type): # class properties are not supported below Python 3.9, s
     @property
     def gamePath(cls):
         return cls._rawGamePath if cls._gamePathValid else None
-
-    @property
-    def useActionSlots(cls): return cls._use_action_slots
 
     @property
     def legacySlotNames(cls): return cls._legacySlotTranslations
@@ -452,24 +453,16 @@ def count_exports(context):
 
 def animationLength(ad : bpy.types.AnimData):
     if ad.action:
-        if State.useActionSlots:			
-            def iter_keyframes(channelbag : bpy.types.ActionChannelbag):
-                if channelbag is None:
-                    return
-                for fcurve in channelbag.fcurves:
-                    for keyframe in fcurve.keyframe_points:
-                        yield keyframe
+        def iter_keyframes(channelbag : bpy.types.ActionChannelbag):
+            if channelbag is None:
+                return
+            for fcurve in channelbag.fcurves:
+                for keyframe in fcurve.keyframe_points:
+                    yield keyframe
 
-            keyframeTimes = [kf.co.x for kf in iter_keyframes(ad.action.layers[0].strips[0].channelbag(ad.action_slot))]
-            
-            return ceil(max(keyframeTimes) - min(keyframeTimes)) if keyframeTimes else 0
-        else:
-            return ceil(ad.action.frame_range[1] - ad.action.frame_range[0])
-    elif not State.useActionSlots:
-        strips = [strip.frame_end for track in ad.nla_tracks if not track.mute for strip in track.strips]
-        if strips:
-            return ceil(max(strips))
-    
+        keyframeTimes = [kf.co.x for kf in iter_keyframes(ad.action.layers[0].strips[0].channelbag(ad.action_slot))]
+        return ceil(max(keyframeTimes) - min(keyframeTimes)) if keyframeTimes else 0
+
     return 0
     
 def getFileExt(flex=False):
@@ -478,11 +471,6 @@ def getFileExt(flex=False):
     else:
         if flex: return ".vta"
         else: return ".smd"
-
-def isWild(in_str):
-    wcards = [ "*", "?", "[", "]" ]
-    for char in wcards:
-        if in_str.find(char) != -1: return True
 
 # rounds to 6 decimal places, converts between "1e-5" and "0.000001", outputs str
 def getSmdFloat(fval):
@@ -506,21 +494,6 @@ def printTimeMessage(start_time,name,job,type="SMD"):
         elapsedtime = "under 1 second"
 
     print(type,name,"{}ed in".format(job),elapsedtime,"\n")
-
-def PrintVer(in_seq,sep="."):
-        rlist = list(in_seq[:])
-        rlist.reverse()
-        out = ""
-        for val in rlist:
-            try:
-                if int(val) == 0 and not len(out):
-                    continue
-            except ValueError:
-                continue
-            out = "{}{}{}".format(str(val),sep if sep else "",out) # NB last value!
-        if out.count(sep) == 1:
-            out += "0" # 1.0 instead of 1
-        return out.rstrip(sep)
 
 def getUpAxisMat(axis):
     match axis.upper():
@@ -578,9 +551,6 @@ def MakeObjectIcon(object,prefix=None,suffix=None):
     if suffix:
         out += suffix
     return out
-
-def getObExportName(ob):
-    return ob.name
 
 def get_flexcontrollers(ob: bpy.types.Object) -> list[tuple[str, bool, bool, str, str, str]]:
     """Return list of (shapekey, eyelid, stereo, raw_delta, controller_name, flexgroup) from object,
@@ -712,7 +682,6 @@ def valvesource_vertex_maps(id) -> set[str]:
         return set()
 
 def actionSlotsForFilter(obj : bpy.types.Object):
-    assert(State.useActionSlots)
     from fnmatch import fnmatch
     if not obj.animation_data:
         return list()
@@ -724,7 +693,6 @@ def actionsForFilter(filter):
 
 def actionSlotExportName(animData : bpy.types.AnimData):
     """For use only when exporting a single action slot"""
-    assert(State.useActionSlots)
     slot_name = animData.action_slot.name_display
     return animData.action.name if slot_name in State.legacySlotNames else slot_name
 
@@ -735,7 +703,6 @@ def hasFlexControllerSource(source):
     return bpy.data.texts.get(source) or os.path.exists(bpy.path.abspath(source))
 
 def channelBagForNewActionSlot(obj : bpy.types.Object, name : str):
-    assert(State.useActionSlots)
     ad = obj.animation_data_create()
     if not ad.action:
         ad.action = bpy.data.actions.new(obj.name)
@@ -827,26 +794,16 @@ def make_export_list(scene: bpy.types.Scene):
         if ob.type == 'ARMATURE':
             ad = ob.animation_data
             if ad:
-                if State.useActionSlots:
-                    i_icon = i_type = "ACTION_SLOT"
-                    if ob.data.vs.action_selection != 'CURRENT':
-                        export_slots = ob.data.vs.action_selection == 'FILTERED'
-                        exportables_count = len(actionSlotsForFilter(ob) if export_slots else actionsForFilter(ob.vs.action_filter))
-                        if not export_slots or (ob.vs.action_filter and ob.vs.action_filter != "*"):
-                            i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, exportables_count)
-                        else:
-                            i_name = get_id("exportables_arm_no_slot_filter", True).format(exportables_count, ob.name)
-                    elif ad.action_slot:
-                        i_name = makeDisplayName(ob, actionSlotExportName(ad))
-                else:
-                    i_icon = i_type = "ACTION"
-                    if ob.data.vs.action_selection == 'FILTERED':
-                        i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, len(actionsForFilter(ob.vs.action_filter)))
-                    elif ad.action:
-                        i_name = makeDisplayName(ob, ad.action.name)
-                    elif len(ad.nla_tracks):
-                        i_name = makeDisplayName(ob)
-                        i_icon = "NLA"
+                i_icon = i_type = "ACTION_SLOT"
+                if ob.data.vs.action_selection != 'CURRENT':
+                    export_slots = ob.data.vs.action_selection == 'FILTERED'
+                    exportables_count = len(actionSlotsForFilter(ob) if export_slots else actionsForFilter(ob.vs.action_filter))
+                    if not export_slots or (ob.vs.action_filter and ob.vs.action_filter != "*"):
+                        i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, exportables_count)
+                    else:
+                        i_name = get_id("exportables_arm_no_slot_filter", True).format(exportables_count, ob.name)
+                elif ad.action_slot:
+                    i_name = makeDisplayName(ob, actionSlotExportName(ad))
         else:
             i_name = makeDisplayName(ob)
             i_icon = MakeObjectIcon(ob, prefix="OUTLINER_OB_")
@@ -1037,6 +994,7 @@ class QcInfo:
         self.imported_smds = []
         self.vars = {}
         self.dir_stack = []
+        self.vmdl_bone_list: list[str] = []
 
     def cd(self):
         return os.path.join(self.root_filedir,*self.dir_stack)
@@ -1046,22 +1004,6 @@ class KeyFrame:
         self.frame = None
         self.pos = self.rot = False
         self.matrix = Matrix()
-
-class SMD_OT_LaunchHLMV(bpy.types.Operator):
-    bl_idname = "smd.launch_hlmv"
-    bl_label = get_id("launch_hlmv")
-    bl_description = get_id("launch_hlmv_tip")
-
-    @classmethod
-    def poll(cls,context):
-        return bool(context.scene.vs.engine_path)
-        
-    def execute(self,context) -> set:
-        args = [os.path.normpath(os.path.join(bpy.path.abspath(context.scene.vs.engine_path),"hlmv"))]
-        if context.scene.vs.game_path:
-            args.extend(["-game",os.path.normpath(bpy.path.abspath(context.scene.vs.game_path))])
-        subprocess.Popen(args)
-        return {'FINISHED'}
 
 #   ---------------------------------
 #
@@ -1963,82 +1905,3 @@ def is_empty(ob : bpy.types.Object | None) -> bool:
 
 def is_curve(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'CURVE'
-     
-#
-#   OBJECT MODIFIERS
-#
-
-def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
-                execution_context: Optional[str] = None, undo: Optional[bool] = None, **operator_args) -> set[str]:
-    """Call a Blender operator with a context override."""
-    args = []
-    if execution_context is not None:
-        args.append(execution_context)
-    if undo is not None:
-        args.append(undo)
-
-    if context is None:
-        context = bpy.context
-    with context.temp_override(**context_override):
-        return operator(*args, **operator_args)
-
-def apply_modifier(mod: bpy.types.Modifier, strict: bool = False, silent=False):
-    ob: bpy.types.Object | None = mod.id_data
-    if ob is None or ob.type != 'MESH':
-        return False
-    
-    bpy.context.view_layer.objects.active = ob
-    ob.select_set(True)
-
-    name = mod.name
-    m_type = mod.type
-
-    # Strict mode: deny applying if shapekeys exist
-    if strict and ob.data.shape_keys:
-        if not silent: 
-            print(f"- Skipping {name} ({m_type}) on {ob.name}: object has shapekeys (strict mode).")
-        return False
-
-    if not strict and ob.data.shape_keys:
-        if not silent: 
-            print(f"- Applying modifier {name} ({m_type}) with shapekeys on {ob.name}")
-
-        # Backup shapekeys
-        shape_keys = {sk.name: [v.co.copy() for v in sk.data] 
-                      for sk in ob.data.shape_keys.key_blocks}
-
-        # Remove all shapekeys but preserve final shape
-        context_override = {'object': ob, 'active_object': ob}
-        op_override(bpy.ops.object.shape_key_remove, context_override, all=True, apply_mix=True)
-
-        while ob.modifiers[0] != mod:
-            bpy.ops.object.modifier_move_up(modifier=mod.name)
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-
-        # Restore shapekeys only if vertex count unchanged
-        if all(len(coords) == len(ob.data.vertices) for coords in shape_keys.values()):
-            for sk_name, coords in shape_keys.items():
-                new_sk = ob.shape_key_add(name=sk_name, from_mix=False)
-                for i, coord in enumerate(coords):
-                    new_sk.data[i].co = coord
-            if not silent: 
-                print(f"- Successfully applied {name} ({m_type}) with shapekeys preserved.")
-        else:
-            if not silent: 
-                print(f"- Modifier {name} changed topology, shapekeys could not be restored.")
-
-        return True
-
-    # No shapekeys — apply normally
-    while ob.modifiers[0] != mod:
-        bpy.ops.object.modifier_move_up(modifier=mod.name)
-    bpy.ops.object.modifier_apply(modifier=mod.name)
-
-    if name not in ob.modifiers:
-        if not silent: 
-            print(f"- Pre-Applied Modifier {name} ({m_type}) for Object '{ob.name}'")
-        return True
-    else:
-        if not silent: 
-            print(f"- Failed to apply {name} ({m_type}) for Object '{ob.name}'")
-        return False

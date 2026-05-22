@@ -2,9 +2,6 @@
 
 A character-modding-centric fork of [BlenderSourceTools](https://github.com/Artfunkel/BlenderSourceTools) by Artfunkel. This tool is designed to modernize and streamline workflows for Source Engine modding, with a heavy emphasis on DMX-based pipelines and automated post-processing.
 
-## Important Notice
-⚠️ **Project Status:** Development is focused on a new project built from scratch with the same goals, rather than extending this fork further. **No new features will be added**, but the project will continue to receive bug fixes and stability patches.
-
 ## Core Philosophy
 - **DMX First:** SMD and VTA formats are legacy and maintained only for compatibility. DMX is the recommended format for all new projects.
 - **Automation over Manual QC:** KitsuneSourceTool replaces manual QC compilation with integration into [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource).
