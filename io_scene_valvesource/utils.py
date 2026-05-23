@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils, re, math, bmesh
+import bpy, struct, time, collections, os, subprocess, sys, builtins, itertools, dataclasses, typing, mathutils, re, math, bmesh, ctypes
 from typing import Optional, Any
 from bpy.app.translations import pgettext
 from contextlib import contextmanager
@@ -105,6 +105,24 @@ exportname_shortcut_keywords = {
 }
 
 kitsune_data_keys: list[str] = []
+
+def _try_enable_vt_processing() -> bool:
+    if sys.platform != 'win32':
+        return True
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        if handle in (0, -1):
+            return False
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        return bool(kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+    except Exception:
+        return False
+
+_VT_SUPPORTED = _try_enable_vt_processing()
 
 class ExportFormat:
     SMD = 1
@@ -415,6 +433,18 @@ vertex_float_maps = [
     # cloth_collision_layer_%d - 0 through 15
     # cloth_vertex_set_%s - name
 ]
+
+# Cloth map grouping for UI organization (based on Valve's Source 2 cloth attribute documentation)
+cloth_map_groups = {
+    "Enable": ["cloth_enable"],
+    "Simulation Control": ["cloth_mass", "cloth_drag", "cloth_drag_v2", "cloth_gravity", "cloth_gravity_z", "cloth_friction"],
+    "Physical Properties": ["cloth_bend_stiffness", "cloth_stretch", "cloth_shear_resistance", "cloth_antishrink"],
+    "Constraints & Goals": ["cloth_goal_strength", "cloth_goal_strength_v2", "cloth_goal_damping"],
+    "Animation": ["cloth_animation_attract", "cloth_animation_force_attract"],
+    "Collision & Interaction": ["cloth_collision_radius", "cloth_ground_collision", "cloth_ground_friction"],
+    "Structure": ["cloth_use_rods", "cloth_make_rods", "cloth_volumetric", "cloth_suspenders"],
+    "Advanced": ["cloth_stray_radius_inv", "cloth_stray_radius", "cloth_stray_radius_stretchiness", "cloth_anchor_free_rotate"],
+}
 
 def findDmxClothVertexGroups(ob):
     groups = []
@@ -1051,6 +1081,8 @@ def run_and_report(operator, cmd: list, basedir: str) -> set:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             cwd=basedir,
+            env={**os.environ, 'PYTHONUNBUFFERED': '1', 'PYTHONIOENCODING': 'utf-8'},
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
         )
     except FileNotFoundError:
         operator.report({'ERROR'}, f"Executable not found: {cmd[0]}")
@@ -1059,14 +1091,15 @@ def run_and_report(operator, cmd: list, basedir: str) -> set:
         operator.report({'ERROR'}, str(e))
         return {'CANCELLED'}
 
-    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-    errors      = []
+    _ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+    errors       = []
 
     for raw_line in process.stdout:  # pyright: ignore
-        line = ansi_escape.sub('', raw_line.decode('utf-8', errors='replace')).rstrip()
-        print(line)
-        if '[ERROR]' in line:
-            clean = re.sub(r'^\d{2}:\d{2}:\d{2} \| ', '', line.strip())
+        decoded = raw_line.decode('utf-8', errors='replace').rstrip()
+        plain   = _ansi_escape.sub('', decoded)
+        print(decoded if _VT_SUPPORTED else plain)
+        if '[ERROR]' in plain:
+            clean = re.sub(r'^\d{2}:\d{2}:\d{2} \| ', '', plain.strip())
             clean = clean.encode('ascii', errors='replace').decode('ascii')
             errors.append(clean)
 

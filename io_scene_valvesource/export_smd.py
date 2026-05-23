@@ -1080,10 +1080,11 @@ class ExportPlanner:
         allowed_uids.add(ob.session_uid)
         target_ob = ob
         companions = []
+        post_process_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
 
         # MESH SPLIT
         order_tasks: list[ExportTask] = []
-        if (ob.vs.use_mesh_split
+        if (post_process_ok and ob.vs.use_mesh_split
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
                 and not export_name.endswith(("_order", "_edgeline", "_backface"))):
 
@@ -1115,7 +1116,7 @@ class ExportPlanner:
                     # All orders ride as companions in the base task.
                     companions.append(so)
 
-        if (ob.vs.merge_vertices
+        if (post_process_ok and ob.vs.merge_vertices
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
                 and not self._is_existing_lod(export_name)):
             flexcontrollers, corrective_shapes = countShapes(ob)
@@ -1135,7 +1136,7 @@ class ExportPlanner:
                     allowed_uids = {merged.session_uid}
                 self._apply_merge_vertices(target_ob)
 
-        if ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
+        if post_process_ok and ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
             if not export_name.endswith("_edgeline"):
 
                 # TODO: Check if smd and vta export properly
@@ -1167,7 +1168,7 @@ class ExportPlanner:
         # SMD: merge in-place (requires a copy if one wasn't already made for edgeline/merge).
         # DMX: companion DmeMesh in the same file, matching edgeline's pattern.
         bf_ob = None
-        if not export_name.endswith("_backface") and ob.vs.generate_backface:
+        if post_process_ok and not export_name.endswith("_backface") and ob.vs.generate_backface:
             if State.exportFormat == ExportFormat.SMD:
                 if target_ob is ob:
                     merged = ob.copy()
@@ -1193,7 +1194,7 @@ class ExportPlanner:
 
         is_lod = self._is_existing_lod(export_name)
 
-        if not is_lod and ob.vs.generate_lods and ob.vs.lod_count > 0:
+        if post_process_ok and not is_lod and ob.vs.generate_lods and ob.vs.lod_count > 0:
             for lod_idx, lod_ob in self._lod_builder.build_all(ob, export_name):
                 self._owned_objects.append(lod_ob)
                 State.exportableObjects.add(lod_ob.session_uid)
@@ -1213,7 +1214,7 @@ class ExportPlanner:
 
                 tasks.append(ExportTask(lod_ob, lod_ob.name, lod_uids, lod_companions))
 
-        if not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
+        if post_process_ok and not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
             if ob.vs.export_edgeline_separately:
                 edgeline_ob = self._edgeline_builder.build(target_ob, export_name)
                 if edgeline_ob and edgeline_ob is not target_ob:
@@ -1392,7 +1393,7 @@ class Baker:
         result.matrix = baked.matrix_world
 
         # -- shape key baking -------------------------------------------------
-        if not shapes_invalid and hasShapes(ob):
+        if not shapes_invalid and hasShapes(ob) and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT':
             self._bake_shapes(ob, result, solidify_fill_rim)
 
         for mod in ob.modifiers:
@@ -1440,8 +1441,17 @@ class Baker:
             cur = cur.parent
 
     def _pre_bake_mesh_ops(self, ob: bpy.types.Object) -> None:
+        scene_vs = bpy.context.scene.vs
+        mt = getattr(ob.vs, 'mesh_type', 'DEFAULT')
+        if mt == 'COLLISION':
+            vgroup_limit = 1
+        elif mt == 'CLOTHPROXY':
+            vgroup_limit = min(8, max(4, scene_vs.vertex_influence_limit))
+        else:
+            vgroup_limit = scene_vs.vertex_influence_limit
+
         if not hasShapes(ob):
-            VertexGroupNormalizer(ob,vgroup_limit=bpy.context.scene.vs.vertex_influence_limit, clean_tolerance=bpy.context.scene.vs.weightlink_threshold).run()
+            VertexGroupNormalizer(ob, vgroup_limit=vgroup_limit, clean_tolerance=scene_vs.weightlink_threshold).run()
             ops.object.mode_set(mode="EDIT")
             ops.mesh.reveal()
             if ob.matrix_world.is_negative:
@@ -1459,7 +1469,7 @@ class Baker:
         else:
             self._normalize_shapekeys(ob)
 
-        VertexGroupNormalizer(ob,vgroup_limit=bpy.context.scene.vs.vertex_influence_limit, clean_tolerance=bpy.context.scene.vs.weightlink_threshold).run()
+        VertexGroupNormalizer(ob, vgroup_limit=vgroup_limit, clean_tolerance=scene_vs.weightlink_threshold).run()
 
         ops.object.mode_set(mode="EDIT")
         ops.mesh.reveal()
@@ -1535,7 +1545,8 @@ class Baker:
 
         # Non-exportable vgroup: base faces (and their edgeline shell counterparts)
         # where all vertices meet the weight threshold are removed.
-        nonexp_vg_name = getattr(vg_source.vs, "non_exportable_vgroup", "")
+        _mt = getattr(vg_source.vs, 'mesh_type', 'DEFAULT')
+        nonexp_vg_name = getattr(vg_source.vs, "non_exportable_vgroup", "") if _mt == 'DEFAULT' else ""
         nonexp_vg      = vg_source.vertex_groups.get(nonexp_vg_name) if nonexp_vg_name else None
         nonexp_tol     = getattr(vg_source.vs, "non_exportable_vgroup_tolerance", 0.90)
 
@@ -1837,7 +1848,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         valid_arms = []
         for arm in arms:
             if not getattr(arm.vs, 'export', False):
-                #print(f"\nBlender Source Tools: skipping prefab export for armature '{arm.name}'")
+                #print(f"\nKitsune Source Tools skipping prefab export for armature '{arm.name}'")
                 continue
 
             if arm.users_collection:
@@ -1846,7 +1857,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     for col in arm.users_collection
                 )
                 if not has_exportable_col:
-                    #print(f"\nBlender Source Tools: skipping prefab export for armature '{arm.name}'")
+                    #print(f"\nKitsune Source Tools skipping prefab export for armature '{arm.name}'")
                     continue
                     
             valid_arms.append(arm)
@@ -1855,7 +1866,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             return
             
         for arm in valid_arms:
-            print(f"\nBlender Source Tools: auto-exporting prefabs for armature '{arm.name}'")
+            print(f"\nKitsune Source Tools auto-exporting prefabs for armature '{arm.name}'")
             self._auto_export_prefabs_for_armature(arm, context)
         
         print("\n")
@@ -1906,7 +1917,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         self._last_bake_results = []
         bench = BenchMarker()
         subdir = id.vs.subdir.lstrip("/")
-        print(f"\nBlender Source Tools: exporting {id.name}")
+        print(f"\nKitsune Source Tools exporting {id.name}")
 
         path = os.path.join(bpy.path.abspath(context.scene.vs.export_path), subdir)
         if not os.path.exists(path):
@@ -1924,6 +1935,12 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             ad = id.animation_data
             if not ad:
                 return False
+
+        if State.exportFormat != ExportFormat.DMX:
+            cloth_obs = id.objects if isinstance(id, Collection) else [id]
+            for _ob in cloth_obs:
+                if getattr(getattr(_ob, 'vs', None), 'mesh_type', 'DEFAULT') == 'CLOTHPROXY':
+                    self.warning(f"'{_ob.name}' is set to Cloth Proxy but scene export format is not DMX — cloth attributes will be omitted.")
 
         planner = ExportPlanner(self)
         try:
@@ -2045,7 +2062,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         self._last_bake_results.extend(bake_results)
 
         # -- flex controller setup ---------------------------------------------
-        if State.exportFormat == ExportFormat.DMX and hasShapes(source):
+        src_mt_flex = getattr(getattr(source, 'vs', None), 'mesh_type', 'DEFAULT')
+        if State.exportFormat == ExportFormat.DMX and hasShapes(source) and src_mt_flex == 'DEFAULT':
             self.flex_controller_mode = source.vs.flex_controller_mode
             self.flex_controller_source = source.vs.flex_controller_source
 
@@ -2571,6 +2589,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             else:
                                 weight_strs[vi] = str(valid[0][0])
 
+                src_mt = getattr(bake.src.vs, 'mesh_type', 'DEFAULT') if bake.src else 'DEFAULT'
                 num_polys = len(ob.data.polygons)
                 poly_progress_step = max(10, num_polys // 100)
                 lines = []
@@ -2578,7 +2597,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 for p, poly in enumerate(ob.data.polygons):
                     if p % poly_progress_step == 0:
                         bpy.context.window_manager.progress_update(p / num_polys)
-                    mat_name, mat_ok = self.GetMaterialName(ob, poly.material_index)
+                    if src_mt in ('COLLISION', 'CLOTHPROXY'):
+                        mat_name, mat_ok = "no_material", True
+                    else:
+                        mat_name, mat_ok = self.GetMaterialName(ob, poly.material_index)
                     if not mat_ok:
                         bad_face_mats += 1
                     lines.append(mat_name + "\n")
@@ -2996,7 +3018,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             weight_link_limit = 4 if source2 else 3
             jointCount = badJointCounts = 0
             have_weightmap = False
-            cloth_groups = findDmxClothVertexGroups(ob) if source2 else None
+            src_mt = getattr(bake.src.vs, 'mesh_type', 'DEFAULT') if bake.src else 'DEFAULT'
+            cloth_groups = findDmxClothVertexGroups(ob) if (source2 and src_mt != 'COLLISION') else None
 
             if type(bake.envelope) is bpy.types.ArmatureModifier:
                 ob_weights = self.getWeightmap(bake)
@@ -3097,7 +3120,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             vertex_data[keywords["pos"]] = datamodel.make_array((v.co for v in bm.verts), datamodel.Vector3)
             vertex_data[keywords["pos"] + "Indices"] = datamodel.make_array((l.vert.index for f in bm.faces for l in f.loops), int)
 
-            if source2:
+            if source2 and src_mt != 'COLLISION':
                 loops = [loop for face in bm.faces for loop in face.loops]
                 loop_indices = datamodel.make_array([loop.index for loop in loops], int)
                 layerGroups = bm.loops.layers
@@ -3222,7 +3245,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
             bm_face_sets = collections.defaultdict(list)
             for p, face in enumerate(bm.faces):
-                mat_name, mat_ok = self.GetMaterialName(ob, face.material_index)
+                if src_mt in ('COLLISION', 'CLOTHPROXY'):
+                    mat_name, mat_ok = "no_material", True
+                else:
+                    mat_name, mat_ok = self.GetMaterialName(ob, face.material_index)
                 if not mat_ok:
                     bad_face_mats += 1
                 bm_face_sets[mat_name].extend((*(l.index for l in face.loops), -1))
@@ -4013,3 +4039,64 @@ class _PrefabRunnerAdapter(ExportCheck):
     _attachments_vmdl        = PrefabExporter._attachments_vmdl
     _run_hitboxes            = PrefabExporter._run_hitboxes
     _hitbox_bounds           = PrefabExporter._hitbox_bounds
+
+
+# -----------------------------------------------------------------------------
+# KitsuneResource compile operator
+# -----------------------------------------------------------------------------
+
+class SMD_OT_KitsuneResourceCompile(bpy.types.Operator):
+    bl_idname = "smd.kitsuneresource_compile"
+    bl_label  = "KitsuneResource Compile"
+    bl_options = {'REGISTER'}
+
+    export_choice: bpy.props.EnumProperty(items=[
+        ('ALL',     'All',     ''),
+        ('CHECKED', 'Checked', ''),
+        ('ENTRY',   'Entry',   ''),
+    ], default='ALL')
+    entry_index: bpy.props.IntProperty(default=-1)
+    entry_type: bpy.props.StringProperty(default='MODEL')
+
+    @classmethod
+    def poll(cls, context):
+        vs = context.scene.vs
+        return (
+            len(vs.kitsuneresource_project_path) > 0
+            and len(vs.kitsuneresource_app_path) > 0
+            and len(vs.kitsuneresource_config) > 0
+            and (len(vs.kitsuneresource_model_entries) > 0 or len(vs.kitsuneresource_data_entries) > 0)
+        )
+
+    def invoke(self, context, event) -> set:
+        bpy.ops.wm.call_menu(name="SMD_MT_KitsuneCompileChoice")
+        return {'PASS_THROUGH'}
+
+    def execute(self, context) -> set:
+        vs          = context.scene.vs
+        app_path    = resolve_kitsuneresource_app(vs)
+        basedir     = resolve_kitsuneresource_project_basedir(vs)
+        config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
+        cmd         = build_base_cmd(vs, app_path, config_path)
+
+        if self.export_choice == 'ENTRY':
+            entries = vs.kitsuneresource_model_entries if self.entry_type == 'MODEL' else vs.kitsuneresource_data_entries
+            if 0 <= self.entry_index < len(entries):
+                cmd += ["--only", f"{entries[self.entry_index].name}"]
+            else:
+                self.report({'WARNING'}, "Invalid entry index.")
+                return {'CANCELLED'}
+
+        elif self.export_choice == 'CHECKED':
+            for e in vs.kitsuneresource_model_entries:
+                if e.export:
+                    cmd += ["--only", f"{e.name}"]
+            for e in vs.kitsuneresource_data_entries:
+                if e.export:
+                    cmd += ["--only", f"{e.name}"]
+
+            if len(cmd) == len(build_base_cmd(vs, app_path, config_path)):
+                self.report({'WARNING'}, "No entries checked for export.")
+                return {'CANCELLED'}
+
+        return run_and_report(self, cmd, basedir)

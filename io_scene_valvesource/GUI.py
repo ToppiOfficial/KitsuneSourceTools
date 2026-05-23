@@ -23,7 +23,7 @@ from bpy.types import Menu, Panel, Operator, MeshLoopColorLayer, UILayout, UILis
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty, StringProperty
 from bpy.app.translations import pgettext
 from .utils import getSelectedExportables, count_exports, get_id, State, Compiler, ExportFormat, is_armature, get_attachments, get_hitboxes, get_jigglebones
-from .export_smd import SmdExporter, PrefabExporter
+from .export_smd import SmdExporter, PrefabExporter, SMD_OT_KitsuneResourceCompile
 from .import_smd import SmdImporter
 from .flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers,DmxWriteFlexControllers
 from .utils import *
@@ -115,13 +115,15 @@ class SMD_MT_KitsuneCompileChoice(Menu):
                 op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=entry.name, icon='MESH_DATA')
                 op.export_choice = 'ENTRY'
                 op.entry_index   = i
+                op.entry_type    = 'MODEL'
 
             layout.separator()
 
             for i, entry in enumerate(vs.kitsuneresource_data_entries):
-                op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=entry.name, icon='FILE')
+                op = layout.operator(SMD_OT_KitsuneResourceCompile.bl_idname, text=entry.name, icon='FILE_CACHE')
                 op.export_choice = 'ENTRY'
                 op.entry_index   = i
+                op.entry_type    = 'DATA'
 
 
 class SMD_PT_Scene(Panel):
@@ -210,8 +212,18 @@ class SMD_UL_KitsuneResourceEntries(UIList):
         if self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
 
-        layout.prop(item, "export", text="", icon='CHECKBOX_HLT' if item.export else 'CHECKBOX_DEHLT', emboss = False)
-        layout.label(text=item.name, icon='MESH_DATA')
+        vs = data
+        if item.entry_type == 'MODEL':
+            source = next((e for e in vs.kitsuneresource_model_entries if e.name == item.name), None)
+            entry_icon = 'MESH_DATA'
+        else:
+            source = next((e for e in vs.kitsuneresource_data_entries if e.name == item.name), None)
+            entry_icon = 'FILE_CACHE'
+
+        target = source if source is not None else item
+        layout.prop(target, "export", text="",
+                    icon='CHECKBOX_HLT' if target.export else 'CHECKBOX_DEHLT', emboss=False)
+        layout.label(text=item.name, icon=entry_icon)
 
 
 class SMD_PT_KitsuneResource(Panel):
@@ -260,9 +272,9 @@ class SMD_PT_KitsuneResource(Panel):
         col = box.column()
         col.enabled = len(vs.kitsuneresource_config) > 0
         row = col.row()
-        col = row.column()
-        col.template_list("SMD_UL_KitsuneResourceEntries", "model", vs, "kitsuneresource_model_entries", vs, "kitsuneresource_model_entry_index", rows=4)
-        col.template_list("SMD_UL_KitsuneResourceEntries", "data", vs, "kitsuneresource_data_entries", vs, "kitsuneresource_data_entry_index", rows=4)
+        col2 = row.column()
+        col2.template_list("SMD_UL_KitsuneResourceEntries", "", vs, "kitsuneresource_entries",
+                           vs, "kitsuneresource_entry_index", rows=6)
         row.operator(SMD_OT_KitsuneResourceLoadEntries.bl_idname, text="", icon='FILE_REFRESH')
 
 
@@ -299,83 +311,37 @@ class SMD_OT_KitsuneResourceLoadEntries(Operator):
             self.report({'ERROR'}, data["error"])
             return {'CANCELLED'}
 
-        previously_checked_model = {e.name for e in vs.kitsuneresource_model_entries if e.export}
-        previously_checked_data  = {e.name for e in vs.kitsuneresource_data_entries if e.export}
+        previously_model = {e.name: e.export for e in vs.kitsuneresource_model_entries}
+        previously_data  = {e.name: e.export for e in vs.kitsuneresource_data_entries}
 
         vs.kitsuneresource_model_entries.clear()
         for k in data.get("model", []):
             entry = vs.kitsuneresource_model_entries.add()
             entry.name = k
-            entry.export = k in previously_checked_model
+            entry.export = previously_model.get(k, True)
         vs.kitsuneresource_model_entry_index = 0
 
         vs.kitsuneresource_data_entries.clear()
         for k in data.get("data", []):
             entry = vs.kitsuneresource_data_entries.add()
             entry.name = k
-            entry.export = k in previously_checked_data
+            entry.export = previously_data.get(k, True)
         vs.kitsuneresource_data_entry_index = 0
+
+        vs.kitsuneresource_entries.clear()
+        for e in vs.kitsuneresource_model_entries:
+            combined = vs.kitsuneresource_entries.add()
+            combined.name = e.name
+            combined.entry_type = 'MODEL'
+        for e in vs.kitsuneresource_data_entries:
+            combined = vs.kitsuneresource_entries.add()
+            combined.name = e.name
+            combined.entry_type = 'DATA'
+        vs.kitsuneresource_entry_index = 0
 
         self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} models, {len(vs.kitsuneresource_data_entries)} data")
         return {'FINISHED'}
 
-
-class SMD_OT_KitsuneResourceCompile(Operator):
-    bl_idname = "smd.kitsuneresource_compile"
-    bl_label  = "KitsuneResource Compile"
-    bl_options = {'REGISTER'}
-
-    export_choice: EnumProperty(items=[
-        ('ALL',     'All',     ''),
-        ('CHECKED', 'Checked', ''),
-        ('ENTRY',   'Entry',   ''),
-    ], default='ALL')
-    entry_index: IntProperty(default=-1)
-    entry_type: StringProperty(default='MODEL')
-
-    @classmethod
-    def poll(cls, context):
-        vs = context.scene.vs
-        return (
-            len(vs.kitsuneresource_project_path) > 0
-            and len(vs.kitsuneresource_app_path) > 0
-            and len(vs.kitsuneresource_config) > 0
-            and (len(vs.kitsuneresource_model_entries) > 0 or len(vs.kitsuneresource_data_entries) > 0)
-        )
-
-    def invoke(self, context, event) -> set:
-        bpy.ops.wm.call_menu(name="SMD_MT_KitsuneCompileChoice")
-        return {'PASS_THROUGH'}
-
-    def execute(self, context) -> set:
-        vs          = context.scene.vs
-        app_path    = resolve_kitsuneresource_app(vs)
-        basedir     = resolve_kitsuneresource_project_basedir(vs)
-        config_path = bpy.path.abspath(vs.kitsuneresource_config.strip())
-        cmd         = build_base_cmd(vs, app_path, config_path)
-
-        if self.export_choice == 'ENTRY':
-            entries = vs.kitsuneresource_model_entries if self.entry_type == 'MODEL' else vs.kitsuneresource_data_entries
-            if 0 <= self.entry_index < len(entries):
-                cmd += ["--only", f"{entries[self.entry_index].name}"]
-            else:
-                self.report({'WARNING'}, "Invalid entry index.")
-                return {'CANCELLED'}
-
-        elif self.export_choice == 'CHECKED':
-            for e in vs.kitsuneresource_model_entries:
-                if e.export:
-                    cmd += ["--only", f"{e.name}"]
-            for e in vs.kitsuneresource_data_entries:
-                if e.export:
-                    cmd += ["--only", f"{e.name}"]
-            
-            if len(cmd) == len(build_base_cmd(vs, app_path, config_path)):
-                self.report({'WARNING'}, "No entries checked for export.")
-                return {'CANCELLED'}
-
-        return run_and_report(self, cmd, basedir)
-    
 
 class TOOLS_OT_CopySourceBoneProps(Operator):
     bl_idname = "smd.copy_bone_props"
@@ -1026,7 +992,15 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text=get_id('label_frequency', format_string=True))
         subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text=get_id('label_amplitude', format_string=True))
 
-    
+
+def _mesh_type_allows(ob, feature: str) -> bool:
+    mt = getattr(ob.vs, 'mesh_type', 'DEFAULT') if ob and hasattr(ob, 'vs') else 'DEFAULT'
+    if mt == 'DEFAULT':
+        return True
+    if mt == 'CLOTHPROXY':
+        return feature in ('vertexmap', 'vertexfloatmap')
+    return False  # COLLISION blocks everything
+
 class SMD_PT_Mesh(Properties_SubPanel):
     bl_label = ''
 
@@ -1048,25 +1022,32 @@ class SMD_PT_Mesh(Properties_SubPanel):
         layout.use_property_split = False
         layout.use_property_decorate = False
 
-        layout.box().prop(vs, 'merge_vertices')
+        if vs.mesh_type == 'DEFAULT':
+            layout.box().prop(vs, 'merge_vertices')
+
+        box = layout.box()
+        box.prop(vs, 'mesh_type')
+        if vs.mesh_type == 'CLOTHPROXY' and context.scene.vs.export_format != 'DMX':
+            box.label(text="Cloth Proxy requires DMX export format", icon='ERROR')
 
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        box = layout.box().column(align=True)
-        box.prop_search(vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
-        box.separator(factor=0.5)
-        box.prop(vs, 'non_exportable_vgroup_tolerance')
+        if vs.mesh_type == 'DEFAULT':
+            box = layout.box().column(align=True)
+            box.prop_search(vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
+            box.separator(factor=0.5)
+            box.prop(vs, 'non_exportable_vgroup_tolerance')
 
   
 class SMD_PT_Shapekey(Properties_SubPanel):
     bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'shapekey')
     
     def draw_header(self, context):
         active_object = context.object
@@ -1216,10 +1197,10 @@ class SMD_PT_Shapekey(Properties_SubPanel):
 class SMD_PT_Vertexmap(Properties_SubPanel):
     bl_label = 'Vertex Maps'
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'vertexmap')
     
     def draw_header(self, context):
         layout = self.layout
@@ -1246,58 +1227,89 @@ class SMD_PT_Vertexmap(Properties_SubPanel):
             add_remove.operator(SMD_OT_SelectVertexMap_idname + map_name,text="Activate")
     
       
+def _ensure_cloth_remaps():
+    context = bpy.context
+    if context.object and context.object.type == 'MESH':
+        existing = {r.group for r in context.object.vs.vertex_map_remaps}
+        for map_name in vertex_float_maps:
+            if map_name not in existing:
+                remap = context.object.vs.vertex_map_remaps.add()
+                remap.group = map_name
+                remap.min = 0.0
+                remap.max = 1.0
+    return None
+
+
 class SMD_PT_Vertexfloatmap(Properties_SubPanel):
     bl_label = 'Vertex Float Maps'
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
-    
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'vertexfloatmap')
+
     def draw_header(self, context):
         layout = self.layout
         layout.label(text='', icon='MOD_VERTEX_WEIGHT')
-        
+
     def draw(self, context):
         layout = self.layout
         active_object = context.object
-        
+
         layout.operator("wm.url_open", text=get_id("help", True), icon='INTERNET').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
-        
+
         box : UILayout = layout.box()
 
         col = box.column()
         col.label(text=get_id('label_vertex_float_maps', format_string=True))
-        
-        col.scale_y = 1.15
-        
-        for map_name in vertex_float_maps:
-            split1 = col.split(align=True, factor=0.55)
-            r = split1.row(align=True)
-            r.operator(SMD_OT_SelectVertexFloatMap_idname + map_name, text=map_name.replace("cloth_", "").replace("_", " ").title(), icon='GROUP_VERTEX')
-            r.operator(SMD_OT_CreateVertexFloatMap_idname + map_name, icon='ADD', text="")
-            r.operator(SMD_OT_RemoveVertexFloatMap_idname + map_name, icon='REMOVE', text="")
-            
-            r = split1.row(align=True)
-            found = False
-            for group in active_object.vs.vertex_map_remaps:
-                if group.group == map_name:
-                    found = True
-                    r.prop(group, "min")
-                    r.prop(group, "max")
-                    break
 
-            if not found:
-                r.operator("smd.add_vertex_map_remap").map_name = map_name
+        col.scale_y = 1.15
+
+        existing_remaps = {r.group: r for r in active_object.vs.vertex_map_remaps}
+
+        # Defer remap initialization to avoid drawing data mutation
+        if len(existing_remaps) < len(vertex_float_maps):
+            bpy.app.timers.register(_ensure_cloth_remaps)
+
+        # Draw cloth maps grouped by category
+        for group_name, group_maps in cloth_map_groups.items():
+            group_box = col.box()
+            group_col = group_box.column(align=True)
+
+            # Group header with category icon
+            group_header = group_col.row(align=True)
+            group_header.scale_y = 0.9
+            group_header.label(text=group_name, icon='FOLDER_REDIRECT')
+
+            # Render each map in the group
+            for map_name in group_maps:
+                display_name = map_name.replace("cloth_", "").replace("_", " ").title()
+                remap = existing_remaps.get(map_name)
+
+                split = group_col.split(align=True, factor=0.5)
+
+                # Left: activate / add / remove
+                left = split.row(align=True)
+                left.operator(SMD_OT_SelectVertexFloatMap_idname + map_name, text=display_name, icon='GROUP_VERTEX')
+                left.operator(SMD_OT_CreateVertexFloatMap_idname + map_name, icon='ADD', text="")
+                left.operator(SMD_OT_RemoveVertexFloatMap_idname + map_name, icon='REMOVE', text="")
+
+                # Right: remap range (always show, as timer will ensure entries exist)
+                right = split.row(align=True)
+                if remap is not None:
+                    right.prop(remap, "min", text="Min")
+                    right.prop(remap, "max", text="Max")
+                else:
+                    right.label(text="0.0 → 1.0", icon='LOCKED')
 
 
 class SMD_PT_Vertexanimations(Properties_SubPanel):
     bl_label = 'Vertex Animations'
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'vertexanimation')
     
     def draw_header(self, context):
         layout = self.layout
@@ -1331,10 +1343,10 @@ class SMD_PT_Vertexanimations(Properties_SubPanel):
 class SMD_PT_ToonEdgeline(Properties_SubPanel):
     bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'toonedgeline')
     
     def draw_header(self, context):
         active_object = context.object
@@ -1369,10 +1381,10 @@ class SMD_PT_ToonEdgeline(Properties_SubPanel):
 class SMD_PT_LOD(Properties_SubPanel):
     bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'lod')
     
     def draw_header(self, context):
         active_object = context.object
@@ -1403,10 +1415,10 @@ class SMD_PT_LOD(Properties_SubPanel):
 class SMD_PT_MESHSPLIT(Properties_SubPanel):
     bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'meshsplit')
     
     def draw_header(self, context):
         active_object = context.object
@@ -1438,10 +1450,10 @@ class SMD_PT_MESHSPLIT(Properties_SubPanel):
 class SMD_PT_BACKFACE(Properties_SubPanel):
     bl_label = ''
     bl_parent_id = 'SMD_PT_Mesh'
-    
+
     @classmethod
     def poll(cls, context):
-        return is_mesh_compatible(context.object)
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'backface')
     
     def draw_header(self, context):
         active_object = context.object

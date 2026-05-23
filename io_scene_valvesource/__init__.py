@@ -256,8 +256,12 @@ class JiggleBoneProps():
     jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000)
 
 class KitsuneResourceItem(PropertyGroup):
-    name : StringProperty(name="Name")
-    export : BoolProperty(name="Export",default=True)
+    name       : StringProperty(name="Name")
+    export     : BoolProperty(name="Export", default=True)
+    entry_type : EnumProperty(
+        items=[('MODEL', "Model", ""), ('DATA', "Data", "")],
+        default='MODEL'
+    )
 
 class ExportableProps():
     flex_controller_modes = (
@@ -352,6 +356,8 @@ class ValveSource_SceneProps(PropertyGroup):
     kitsuneresource_model_entry_index: IntProperty(name="Active Entry", default=0)
     kitsuneresource_data_entries: CollectionProperty(type=KitsuneResourceItem)
     kitsuneresource_data_entry_index: IntProperty(name="Active Entry", default=0)
+    kitsuneresource_entries: CollectionProperty(type=KitsuneResourceItem)
+    kitsuneresource_entry_index: IntProperty(name="Active Entry", default=0)
     kitsuneresource_flag_single_addon: BoolProperty(name="Single Addon", default=True)
     kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", default=True)
     kitsuneresource_flag_archive_old: BoolProperty(name="Archive Previous Version", default=True)
@@ -373,6 +379,16 @@ class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4)
     
 class ValveSource_ObjectProps(ExportableProps, PropertyGroup):
+    mesh_type : EnumProperty(
+        name="Mesh Type",
+        description="Controls export role and feature availability for this mesh",
+        items=[
+            ('DEFAULT',    "Default",    "Standard export with all features"),
+            ('COLLISION',  "Collision",  "Physics mesh: no materials, no post-process, max 1 bone influence per vertex"),
+            ('CLOTHPROXY', "Cloth Proxy","Cloth proxy: no materials, cloth DMX attributes, min 4–max 8 bone influences, DMX format required"),
+        ],
+        default='DEFAULT',
+    )
     action_filter : StringProperty(name=get_id("slot_filter"),description=get_id("slot_filter_tip"),default="*")
     triangulate : BoolProperty(name=get_id("triangulate"),description=get_id("triangulate_tip"),default=False)
     vertex_map_remaps :  CollectionProperty(name="Vertes map remaps",type=ValveSource_FloatMapRemap)
@@ -450,7 +466,7 @@ _classes = (
     # KitsuneResource
     GUI.SMD_MT_KitsuneCompileChoice,
     GUI.SMD_UL_KitsuneResourceEntries,
-    GUI.SMD_OT_KitsuneResourceCompile,
+    export_smd.SMD_OT_KitsuneResourceCompile,
     GUI.SMD_OT_KitsuneResourceLoadEntries,
     GUI.SMD_PT_KitsuneResource,
     
