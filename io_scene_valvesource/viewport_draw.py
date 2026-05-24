@@ -47,7 +47,7 @@ def _bone_octahedron_verts(mat, length):
     x_ax = Vector((mat[0][0], mat[1][0], mat[2][0])).normalized()
     y_ax = Vector((mat[0][1], mat[1][1], mat[2][1])).normalized()
     z_ax = Vector((mat[0][2], mat[1][2], mat[2][2])).normalized()
-    _r   = 0.7071067811865476  # 1/sqrt(2) — rotates ring 45° around Y
+    _r   = 0.7071067811865476  # 1/sqrt(2) - rotates ring 45° around Y
     rx   = (x_ax + z_ax) * _r
     rz   = (z_ax - x_ax) * _r
     head = loc
@@ -82,7 +82,7 @@ def _bone_octahedron_lines(mat, length):
 # -- Jiggle geometry helpers ----------------------------------------------------
 
 def _plane_tris(tip, fwd, perp, angle, length, width_scale=0.7):
-    """Flat rectangular plane at `angle` rad from fwd toward perp — one page of the book.
+    """Flat rectangular plane at `angle` rad from fwd toward perp - one page of the book.
     Length is measured along fwd so the plane always reaches full length regardless of angle."""
     dir_vec = (fwd * math.cos(angle) + perp * math.sin(angle)).normalized()
     side    = fwd.cross(perp).normalized()
@@ -527,7 +527,7 @@ def _draw_export_pose_preview():
 # -- Edgeline preview ----------------------------------------------------------
 
 def _mat_color(mat_name: str) -> tuple:
-    """Deterministic RGB from material name — identical across calls, no external deps."""
+    """Deterministic RGB from material name - identical across calls, no external deps."""
     h = 0
     for c in mat_name.encode('utf-8'):
         h = (h * 31 + c) & 0xFFFFFFFF
@@ -561,8 +561,8 @@ def _edgeline_cache_key(ob: bpy.types.Object) -> tuple:
 
 def _build_edgeline_verts(ob: bpy.types.Object, depsgraph) -> list:
     """
-    Builds vertex position lists for the edgeline shell — called only on cache miss.
-    Returns [(color_rgb, [world_pos, ...]), ...] — GPUBatch created inline at draw time.
+    Builds vertex position lists for the edgeline shell - called only on cache miss.
+    Returns [(color_rgb, [world_pos, ...]), ...] - GPUBatch created inline at draw time.
     """
     vs             = ob.vs
     thickness      = vs.base_toon_edgeline_thickness
@@ -700,7 +700,7 @@ def _draw_edgeline_preview():
         shader.bind()
 
         if context.mode == 'PAINT_WEIGHT':
-            # Only draw the painted object — always fresh, no cache.
+            # Only draw the painted object - always fresh, no cache.
             ob = context.active_object
             if (ob and ob.visible_get()
                     and getattr(getattr(ob, 'vs', None), 'use_toon_edgeline', False)

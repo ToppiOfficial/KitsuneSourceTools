@@ -885,7 +885,7 @@ class SmdImporter(bpy.types.Operator, Logger):
             qc = self.qc
 
         filepath_lc = filepath.lower()
-        # VMDL import disabled — implementation kept in _import_vmdl() below
+        # VMDL import disabled - implementation kept in _import_vmdl() below
         # if filepath_lc.endswith(('.vmdl', '.vmdl_prefab')):
         #     return self._import_vmdl(filepath, qc, rotMode)
 
@@ -1331,7 +1331,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                     if elem.type == "DmeAttachment":
                         self.warning(
                             f"DMX attachment '{elem.name}' encountered while validating against "
-                            f"existing armature — attachments are skipped in validate/append mode"
+                            f"existing armature - attachments are skipped in validate/append mode"
                         )
                         continue
                     if elem.name is None:
@@ -1362,7 +1362,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                     print("\n".join(missing_bones))
 
             elif not target_arm:
-                # No existing armature — inspect what the DMX contains
+                # No existing armature - inspect what the DMX contains
                 skeleton_items = list(enumerateBonesAndAttachments(DmeModel))
                 has_actual_bones = any(isBone(e) for e, _ in skeleton_items)
                 has_attachments  = any(e.type == "DmeAttachment" for e, _ in skeleton_items)
@@ -1373,7 +1373,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                         att_count = sum(1 for e, _ in skeleton_items if e.type == "DmeAttachment")
                         self.warning(
                             f"DMX '{os.path.basename(filepath)}' contains {att_count} attachment(s) "
-                            f"but no skeleton — attachments will not be imported"
+                            f"but no skeleton - attachments will not be imported"
                         )
                     # smd.a remains None; mesh (if any) is still imported below
 
@@ -1396,10 +1396,10 @@ class SmdImporter(bpy.types.Operator, Logger):
                         parent_bone = getBoneForElement(parent) if parent else None
 
                         if elem.type == "DmeAttachment":
-                            # Attachments require a parent bone — warn if none
+                            # Attachments require a parent bone - warn if none
                             if parent_bone is None:
                                 self.warning(
-                                    f"Attachment '{elem.name}' has no parent bone — skipped"
+                                    f"Attachment '{elem.name}' has no parent bone - skipped"
                                 )
                                 continue
                             atch = smd.atch = bpy.data.objects.new(
@@ -1501,7 +1501,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                         def get_loop_value(self, loop_index):
                             return self.values[self.indices[loop_index]]
 
-                    # Normals — stored temporarily as a float_vector attribute,
+                    # Normals - stored temporarily as a float_vector attribute,
                     # applied via normals_split_custom_set after mesh conversion
                     normalsLayer = bm.loops.layers.float_vector.new("__bst_normal")
                     normalsLayerName = normalsLayer.name
@@ -1642,7 +1642,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                             cloth_data    = DmeVertexData.get(cloth_name)
                             cloth_indices = DmeVertexData.get(cloth_name + "Indices")
                             if cloth_data is None or cloth_indices is None:
-                                self.warning(f"Cloth group '{cloth_name}' has no data — skipped")
+                                self.warning(f"Cloth group '{cloth_name}' has no data - skipped")
                                 continue
                             loop_i = 0
                             for face in bm.faces:
@@ -1884,7 +1884,7 @@ class SmdImporter(bpy.types.Operator, Logger):
         # -----------------------------------------------------------------
         skeleton_node = root_node.get(recursive=True, _class="Skeleton")
         if not skeleton_node:
-            self.warning(f"{filename}: no Skeleton — only jigglebones imported")
+            self.warning(f"{filename}: no Skeleton - only jigglebones imported")
             arm = qc.a or self.findArmature()
             if arm:
                 cnt, missing = import_jigglebones_from_kv3(kv_doc, arm)
@@ -1985,7 +1985,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 if not att_name:
                     continue
                 if parent_bone and parent_bone not in arm.data.bones:
-                    self.warning(f"Attachment '{att_name}': bone '{parent_bone}' not found — skipped")
+                    self.warning(f"Attachment '{att_name}': bone '{parent_bone}' not found - skipped")
                     continue
                 origin = att.properties.get("relative_origin", [0.0, 0.0, 0.0])
                 angles_deg = att.properties.get("relative_angles", [0.0, 0.0, 0.0])

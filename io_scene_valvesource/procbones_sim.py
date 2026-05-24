@@ -111,7 +111,7 @@ def _get_animated_goal(arm_ob, pb) -> tuple:
 
     pb.matrix is contaminated by our own simulation writes on non-keyframed bones.
     For jiggle parents already processed this tick, _tick_sim_world holds the fresh
-    simulation result — using it gives zero lag so child goals track the parent's
+    simulation result - using it gives zero lag so child goals track the parent's
     current simulated rotation instantly, eliminating the per-level cascade jitter.
     For non-jiggle parents, pb.parent.matrix is the clean animated pose.
     """
@@ -160,7 +160,7 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
 
     fwd_col, yp_col, pp_col = _get_cols(is_s2)
 
-    # Compute goal from parent chain — NOT from pb.matrix, which retains our own
+    # Compute goal from parent chain - NOT from pb.matrix, which retains our own
     # simulation writes on non-keyframed bones and would make the goal chase the sim.
     anim_world, goal_world = _get_animated_goal(arm_ob, pb)
 
@@ -260,7 +260,7 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
                         if out_v > 0.0:
                             state.tip_velocity -= excess.normalized() * out_v
 
-        # Yaw constraint — min stored positive, represents negative limit (user spec)
+        # Yaw constraint - min stored positive, represents negative limit (user spec)
         if jvs.jiggle_has_yaw_constraint:
             yaw_min = -jvs.jiggle_yaw_constraint_min
             yaw_max =  jvs.jiggle_yaw_constraint_max
@@ -316,7 +316,7 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
 
         # delta_q is a world-space rotation: export_fwd -> sim_fwd.
         # Composing it with the animated rotation correctly carries the export
-        # offset along (see plan — at rest delta_q = identity, no visual jump).
+        # offset along (see plan - at rest delta_q = identity, no visual jump).
         delta_q  = export_fwd.rotation_difference(sim_fwd)
         new_rot  = (delta_q.to_matrix() @ anim_world.to_3x3()).normalized()
         new_world = new_rot.to_4x4()

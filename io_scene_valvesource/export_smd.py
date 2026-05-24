@@ -254,12 +254,12 @@ class EdgelineBuilder:
                 temp.data.materials.append(make_edgeline_mat(slot))
         else:
             if ob_vg:
-                # Object has a non-exportable vgroup — need per-slot edgeline mats
+                # Object has a non-exportable vgroup - need per-slot edgeline mats
                 # so each one can be individually resolved during export.
                 for slot in slots:
                     temp.data.materials.append(make_edgeline_mat(slot))
             else:
-                # No filtering at all — one shared edgeline material covers everything.
+                # No filtering at all - one shared edgeline material covers everything.
                 mat = bpy.data.materials.get(self.EDGELINE_MAT) or bpy.data.materials.new(name=self.EDGELINE_MAT)
                 for _ in range(material_count):
                     temp.data.materials.append(mat)
@@ -379,7 +379,7 @@ class BackfaceBuilder:
                 for v in face.verts
             )
 
-        # Non-exportable faces are excluded here — the nonexp_vg filter in
+        # Non-exportable faces are excluded here - the nonexp_vg filter in
         # Baker._delete_filtered_faces handles them on the baked result, matching
         # the same rule applied to edgeline faces.
         faces_to_delete = [f for f in bm.faces if not all_verts_weighted(f)]
@@ -498,7 +498,7 @@ class MeshSplitBuilder:
         The caller owns all returned objects and must unlink/remove them when done.
         Returns an empty list if the feature is disabled or no groups are found.
  
-        NOTE: ob is modified in-place — order-group faces are deleted from it.
+        NOTE: ob is modified in-place - order-group faces are deleted from it.
         """
         if not ob.vs.use_mesh_split:
             return []
@@ -786,7 +786,7 @@ class ExportPlanner:
 
         # Snapshot: target vert position (tuple) -> {vg_name: max_weight}
         # We accumulate max weights from both the target vert itself and any
-        # src verts that would merge into it — all resolved now while BMVerts
+        # src verts that would merge into it - all resolved now while BMVerts
         # still map 1:1 with me.vertices indices.
         pos_to_weights: dict[tuple, dict[str, float]] = {}
 
@@ -866,11 +866,13 @@ class ExportPlanner:
     def _plan_collection(self, col: Collection) -> list[ExportTask]:
         needs_merged_edgeline = any(
             ob.vs.export and ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately
+            and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
             for ob in col.objects
         )
         needs_merge_verts = any(
             ob.vs.export and ob.vs.merge_vertices
             and is_mesh_compatible(ob) and ob.type in modifier_compatible
+            and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
             for ob in col.objects
         )
         needs_backface_smd = (
@@ -878,6 +880,7 @@ class ExportPlanner:
             and any(
                 ob.vs.export and ob.vs.generate_backface
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
                 for ob in col.objects
             )
         )
@@ -886,12 +889,14 @@ class ExportPlanner:
             and any(
                 ob.vs.export and ob.vs.generate_backface
                 and is_mesh_compatible(ob) and ob.type in modifier_compatible
+                and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
                 for ob in col.objects
             )
         )
         needs_use_mesh_split = any(
             ob.vs.export and ob.vs.use_mesh_split
             and is_mesh_compatible(ob) and ob.type in modifier_compatible
+            and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
             for ob in col.objects
         )
 
@@ -913,40 +918,41 @@ class ExportPlanner:
                 bpy.context.scene.collection.objects.link(copy)
                 self._owned_objects.append(copy)
                 self._name_map[copy.session_uid] = ob.name
+                post_process_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
 
-                # MESH SPLIT — split before edgeline / backface / merge
+                # MESH SPLIT - split before edgeline / backface / merge
                 pre_split_copies[ob] = copy
                 order_split_obs: list[bpy.types.Object] = []
-                if copy.vs.use_mesh_split and is_mesh_compatible(copy) and copy.type in modifier_compatible:
+                if post_process_ok and copy.vs.use_mesh_split and is_mesh_compatible(copy) and copy.type in modifier_compatible:
                     order_split_obs = self._mesh_split_builder.build(copy, ob.name)
                     for so in order_split_obs:
                         self._owned_objects.append(so)
                         base_obs.append(so)
 
-                if needs_backface_smd and copy.vs.generate_backface \
+                if post_process_ok and needs_backface_smd and copy.vs.generate_backface \
                         and is_mesh_compatible(copy) and copy.type in modifier_compatible:
                     self._backface_builder.build_merged(copy, ob.name)
 
                 bf_copy = None
-                if needs_merged_backface_dmx and copy.vs.generate_backface \
+                if post_process_ok and needs_merged_backface_dmx and copy.vs.generate_backface \
                         and is_mesh_compatible(copy) and copy.type in modifier_compatible:
                     bf_copy = self._backface_builder.build(copy, ob.name)
                     if bf_copy:
                         self._owned_objects.append(bf_copy)
                         base_obs.append(bf_copy)
 
-                if ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
+                if post_process_ok and ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
                     flexcontrollers, corrective_shapes = countShapes(ob)
                     if flexcontrollers > 0 or corrective_shapes > 0:
                         self._reporter.warning(
-                            f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
+                            f"'{ob.name}': merge vertices skipped - object has exportable flex/shape keys."
                         )
                     else:
                         self._apply_merge_vertices(copy)
                         if bf_copy:
                             self._apply_merge_vertices(bf_copy)
 
-                if copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
+                if post_process_ok and copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
                     copy.vs.export_edgeline_separately = True
                     edgeline_copy = self._edgeline_builder.build(copy, ob.name)
                     copy.vs.export_edgeline_separately = False
@@ -993,8 +999,9 @@ class ExportPlanner:
             working_ob = effective_objects.get(ob, ob)
             pre_split_copy = pre_split_copies.get(ob, working_ob)
             is_lod_member = self._is_existing_lod(working_ob.name)
+            post_process_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
 
-            if not is_lod_member and pre_split_copy.vs.generate_lods and pre_split_copy.vs.lod_count > 0:
+            if post_process_ok and not is_lod_member and pre_split_copy.vs.generate_lods and pre_split_copy.vs.lod_count > 0:
                 for lod_idx, lod_ob in self._lod_builder.build_all(pre_split_copy, pre_split_copy.name):
                     self._owned_objects.append(lod_ob)
                     lod_buckets[lod_idx].append(lod_ob)
@@ -1008,7 +1015,7 @@ class ExportPlanner:
                                 self._owned_objects.append(bf_lod)
                                 lod_buckets[lod_idx].append(bf_lod)
 
-            if not working_ob.name.endswith("_edgeline") and working_ob.vs.use_toon_edgeline:
+            if post_process_ok and not working_ob.name.endswith("_edgeline") and working_ob.vs.use_toon_edgeline:
                 if working_ob.vs.export_edgeline_separately:
                     edgeline_ob = self._edgeline_builder.build(working_ob, working_ob.name)
                     if edgeline_ob and edgeline_ob is not working_ob:
@@ -1122,7 +1129,7 @@ class ExportPlanner:
             flexcontrollers, corrective_shapes = countShapes(ob)
             if flexcontrollers > 0 or corrective_shapes > 0:
                 self._reporter.warning(
-                    f"'{ob.name}': merge vertices skipped — object has exportable flex/shape keys."
+                    f"'{ob.name}': merge vertices skipped - object has exportable flex/shape keys."
                 )
             else:
                 if target_ob is ob:
@@ -1551,12 +1558,12 @@ class Baker:
         nonexp_tol     = getattr(vg_source.vs, "non_exportable_vgroup_tolerance", 0.90)
 
         # Edgeline thickness vgroup: shell faces where all vertices are fully weighted
-        # (>= 0.90) are pruned — this is where the user intentionally hides the outline.
+        # (>= 0.90) are pruned - this is where the user intentionally hides the outline.
         edge_vg_name = getattr(vg_source.vs, "toon_edgeline_vertexgroup", "")
         edge_vg      = vg_source.vertex_groups.get(edge_vg_name) if edge_vg_name else None
         EDGE_VG_TOL  = 0.90
 
-        # Reliable separate-edgeline detection — survives Baker's ob.copy() rename.
+        # Reliable separate-edgeline detection - survives Baker's ob.copy() rename.
         is_separate_edgeline = vg_source.get("is_edgeline_only", False)
 
         if not nonexp_vg and not edge_vg and not is_separate_edgeline:
@@ -1597,13 +1604,13 @@ class Baker:
                 if edge_weighted and all(vi in edge_weighted for vi in poly.vertices):
                     faces_to_delete.add(poly.index)
                     continue
-                # 2. The non-exportable VG marks all verts as excluded — so the shell
+                # 2. The non-exportable VG marks all verts as excluded - so the shell
                 #    face that sits on top of a deleted base face is also removed.
                 if nonexp_weighted and all(vi in nonexp_weighted for vi in poly.vertices):
                     faces_to_delete.add(poly.index)
             else:
                 # Base mesh faces:
-                # For a separate edgeline object, ALL base faces must be stripped —
+                # For a separate edgeline object, ALL base faces must be stripped -
                 # they belong to the original mesh and must not appear in the edgeline export.
                 if is_separate_edgeline:
                     faces_to_delete.add(poly.index)
@@ -1628,7 +1635,7 @@ class Baker:
         me.update()
 
 
-    # SmdExporter — _collapse_edgeline_materials (unchanged)
+    # SmdExporter - _collapse_edgeline_materials (unchanged)
     def _collapse_edgeline_materials(self, ob: bpy.types.Object) -> None:
         me = ob.data
         generic_mat = bpy.data.materials.get(EdgelineBuilder.EDGELINE_MAT) or bpy.data.materials.new(name=EdgelineBuilder.EDGELINE_MAT)
@@ -1891,7 +1898,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             try:
                 export_path, filename, ext = runner.get_filepath(raw_path)
             except ValueError as e:
-                print(f"  - {export_type}: skipped — {e}")
+                print(f"  - {export_type}: skipped - {e}")
                 continue
             ext_lower = ext.lower()
             if ext_lower in {'.qc', '.qci'}:
@@ -1899,7 +1906,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
                 fmt = 'VMDL'
             else:
-                print(f"  - {export_type}: skipped — unsupported extension '{ext_lower}'")
+                print(f"  - {export_type}: skipped - unsupported extension '{ext_lower}'")
                 continue
             warnings = None
             if export_type == 'JIGGLEBONES':
@@ -1946,7 +1953,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             cloth_obs = id.objects if isinstance(id, Collection) else [id]
             for _ob in cloth_obs:
                 if getattr(getattr(_ob, 'vs', None), 'mesh_type', 'DEFAULT') == 'CLOTHPROXY':
-                    self.warning(f"'{_ob.name}' is set to Cloth Proxy but scene export format is not DMX — cloth attributes will be omitted.")
+                    self.warning(f"'{_ob.name}' is set to Cloth Proxy but scene export format is not DMX - cloth attributes will be omitted.")
 
         planner = ExportPlanner(self)
         try:
@@ -2457,7 +2464,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         return result
 
     # -------------------------------------------------------------------------
-    # SMD writing — logic unchanged from original
+    # SMD writing - logic unchanged from original
     # -------------------------------------------------------------------------
 
     def openSMD(self, path, name, description):
@@ -2770,7 +2777,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         return 1
 
     # -------------------------------------------------------------------------
-    # DMX writing — logic unchanged from original
+    # DMX writing - logic unchanged from original
     # -------------------------------------------------------------------------
 
     def writeDMX(self, datablock: bpy.types.ID, bake_results: list[BakeResult], name: str, dir_path: str):

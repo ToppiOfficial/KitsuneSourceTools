@@ -154,6 +154,7 @@ class SMD_PT_ViewportSimulation(Panel):
         col.operator('jiggle.reset_simulation', icon='FILE_REFRESH')
 
         box2 = layout.box()
+        box2.prop(vs, 'preview_export_pose', toggle=True, icon='AXIS_SIDE')
         box2.prop(vs, 'preview_edgeline', toggle=True, icon='SHADING_SOLID')
         if vs.preview_edgeline:
             row = box2.row()
@@ -626,12 +627,14 @@ class SMD_PT_Properties(Panel):
     bl_category = 'KitsuneSrcTool'
     bl_region_type = 'UI'
     bl_space_type = 'VIEW_3D'
-    
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None
+
     def draw(self, context) -> None:
         layout = self.layout
         active_object = context.object
-
-        if active_object is None: return
 
         box = layout.box().column(align=True)
         box.label(text=get_id('label_export_options', format_string=True), icon='SETTINGS')
@@ -681,9 +684,7 @@ class SMD_PT_Group(Properties_SubPanel):
 
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
 
-        if not item or not self.is_collection(item):
-            layout.label(text=get_id("panel_select_group"), icon='ERROR')
-            return
+        if not item or not self.is_collection(item): return
         
         if vs:
             r = layout.row()
@@ -701,19 +702,19 @@ class SMD_PT_Group(Properties_SubPanel):
 class SMD_PT_Armature(Properties_SubPanel):
     bl_label = ''
 
+    @classmethod
+    def poll(cls, context):
+        return is_armature(get_armature(context.object))
+
     def draw_header(self, context):
         active_object = get_armature(context.object)
         label = '{} ({})'.format(pgettext("Armature"), active_object.name) if active_object else pgettext("Armature")
         self.layout.label(text=label, icon='ARMATURE_DATA')
-    
+
     def draw(self, context):
         layout = self.layout
         active_object = get_armature(context.object)
-        
-        if not is_armature(active_object):
-            layout.label(text=get_id("panel_select_armature"), icon='ERROR')
-            return
-        
+
         box = layout.box()
         col = box.column()
         col.prop(active_object.vs,"jigglebone_prefabfile")
@@ -748,23 +749,17 @@ class SMD_PT_Armature(Properties_SubPanel):
 class SMD_PT_Bone(Properties_SubPanel):
     bl_label = ''
 
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object) and isinstance(context.active_bone, (PoseBone, Bone))
+
     def draw_header(self, context):
         active_bone = context.active_bone
         label = '{} ({})'.format(pgettext("Bone"), active_bone.name) if active_bone else pgettext("Bone")
         self.layout.label(text=label, icon='BONE_DATA')
-        
+
     def draw(self, context):
         layout = self.layout
-        active_object = context.object
-        active_bone = context.active_bone
-        
-        if not is_armature(active_object):
-            layout.label(text=get_id("panel_select_armature"), icon='ERROR')
-            return
-        
-        if not isinstance(active_bone, (PoseBone, Bone)):
-            layout.label(text=get_id("panel_select_noneditbone"), icon='ERROR')
-            return
 
 
 class SMD_PT_BoneData(Properties_SubPanel):
@@ -793,8 +788,6 @@ class SMD_PT_BoneData(Properties_SubPanel):
         col.separator()
         col.prop(active_bone.vs, 'bone_sort_order', slider=True)
         col.label(text='{}: {}'.format(get_id('label_export_name_format', True), active_bone_exportname))
-
-        col.operator(SMD_OT_CopyBoneExportName.bl_idname, icon='COPY_ID')
         
         split = box.split(factor=0.5)
         
@@ -1027,18 +1020,17 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
 class SMD_PT_Mesh(Properties_SubPanel):
     bl_label = ''
 
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object)
+
     def draw_header(self, context):
         active_object = context.object
         label = '{} ({})'.format(pgettext("Mesh"), active_object.name) if is_mesh_compatible(active_object) else pgettext("Mesh")
         self.layout.label(text=label, icon='MESH_DATA')
-        
+
     def draw(self, context):
         active_object = context.object
-        
-        if not is_mesh_compatible(active_object):
-            self.layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
-            return
-        
         vs = active_object.vs
 
         layout = self.layout
@@ -1508,20 +1500,19 @@ class SMD_PT_BACKFACE(Properties_SubPanel):
 class SMD_PT_Material(Properties_SubPanel):
     bl_label = ''
 
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object)
+
     def draw_header(self, context):
         active_object = context.object
         active_material = active_object.active_material if is_mesh(active_object) else None
         label = '{} ({})'.format(pgettext("Material"), active_material.name) if active_material else pgettext("Material")
         self.layout.label(text=label, icon='MATERIAL_DATA')
-        
+
     def draw(self, context):
         layout = self.layout
         active_object = context.object
-        
-        if not is_mesh_compatible(active_object):
-            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
-            return
-        
         active_material = active_object.active_material
         
         if not active_material:
@@ -1537,18 +1528,18 @@ class SMD_PT_Material(Properties_SubPanel):
 class SMD_PT_Empty(Properties_SubPanel):
     bl_label = ''
 
+    @classmethod
+    def poll(cls, context):
+        return is_empty(context.object)
+
     def draw_header(self, context):
         active_object = context.object
         label = '{} ({})'.format(pgettext("Empty"), active_object.name) if is_empty(active_object) else pgettext("Empty")
         self.layout.label(text=label, icon='EMPTY_DATA')
-        
+
     def draw(self, context):
         layout = self.layout
         active_object = context.object
-        
-        if not is_empty(active_object):
-            layout.label(text=get_id("panel_select_empty"), icon='ERROR')
-            return
 
         box = layout.box()
         
@@ -1567,19 +1558,19 @@ class SMD_PT_Empty(Properties_SubPanel):
 class SMD_PT_Curve(Properties_SubPanel):
     bl_label = ''
 
+    @classmethod
+    def poll(cls, context):
+        return is_curve(context.object)
+
     def draw_header(self, context):
         active_object = context.object
         label = '{} ({})'.format(pgettext("Curve"), active_object.name) if is_curve(active_object) else pgettext("Curve")
         self.layout.label(text=label, icon='CURVE_DATA')
-        
+
     def draw(self, context):
         layout = self.layout
         active_object = context.object
-        
-        if not is_curve(active_object):
-            layout.label(text=get_id("panel_select_curve"), icon='ERROR')
-            return
-        
+
         box = layout.box()
         
         done = set()

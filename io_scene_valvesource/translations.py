@@ -158,6 +158,10 @@ _data = {
         'en': "Export Format",
         'ja': "エクスポートのフォーマット",
     },
+    'export_format_tip': {
+        'en': "File format written by the scene exporter",
+        'ja': "シーンエクスポーターが書き込むファイル形式",
+    },
     'export_menuitem': {
         'en': "Source Engine (.smd, .vta, .dmx)",
         'ja': "Source Engine (.smd, .vta, .dmx)",
@@ -374,6 +378,10 @@ _data = {
         'en': "Export Name",
         'ja': "エクスポート名",
     },
+    'exportname_tip': {
+        'en': "Override the bone name written to exported files",
+        'ja': "エクスポートされるファイルに書き込まれるボーン名を上書き",
+    },
     'exportpanel_dmxver': {
         'en': "DMX Version:",
         'ja': "DMXのバージョン：",
@@ -445,6 +453,10 @@ _data = {
     'ignore_bone_exportnames': {
         'en': "Ignore Bone Export Names",
         'ja': "ボーンエクスポート名を無視",
+    },
+    'ignore_bone_exportnames_tip': {
+        'en': "Export bones using their Blender names, ignoring any export name overrides",
+        'ja': "エクスポート名の上書きを無視し、Blenderのボーン名を使用",
     },
     'import_menuitem': {
         'en': "Source Engine (.smd, .vta, .dmx, .qc, .qci)",
@@ -1076,10 +1088,6 @@ _data = {
         'en': "Select an empty",
         'ja': "エンプティを選択",
     },
-    'panel_select_group': {
-        'en': "Select a collection",
-        'ja': "コレクションを選択",
-    },
     'panel_select_mesh': {
         'en': "Select a Mesh",
         'ja': "メッシュを選択",
@@ -1116,49 +1124,97 @@ _data = {
         'en': "Prefab to Clipboard",
         'ja': "プレハブをクリップボードへ",
     },
+    'prefab_to_clipboard_tip': {
+        'en': "Copy prefab export content to clipboard instead of to a file",
+        'ja': "プレハブエクスポートのコンテンツをファイルではなくクリップボードにコピー",
+    },
     'prop_attachment_prefabfile': {
         'en': "Attachments Prefab",
         'ja': "アタッチメントプレハブ",
+    },
+    'prop_attachment_prefabfile_tip': {
+        'en': "QC prefab file containing $attachment definitions to append on export",
+        'ja': "エクスポート時に追加する$attachmentの定義を含むQCプレハブファイル",
     },
     'prop_backface_vgroup': {
         'en': "Backface Group",
         'ja': "裏面グループ",
     },
+    'prop_backface_vgroup_tip': {
+        'en': "Vertex group that identifies faces to receive generated backfaces",
+        'ja': "裏面を生成する面を特定する頂点グループ",
+    },
     'prop_backface_vgroup_tolerance': {
         'en': "Backface Tolerance",
         'ja': "裏面許容値",
+    },
+    'prop_backface_vgroup_tolerance_tip': {
+        'en': "Weight threshold above which a vertex gets a generated backface",
+        'ja': "このしきい値を超える頂点に裏面が生成されます",
     },
     'prop_bone_dir_left': {
         'en': "Left Bone Dir",
         'ja': "左ボーン方向",
     },
+    'prop_bone_dir_left_tip': {
+        'en': "String identifying left-side bones for directional naming",
+        'ja': "方向命名で左側のボーンを識別する文字列",
+    },
     'prop_bone_dir_right': {
         'en': "Right Bone Dir",
         'ja': "右ボーン方向",
+    },
+    'prop_bone_dir_right_tip': {
+        'en': "String identifying right-side bones for directional naming",
+        'ja': "方向命名で右側のボーンを識別する文字列",
     },
     'prop_bone_is_jigglebone': {
         'en': "Bone is JiggleBone",
         'ja': "ボーンはジグルボーン",
     },
+    'prop_bone_is_jigglebone_tip': {
+        'en': "Mark this bone as a Source Engine jigglebone",
+        'ja': "このボーンをSource Engineのジグルボーンとしてマーク",
+    },
     'prop_bone_name_startcount': {
         'en': "Bone Name Starting Count",
         'ja': "ボーン名開始番号",
+    },
+    'prop_bone_name_startcount_tip': {
+        'en': "Starting number used when auto-numbering duplicate bone names",
+        'ja': "ボーン名の重複時に自動採番を開始する番号",
     },
     'prop_bone_sort_order': {
         'en': "Bone Sort Order",
         'ja': "ボーンソート順",
     },
+    'prop_bone_sort_order_tip': {
+        'en': "Vertex group culling priority; 0 is the highest priority",
+        'ja': "頂点グループの間引き優先度。0が最も高い優先度",
+    },
     'prop_controller_name': {
         'en': "Controller Name",
         'ja': "コントローラー名",
+    },
+    'prop_controller_name_tip': {
+        'en': "Exported flex controller name (lowercase letters, numbers, and underscores only)",
+        'ja': "エクスポートされるフレックスコントローラー名（小文字、数字、アンダースコアのみ）",
     },
     'prop_decimate_factor': {
         'en': "Decimation Per LOD",
         'ja': "LODあたりの削減率",
     },
+    'prop_decimate_factor_tip': {
+        'en': "Percentage of faces to remove per LOD level",
+        'ja': "LODレベルごとに削除するポリゴンの割合",
+    },
     'prop_delta_name': {
         'en': "Delta Name",
         'ja': "デルタ名",
+    },
+    'prop_delta_name_tip': {
+        'en': "Name of the delta shape key referenced by this controller",
+        'ja': "このコントローラーが参照するデルタシェイプキー名",
     },
     'prop_dme_flexcontrollers': {
         'en': "Flex Controllers",
@@ -1168,61 +1224,113 @@ _data = {
         'en': "Is Attachment",
         'ja': "アタッチメントとして使用",
     },
+    'prop_dmx_attachment_tip': {
+        'en': "Export this empty as a DMX model attachment point",
+        'ja': "このエンプティをDMXモデルのアタッチメントポイントとしてエクスポート",
+    },
     'prop_edgeline_per_material': {
         'en': "Edgeline Per Material",
         'ja': "マテリアルごとのエッジライン",
+    },
+    'prop_edgeline_per_material_tip': {
+        'en': "Generate a separate edge shell per material slot",
+        'ja': "マテリアルスロットごとに別のエッジシェルを生成",
     },
     'prop_edgeline_thickness': {
         'en': "Thickness",
         'ja': "太さ",
     },
+    'prop_edgeline_thickness_tip': {
+        'en': "Base thickness of the generated toon edge shell",
+        'ja': "生成されるトゥーンエッジシェルの基本の太さ",
+    },
     'prop_edgeline_vgroup': {
         'en': "Vertex Group Ratio",
         'ja': "頂点グループ比率",
     },
-    'prop_enable_gui_console': {
-        'en': "Enable Console GUI",
-        'ja': "コンソールGUIを有効化",
-    },
-    'prop_enable_gui_console_tip': {
-        'en': "Show console overlay with live progress updates (~20% extra time)",
-        'ja': "ライブ進捗オーバーレイを表示（約20%の処理時間増加）",
+    'prop_edgeline_vgroup_tip': {
+        'en': "Vertex group that scales edge thickness per vertex (0=full thickness, 1=no edge)",
+        'ja': "エッジの太さを頂点ごとにスケールする頂点グループ（0=最大の太さ、1=エッジなし）",
     },
     'prop_export_edgeline_separately': {
         'en': "Export Edgeline Separately",
         'ja': "エッジラインを別ファイルでエクスポート",
     },
+    'prop_export_edgeline_separately_tip': {
+        'en': "Write the edge shell as a separate DMX/SMD file instead of appending to the model",
+        'ja': "エッジシェルをモデルに追加せず別個のDMX/SMDファイルとして書き出す",
+    },
     'prop_export_mesh_split_separately': {
         'en': "Export Mesh Split Separately",
         'ja': "メッシュ分割を別ファイルでエクスポート",
+    },
+    'prop_export_mesh_split_separately_tip': {
+        'en': "Write mesh split segments as separate DMX files",
+        'ja': "メッシュ分割セグメントを別個のDMXファイルとして書き出す",
     },
     'prop_eyelid': {
         'en': "Eyelid",
         'ja': "まぶた",
     },
+    'prop_eyelid_tip': {
+        'en': "Tag this controller as an eyelid flex for Source Engine",
+        'ja': "このコントローラーをSource Engineのまぶたフレックスとしてタグ付け",
+    },
     'prop_flex_type': {
         'en': "Flex Type",
         'ja': "フレックスタイプ",
+    },
+    'prop_flex_type_tip': {
+        'en': "Flex group category used for QC organization",
+        'ja': "QC整理に使用されるフレックスグループカテゴリー",
+    },
+    'prop_flexctrl_shapekey_tip': {
+        'en': "Shape key driven by this flex controller",
+        'ja': "このフレックスコントローラーが制御するシェイプキー",
+    },
+    'prop_float_map_group_tip': {
+        'en': "Vertex map group name to remap",
+        'ja': "リマップする頂点マップのグループ名",
     },
     'prop_generate_backface': {
         'en': "Generate Backface",
         'ja': "裏面を生成",
     },
+    'prop_generate_backface_tip': {
+        'en': "Duplicate and flip faces for vertices in the backface vertex group",
+        'ja': "裏面頂点グループの頂点に対して面を複製して反転",
+    },
     'prop_generate_lods': {
         'en': "Generate LODs on Export",
         'ja': "エクスポート時にLODを生成",
+    },
+    'prop_generate_lods_tip': {
+        'en': "Generate decimated LOD meshes automatically on export",
+        'ja': "エクスポート時にデシメートされたLODメッシュを自動生成",
     },
     'prop_hitbox_prefabfile': {
         'en': "Hitbox Prefab",
         'ja': "ヒットボックスプレハブ",
     },
+    'prop_hitbox_prefabfile_tip': {
+        'en': "QC prefab file containing $hbox definitions to append on export",
+        'ja': "エクスポート時に追加する$hboxの定義を含むQCプレハブファイル",
+    },
     'prop_ignore_location_offset': {
         'en': "Ignore Location Offsets",
         'ja': "位置オフセットを無視",
     },
+    'prop_ignore_location_offset_tip': {
+        'en': "Skip applying the location offset for this bone during export",
+        'ja': "エクスポート時にこのボーンの位置オフセットの適用をスキップ",
+    },
     'prop_ignore_rotation_offset': {
         'en': "Ignore Rotation Offsets",
         'ja': "回転オフセットを無視",
+    },
+    'prop_ignore_rotation_offset_tip': {
+        'en': "Skip applying the rotation offset for this bone during export",
+        'ja': "エクスポート時にこのボーンの回転オフセットの適用をスキップ",
     },
     'prop_jiggle_allow_length_flex': {
         'en': "Allow Length Flex",
@@ -1252,6 +1360,10 @@ _data = {
         'en': "Amplitude",
         'ja': "振幅",
     },
+    'prop_jiggle_amplitude_tip': {
+        'en': "Oscillation amplitude of the boing spring",
+        'ja': "ボイングスプリングの振幅",
+    },
     'prop_jiggle_angle_constraint': {
         'en': "Angle Constraint",
         'ja': "角度制約",
@@ -1263,6 +1375,10 @@ _data = {
     'prop_jiggle_angular_constraint': {
         'en': "Angular Constraint",
         'ja': "最大角度変位",
+    },
+    'prop_jiggle_angular_constraint_tip': {
+        'en': "Maximum angular displacement allowed from rest",
+        'ja': "静止位置から許容される最大角変位",
     },
     'prop_jiggle_base_damping': {
         'en': "Base Damping",
@@ -1292,13 +1408,25 @@ _data = {
         'en': "Base Type",
         'ja': "ベースタイプ",
     },
+    'prop_jiggle_base_type_tip': {
+        'en': "Type of base spring behavior attached to this jigglebone",
+        'ja': "このジグルボーンに付属するベーススプリングの動作タイプ",
+    },
     'prop_jiggle_damping_rate': {
         'en': "Damping Rate",
         'ja': "減衰率",
     },
+    'prop_jiggle_damping_rate_tip': {
+        'en': "How quickly boing oscillation decays over time",
+        'ja': "ボイング振動が時間とともに減衰する速さ",
+    },
     'prop_jiggle_flex_type': {
         'en': "Flexible Type",
         'ja': "柔軟タイプ",
+    },
+    'prop_jiggle_flex_type_tip': {
+        'en': "Type of flexible motion for the jigglebone",
+        'ja': "ジグルボーンの柔軟な動きのタイプ",
     },
     'prop_jiggle_forward_constraint': {
         'en': "Forward Constraint",
@@ -1308,17 +1436,53 @@ _data = {
         'en': "Enable forward/backward constraint",
         'ja': "前後制約を有効化",
     },
+    'prop_jiggle_forward_constraint_max': {
+        'en': "Max Forward Constraint",
+        'ja': "前方制約の最大値",
+    },
+    'prop_jiggle_forward_constraint_max_tip': {
+        'en': "Maximum forward displacement allowed",
+        'ja': "許容される最大の前方変位",
+    },
+    'prop_jiggle_forward_constraint_min': {
+        'en': "Min Forward Constraint",
+        'ja': "前方制約の最小値",
+    },
+    'prop_jiggle_forward_constraint_min_tip': {
+        'en': "Minimum forward displacement allowed",
+        'ja': "許容される最小の前方変位",
+    },
+    'prop_jiggle_forward_friction': {
+        'en': "Forward Friction",
+        'ja': "前方摩擦",
+    },
+    'prop_jiggle_forward_friction_tip': {
+        'en': "Friction applied when sliding against forward constraint",
+        'ja': "前方制約に当たって滑るときの摩擦",
+    },
     'prop_jiggle_frequency': {
         'en': "Frequency",
         'ja': "周波数",
+    },
+    'prop_jiggle_frequency_tip': {
+        'en': "Oscillation frequency of the boing spring",
+        'ja': "ボイングスプリングの振動周波数",
     },
     'prop_jiggle_impact_angle': {
         'en': "Impact Angle",
         'ja': "衝撃角度",
     },
+    'prop_jiggle_impact_angle_tip': {
+        'en': "Rotation angle applied on impact",
+        'ja': "衝撃時に適用される回転角度",
+    },
     'prop_jiggle_impact_speed': {
         'en': "Impact Speed",
         'ja': "衝撃速度",
+    },
+    'prop_jiggle_impact_speed_tip': {
+        'en': "Minimum speed required to trigger impact response",
+        'ja': "衝撃応答をトリガーするために必要な最低速度",
     },
     'prop_jiggle_length': {
         'en': "Length",
@@ -1335,6 +1499,30 @@ _data = {
     'prop_jiggle_pitch_constraint_tip': {
         'en': "Enable pitch rotation constraint",
         'ja': "ピッチ回転制約を有効化",
+    },
+    'prop_jiggle_pitch_constraint_max': {
+        'en': "Max Pitch Constraint",
+        'ja': "ピッチ制約の最大値",
+    },
+    'prop_jiggle_pitch_constraint_max_tip': {
+        'en': "Maximum pitch rotation allowed",
+        'ja': "許容される最大のピッチ回転",
+    },
+    'prop_jiggle_pitch_constraint_min': {
+        'en': "Min Pitch Constraint",
+        'ja': "ピッチ制約の最小値",
+    },
+    'prop_jiggle_pitch_constraint_min_tip': {
+        'en': "Minimum pitch rotation allowed",
+        'ja': "許容される最小のピッチ回転",
+    },
+    'prop_jiggle_pitch_friction': {
+        'en': "Pitch Friction",
+        'ja': "ピッチ摩擦",
+    },
+    'prop_jiggle_pitch_friction_tip': {
+        'en': "Friction applied during pitch constraint motion",
+        'ja': "ピッチ制約動作中に適用される摩擦",
     },
     'prop_jiggle_pitch_damping': {
         'en': "Pitch Damping",
@@ -1360,6 +1548,30 @@ _data = {
         'en': "Enable side constraints to limit sideways motion",
         'ja': "横方向の動きを制限するサイド制約を有効化",
     },
+    'prop_jiggle_side_constraint_max': {
+        'en': "Max Side Constraint",
+        'ja': "サイド制約の最大値",
+    },
+    'prop_jiggle_side_constraint_max_tip': {
+        'en': "Maximum sideways offset allowed",
+        'ja': "許容される最大の横方向オフセット",
+    },
+    'prop_jiggle_side_constraint_min': {
+        'en': "Min Side Constraint",
+        'ja': "サイド制約の最小値",
+    },
+    'prop_jiggle_side_constraint_min_tip': {
+        'en': "Minimum sideways offset allowed",
+        'ja': "許容される最小の横方向オフセット",
+    },
+    'prop_jiggle_side_friction': {
+        'en': "Side Friction",
+        'ja': "サイド摩擦",
+    },
+    'prop_jiggle_side_friction_tip': {
+        'en': "Friction applied when sliding against side constraint",
+        'ja': "サイド制約に当たって滑るときの摩擦",
+    },
     'prop_jiggle_sim_enabled': {
         'en': "Jiggle Simulation",
         'ja': "ジグルシミュレーション",
@@ -1373,8 +1585,8 @@ _data = {
         'ja': "シミュレーションレート (Hz)",
     },
     'prop_jiggle_sim_rate_tip': {
-        'en': "Simulation update rate in Hz — higher is smoother but uses more CPU",
-        'ja': "シミュレーション更新レート (Hz) — 高いほど滑らかになりますが、CPU使用量が増加します",
+        'en': "Simulation update rate in Hz - higher is smoother but uses more CPU",
+        'ja': "シミュレーション更新レート (Hz) - 高いほど滑らかになりますが、CPU使用量が増加します",
     },
     'prop_jiggle_tip_mass': {
         'en': "Tip Mass",
@@ -1392,6 +1604,30 @@ _data = {
         'en': "Enable vertical up/down constraint",
         'ja': "垂直上下制約を有効化",
     },
+    'prop_jiggle_up_constraint_max': {
+        'en': "Max Up Constraint",
+        'ja': "上方制約の最大値",
+    },
+    'prop_jiggle_up_constraint_max_tip': {
+        'en': "Maximum upward displacement allowed",
+        'ja': "許容される最大の上方向変位",
+    },
+    'prop_jiggle_up_constraint_min': {
+        'en': "Min Up Constraint",
+        'ja': "上方制約の最小値",
+    },
+    'prop_jiggle_up_constraint_min_tip': {
+        'en': "Minimum upward displacement allowed",
+        'ja': "許容される最小の上方向変位",
+    },
+    'prop_jiggle_up_friction': {
+        'en': "Up Friction",
+        'ja': "上方摩擦",
+    },
+    'prop_jiggle_up_friction_tip': {
+        'en': "Friction applied when sliding against upward constraint",
+        'ja': "上方制約に当たって滑るときの摩擦",
+    },
     'prop_jiggle_yaw_constraint': {
         'en': "Yaw Constraint",
         'ja': "ヨー制約",
@@ -1399,6 +1635,30 @@ _data = {
     'prop_jiggle_yaw_constraint_tip': {
         'en': "Enable yaw rotation constraint",
         'ja': "ヨー回転制約を有効化",
+    },
+    'prop_jiggle_yaw_constraint_max': {
+        'en': "Max Yaw Constraint",
+        'ja': "ヨー制約の最大値",
+    },
+    'prop_jiggle_yaw_constraint_max_tip': {
+        'en': "Maximum yaw rotation allowed",
+        'ja': "許容される最大のヨー回転",
+    },
+    'prop_jiggle_yaw_constraint_min': {
+        'en': "Min Yaw Constraint",
+        'ja': "ヨー制約の最小値",
+    },
+    'prop_jiggle_yaw_constraint_min_tip': {
+        'en': "Minimum yaw rotation allowed",
+        'ja': "許容される最小のヨー回転",
+    },
+    'prop_jiggle_yaw_friction': {
+        'en': "Yaw Friction",
+        'ja': "ヨー摩擦",
+    },
+    'prop_jiggle_yaw_friction_tip': {
+        'en': "Friction applied during yaw constraint motion",
+        'ja': "ヨー制約動作中に適用される摩擦",
     },
     'prop_jiggle_yaw_damping': {
         'en': "Yaw Damping",
@@ -1420,6 +1680,10 @@ _data = {
         'en': "Jigglebone Prefab",
         'ja': "ジグルボーンプレハブ",
     },
+    'prop_jigglebone_prefabfile_tip': {
+        'en': "QC prefab file containing $jigglebone definitions to append on export",
+        'ja': "エクスポート時に追加する$jiggleboneの定義を含むQCプレハブファイル",
+    },
     'prop_kitsuneresource_active_entry': {
         'en': "Active Entry",
         'ja': "アクティブエントリー",
@@ -1428,69 +1692,145 @@ _data = {
         'en': "Archive Previous Version",
         'ja': "旧バージョンをアーカイブ",
     },
+    'prop_kitsuneresource_archive_old_tip': {
+        'en': "Archive the previous compiled version before overwriting",
+        'ja': "上書き前に以前のコンパイル済みバージョンをアーカイブ",
+    },
     'prop_kitsuneresource_args': {
         'en': "Arguments",
         'ja': "引数",
+    },
+    'prop_kitsuneresource_args_tip': {
+        'en': "Additional command-line arguments passed to KitsuneResource",
+        'ja': "KitsuneResourceに渡す追加のコマンドライン引数",
     },
     'prop_kitsuneresource_config': {
         'en': "Config",
         'ja': "設定ファイル",
     },
+    'prop_kitsuneresource_config_tip': {
+        'en': "Path to the KitsuneResource JSON config file",
+        'ja': "KitsuneResourceのJSON設定ファイルへのパス",
+    },
     'prop_kitsuneresource_executable': {
         'en': "Executable",
         'ja': "実行ファイル",
+    },
+    'prop_kitsuneresource_app_path_tip': {
+        'en': "Path to the KitsuneResource executable",
+        'ja': "KitsuneResourceの実行ファイルへのパス",
     },
     'prop_kitsuneresource_game_or_package': {
         'en': "Game or Package",
         'ja': "ゲームまたはパッケージ",
     },
+    'prop_kitsuneresource_game_or_package_tip': {
+        'en': "Compile targeting a game or a standalone package",
+        'ja': "ゲームまたはスタンドアロンパッケージを対象にコンパイル",
+    },
     'prop_kitsuneresource_no_mat_local': {
         'en': "No Mat Local",
         'ja': "ローカルマテリアルなし",
+    },
+    'prop_kitsuneresource_no_mat_local_tip': {
+        'en': "Pass --no-mat-local to KitsuneResource",
+        'ja': "KitsuneResourceに--no-mat-localを渡す",
     },
     'prop_kitsuneresource_project_dir': {
         'en': "Project Directory",
         'ja': "プロジェクトディレクトリ",
     },
+    'prop_kitsuneresource_project_path_tip': {
+        'en': "Root directory of the KitsuneResource project",
+        'ja': "KitsuneResourceプロジェクトのルートディレクトリ",
+    },
     'prop_kitsuneresource_single_addon': {
         'en': "Single Addon",
         'ja': "シングルアドオン",
+    },
+    'prop_kitsuneresource_single_addon_tip': {
+        'en': "Pass --single-addon to KitsuneResource",
+        'ja': "KitsuneResourceに--single-addonを渡す",
+    },
+    'prop_kr_entry_export_tip': {
+        'en': "Include this entry in the next compile",
+        'ja': "次のコンパイルにこのエントリーを含める",
+    },
+    'prop_kr_entry_type_tip': {
+        'en': "Whether this is a model or data resource entry",
+        'ja': "これがモデルかデータのリソースエントリーかを指定",
     },
     'prop_location_x': {
         'en': "Location X",
         'ja': "位置 X",
     },
+    'prop_location_x_tip': {
+        'en': "Location offset applied to this bone's X position on export",
+        'ja': "エクスポート時にこのボーンのX位置に適用されるオフセット",
+    },
     'prop_location_y': {
         'en': "Location Y",
         'ja': "位置 Y",
+    },
+    'prop_location_y_tip': {
+        'en': "Location offset applied to this bone's Y position on export",
+        'ja': "エクスポート時にこのボーンのY位置に適用されるオフセット",
     },
     'prop_location_z': {
         'en': "Location Z",
         'ja': "位置 Z",
     },
+    'prop_location_z_tip': {
+        'en': "Location offset applied to this bone's Z position on export",
+        'ja': "エクスポート時にこのボーンのZ位置に適用されるオフセット",
+    },
     'prop_lod_count': {
         'en': "LOD count",
         'ja': "LOD数",
+    },
+    'prop_lod_count_tip': {
+        'en': "Number of LOD levels to generate beyond LOD0",
+        'ja': "LOD0以降に生成するLODレベルの数",
     },
     'prop_max_mesh_split': {
         'en': "Max Order Number",
         'ja': "最大順序番号",
     },
+    'prop_max_mesh_split_tip': {
+        'en': "Maximum number of mesh split order segments to generate",
+        'ja': "生成するメッシュ分割の最大セグメント数",
+    },
     'prop_merge_vertices': {
         'en': "Merge Vertices on Export",
         'ja': "エクスポート時に頂点をマージ",
+    },
+    'prop_merge_vertices_tip': {
+        'en': "Merge vertices to remove doubles before export",
+        'ja': "エクスポート前に重複頂点を結合して削除",
     },
     'prop_mesh_split_threshold': {
         'en': "Mesh Split Threshold",
         'ja': "メッシュ分割しきい値",
     },
+    'prop_mesh_split_threshold_tip': {
+        'en': "Weight threshold above which a vertex belongs to the split mesh",
+        'ja': "このしきい値を超える頂点は分割メッシュに属します",
+    },
     'prop_non_exportable_vgroup': {
         'en': "Non-Exportable Vertex Group",
         'ja': "エクスポート除外頂点グループ",
     },
+    'prop_non_exportable_vgroup_tip': {
+        'en': "Vertices above the weight threshold in this group are excluded from export",
+        'ja': "このグループでしきい値を超える頂点はエクスポートから除外されます",
+    },
     'prop_non_exportable_vgroup_tolerance': {
         'en': "Non-Exportable Weight Tolerance",
         'ja': "エクスポート除外ウェイト許容値",
+    },
+    'prop_non_exportable_vgroup_tolerance_tip': {
+        'en': "Weight threshold above which vertices are excluded from export",
+        'ja': "このしきい値を超える頂点はエクスポートから除外されます",
     },
     'prop_normalize_shapekeys': {
         'en': "Normalize Shapekeys",
@@ -1500,6 +1840,14 @@ _data = {
         'en': "Normalize shapekeys so max value is 1 and min is -1 or 0",
         'ja': "シェイプキーの最大値を1、最小値を-1または0に正規化",
     },
+    'prop_override_dmx_export_path_tip': {
+        'en': "Override the material path written into DMX for this material",
+        'ja': "このマテリアルのDMXに書き込まれるマテリアルパスを上書き",
+    },
+    'prop_prefab_filepath_tip': {
+        'en': "Path to the prefab file",
+        'ja': "プレハブファイルへのパス",
+    },
     'prop_preview_edgeline': {
         'en': "Preview Edgeline",
         'ja': "エッジラインをプレビュー",
@@ -1507,6 +1855,14 @@ _data = {
     'prop_preview_edgeline_tip': {
         'en': "Draw edgeline shell in the viewport, approximating the exported result",
         'ja': "エクスポート結果に近いエッジラインシェルをビューポートに描画",
+    },
+    'prop_preview_export_pose': {
+        'en': "Preview Export Pose",
+        'ja': "エクスポートポーズをプレビュー",
+    },
+    'prop_preview_export_pose_tip': {
+        'en': "Draw a ghost bone showing where this bone will be after export offsets are applied",
+        'ja': "エクスポートオフセット適用後のボーン位置をゴーストボーンで表示",
     },
     'prop_reset_pose_per_anim': {
         'en': "Reset Pose Per Animation Export",
@@ -1520,13 +1876,25 @@ _data = {
         'en': "Rotation X",
         'ja': "回転 X",
     },
+    'prop_rotation_x_tip': {
+        'en': "Rotation offset applied to this bone's X axis on export",
+        'ja': "エクスポート時にこのボーンのX軸に適用される回転オフセット",
+    },
     'prop_rotation_y': {
         'en': "Rotation Y",
         'ja': "回転 Y",
     },
+    'prop_rotation_y_tip': {
+        'en': "Rotation offset applied to this bone's Y axis on export",
+        'ja': "エクスポート時にこのボーンのY軸に適用される回転オフセット",
+    },
     'prop_rotation_z': {
         'en': "Rotation Z",
         'ja': "回転 Z",
+    },
+    'prop_rotation_z_tip': {
+        'en': "Rotation offset applied to this bone's Z axis on export",
+        'ja': "エクスポート時にこのボーンのZ軸に適用される回転オフセット",
     },
     'prop_shapekey': {
         'en': "ShapeKey",
@@ -1536,25 +1904,53 @@ _data = {
         'en': "Is Hitbox",
         'ja': "ヒットボックスとして使用",
     },
+    'prop_smd_hitbox_tip': {
+        'en': "Export this object as a hitbox in the QC file",
+        'ja': "このオブジェクトをQCファイルのヒットボックスとしてエクスポート",
+    },
     'prop_smd_hitbox_group': {
         'en': "Hitbox Group",
         'ja': "ヒットボックスグループ",
+    },
+    'prop_smd_hitbox_group_tip': {
+        'en': "Hitbox type enumeration",
+        'ja': "ヒットボックスタイプ",
     },
     'prop_stereo': {
         'en': "Stereo",
         'ja': "ステレオ",
     },
+    'prop_stereo_tip': {
+        'en': "Split this controller into left/right stereo variants",
+        'ja': "このコントローラーを左右のステレオバリアントに分割",
+    },
     'prop_use_bone_length_for_jb': {
         'en': "Use Bone's Length for JiggleBone Length",
         'ja': "ボーンの長さをジグルボーンの長さに使用",
+    },
+    'prop_use_bone_length_for_jb_tip': {
+        'en': "Use this bone's length as the jigglebone segment length",
+        'ja': "このボーンの長さをジグルボーンセグメントの長さとして使用",
     },
     'prop_use_mesh_split': {
         'en': "Separate Mesh Split",
         'ja': "メッシュ分割",
     },
+    'prop_use_mesh_split_tip': {
+        'en': "Split the mesh by vertex group weight for multi-part export",
+        'ja': "頂点グループのウェイトでメッシュを分割してマルチパートエクスポート",
+    },
     'prop_use_toon_edgeline': {
         'en': "Use Toon Edge Line",
         'ja': "トゥーンエッジラインを使用",
+    },
+    'prop_use_toon_edgeline_tip': {
+        'en': "Generate a thickened edge shell for toon-style outlines",
+        'ja': "トゥーンスタイルのアウトライン用に厚みのあるエッジシェルを生成",
+    },
+    'prop_vertex_anim_name_tip': {
+        'en': "Name used in the exported QC sequence",
+        'ja': "エクスポートされるQCシークエンスで使用される名前",
     },
     'qc_warn_noarmature': {
         'en': "Skipping {0}; no armature found.",
@@ -1611,6 +2007,10 @@ _data = {
     'smd_format': {
         'en': "Target Engine",
         'ja': "対象のエンジン",
+    },
+    'smd_format_tip': {
+        'en': "Target game engine for SMD export",
+        'ja': "SMDエクスポートの対象ゲームエンジン",
     },
     'subdir': {
         'en': "Subfolder",

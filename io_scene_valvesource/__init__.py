@@ -119,6 +119,8 @@ def update_sanitize_name(self, context):
         self.controller_name = legal_name
 
 def draw_copy_bone_props(self, context):
+    self.layout.operator(GUI.SMD_OT_CopyBoneExportName.bl_idname)
+
     self.layout.operator(GUI.TOOLS_OT_CopySourceBoneProps.bl_idname)
 
     copyop = self.layout.operator(GUI.SMD_OT_CopySourceBoneProps.bl_idname, text='Copy Jigglebone Properties')
@@ -127,9 +129,6 @@ def draw_copy_bone_props(self, context):
     copyop.copy_rotation = False
     copyop.copy_location = False
     copyop.copy_jigglebone = True
-
-def draw_export_pose_prop(self, context):
-    self.layout.prop(context.scene.vs, "preview_export_pose")
 
 
 # -------------------------------------------------------------------------------------
@@ -152,17 +151,17 @@ formats.sort(key = lambda f: f[0])
 # -------------------------------------------------------------------------------------
 
 class PrefabItem(PropertyGroup):
-    filepath: StringProperty(name="Filepath", subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    filepath: StringProperty(name="Filepath", description=get_id("prop_prefab_filepath_tip"), subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
 class FlexControllerItem(PropertyGroup):
-    controller_name: StringProperty(name='Controller Name',update=update_sanitize_name)
-    raw_delta_name : StringProperty(name='Delta Name')
+    controller_name: StringProperty(name='Controller Name',description=get_id("prop_controller_name_tip"),update=update_sanitize_name)
+    raw_delta_name : StringProperty(name='Delta Name',description=get_id("prop_delta_name_tip"))
 
-    shapekey : StringProperty(name='ShapeKey')
-    eyelid : BoolProperty(name='Eyelid')
-    stereo : BoolProperty(name='Stereo')
+    shapekey : StringProperty(name='ShapeKey',description=get_id("prop_flexctrl_shapekey_tip"))
+    eyelid : BoolProperty(name='Eyelid',description=get_id("prop_eyelid_tip"))
+    stereo : BoolProperty(name='Stereo',description=get_id("prop_stereo_tip"))
 
-    flexgroup : EnumProperty(name='Flex Type', items=[
+    flexgroup : EnumProperty(name='Flex Type', description=get_id("prop_flex_type_tip"), items=[
         ('NONE', 'NONE', ''),
         ('EYES', 'EYES', ''),
         ('EYELID', 'EYELID', ''),
@@ -173,7 +172,7 @@ class FlexControllerItem(PropertyGroup):
         ], default='NONE')
 
 class VertexAnimation(PropertyGroup):
-    name : StringProperty(name="Name",default="VertexAnim")
+    name : StringProperty(name="Name",description=get_id("prop_vertex_anim_name_tip"),default="VertexAnim")
     start : IntProperty(name="Start",description=get_id("vca_start_tip"),default=0)
     end : IntProperty(name="End",description=get_id("vca_end_tip"),default=250)
     export_sequence : BoolProperty(name=get_id("vca_sequence"),description=get_id("vca_sequence_tip"),default=True)
@@ -184,7 +183,7 @@ class VertexAnimation(PropertyGroup):
 # -------------------------------------------------------------------------------------
 
 class ValveSource_FloatMapRemap(PropertyGroup):
-    group : StringProperty(name="Group name",default="")
+    group : StringProperty(name="Group name",description=get_id("prop_float_map_group_tip"),default="")
     min : FloatProperty(name="Min",description="Maps to 0.0",default=0.0)
     max : FloatProperty(name="Max",description="Maps to 1.0",default=1.0)
 
@@ -200,7 +199,7 @@ class ShapeTypeProps():
     flex_stereo_vg : StringProperty(name=get_id("shape_stereo_vgroup"),description=get_id("shape_stereo_vgroup_tip"))
 
     bake_shapekey_as_basis_normals : BoolProperty(name=get_id("bake_shapekey_as_basis_normals"),description=get_id("bake_shapekey_as_basis_normals_tip"))
-    normalize_shapekeys : BoolProperty(name='Normalize Shapekeys',description='Normalize shapekeys so their current max value is 1 and min of -1 if applicable else 0',default=True)
+    normalize_shapekeys : BoolProperty(name=get_id('prop_normalize_shapekeys'),description=get_id('prop_normalize_shapekeys_tip'),default=True)
 
 class CurveTypeProps():
     faces : EnumProperty(name=get_id("curve_poly_side"),description=get_id("curve_poly_side_tip"),default='FORWARD',items=(
@@ -209,10 +208,10 @@ class CurveTypeProps():
     ('BOTH', get_id("curve_poly_side_both"), '')) )
 
 class JiggleBoneProps():
-    bone_is_jigglebone : BoolProperty(name=get_id('prop_bone_is_jigglebone'), default=False)
-    use_bone_length_for_jigglebone_length : BoolProperty(name="Use Bone's Length for JiggleBone Length", default=True)
+    bone_is_jigglebone : BoolProperty(name=get_id('prop_bone_is_jigglebone'), description=get_id('prop_bone_is_jigglebone_tip'), default=False)
+    use_bone_length_for_jigglebone_length : BoolProperty(name=get_id('prop_use_bone_length_for_jb'), description=get_id('prop_use_bone_length_for_jb_tip'), default=True)
 
-    jiggle_flex_type : EnumProperty(name=get_id('prop_jiggle_flex_type'), items=[('FLEXIBLE', 'Flexible', ''), ('RIGID', 'Rigid', ''), ('NONE', 'None', '')], default='FLEXIBLE')
+    jiggle_flex_type : EnumProperty(name=get_id('prop_jiggle_flex_type'), description=get_id('prop_jiggle_flex_type_tip'), items=[('FLEXIBLE', 'Flexible', ''), ('RIGID', 'Rigid', ''), ('NONE', 'None', '')], default='FLEXIBLE')
 
     jiggle_length : FloatProperty(name=get_id('prop_jiggle_length'), description=get_id('prop_jiggle_length_tip'), default=0, min=0, precision=4)
     jiggle_tip_mass : FloatProperty(name=get_id('prop_jiggle_tip_mass'), description=get_id('prop_jiggle_tip_mass_tip'), precision=2, default=0, min=0, max=1000)
@@ -225,50 +224,51 @@ class JiggleBoneProps():
     jiggle_along_stiffness : FloatProperty(name=get_id('prop_jiggle_along_stiffness'), description=get_id('prop_jiggle_along_stiffness_tip'), default=100, min=0, soft_max=1000, precision=4)
     jiggle_along_damping : FloatProperty(name=get_id('prop_jiggle_along_damping'), description=get_id('prop_jiggle_along_damping_tip'), default=0, min=0, soft_max=20, precision=4)
 
-    jiggle_base_type : EnumProperty(name=get_id('prop_jiggle_base_type'), items=[('BASESPRING', 'Has Base Spring', ''), ('BOING', 'Is Boing', ''), ('NONE', 'None', '')], default='NONE')
+    jiggle_base_type : EnumProperty(name=get_id('prop_jiggle_base_type'), description=get_id('prop_jiggle_base_type_tip'), items=[('BASESPRING', 'Has Base Spring', ''), ('BOING', 'Is Boing', ''), ('NONE', 'None', '')], default='NONE')
 
     jiggle_base_stiffness : FloatProperty(name=get_id('prop_jiggle_base_stiffness'), description=get_id('prop_jiggle_base_stiffness_tip'), default=100, min=0, soft_max=1000, precision=4)
     jiggle_base_damping : FloatProperty(name=get_id('prop_jiggle_base_damping'), description=get_id('prop_jiggle_base_damping_tip'), default=0, min=0, soft_max=100, precision=4)
     jiggle_base_mass : IntProperty(name=get_id('prop_jiggle_base_mass'), description=get_id('prop_jiggle_base_mass_tip'), default=0, min=0)
 
     jiggle_has_left_constraint : BoolProperty(name=get_id('prop_jiggle_side_constraint'), description=get_id('prop_jiggle_side_constraint_tip'), default=False)
-    jiggle_left_constraint_min : FloatProperty(name='Min Side Constraint', description='Minimum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
-    jiggle_left_constraint_max : FloatProperty(name='Max Side Constraint', description='Maximum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
-    jiggle_left_friction : FloatProperty(name='Side Friction', description='Friction applied when sliding against side constraint', precision=3, default=0.0, min=0, soft_max=20.0)
+    jiggle_left_constraint_min : FloatProperty(name=get_id('prop_jiggle_side_constraint_min'), description=get_id('prop_jiggle_side_constraint_min_tip'), unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
+    jiggle_left_constraint_max : FloatProperty(name=get_id('prop_jiggle_side_constraint_max'), description=get_id('prop_jiggle_side_constraint_max_tip'), unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
+    jiggle_left_friction : FloatProperty(name=get_id('prop_jiggle_side_friction'), description=get_id('prop_jiggle_side_friction_tip'), precision=3, default=0.0, min=0, soft_max=20.0)
 
     jiggle_has_up_constraint : BoolProperty(name=get_id('prop_jiggle_up_constraint'), description=get_id('prop_jiggle_up_constraint_tip'), default=False)
-    jiggle_up_constraint_min : FloatProperty(name='Min Up Constraint', description='Minimum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
-    jiggle_up_constraint_max : FloatProperty(name='Max Up Constraint', description='Maximum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
-    jiggle_up_friction : FloatProperty(name='Up Friction', description='Friction applied when sliding against upward constraint', precision=3, default=0.0, min=0, soft_max=20.0)
+    jiggle_up_constraint_min : FloatProperty(name=get_id('prop_jiggle_up_constraint_min'), description=get_id('prop_jiggle_up_constraint_min_tip'), unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
+    jiggle_up_constraint_max : FloatProperty(name=get_id('prop_jiggle_up_constraint_max'), description=get_id('prop_jiggle_up_constraint_max_tip'), unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
+    jiggle_up_friction : FloatProperty(name=get_id('prop_jiggle_up_friction'), description=get_id('prop_jiggle_up_friction_tip'), precision=3, default=0.0, min=0, soft_max=20.0)
 
     jiggle_has_forward_constraint : BoolProperty(name=get_id('prop_jiggle_forward_constraint'), description=get_id('prop_jiggle_forward_constraint_tip'), default=False)
-    jiggle_forward_constraint_min : FloatProperty(name='Min Forward Constraint', description='Minimum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
-    jiggle_forward_constraint_max : FloatProperty(name='Max Forward Constraint', description='Maximum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
-    jiggle_forward_friction : FloatProperty(name='Forward Friction', description='Friction applied when sliding against forward constraint', precision=3, default=0.0, min=0, soft_max=20.0)
+    jiggle_forward_constraint_min : FloatProperty(name=get_id('prop_jiggle_forward_constraint_min'), description=get_id('prop_jiggle_forward_constraint_min_tip'), unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
+    jiggle_forward_constraint_max : FloatProperty(name=get_id('prop_jiggle_forward_constraint_max'), description=get_id('prop_jiggle_forward_constraint_max_tip'), unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
+    jiggle_forward_friction : FloatProperty(name=get_id('prop_jiggle_forward_friction'), description=get_id('prop_jiggle_forward_friction_tip'), precision=3, default=0.0, min=0, soft_max=20.0)
 
     jiggle_has_yaw_constraint : BoolProperty(name=get_id('prop_jiggle_yaw_constraint'), description=get_id('prop_jiggle_yaw_constraint_tip'), default=False)
-    jiggle_yaw_constraint_min : FloatProperty(name='Min Yaw Constraint', description='Minimum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
-    jiggle_yaw_constraint_max : FloatProperty(name='Max Yaw Constraint', description='Maximum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
-    jiggle_yaw_friction : FloatProperty(name='Yaw Friction', description='Friction applied during yaw constraint motion', precision=3, default=0.0, min=0, soft_max=20.0)
+    jiggle_yaw_constraint_min : FloatProperty(name=get_id('prop_jiggle_yaw_constraint_min'), description=get_id('prop_jiggle_yaw_constraint_min_tip'), unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
+    jiggle_yaw_constraint_max : FloatProperty(name=get_id('prop_jiggle_yaw_constraint_max'), description=get_id('prop_jiggle_yaw_constraint_max_tip'), unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
+    jiggle_yaw_friction : FloatProperty(name=get_id('prop_jiggle_yaw_friction'), description=get_id('prop_jiggle_yaw_friction_tip'), precision=3, default=0.0, min=0, soft_max=20.0)
 
     jiggle_has_pitch_constraint : BoolProperty(name=get_id('prop_jiggle_pitch_constraint'), description=get_id('prop_jiggle_pitch_constraint_tip'), default=False)
-    jiggle_pitch_constraint_min : FloatProperty(name='Min Pitch Constraint', description='Minimum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
-    jiggle_pitch_constraint_max : FloatProperty(name='Max Pitch Constraint', description='Maximum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
-    jiggle_pitch_friction : FloatProperty(name='Pitch Friction', description='Friction applied during pitch constraint motion', precision=3, default=0.0, min=0, soft_max=20.0)
+    jiggle_pitch_constraint_min : FloatProperty(name=get_id('prop_jiggle_pitch_constraint_min'), description=get_id('prop_jiggle_pitch_constraint_min_tip'), unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
+    jiggle_pitch_constraint_max : FloatProperty(name=get_id('prop_jiggle_pitch_constraint_max'), description=get_id('prop_jiggle_pitch_constraint_max_tip'), unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
+    jiggle_pitch_friction : FloatProperty(name=get_id('prop_jiggle_pitch_friction'), description=get_id('prop_jiggle_pitch_friction_tip'), precision=3, default=0.0, min=0, soft_max=20.0)
 
     jiggle_has_angle_constraint : BoolProperty(name=get_id('prop_jiggle_angle_constraint'), description=get_id('prop_jiggle_angle_constraint_tip'), default=False)
-    jiggle_angle_constraint : FloatProperty(name=get_id('prop_jiggle_angular_constraint'), precision=3, unit='ROTATION', default=0.0, min=0, soft_max=radians(360))
+    jiggle_angle_constraint : FloatProperty(name=get_id('prop_jiggle_angular_constraint'), description=get_id('prop_jiggle_angular_constraint_tip'), precision=3, unit='ROTATION', default=0.0, min=0, soft_max=radians(360))
 
-    jiggle_impact_speed : IntProperty(name=get_id('prop_jiggle_impact_speed'), min=0, soft_max=1000)
-    jiggle_impact_angle : FloatProperty(name=get_id('prop_jiggle_impact_angle'), precision=3, unit='ROTATION', default=0.0, min=0, soft_max=radians(360))
-    jiggle_damping_rate : FloatProperty(name=get_id('prop_jiggle_damping_rate'), precision=3, default=0.0, min=0, soft_max=10)
-    jiggle_frequency : FloatProperty(name=get_id('prop_jiggle_frequency'), precision=3, default=0.0, min=0, soft_max=1000)
-    jiggle_amplitude : FloatProperty(name=get_id('prop_jiggle_amplitude'), precision=3, default=0.0, min=0, soft_max=1000)
+    jiggle_impact_speed : IntProperty(name=get_id('prop_jiggle_impact_speed'), description=get_id('prop_jiggle_impact_speed_tip'), min=0, soft_max=1000)
+    jiggle_impact_angle : FloatProperty(name=get_id('prop_jiggle_impact_angle'), description=get_id('prop_jiggle_impact_angle_tip'), precision=3, unit='ROTATION', default=0.0, min=0, soft_max=radians(360))
+    jiggle_damping_rate : FloatProperty(name=get_id('prop_jiggle_damping_rate'), description=get_id('prop_jiggle_damping_rate_tip'), precision=3, default=0.0, min=0, soft_max=10)
+    jiggle_frequency : FloatProperty(name=get_id('prop_jiggle_frequency'), description=get_id('prop_jiggle_frequency_tip'), precision=3, default=0.0, min=0, soft_max=1000)
+    jiggle_amplitude : FloatProperty(name=get_id('prop_jiggle_amplitude'), description=get_id('prop_jiggle_amplitude_tip'), precision=3, default=0.0, min=0, soft_max=1000)
 
 class KitsuneResourceItem(PropertyGroup):
     name       : StringProperty(name="Name")
-    export     : BoolProperty(name="Export", default=True)
+    export     : BoolProperty(name="Export", description=get_id("prop_kr_entry_export_tip"), default=True)
     entry_type : EnumProperty(
+        description=get_id("prop_kr_entry_type_tip"),
         items=[('MODEL', "Model", ""), ('DATA', "Data", "")],
         default='MODEL'
     )
@@ -288,32 +288,32 @@ class ExportableProps():
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
 
-    merge_vertices : BoolProperty(name='Merge Vertices on Export', default=True)
+    merge_vertices : BoolProperty(name='Merge Vertices on Export', description=get_id("prop_merge_vertices_tip"), default=True)
 
-    use_toon_edgeline : BoolProperty(name="Use Toon Edge Line",default=False)
-    edgeline_per_material : BoolProperty(name="Edgeline Per Material", default=False)
-    base_toon_edgeline_thickness : FloatProperty(name="Thickness",default=0.15, min=0.001, soft_max=1.0, precision=3)
-    toon_edgeline_vertexgroup : StringProperty(name='Vertex Group Ratio',default='')
-    export_edgeline_separately : BoolProperty(name="Export Edgeline Separately", default=False)
+    use_toon_edgeline : BoolProperty(name="Use Toon Edge Line",description=get_id("prop_use_toon_edgeline_tip"),default=False)
+    edgeline_per_material : BoolProperty(name="Edgeline Per Material", description=get_id("prop_edgeline_per_material_tip"), default=False)
+    base_toon_edgeline_thickness : FloatProperty(name="Thickness",description=get_id("prop_edgeline_thickness_tip"),default=0.15, min=0.001, soft_max=1.0, precision=3)
+    toon_edgeline_vertexgroup : StringProperty(name='Vertex Group Ratio',description=get_id("prop_edgeline_vgroup_tip"),default='')
+    export_edgeline_separately : BoolProperty(name="Export Edgeline Separately", description=get_id("prop_export_edgeline_separately_tip"), default=False)
 
-    non_exportable_vgroup : StringProperty(name='Non-Exportable Vertex Group', default='')
-    non_exportable_vgroup_tolerance : FloatProperty(name='Non-Exportable Weight Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
+    non_exportable_vgroup : StringProperty(name='Non-Exportable Vertex Group', description=get_id("prop_non_exportable_vgroup_tip"), default='')
+    non_exportable_vgroup_tolerance : FloatProperty(name='Non-Exportable Weight Tolerance', description=get_id("prop_non_exportable_vgroup_tolerance_tip"), default=0.90, min=0.8, max=1.0, precision=2)
 
-    use_mesh_split : BoolProperty(name='Separate Mesh Split', default=False)
-    export_mesh_split_separately : BoolProperty(name='Export Mesh Split Separately', default=False)
-    mesh_split_threshold : FloatProperty(name='Mesh Split Threshold', default=0.95, min=0.8, max=1.0, precision=2)
-    max_mesh_split : IntProperty(name='Max Order Number', default=16, max=16, min=1)
+    use_mesh_split : BoolProperty(name='Separate Mesh Split', description=get_id("prop_use_mesh_split_tip"), default=False)
+    export_mesh_split_separately : BoolProperty(name='Export Mesh Split Separately', description=get_id("prop_export_mesh_split_separately_tip"), default=False)
+    mesh_split_threshold : FloatProperty(name='Mesh Split Threshold', description=get_id("prop_mesh_split_threshold_tip"), default=0.95, min=0.8, max=1.0, precision=2)
+    max_mesh_split : IntProperty(name='Max Order Number', description=get_id("prop_max_mesh_split_tip"), default=16, max=16, min=1)
 
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
 
-    generate_backface : BoolProperty(name='Generate Backface', default=False)
-    backface_vgroup : StringProperty(name='Backface Group', default='')
-    backface_vgroup_tolerance : FloatProperty(name='Backface Tolerance', default=0.90, min=0.8, max=1.0, precision=2)
+    generate_backface : BoolProperty(name='Generate Backface', description=get_id("prop_generate_backface_tip"), default=False)
+    backface_vgroup : StringProperty(name='Backface Group', description=get_id("prop_backface_vgroup_tip"), default='')
+    backface_vgroup_tolerance : FloatProperty(name='Backface Tolerance', description=get_id("prop_backface_vgroup_tolerance_tip"), default=0.90, min=0.8, max=1.0, precision=2)
 
-    generate_lods : BoolProperty(name='Generate LODs on Export', default=False)
-    lod_count : IntProperty(name='LOD count', default=1,min=1,soft_max=3)
-    decimate_factor : FloatProperty(name='Decimation Per LOD', default=50.0,min=0,soft_max=100,precision=2)
+    generate_lods : BoolProperty(name='Generate LODs on Export', description=get_id("prop_generate_lods_tip"), default=False)
+    lod_count : IntProperty(name='LOD count', description=get_id("prop_lod_count_tip"), default=1,min=1,soft_max=3)
+    decimate_factor : FloatProperty(name='Decimation Per LOD', description=get_id("prop_decimate_factor_tip"), default=50.0,min=0,soft_max=100,precision=2)
 
 # -------------------------------------------------------------------------------------
 # Property Classes (using mixins)
@@ -338,7 +338,7 @@ class ValveSource_SceneProps(PropertyGroup):
     dmx_encoding : EnumProperty(name=get_id("dmx_encoding"),description=get_id("dmx_encoding_tip"),items=tuple(encodings),default='2')
     dmx_format : EnumProperty(name=get_id("dmx_format"),description=get_id("dmx_format_tip"),items=tuple(formats),default='1')
 
-    export_format : EnumProperty(name=get_id("export_format"),items=[ ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ],default='DMX')
+    export_format : EnumProperty(name=get_id("export_format"),description=get_id("export_format_tip"),items=[ ('SMD', "SMD", "Studiomdl Data" ), ('DMX', "DMX", "Datamodel Exchange" ) ],default='DMX')
     up_axis : EnumProperty(name=get_id("up_axis"),items=axes,default='Z',description=get_id("up_axis_tip"))
     up_axis_offset : FloatProperty(name=get_id("up_axis_offset"),description=get_id("up_axis_tip"), soft_max=30,soft_min=-30,default=0,precision=2)
     forward_axis : EnumProperty(name=get_id("forward_axis"),items=axes_forward,default='-Y',description=get_id("up_axis_tip"))
@@ -348,21 +348,18 @@ class ValveSource_SceneProps(PropertyGroup):
     export_list : CollectionProperty(type=ValveSource_Exportable,options={'SKIP_SAVE','HIDDEN'})
     game_path : StringProperty(name=get_id("game_path"),description=get_id("game_path_tip"),subtype='DIR_PATH',update=State.onGamePathChanged)
     
-    enable_gui_console : BoolProperty(name='Enable Console GUI',default=True, 
-        description='Show console overlay with live progress updates. Adds ~20% processing time for visual feedback')
-    
     weightlink_threshold : FloatProperty(name=get_id("weightlinkcull"),description=get_id("weightlinkcull_tip"),max=0.001,min=0.0001, default=0.0001,precision=4)
     vertex_influence_limit : IntProperty(name=get_id("maxvertexinfluence"), description=get_id("maxvertexinfluence_tip"),default=3,max=32, soft_max=8,min=1)
 
-    smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
-    prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
+    smd_format : EnumProperty(name=get_id("smd_format"), description=get_id("smd_format_tip"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
+    prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"),description=get_id("prefab_to_clipboard_tip"),default=False)
 
-    preview_export_pose : BoolProperty(name='Preview Export Pose',description='Draw a ghost bone showing where this bone will be after export offsets are applied',default=True,)
+    preview_export_pose : BoolProperty(name=get_id('prop_preview_export_pose'),description=get_id('prop_preview_export_pose_tip'),default=True)
 
-    kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='kitsuneresource.exe')
-    kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
-    kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    kitsuneresource_args : StringProperty(name='Arguments', default='-exportdir "compiled"')
+    kitsuneresource_app_path : StringProperty(name='Executable',description=get_id("prop_kitsuneresource_app_path_tip"),subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='kitsuneresource.exe')
+    kitsuneresource_config : StringProperty(name='Config',description=get_id("prop_kitsuneresource_config_tip"),subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
+    kitsuneresource_project_path : StringProperty(name='Project Directory',description=get_id("prop_kitsuneresource_project_path_tip"),subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    kitsuneresource_args : StringProperty(name='Arguments', description=get_id("prop_kitsuneresource_args_tip"), default='-exportdir "compiled"')
 
     kitsuneresource_model_entries: CollectionProperty(type=KitsuneResourceItem)
     kitsuneresource_model_entry_index: IntProperty(name="Active Entry", default=0)
@@ -370,29 +367,29 @@ class ValveSource_SceneProps(PropertyGroup):
     kitsuneresource_data_entry_index: IntProperty(name="Active Entry", default=0)
     kitsuneresource_entries: CollectionProperty(type=KitsuneResourceItem)
     kitsuneresource_entry_index: IntProperty(name="Active Entry", default=0)
-    kitsuneresource_flag_single_addon: BoolProperty(name="Single Addon", default=True)
-    kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", default=True)
-    kitsuneresource_flag_archive_old: BoolProperty(name="Archive Previous Version", default=True)
-    kitsuneresource_flag_game_or_package : EnumProperty(name="Game or Package",items=[('GAME', 'Game', ''),('PACKAGE', 'Package', '')],default='GAME')
+    kitsuneresource_flag_single_addon: BoolProperty(name="Single Addon", description=get_id("prop_kitsuneresource_single_addon_tip"), default=True)
+    kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", description=get_id("prop_kitsuneresource_no_mat_local_tip"), default=True)
+    kitsuneresource_flag_archive_old: BoolProperty(name="Archive Previous Version", description=get_id("prop_kitsuneresource_archive_old_tip"), default=True)
+    kitsuneresource_flag_game_or_package : EnumProperty(name="Game or Package",description=get_id("prop_kitsuneresource_game_or_package_tip"),items=[('GAME', 'Game', ''),('PACKAGE', 'Package', '')],default='GAME')
 
     jiggle_sim_enabled : BoolProperty(name=get_id('prop_jiggle_sim_enabled'),description=get_id('prop_jiggle_sim_enabled_tip'),default=False,update=lambda self, ctx: procbones_sim.on_sim_enabled_changed(self, ctx),)
     jiggle_sim_rate : IntProperty(name=get_id('prop_jiggle_sim_rate'),description=get_id('prop_jiggle_sim_rate_tip'),default=60, min=12, max=240,)
     preview_edgeline : BoolProperty(name=get_id('prop_preview_edgeline'),description=get_id('prop_preview_edgeline_tip'),default=False,)
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
-    export_name : StringProperty(name=get_id("exportname"), maxlen=256)
+    export_name : StringProperty(name=get_id("exportname"), description=get_id("exportname_tip"), maxlen=256)
 
-    bone_sort_order : IntProperty(name='Bone Sort Order', default=0, min=0,soft_max=4)
-    
-    ignore_rotation_offset : BoolProperty(name='Ignore Rotation Offsets', default=False)
-    export_rotation_offset_x : FloatProperty(name='Rotation X', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)
-    export_rotation_offset_y : FloatProperty(name='Rotation Y', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)
-    export_rotation_offset_z : FloatProperty(name='Rotation Z', unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)
-    
-    ignore_location_offset : BoolProperty(name='Ignore Location Offsets', default=True)
-    export_location_offset_x : FloatProperty(name='Location X', default=0, precision=4)
-    export_location_offset_y : FloatProperty(name='Location Y', default=0, precision=4)
-    export_location_offset_z : FloatProperty(name='Location Z', default=0, precision=4)
+    bone_sort_order : IntProperty(name=get_id('prop_bone_sort_order'), description=get_id('prop_bone_sort_order_tip'), default=0, min=0,soft_max=4)
+
+    ignore_rotation_offset : BoolProperty(name=get_id('prop_ignore_rotation_offset'), description=get_id('prop_ignore_rotation_offset_tip'), default=False)
+    export_rotation_offset_x : FloatProperty(name=get_id('prop_rotation_x'), description=get_id('prop_rotation_x_tip'), unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)
+    export_rotation_offset_y : FloatProperty(name=get_id('prop_rotation_y'), description=get_id('prop_rotation_y_tip'), unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)
+    export_rotation_offset_z : FloatProperty(name=get_id('prop_rotation_z'), description=get_id('prop_rotation_z_tip'), unit='ROTATION', default=math.radians(0), precision=4, min=-360, max=360)
+
+    ignore_location_offset : BoolProperty(name=get_id('prop_ignore_location_offset'), description=get_id('prop_ignore_location_offset_tip'), default=True)
+    export_location_offset_x : FloatProperty(name=get_id('prop_location_x'), description=get_id('prop_location_x_tip'), default=0, precision=4)
+    export_location_offset_y : FloatProperty(name=get_id('prop_location_y'), description=get_id('prop_location_y_tip'), default=0, precision=4)
+    export_location_offset_z : FloatProperty(name=get_id('prop_location_z'), description=get_id('prop_location_z_tip'), default=0, precision=4)
     
 class ValveSource_ObjectProps(ExportableProps, PropertyGroup):
     mesh_type : EnumProperty(
@@ -412,13 +409,13 @@ class ValveSource_ObjectProps(ExportableProps, PropertyGroup):
     dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=FlexControllerItem)
     dme_flexcontrollers_index : IntProperty(default=-1, update=on_flexcontroller_index_changed)
     
-    dmx_attachment : BoolProperty(name='Is Attachment',default=False)
-    smd_hitbox : BoolProperty(name='Is Hitbox',default=False)    
-    smd_hitbox_group : EnumProperty(name='Hitbox Group',items=hitbox_group,default='0')
+    dmx_attachment : BoolProperty(name=get_id('prop_dmx_attachment'),description=get_id('prop_dmx_attachment_tip'),default=False)
+    smd_hitbox : BoolProperty(name=get_id('prop_smd_hitbox'),description=get_id('prop_smd_hitbox_tip'),default=False)
+    smd_hitbox_group : EnumProperty(name=get_id('prop_smd_hitbox_group'),description=get_id('prop_smd_hitbox_group_tip'),items=hitbox_group,default='0')
 
-    jigglebone_prefabfile : StringProperty(name='Jigglebone Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    attachment_prefabfile : StringProperty(name='Attachments Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    hitbox_prefabfile : StringProperty(name='Hitbox Prefab',default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    jigglebone_prefabfile : StringProperty(name=get_id('prop_jigglebone_prefabfile'),description=get_id('prop_jigglebone_prefabfile_tip'),default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    attachment_prefabfile : StringProperty(name=get_id('prop_attachment_prefabfile'),description=get_id('prop_attachment_prefabfile_tip'),default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
+    hitbox_prefabfile : StringProperty(name=get_id('prop_hitbox_prefabfile'),description=get_id('prop_hitbox_prefabfile_tip'),default='',subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
 class ValveSource_ArmatureProps(PropertyGroup):
     implicit_zero_bone : BoolProperty(name=get_id("dummy_bone"),default=True,description=get_id("dummy_bone_tip"))
@@ -428,14 +425,14 @@ class ValveSource_ArmatureProps(PropertyGroup):
         ('FILTERED_ACTIONS',get_id("action_filter"),get_id("action_selection_filter_tip")),
     )
 
-    reset_pose_per_anim : BoolProperty(name='Reset Pose Per Animation Export', description="Reset all bones to rest pose before each export to prevent pose carry-over between animations",default=True)
+    reset_pose_per_anim : BoolProperty(name=get_id('prop_reset_pose_per_anim'),description=get_id('prop_reset_pose_per_anim_tip'),default=True)
 
     action_selection : EnumProperty(name=get_id("action_selection_mode"), items=arm_modes,description=get_id("action_selection_mode_tip"),default='FILTERED')
 
-    ignore_bone_exportnames : BoolProperty(name=get_id("ignore_bone_exportnames"))
-    bone_direction_naming_left : StringProperty(name='Left Bone Dir', default='L')
-    bone_direction_naming_right : StringProperty(name='Right Bone Dir', default='R')
-    bone_name_startcount : IntProperty(name='Bone Name Starting Count', default=1, min=0, soft_max=10)
+    ignore_bone_exportnames : BoolProperty(name=get_id("ignore_bone_exportnames"),description=get_id("ignore_bone_exportnames_tip"))
+    bone_direction_naming_left : StringProperty(name=get_id('prop_bone_dir_left'), description=get_id('prop_bone_dir_left_tip'), default='L')
+    bone_direction_naming_right : StringProperty(name=get_id('prop_bone_dir_right'), description=get_id('prop_bone_dir_right_tip'), default='R')
+    bone_name_startcount : IntProperty(name=get_id('prop_bone_name_startcount'), description=get_id('prop_bone_name_startcount_tip'), default=1, min=0, soft_max=10)
 
 class ValveSource_CollectionProps(ExportableProps,PropertyGroup):
     mute : BoolProperty(name=get_id("group_suppress"),description=get_id("group_suppress_tip"),default=False)
@@ -443,7 +440,7 @@ class ValveSource_CollectionProps(ExportableProps,PropertyGroup):
     automerge : BoolProperty(name=get_id("group_merge_mech"),description=get_id("group_merge_mech_tip"),default=False)
 
 class ValveSource_MaterialProps(PropertyGroup):
-    override_dmx_export_path : StringProperty(name='Material Path', default='')
+    override_dmx_export_path : StringProperty(name='Material Path', description=get_id("prop_override_dmx_export_path_tip"), default='')
 
 # -------------------------------------------------------------------------------------
 # Register
@@ -562,7 +559,6 @@ def register():
     bpy.types.MESH_MT_shape_key_context_menu.append(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
-    bpy.types.VIEW3D_MT_view.append(draw_export_pose_prop)
         
     try: bpy.ops.wm.addon_disable('EXEC_SCREEN',module="io_smd_tools")
     except: pass
@@ -601,7 +597,6 @@ def unregister():
     bpy.types.MESH_MT_shape_key_context_menu.remove(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)
-    bpy.types.VIEW3D_MT_view.remove(draw_export_pose_prop)
 
     bpy.app.translations.unregister(__name__)
     
