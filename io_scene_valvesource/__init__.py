@@ -38,12 +38,12 @@ for modname, module in list(sys.modules.items()):
 # Clear out any scene update funcs hanging around, e.g. after a script reload
 # -------------------------------------------------------------------------------------
 
-for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post]:
+for collection in [bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post, bpy.app.handlers.frame_change_post]:
     for func in collection[:]:
         if func.__module__.startswith(pkg_name):
             collection.remove(func)
 
-from . import datamodel, import_smd, export_smd, flex, GUI
+from . import datamodel, import_smd, export_smd, flex, GUI, procbones_sim
 from .utils import *
 
 class ValveSource_Exportable(bpy.types.PropertyGroup):
@@ -120,6 +120,16 @@ def update_sanitize_name(self, context):
 
 def draw_copy_bone_props(self, context):
     self.layout.operator(GUI.TOOLS_OT_CopySourceBoneProps.bl_idname)
+
+    copyop = self.layout.operator(GUI.SMD_OT_CopySourceBoneProps.bl_idname, text='Copy Jigglebone Properties')
+    copyop.to_invoke = False
+    copyop.copy_name = False
+    copyop.copy_rotation = False
+    copyop.copy_location = False
+    copyop.copy_jigglebone = True
+
+def draw_export_pose_prop(self, context):
+    self.layout.prop(context.scene.vs, "preview_export_pose")
 
 
 # -------------------------------------------------------------------------------------
@@ -199,61 +209,61 @@ class CurveTypeProps():
     ('BOTH', get_id("curve_poly_side_both"), '')) )
 
 class JiggleBoneProps():
-    bone_is_jigglebone : BoolProperty(name='Bone is JiggleBone', default=False)
+    bone_is_jigglebone : BoolProperty(name=get_id('prop_bone_is_jigglebone'), default=False)
     use_bone_length_for_jigglebone_length : BoolProperty(name="Use Bone's Length for JiggleBone Length", default=True)
-    
-    jiggle_flex_type : EnumProperty(name='Flexible Type', items=[('FLEXIBLE', 'Flexible', ''), ('RIGID', 'Rigid', ''), ('NONE', 'None', '')], default='FLEXIBLE')
-    
-    jiggle_length : FloatProperty(name='Length', description='Rest length of the jigglebone segment', default=0, min=0, precision=4)
-    jiggle_tip_mass : FloatProperty(name='Tip Mass', description='Mass at the end of the jigglebone affecting inertia and movement', precision=2, default=0, min=0, max=1000)
-    jiggle_yaw_stiffness : FloatProperty(name='Yaw Stiffness', description='Spring strength resisting yaw rotation', default=100, min=0, soft_max=1000, precision=4)
-    jiggle_yaw_damping : FloatProperty(name='Yaw Damping', description='Resistance that slows down yaw motion over time', default=0, min=0, soft_max=20, precision=4)
-    jiggle_pitch_stiffness : FloatProperty(name='Pitch Stiffness', description='Spring strength resisting pitch rotation', default=100, min=0, soft_max=1000, precision=4)
-    jiggle_pitch_damping : FloatProperty(name='Pitch Damping', description='Resistance that slows down pitch motion over time', default=0, min=0, soft_max=20, precision=4)
 
-    jiggle_allow_length_flex : BoolProperty(name='Allow Length Flex', description='Allow the jigglebone to stretch and compress along its length', default=False)
-    jiggle_along_stiffness : FloatProperty(name='Along Stiffness', description='Spring strength along the bone length when flexing is enabled', default=100, min=0, soft_max=1000, precision=4)
-    jiggle_along_damping : FloatProperty(name='Along Damping', description='Damping along the bone length when flexing is enabled', default=0, min=0, soft_max=20, precision=4)
+    jiggle_flex_type : EnumProperty(name=get_id('prop_jiggle_flex_type'), items=[('FLEXIBLE', 'Flexible', ''), ('RIGID', 'Rigid', ''), ('NONE', 'None', '')], default='FLEXIBLE')
 
-    jiggle_base_type : EnumProperty(name='Base Type', items=[('BASESPRING', 'Has Base Spring', ''), ('BOING', 'Is Boing', ''), ('NONE', 'None', '')], default='NONE')
+    jiggle_length : FloatProperty(name=get_id('prop_jiggle_length'), description=get_id('prop_jiggle_length_tip'), default=0, min=0, precision=4)
+    jiggle_tip_mass : FloatProperty(name=get_id('prop_jiggle_tip_mass'), description=get_id('prop_jiggle_tip_mass_tip'), precision=2, default=0, min=0, max=1000)
+    jiggle_yaw_stiffness : FloatProperty(name=get_id('prop_jiggle_yaw_stiffness'), description=get_id('prop_jiggle_yaw_stiffness_tip'), default=100, min=0, soft_max=1000, precision=4)
+    jiggle_yaw_damping : FloatProperty(name=get_id('prop_jiggle_yaw_damping'), description=get_id('prop_jiggle_yaw_damping_tip'), default=0, min=0, soft_max=20, precision=4)
+    jiggle_pitch_stiffness : FloatProperty(name=get_id('prop_jiggle_pitch_stiffness'), description=get_id('prop_jiggle_pitch_stiffness_tip'), default=100, min=0, soft_max=1000, precision=4)
+    jiggle_pitch_damping : FloatProperty(name=get_id('prop_jiggle_pitch_damping'), description=get_id('prop_jiggle_pitch_damping_tip'), default=0, min=0, soft_max=20, precision=4)
 
-    jiggle_base_stiffness : FloatProperty(name='Base Stiffness', description='Spring stiffness at the base of the jigglebone', default=100, min=0, soft_max=1000, precision=4)
-    jiggle_base_damping : FloatProperty(name='Base Damping', description='Damping at the base spring of the jigglebone', default=0, min=0, soft_max=100, precision=4)
-    jiggle_base_mass : IntProperty(name='Base Mass', description='Mass applied at the jigglebone base', default=0, min=0)
+    jiggle_allow_length_flex : BoolProperty(name=get_id('prop_jiggle_allow_length_flex'), description=get_id('prop_jiggle_allow_length_flex_tip'), default=False)
+    jiggle_along_stiffness : FloatProperty(name=get_id('prop_jiggle_along_stiffness'), description=get_id('prop_jiggle_along_stiffness_tip'), default=100, min=0, soft_max=1000, precision=4)
+    jiggle_along_damping : FloatProperty(name=get_id('prop_jiggle_along_damping'), description=get_id('prop_jiggle_along_damping_tip'), default=0, min=0, soft_max=20, precision=4)
 
-    jiggle_has_left_constraint : BoolProperty(name='Side Constraint', description='Enable side constraints to limit sideways motion', default=False)
+    jiggle_base_type : EnumProperty(name=get_id('prop_jiggle_base_type'), items=[('BASESPRING', 'Has Base Spring', ''), ('BOING', 'Is Boing', ''), ('NONE', 'None', '')], default='NONE')
+
+    jiggle_base_stiffness : FloatProperty(name=get_id('prop_jiggle_base_stiffness'), description=get_id('prop_jiggle_base_stiffness_tip'), default=100, min=0, soft_max=1000, precision=4)
+    jiggle_base_damping : FloatProperty(name=get_id('prop_jiggle_base_damping'), description=get_id('prop_jiggle_base_damping_tip'), default=0, min=0, soft_max=100, precision=4)
+    jiggle_base_mass : IntProperty(name=get_id('prop_jiggle_base_mass'), description=get_id('prop_jiggle_base_mass_tip'), default=0, min=0)
+
+    jiggle_has_left_constraint : BoolProperty(name=get_id('prop_jiggle_side_constraint'), description=get_id('prop_jiggle_side_constraint_tip'), default=False)
     jiggle_left_constraint_min : FloatProperty(name='Min Side Constraint', description='Minimum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
     jiggle_left_constraint_max : FloatProperty(name='Max Side Constraint', description='Maximum sideways offset allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
     jiggle_left_friction : FloatProperty(name='Side Friction', description='Friction applied when sliding against side constraint', precision=3, default=0.0, min=0, soft_max=20.0)
 
-    jiggle_has_up_constraint : BoolProperty(name='Up Constraint', description='Enable vertical up/down constraint', default=False)
+    jiggle_has_up_constraint : BoolProperty(name=get_id('prop_jiggle_up_constraint'), description=get_id('prop_jiggle_up_constraint_tip'), default=False)
     jiggle_up_constraint_min : FloatProperty(name='Min Up Constraint', description='Minimum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
     jiggle_up_constraint_max : FloatProperty(name='Max Up Constraint', description='Maximum upward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
     jiggle_up_friction : FloatProperty(name='Up Friction', description='Friction applied when sliding against upward constraint', precision=3, default=0.0, min=0, soft_max=20.0)
 
-    jiggle_has_forward_constraint : BoolProperty(name='Forward Constraint', description='Enable forward/backward constraint', default=False)
+    jiggle_has_forward_constraint : BoolProperty(name=get_id('prop_jiggle_forward_constraint'), description=get_id('prop_jiggle_forward_constraint_tip'), default=False)
     jiggle_forward_constraint_min : FloatProperty(name='Min Forward Constraint', description='Minimum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
     jiggle_forward_constraint_max : FloatProperty(name='Max Forward Constraint', description='Maximum forward displacement allowed', unit='LENGTH', default=0.0, min=0, soft_max=15, precision=2)
     jiggle_forward_friction : FloatProperty(name='Forward Friction', description='Friction applied when sliding against forward constraint', precision=3, default=0.0, min=0, soft_max=20.0)
 
-    jiggle_has_yaw_constraint : BoolProperty(name='Yaw Constraint', description='Enable yaw rotation constraint', default=False)
-    jiggle_yaw_constraint_min : FloatProperty(name='Min Yaw Constraint', description='Minimum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2)
-    jiggle_yaw_constraint_max : FloatProperty(name='Max Yaw Constraint', description='Maximum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2)
+    jiggle_has_yaw_constraint : BoolProperty(name=get_id('prop_jiggle_yaw_constraint'), description=get_id('prop_jiggle_yaw_constraint_tip'), default=False)
+    jiggle_yaw_constraint_min : FloatProperty(name='Min Yaw Constraint', description='Minimum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
+    jiggle_yaw_constraint_max : FloatProperty(name='Max Yaw Constraint', description='Maximum yaw rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
     jiggle_yaw_friction : FloatProperty(name='Yaw Friction', description='Friction applied during yaw constraint motion', precision=3, default=0.0, min=0, soft_max=20.0)
 
-    jiggle_has_pitch_constraint : BoolProperty(name='Pitch Constraint', description='Enable pitch rotation constraint', default=False)
-    jiggle_pitch_constraint_min : FloatProperty(name='Min Pitch Constraint', description='Minimum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2)
-    jiggle_pitch_constraint_max : FloatProperty(name='Max Pitch Constraint', description='Maximum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=360, precision=2)
+    jiggle_has_pitch_constraint : BoolProperty(name=get_id('prop_jiggle_pitch_constraint'), description=get_id('prop_jiggle_pitch_constraint_tip'), default=False)
+    jiggle_pitch_constraint_min : FloatProperty(name='Min Pitch Constraint', description='Minimum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
+    jiggle_pitch_constraint_max : FloatProperty(name='Max Pitch Constraint', description='Maximum pitch rotation allowed', unit='ROTATION', default=0.0, min=0, soft_max=radians(360), precision=2)
     jiggle_pitch_friction : FloatProperty(name='Pitch Friction', description='Friction applied during pitch constraint motion', precision=3, default=0.0, min=0, soft_max=20.0)
 
-    jiggle_has_angle_constraint : BoolProperty(name='Angle Constraint', description='Enable overall angular rotation limit', default=False)
-    jiggle_angle_constraint : FloatProperty(name='Angular Constraint', description='Maximum total angular displacement allowed', precision=3, unit='ROTATION', default=0.0, min=0, soft_max=360)
+    jiggle_has_angle_constraint : BoolProperty(name=get_id('prop_jiggle_angle_constraint'), description=get_id('prop_jiggle_angle_constraint_tip'), default=False)
+    jiggle_angle_constraint : FloatProperty(name=get_id('prop_jiggle_angular_constraint'), precision=3, unit='ROTATION', default=0.0, min=0, soft_max=radians(360))
 
-    jiggle_impact_speed : IntProperty(name='Impact Speed', min=0, soft_max=1000)
-    jiggle_impact_angle : FloatProperty(name='Impact Angle', precision=3, unit='ROTATION', default=0.0, min=0, soft_max=360)
-    jiggle_damping_rate : FloatProperty(name='Damping Rate', precision=3, default=0.0, min=0, soft_max=10)
-    jiggle_frequency : FloatProperty(name='Frequency', precision=3, default=0.0, min=0, soft_max=1000)
-    jiggle_amplitude : FloatProperty(name='Amplitude', precision=3, default=0.0, min=0, soft_max=1000)
+    jiggle_impact_speed : IntProperty(name=get_id('prop_jiggle_impact_speed'), min=0, soft_max=1000)
+    jiggle_impact_angle : FloatProperty(name=get_id('prop_jiggle_impact_angle'), precision=3, unit='ROTATION', default=0.0, min=0, soft_max=radians(360))
+    jiggle_damping_rate : FloatProperty(name=get_id('prop_jiggle_damping_rate'), precision=3, default=0.0, min=0, soft_max=10)
+    jiggle_frequency : FloatProperty(name=get_id('prop_jiggle_frequency'), precision=3, default=0.0, min=0, soft_max=1000)
+    jiggle_amplitude : FloatProperty(name=get_id('prop_jiggle_amplitude'), precision=3, default=0.0, min=0, soft_max=1000)
 
 class KitsuneResourceItem(PropertyGroup):
     name       : StringProperty(name="Name")
@@ -347,6 +357,8 @@ class ValveSource_SceneProps(PropertyGroup):
     smd_format : EnumProperty(name=get_id("smd_format"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)") , ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
     prefab_to_clipboard : BoolProperty(name=get_id("prefab_to_clipboard"), default=False, description='Copy prefab export content to clipboard instead of to a file.')
 
+    preview_export_pose : BoolProperty(name='Preview Export Pose',description='Draw a ghost bone showing where this bone will be after export offsets are applied',default=True,)
+
     kitsuneresource_app_path : StringProperty(name='Executable',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='kitsuneresource.exe')
     kitsuneresource_config : StringProperty(name='Config',subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'}, default='previewmodel.json')
     kitsuneresource_project_path : StringProperty(name='Project Directory',subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
@@ -362,6 +374,10 @@ class ValveSource_SceneProps(PropertyGroup):
     kitsuneresource_flag_no_mat_local: BoolProperty(name="No Mat Local", default=True)
     kitsuneresource_flag_archive_old: BoolProperty(name="Archive Previous Version", default=True)
     kitsuneresource_flag_game_or_package : EnumProperty(name="Game or Package",items=[('GAME', 'Game', ''),('PACKAGE', 'Package', '')],default='GAME')
+
+    jiggle_sim_enabled : BoolProperty(name=get_id('prop_jiggle_sim_enabled'),description=get_id('prop_jiggle_sim_enabled_tip'),default=False,update=lambda self, ctx: procbones_sim.on_sim_enabled_changed(self, ctx),)
+    jiggle_sim_rate : IntProperty(name=get_id('prop_jiggle_sim_rate'),description=get_id('prop_jiggle_sim_rate_tip'),default=60, min=12, max=240,)
+    preview_edgeline : BoolProperty(name=get_id('prop_preview_edgeline'),description=get_id('prop_preview_edgeline_tip'),default=False,)
 
 class ValveSource_BoneProps(JiggleBoneProps,PropertyGroup):
     export_name : StringProperty(name=get_id("exportname"), maxlen=256)
@@ -472,6 +488,7 @@ _classes = (
     
     # GUI - Scene
     GUI.SMD_MT_ExportChoice,
+    GUI.SMD_PT_ViewportSimulation,
     GUI.SMD_PT_Scene,
     GUI.SMD_MT_ConfigureScene,
     
@@ -499,7 +516,7 @@ _classes = (
     GUI.SMD_PT_All_Attachments,
     GUI.SMD_PT_All_Jigglebones,
     GUI.SMD_PT_Jigglebones,
-    
+
     # Properties Operators
     GUI.SMD_UL_FlexControllers,
     GUI.SMD_MT_FlexControllerSpecials,
@@ -528,8 +545,8 @@ _classes = (
     flex.RenameShapesToMatchCorrectiveDrivers,
     flex.ActiveDependencyShapes,
     flex.InsertUUID,
-    export_smd.SmdExporter, 
-    export_smd.PrefabExporter, 
+    export_smd.SmdExporter,
+    export_smd.PrefabExporter,
     import_smd.SmdImporter,
 )
 
@@ -545,6 +562,7 @@ def register():
     bpy.types.MESH_MT_shape_key_context_menu.append(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
+    bpy.types.VIEW3D_MT_view.append(draw_export_pose_prop)
         
     try: bpy.ops.wm.addon_disable('EXEC_SCREEN',module="io_smd_tools")
     except: pass
@@ -565,7 +583,17 @@ def register():
 
     State.hook_events()
 
+    procbones_sim.register()
+
+    from . import viewport_draw as _vd
+    _vd.register_draw_handler()
+
 def unregister():
+    from . import viewport_draw as _vd
+    _vd.unregister_draw_handler()
+
+    procbones_sim.unregister()
+
     State.unhook_events()
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
@@ -573,6 +601,7 @@ def unregister():
     bpy.types.MESH_MT_shape_key_context_menu.remove(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)
+    bpy.types.VIEW3D_MT_view.remove(draw_export_pose_prop)
 
     bpy.app.translations.unregister(__name__)
     

@@ -28,6 +28,14 @@ from .import_smd import SmdImporter
 from .flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers,DmxWriteFlexControllers
 from .utils import *
 
+def _mesh_type_allows(ob, feature: str) -> bool:
+    mt = getattr(ob.vs, 'mesh_type', 'DEFAULT') if ob and hasattr(ob, 'vs') else 'DEFAULT'
+    if mt == 'DEFAULT':
+        return True
+    if mt == 'CLOTHPROXY':
+        return feature in ('vertexmap', 'vertexfloatmap')
+    return False  # COLLISION blocks everything
+
 
 class SMD_MT_ExportChoice(Menu):
     bl_label = get_id("exportmenu_title")
@@ -124,6 +132,35 @@ class SMD_MT_KitsuneCompileChoice(Menu):
                 op.export_choice = 'ENTRY'
                 op.entry_index   = i
                 op.entry_type    = 'DATA'
+
+
+class SMD_PT_ViewportSimulation(Panel):
+    bl_label = get_id('panel_viewport_simulation')
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        vs = context.scene.vs
+        
+        box.label(text=get_id('label_simulate_jigglebones', format_string=True))
+        box.prop(context.scene.vs, 'jiggle_sim_enabled', toggle=True)
+        col = box.column(align=True)
+        col.enabled = vs.jiggle_sim_enabled
+        col.prop(vs, 'jiggle_sim_rate', slider=True)
+        col.operator('jiggle.reset_simulation', icon='FILE_REFRESH')
+
+        box2 = layout.box()
+        box2.prop(vs, 'preview_edgeline', toggle=True, icon='SHADING_SOLID')
+        if vs.preview_edgeline:
+            row = box2.row()
+            row.alert = True
+            row.label(text="Expensive - may cause viewport lag", icon='ERROR')
+            box2.label(text="Preview is approximate - may show", icon='INFO')
+            box2.label(text="smudging not present in export")
 
 
 class SMD_PT_Scene(Panel):
@@ -785,7 +822,7 @@ class SMD_PT_BoneData(Properties_SubPanel):
 
 
 class SMD_PT_Jigglebones(Properties_SubPanel):
-    bl_label = 'Jigglebones'
+    bl_label = get_id('panel_jigglebones')
     bl_parent_id = 'SMD_PT_Bone'
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -802,12 +839,6 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         box = layout.box()
         box.label(text=get_id('label_jigglebone_properties', format_string=True))
         if active_bone and active_bone.select:
-            copyop = box.operator(SMD_OT_CopySourceBoneProps.bl_idname, text='Copy Jigglebone Properties')
-            copyop.to_invoke = False
-            copyop.copy_name = False
-            copyop.copy_rotation = False
-            copyop.copy_location = False
-            copyop.copy_jigglebone = True
             self.draw_jigglebone_properties(box, active_bone)
         else:
             box = box.box()
@@ -846,7 +877,7 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         col.label(text=get_id('label_jiggle_type', format_string=True), icon='DRIVER')
         subcol = col.column(align=True)
         subcol.prop(vs_bone, 'jiggle_flex_type', text=get_id('label_jiggle_flexibility', format_string=True))
-        subcol.prop(vs_bone, 'jiggle_base_type', text=get_id('label_base_type', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_type')
         
         col.separator(factor=0.5)
         
@@ -869,27 +900,27 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text=get_id('label_use_bone_length', format_string=True))
         if not vs_bone.use_bone_length_for_jigglebone_length:
             subcol.prop(vs_bone, 'jiggle_length', text=get_id('label_jiggle_length', format_string=True))
-        subcol.prop(vs_bone, 'jiggle_tip_mass', text=get_id('label_jiggle_tip_mass', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_tip_mass')
         
         if vs_bone.jiggle_flex_type == 'FLEXIBLE':
             col.separator(factor=0.5)
             col.label(text=get_id('label_stiffness_damping', format_string=True), icon='FORCE_TURBULENCE')
             
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True, text=get_id('label_yaw_stiffness', format_string=True))
-            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True, text=get_id('label_yaw_damping', format_string=True))
-            
+            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True)
+            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True)
+
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True, text=get_id('label_pitch_stiffness', format_string=True))
-            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True, text=get_id('label_pitch_damping', format_string=True))
-            
+            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True)
+            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True)
+
             col.separator(factor=0.5)
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True, text=get_id('label_allow_length_flex', format_string=True))
-            
+            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True)
+
             if vs_bone.jiggle_allow_length_flex:
-                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True, text=get_id('label_along_stiffness', format_string=True))
-                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True, text=get_id('label_along_damping', format_string=True))
+                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True)
+                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True)
         
         layout.separator(factor=0.5)
         self._draw_angle_constraints(layout, vs_bone)
@@ -916,9 +947,9 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         
         if vs_bone.jiggle_has_angle_constraint:
             subcol = col.column(align=True)
-            subcol.prop(vs_bone, 'jiggle_angle_constraint', text='Angular Constraint')
+            subcol.prop(vs_bone, 'jiggle_angle_constraint')
             col.separator(factor=0.3)
-        
+
         if vs_bone.jiggle_has_yaw_constraint:
             subcol = col.column(align=False)
             subcol.label(text=get_id('label_yaw_limits', format_string=True), icon='EMPTY_SINGLE_ARROW')
@@ -927,7 +958,7 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
             row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text=get_id('label_max', format_string=True))
             subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text=get_id('label_friction', format_string=True))
             col.separator(factor=0.3)
-        
+
         if vs_bone.jiggle_has_pitch_constraint:
             subcol = col.column(align=False)
             subcol.label(text=get_id('label_pitch_limits', format_string=True), icon='EMPTY_SINGLE_ARROW')
@@ -965,19 +996,19 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         col.separator(factor=0.3)
         
         constraint_props = [
-            (vs_bone.jiggle_has_left_constraint, 'left', 'Side'),
-            (vs_bone.jiggle_has_up_constraint, 'up', 'Up'),
-            (vs_bone.jiggle_has_forward_constraint, 'forward', 'Forward')
+            (vs_bone.jiggle_has_left_constraint,    'left',    'label_side_limits'),
+            (vs_bone.jiggle_has_up_constraint,      'up',      'label_up_limits'),
+            (vs_bone.jiggle_has_forward_constraint, 'forward', 'label_forward_limits'),
         ]
-        
-        for has_constraint, direction, label in constraint_props:
+
+        for has_constraint, direction, limits_key in constraint_props:
             if has_constraint:
                 subcol = col.column(align=False)
-                subcol.label(text=f'{label} Limits:', icon='EMPTY_SINGLE_ARROW')
+                subcol.label(text=get_id(limits_key, format_string=True), icon='EMPTY_SINGLE_ARROW')
                 row = subcol.row(align=True)
-                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True, text='Min')
-                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True, text='Max')
-                subcol.prop(vs_bone, f'jiggle_{direction}_friction', slider=True, text='Friction')
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True, text=get_id('label_min', format_string=True))
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True, text=get_id('label_max', format_string=True))
+                subcol.prop(vs_bone, f'jiggle_{direction}_friction', slider=True, text=get_id('label_friction', format_string=True))
                 col.separator(factor=0.3)
     
     def _draw_boing_props(self, layout: UILayout, vs_bone) -> None:
@@ -986,20 +1017,12 @@ class SMD_PT_Jigglebones(Properties_SubPanel):
         
         col.label(text=get_id('label_boing_properties', format_string=True), icon='FORCE_FORCE')
         subcol = col.column(align=True)
-        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True, text=get_id('label_impact_speed', format_string=True))
-        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True, text=get_id('label_impact_angle', format_string=True))
-        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True, text=get_id('label_damping_rate', format_string=True))
-        subcol.prop(vs_bone, 'jiggle_frequency', slider=True, text=get_id('label_frequency', format_string=True))
-        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True, text=get_id('label_amplitude', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True)
+        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True)
+        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True)
+        subcol.prop(vs_bone, 'jiggle_frequency', slider=True)
+        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True)
 
-
-def _mesh_type_allows(ob, feature: str) -> bool:
-    mt = getattr(ob.vs, 'mesh_type', 'DEFAULT') if ob and hasattr(ob, 'vs') else 'DEFAULT'
-    if mt == 'DEFAULT':
-        return True
-    if mt == 'CLOTHPROXY':
-        return feature in ('vertexmap', 'vertexfloatmap')
-    return False  # COLLISION blocks everything
 
 class SMD_PT_Mesh(Properties_SubPanel):
     bl_label = ''
@@ -1300,7 +1323,7 @@ class SMD_PT_Vertexfloatmap(Properties_SubPanel):
                     right.prop(remap, "min", text="Min")
                     right.prop(remap, "max", text="Max")
                 else:
-                    right.label(text="0.0 → 1.0", icon='LOCKED')
+                    right.label(text="0.0 -> 1.0", icon='LOCKED')
 
 
 class SMD_PT_Vertexanimations(Properties_SubPanel):
@@ -2137,6 +2160,10 @@ class SMD_OT_AssignBoneRotExportOffset(Operator):
             self.report({'ERROR'}, 'No active or selected bones')
             return {'CANCELLED'}
 
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
         return {'FINISHED'}
 
 
@@ -2176,11 +2203,11 @@ class SMD_PT_All_Jigglebones(Properties_SubPanel):
                 if collection_count == 1:
                     row.label(text=jigglebone.collections[0].name, icon='GROUP_BONE')
                 elif collection_count > 1:
-                    row.label(text="In Multiple Collection", icon='GROUP_BONE')
+                    row.label(text=get_id('label_in_multiple_collection', format_string=True), icon='GROUP_BONE')
                 else:
-                    row.label(text="Not in Collection", icon='GROUP_BONE')
+                    row.label(text=get_id('label_not_in_collection', format_string=True), icon='GROUP_BONE')
         else:
-            col.label(text='No Jigglebones', icon='INFO')
+            col.label(text=get_id('label_no_jigglebones', format_string=True), icon='INFO')
     
 
 class SMD_PT_All_Hitboxes(Properties_SubPanel):

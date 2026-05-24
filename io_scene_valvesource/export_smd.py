@@ -1749,6 +1749,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             self.report({"ERROR"}, get_id("exporter_err_dmxother"))
             return {"CANCELLED"}
 
+        jiggle_was_enabled = context.scene.vs.jiggle_sim_enabled
+        if jiggle_was_enabled:
+            context.scene.vs.jiggle_sim_enabled = False
+
         prev_mode = prev_hidden = None
         if context.active_object:
             if context.active_object.hide_viewport:
@@ -1805,6 +1809,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             context.scene.update_tag()
             context.window_manager.progress_end()
             State.hook_events()
+            if jiggle_was_enabled:
+                context.scene.vs.jiggle_sim_enabled = True
 
         self.collection = ""
         self.export_scene = False
@@ -3667,6 +3673,9 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         return True
 
     def execute(self, context) -> set:
+        jiggle_was_enabled = context.scene.vs.jiggle_sim_enabled
+        if jiggle_was_enabled:
+            context.scene.vs.jiggle_sim_enabled = False
 
         ops.ed.undo_push(message=self.bl_label)
         try:
@@ -3723,6 +3732,8 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         finally:
             ops.ed.undo_push(message=self.bl_label)
             if bpy.app.debug_value <= 1: ops.ed.undo()
+            if jiggle_was_enabled:
+                context.scene.vs.jiggle_sim_enabled = True
 
         return {'FINISHED'}
 

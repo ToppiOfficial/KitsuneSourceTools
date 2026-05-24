@@ -1,53 +1,69 @@
-# KitsuneSourceTool [Blender 4.5+]
+# KitsuneSourceTool
 
-A character-modding-centric fork of [BlenderSourceTools](https://github.com/Artfunkel/BlenderSourceTools) by Artfunkel. This tool is designed to modernize and streamline workflows for Source Engine modding, with a heavy emphasis on DMX-based pipelines and automated post-processing.
+A character-modding-focused fork of [BlenderSourceTools](https://github.com/Artfunkel/BlenderSourceTools) targeting Blender 4.5+. Designed for DMX-based Source Engine workflows with automated post-processing on export.
 
-## Core Philosophy
-- **DMX First:** SMD and VTA formats are legacy and maintained only for compatibility. DMX is the recommended format for all new projects.
-- **Automation over Manual QC:** KitsuneSourceTool replaces manual QC compilation with integration into [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource).
-- **Post-Processing on Export:** Perform complex mesh cleanup, toon-outline, and vertex group normalization automatically during the export process.
+## Requirements
 
-## Key Features
+- Blender 4.5 or later
 
-### Advanced Bone Controls
-- **Flexible Offsets:** Custom export name, rotation, and position overrides per bone.
-- **Axis Remapping:** Swap bone axes during export to match target engine requirements.
+## Installation
 
-### DMX / QC Export
-- Export Jigglebones, Hitboxes, and Attachments directly to QC or VMDL formats.
-- Native support for KeyValues3 structures.
+1. Go to *Edit > Preferences > Add-ons > Install*.
+2. Select the `io_scene_valvesource` folder (or a zip of it).
+3. Enable the add-on.
+4. Set your `Export Path` and `Engine Path` in the **3D View Sidebar** under the `KitsuneSrcTool` tab.
 
-### Source 2 Cloth Support
-- Export cloth proxy meshes leveraging `VertexFloatMap` attributes.
+## Features
 
-### Powerful Post-Processing
-- **Toon Outline:** Automated Solidify-based outline generation for stylized character models.
-- **Mesh Cleanup:** Contextual removal of faces/vertices via vertex groups or materials.
-- **Vertex Animation:** Dedicated toolset for baking and exporting vertex animations.
-- **Weight Normalization:** Limit and normalize vertex group influences per-vertex with per-bone priority via `Bone Sort Order`.
-- **DMX Attachments:** Direct DMX-native attachment export.
-- **Transform Overrides:** Set specific export-time height, scale, and forward axis configurations.
+### Export Formats
 
-## Getting Started
+DMX is the primary format. SMD and VTA are supported for compatibility but receive minimal updates.
 
-1. **Installation:** Install as a standard Blender Add-on.
-2. **Setup:** Configure your `Export Path` and `Engine Path` in the 3D View Sidebar under the `KitsuneSrcTool` tab.
-3. **Workflow:** 
-    - Use the **Kitsune Resource Compile** panel to set up your project path and config file.
-    - Export your meshes using the standard Export operator.
-    - Leverage Vertex Maps (found under Mesh Properties) for Source 2 attributes like cloth physics.
+### Post-Processing
 
-## Documentation & Links
-- [KitsuneResource Compiler](https://github.com/ToppiOfficial/KitsuneResource)
-- [Valve Developer Wiki: DMX/Source 2 Vertex Attributes](http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes)
+Performed automatically at export time:
 
-## Acknowledgements
-KitsuneSourceTool incorporates code from the following forks of BlenderSourceTools:
+- **Toon Outline** — Solidify-based outline mesh generation for stylized models.
+- **Mesh Cleanup** — Face and vertex removal driven by vertex groups or materials.
+- **Weight Normalization** — Per-vertex influence limiting and normalization with per-bone priority via `Bone Sort Order`.
+- **Vertex Animation** — Baking and export of vertex animations (experimental, DMX only).
+
+### Viewport Simulation & Previews
+
+Real-time overlays in the 3D viewport driven by the **Simulation** panel in the sidebar:
+
+- **Jiggle Bone Simulation** — Spring physics (flexible, rigid, boing, base spring) run live in the viewport via a timer. Constraint gizmos (cone, yaw/pitch planes, base spring box, custom-length capsule) are drawn as GPU overlays. Simulation suspends automatically during export and resumes after.
+- **Export Pose Preview** — Ghost bone overlay for bones with rotation/location offsets, showing the post-export transform alongside the current pose. Includes 2D axis labels and a connector line between current and export tail positions.
+- **Edgeline Preview** — Approximates the toon outline shell in the viewport using the inverted hull technique. Respects edgeline thickness, thickness clamp, per-material coloring, and vertex group masking. Updates live during weight paint on the active object. Note: the preview is an approximation and may show minor smudging not present in the final export.
+
+### Bone Controls
+
+- Per-bone export name, rotation offset, and position override.
+- Axis remapping to match target engine conventions.
+- Jigglebone property export directly to QC or VMDL.
+
+### Source 2
+
+- Cloth proxy mesh export using `VertexFloatMap` attributes.
+- KeyValues3 serialization support.
+- Hitbox and attachment export to QC or VMDL.
+
+### KitsuneResource Integration
+
+Compile panel integrates with [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource) (`kitsuneresource.exe`) for automated model compilation without manual QC management.
+
+## References
+
+- [KitsuneResource](https://github.com/ToppiOfficial/KitsuneResource)
+- [Valve Developer Wiki — DMX / Source 2 Vertex Attributes](http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes)
+
+## Credits
+
+Based on [BlenderSourceTools](https://github.com/Artfunkel/BlenderSourceTools) by Artfunkel, with incorporated work from:
+
 - [compucolor/BlenderSourceTools](https://github.com/compucolor/BlenderSourceTools)
 - [Rectus/BlenderSourceTools](https://github.com/Rectus/BlenderSourceTools)
 
-Additionally, `io_scene_valvesource/datamodel.py` has been modified; the base was an older version, which has been integrated with the latest version and custom patches to support newer functionality.
+`datamodel.py` is derived from an older upstream version, rebased against the latest release and extended with custom patches.
 
-## Note
-- Vertex Animation features are experimental and primarily for DMX-based pipelines.
-- Legacy formats (SMD/VTA) are supported but receive minimal updates.
+The jigglebone physics algorithm in `jiggle_sim.py` is adapted from [srcprocbones](https://github.com/NameIsJakob/srcprocbones) by NameIsJakob.

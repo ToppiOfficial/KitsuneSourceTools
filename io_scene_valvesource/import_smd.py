@@ -1578,7 +1578,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                                     vert[deformLayer][vg_index] = weight
                                 joint_index += 1
 
-                        # Resolve joint index → name.
+                        # Resolve joint index -> name.
                         # jointList may be absent for armature-less Source 2 DMXs.
                         joints_list = None
                         try:
@@ -1660,7 +1660,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                         ob.parent_type = 'BONE'
                         ob.parent_bone = last_bone.name
 
-                    # Move from BMesh → Mesh
+                    # Move from BMesh -> Mesh
                     bm.to_mesh(ob.data)
                     del bm
                     ob.data.update()

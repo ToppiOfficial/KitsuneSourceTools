@@ -1,0 +1,51 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Build zip
+        run: python make_zip.py
+
+      - name: Get version
+        id: meta
+        run: |
+          VERSION=$(python -c "
+          import re
+          content = open('io_scene_valvesource/blender_manifest.toml').read()
+          m = re.search(r'^version\s*=\s*[\'\""]?([0-9.]+)[\'\""]?', content, re.MULTILINE)
+          print(m.group(1))
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip=$GITHUB_WORKSPACE/../kitsunesourcetool_${VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Delete existing release if it exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ steps.meta.outputs.tag }}" --yes --cleanup-tag 2>/dev/null || true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            "${{ steps.meta.outputs.zip }}" \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --notes "$COMMIT_MSG"

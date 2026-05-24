@@ -701,8 +701,8 @@ _data = {
         'ja': "DMXのみ適用可能!",
     },
     'label_export_name_format': {
-        'en': "Export Name: {0}",
-        'ja': "エクスポート名: {0}",
+        'en': "Export Name",
+        'ja': "エクスポート名",
     },
     'label_export_options': {
         'en': "Export Options",
@@ -872,6 +872,10 @@ _data = {
         'en': "Side Limits:",
         'ja': "サイド制限:",
     },
+    'label_simulate_jigglebones': {
+        'en': "Simulate JiggleBones",
+        'ja': "ジグルボーンをシミュレート",
+    },
     'label_sort_by_name': {
         'en': "Sort by Name",
         'ja': "名前でソート",
@@ -1024,6 +1028,14 @@ _data = {
         'en': "Remove Flex Controller",
         'ja': "フレックスコントローラーを削除",
     },
+    'op_reset_jiggle_simulation': {
+        'en': "Reset Jiggle Simulation",
+        'ja': "ジグルシミュレーションをリセット",
+    },
+    'op_reset_jiggle_simulation_tip': {
+        'en': "Clear all jiggle bone simulation states, snapping bones back to their animated pose",
+        'ja': "すべてのジグルボーンシミュレーション状態をクリアし、ボーンをアニメーションポーズに戻します",
+    },
     'op_sort_flex_controllers': {
         'en': "Sort Flex Controllers",
         'ja': "フレックスコントローラーをソート",
@@ -1095,6 +1107,10 @@ _data = {
     'panel_vertex_maps': {
         'en': "Vertex Maps",
         'ja': "頂点マップ",
+    },
+    'panel_viewport_simulation': {
+        'en': "Simulation",
+        'ja': "シミュレーション",
     },
     'prefab_to_clipboard': {
         'en': "Prefab to Clipboard",
@@ -1344,6 +1360,22 @@ _data = {
         'en': "Enable side constraints to limit sideways motion",
         'ja': "横方向の動きを制限するサイド制約を有効化",
     },
+    'prop_jiggle_sim_enabled': {
+        'en': "Jiggle Simulation",
+        'ja': "ジグルシミュレーション",
+    },
+    'prop_jiggle_sim_enabled_tip': {
+        'en': "Enable real-time jiggle bone spring physics in the viewport",
+        'ja': "ビューポートでリアルタイムのジグルボーンばね物理を有効化",
+    },
+    'prop_jiggle_sim_rate': {
+        'en': "Sim Rate (Hz)",
+        'ja': "シミュレーションレート (Hz)",
+    },
+    'prop_jiggle_sim_rate_tip': {
+        'en': "Simulation update rate in Hz — higher is smoother but uses more CPU",
+        'ja': "シミュレーション更新レート (Hz) — 高いほど滑らかになりますが、CPU使用量が増加します",
+    },
     'prop_jiggle_tip_mass': {
         'en': "Tip Mass",
         'ja': "先端質量",
@@ -1467,6 +1499,14 @@ _data = {
     'prop_normalize_shapekeys_tip': {
         'en': "Normalize shapekeys so max value is 1 and min is -1 or 0",
         'ja': "シェイプキーの最大値を1、最小値を-1または0に正規化",
+    },
+    'prop_preview_edgeline': {
+        'en': "Preview Edgeline",
+        'ja': "エッジラインをプレビュー",
+    },
+    'prop_preview_edgeline_tip': {
+        'en': "Draw edgeline shell in the viewport, approximating the exported result",
+        'ja': "エクスポート結果に近いエッジラインシェルをビューポートに描画",
     },
     'prop_reset_pose_per_anim': {
         'en': "Reset Pose Per Animation Export",
