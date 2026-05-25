@@ -32,7 +32,7 @@ class BoneSimState:
     __slots__ = (
         'tip_position', 'tip_velocity',
         'base_offset', 'base_velocity',
-        'boing_time', 'boing_direction', 'boing_active', 'prev_speed',
+        'boing_time', 'boing_direction', 'prev_speed',
         'last_sim_time',
         'base_abs_pos',
     )
@@ -44,7 +44,6 @@ class BoneSimState:
         self.base_velocity: Vector = Vector()
         self.boing_time: float = 0.0
         self.boing_direction: Vector | None = None
-        self.boing_active: bool = False
         self.prev_speed: float = 0.0
         self.last_sim_time: float | None = None
         self.base_abs_pos: Vector | None = None
@@ -174,34 +173,46 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
     # Start from animated matrix; may be overwritten below
     new_world = anim_world.copy()
 
-    # -- Boing replaces tip flex entirely --------------------------------------
+    # -- Boing: squash-and-stretch scale jiggle triggered by impact ------------
     if jvs.jiggle_base_type == 'BOING':
-        current_speed = state.tip_velocity.length if state.tip_position is not None else 0.0
-        speed_delta   = abs(current_speed - state.prev_speed)
-        impact_thresh = float(jvs.jiggle_impact_speed)
+        anim_base = anim_world.to_translation()
 
-        if speed_delta > impact_thresh and not state.boing_active:
-            state.boing_active    = True
-            state.boing_time      = 0.0
-            state.boing_direction = (state.tip_velocity.normalized()
-                                     if current_speed > 1e-6 else export_fwd.copy())
-        state.prev_speed = current_speed
+        if stale or state.tip_position is None:
+            state.tip_position = anim_base.copy()
+            state.tip_velocity = Vector((0.0, 0.0, 1.0))
+            state.prev_speed   = 0.0
+        else:
+            raw_delta = anim_base - state.tip_position
+            state.tip_position = anim_base.copy()
 
-        if state.boing_active:
+            speed    = raw_delta.length / dt if dt > 1e-6 else 0.0
+            velocity = raw_delta.normalized() if raw_delta.length > 1e-6 else state.tip_velocity.copy()
+
             state.boing_time += dt
+
+            _MIN_SPEED       = 5.0
+            _MIN_REBOING_GAP = 0.5
+
+            if ((speed > _MIN_SPEED or state.prev_speed > _MIN_SPEED)
+                    and state.boing_time > _MIN_REBOING_GAP):
+                speed_triggered = abs(state.prev_speed - speed) > float(jvs.jiggle_impact_speed)
+                angle_triggered = velocity.dot(state.tip_velocity) < math.cos(jvs.jiggle_impact_angle)
+                if speed_triggered or angle_triggered:
+                    state.boing_time      = 0.0
+                    state.boing_direction = -velocity
+
+            state.tip_velocity = velocity
+            state.prev_speed   = speed
+
             damping = max(0.0, 1.0 - jvs.jiggle_damping_rate * state.boing_time)
-            if damping <= 0.0:
-                state.boing_active = False
-            else:
-                flex = (jvs.jiggle_amplitude
-                        * math.cos(jvs.jiggle_frequency * state.boing_time)
-                        * (damping ** 4))
-                boing_dir = state.boing_direction or export_fwd
-                sim_tip   = goal_tip + boing_dir * flex
-                to_tip    = sim_tip - goal_base
-                sim_fwd   = to_tip.normalized() if to_tip.length > 1e-6 else export_fwd
-                delta_q   = export_fwd.rotation_difference(sim_fwd)
-                new_rot   = (delta_q.to_matrix() @ anim_world.to_3x3()).normalized()
+            damping *= damping
+            damping *= damping
+
+            if damping > 0.0 and state.boing_direction is not None:
+                flex      = (jvs.jiggle_amplitude
+                             * math.cos(jvs.jiggle_frequency * state.boing_time)
+                             * damping)
+                new_rot   = anim_world.to_3x3() * (1.0 + flex)
                 new_world = new_rot.to_4x4()
                 new_world.translation = anim_world.to_translation()
 
@@ -468,7 +479,7 @@ def _timer_callback():
             if not getattr(scene.vs, 'jiggle_sim_enabled', False):
                 continue
             for ob in scene.objects:
-                if ob.type == 'ARMATURE' and ob.pose:
+                if ob.type == 'ARMATURE' and ob.pose and not ob.hide_render and ob.visible_get():
                     simulate_armature(ob, scene, dt)
 
         for window in ctx.window_manager.windows:
@@ -507,7 +518,7 @@ def _frame_change_post(scene, depsgraph):
     fps = scene.render.fps / scene.render.fps_base
     dt  = 1.0 / fps
     for ob in scene.objects:
-        if ob.type == 'ARMATURE' and ob.pose:
+        if ob.type == 'ARMATURE' and ob.pose and not ob.hide_render and ob.visible_get():
             simulate_armature(ob, scene, dt)
 
 
