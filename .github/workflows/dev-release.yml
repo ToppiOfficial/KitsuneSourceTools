@@ -1,10 +1,12 @@
-name: Create Release
+name: Dev Release
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - master
 
 jobs:
-  release:
+  dev-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,21 +28,23 @@ jobs:
         run: |
           VERSION=$(python -c 'import re; m = re.search(r"^version\s*=\s*\"([0-9.]+)\"", open("io_scene_valvesource/blender_manifest.toml").read(), re.MULTILINE); print(m.group(1))')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "zip=$GITHUB_WORKSPACE/../kitsunesourcetool_${VERSION}.zip" >> "$GITHUB_OUTPUT"
 
-      - name: Delete existing release if it exists
+      - name: Delete existing dev release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "${{ steps.meta.outputs.tag }}" --yes --cleanup-tag 2>/dev/null || true
+          gh release delete "dev" --yes --cleanup-tag 2>/dev/null || true
 
-      - name: Create release
+      - name: Create dev pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          gh release create "${{ steps.meta.outputs.tag }}" \
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          NOTES=$(printf '> [!WARNING]\n> This is an automated dev build generated on every commit. It may be unstable, contain hidden bugs, or introduce breaking changes. Use at your own risk.\n\n**Commit:** %s\n\n%s' "${COMMIT_URL}" "${COMMIT_MSG}")
+          gh release create "dev" \
             "${{ steps.meta.outputs.zip }}" \
-            --title "${{ steps.meta.outputs.tag }}" \
-            --notes "$COMMIT_MSG"
+            --title "dev" \
+            --notes "${NOTES}" \
+            --prerelease
