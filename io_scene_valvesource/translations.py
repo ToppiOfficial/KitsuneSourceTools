@@ -68,7 +68,7 @@ _data = {
     },
     'controller_source': {
         'en': "DMX Flex Controller source",
-        'ja': "DMXフレックスのコントローラーのソースファイル ",
+        'ja': "DMXフレックスコントローラーのソース",
     },
     'controllers_advanced_tip': {
         'en': "Insert the flex controllers of an existing DMX file",
@@ -168,7 +168,7 @@ _data = {
     },
     'exportables_arm_filter_result': {
         'en': "\"{0}\" actions ({1})",
-        'ja': "「{0}」アクション～{1}",
+        'ja': "「{0}」アクション ({1})",
     },
     'exportables_arm_no_slot_filter': {
         'en': "All action slots ({0}) for \"{1}\"",
@@ -188,19 +188,19 @@ _data = {
     },
     'exportables_flex_help': {
         'en': "Flex Controller Help",
-        'ja': "フレックス・コントローラーのヘレプ",
+        'ja': "フレックスコントローラーのヘルプ",
     },
     'exportables_flex_split': {
         'en': "Stereo Flex Balance:",
-        'ja': "ステレオフルックスの差額：",
+        'ja': "ステレオフレックスバランス：",
     },
     'exportables_flex_src': {
         'en': "Controller Source",
-        'ja': "コントローラーのソースファイル ",
+        'ja': "コントローラーのソースファイル",
     },
     'exportables_group_mute_suffix': {
         'en': "(suppressed)",
-        'ja': "(ミユト)",
+        'ja': "(ミュート)",
     },
     'exportables_title': {
         'en': "Source Engine Exportables",
@@ -248,7 +248,7 @@ _data = {
     },
     'exporter_err_groupmuted': {
         'en': "Group {0} is suppressed",
-        'ja': "ゲルーポ「{0}」はミュートです",
+        'ja': "グループ「{0}」はミュートです",
     },
     'exporter_err_hidden': {
         'en': "Skipping {0}: object cannot be selected, probably due to being hidden by an animation driver.",
@@ -300,7 +300,7 @@ _data = {
     },
     'exporter_prop_group_tip': {
         'en': "Name of the Group to export",
-        'ja': "エクスポートにグループの名前",
+        'ja': "エクスポートするグループの名前",
     },
     'exporter_prop_scene_tip': {
         'en': "Export all items selected in the Source Engine Exportables panel",
@@ -308,11 +308,11 @@ _data = {
     },
     'exporter_report': {
         'en': "{0} files exported in {1} seconds",
-        'ja': "{0}つファイルは{1}秒エクスポート",
+        'ja': "{0}個のファイルを{1}秒でエクスポートしました",
     },
     'exporter_report_menu': {
         'en': "Source Tools Error Report",
-        'ja': "レポート：Source Tools エラー",
+        'ja': "Source Tools エラーレポート",
     },
     'exporter_report_suffix': {
         'en': " with {0} Errors and {1} Warnings",
@@ -348,7 +348,7 @@ _data = {
     },
     'exporter_warn_unicode': {
         'en': "Name of {0} \"{1}\" contains Unicode characters. This may not compile correctly!",
-        'ja': "{0}「{1}」の名前はUnicode文字を含みます。間違ってコンパイルすることが可能です。",
+        'ja': "{0}「{1}」の名前はUnicode文字を含んでいます。正常にコンパイルされない可能性があります。",
     },
     'exporter_warn_weightlinks_excess': {
         'en': "{0} verts on \"{1}\" have over {2} weight links. Source does not support this!",
@@ -364,7 +364,7 @@ _data = {
     },
     'exportmenu_scene': {
         'en': "Scene export ({0} files)",
-        'ja': "シーンをエクスポート ({0}つファイル)",
+        'ja': "シーンをエクスポート ({0}ファイル)",
     },
     'exportmenu_selected': {
         'en': "Selected objects ({0} files)",
@@ -432,7 +432,7 @@ _data = {
     },
     'group_merge_mech': {
         'en': "Merge mechanical parts",
-        'ja': "メカニカルな局部は結合",
+        'ja': "メカニカルなパーツを結合",
     },
     'group_merge_mech_tip': {
         'en': "Optimises DMX export of meshes sharing the same parent bone",
@@ -448,7 +448,7 @@ _data = {
     },
     'help': {
         'en': "Help",
-        'ja': "ヘレプ",
+        'ja': "ヘルプ",
     },
     'ignore_bone_exportnames': {
         'en': "Ignore Bone Export Names",
@@ -480,7 +480,7 @@ _data = {
     },
     'importer_bones_append': {
         'en': "Append to Target",
-        'ja': "対象で追加",
+        'ja': "ターゲットに追加",
     },
     'importer_bones_append_desc': {
         'en': "Add new bones to the target Armature",
@@ -488,7 +488,7 @@ _data = {
     },
     'importer_bones_mode': {
         'en': "Bone Append Mode",
-        'ja': "ボーンの追加がモード",
+        'ja': "ボーン追加モード",
     },
     'importer_bones_mode_desc': {
         'en': "How to behave when a reference mesh import introduces new bones to the target Armature (ignored for QCs)",
@@ -496,7 +496,7 @@ _data = {
     },
     'importer_bones_newarm': {
         'en': "Make New Armature",
-        'ja': "アーマティアを生成",
+        'ja': "アーマチュアを生成",
     },
     'importer_bones_newarm_desc': {
         'en': "Make a new Armature for this import",
@@ -504,7 +504,7 @@ _data = {
     },
     'importer_bones_validate': {
         'en': "Validate Against Target",
-        'ja': "対象で確認",
+        'ja': "ターゲットと照合",
     },
     'importer_bones_validate_desc': {
         'en': "Report new bones as missing without making any changes to the target Armature",
@@ -584,6 +584,7 @@ _data = {
     },
     'importer_name_unmatchedvta': {
         'en': "Unmatched VTA",
+        'ja': "未一致のVTA",
     },
     'importer_qc_macroskip': {
         'en': "Skipping macro in QC {0}",
@@ -611,6 +612,7 @@ _data = {
     },
     'importer_use_collections': {
         'en': "Create Collections",
+        'ja': "コレクションを作成",
     },
     'importer_use_collections_tip': {
         'en': "Create a Blender collection for each imported mesh file. This retains the original file structure (important for DMX) and makes it easy to switch between LODs etc. with the number keys",
@@ -644,22 +646,6 @@ _data = {
         'en': "All Jigglebones",
         'ja': "すべてのジグルボーン",
     },
-    'label_allow_length_flex': {
-        'en': "Allow Length Flex",
-        'ja': "長さフレックスを許可",
-    },
-    'label_along_damping': {
-        'en': "Along Damping",
-        'ja': "沿方向減衰",
-    },
-    'label_along_stiffness': {
-        'en': "Along Stiffness",
-        'ja': "沿方向剛性",
-    },
-    'label_amplitude': {
-        'en': "Amplitude",
-        'ja': "振幅",
-    },
     'label_angle': {
         'en': "Angle",
         'ja': "角度",
@@ -676,10 +662,6 @@ _data = {
         'en': "Base Spring Properties:",
         'ja': "ベーススプリングプロパティ:",
     },
-    'label_base_type': {
-        'en': "Base Type",
-        'ja': "ベースタイプ",
-    },
     'label_boing_properties': {
         'en': "Boing Properties:",
         'ja': "バネ動作プロパティ:",
@@ -691,10 +673,6 @@ _data = {
     'label_damping': {
         'en': "Damping",
         'ja': "減衰",
-    },
-    'label_damping_rate': {
-        'en': "Damping Rate",
-        'ja': "減衰率",
     },
     'label_delete_all': {
         'en': "Delete All",
@@ -732,14 +710,6 @@ _data = {
         'en': "Forward",
         'ja': "前方",
     },
-    'label_forward_limits': {
-        'en': "Forward Limits:",
-        'ja': "前方制限:",
-    },
-    'label_frequency': {
-        'en': "Frequency",
-        'ja': "周波数",
-    },
     'label_friction': {
         'en': "Friction",
         'ja': "摩擦",
@@ -756,16 +726,8 @@ _data = {
         'en': "Ignore",
         'ja': "無視",
     },
-    'label_impact_angle': {
-        'en': "Impact Angle",
-        'ja': "衝撃角度",
-    },
-    'label_impact_speed': {
-        'en': "Impact Speed",
-        'ja': "衝撃速度",
-    },
     'label_in_multiple_collection': {
-        'en': "In Multiple Collection",
+        'en': "In Multiple Collections",
         'ja': "複数のコレクションに存在",
     },
     'label_is_eyelid': {
@@ -780,9 +742,9 @@ _data = {
         'en': "Flexibility",
         'ja': "柔軟性",
     },
-    'label_jiggle_tip_mass': {
-        'en': "Tip Mass",
-        'ja': "先端質量",
+    'label_jiggle_length': {
+        'en': "Length",
+        'ja': "長さ",
     },
     'label_jiggle_type': {
         'en': "Jiggle Type:",
@@ -836,17 +798,9 @@ _data = {
         'en': "Pitch",
         'ja': "ピッチ",
     },
-    'label_pitch_damping': {
-        'en': "Pitch Damping",
-        'ja': "ピッチ減衰",
-    },
     'label_pitch_limits': {
         'en': "Pitch Limits:",
         'ja': "ピッチ制限:",
-    },
-    'label_pitch_stiffness': {
-        'en': "Pitch Stiffness",
-        'ja': "ピッチ剛性",
     },
     'label_preview_additive': {
         'en': "Preview (Additive)",
@@ -880,10 +834,6 @@ _data = {
         'en': "Side Constraints:",
         'ja': "サイド制約:",
     },
-    'label_side_limits': {
-        'en': "Side Limits:",
-        'ja': "サイド制限:",
-    },
     'label_simulate_jigglebones': {
         'en': "Simulate JiggleBones",
         'ja': "ジグルボーンをシミュレート",
@@ -908,10 +858,6 @@ _data = {
         'en': "Up",
         'ja': "上",
     },
-    'label_up_limits': {
-        'en': "Up Limits:",
-        'ja': "上方制限:",
-    },
     'label_use_bone_length': {
         'en': "Use Bone Length",
         'ja': "ボーンの長さを使用",
@@ -928,10 +874,6 @@ _data = {
         'en': "Vertex Maps:",
         'ja': "頂点マップ:",
     },
-    'label_write_ascii_dmx': {
-        'en': "Write ASCII DMX File",
-        'ja': "ASCII DMXファイルに書き込む",
-    },
     'label_y_to': {
         'en': "Y to...",
         'ja': "Yを...",
@@ -940,17 +882,9 @@ _data = {
         'en': "Yaw",
         'ja': "ヨー",
     },
-    'label_yaw_damping': {
-        'en': "Yaw Damping",
-        'ja': "ヨー減衰",
-    },
     'label_yaw_limits': {
         'en': "Yaw Limits:",
         'ja': "ヨー制限:",
-    },
-    'label_yaw_stiffness': {
-        'en': "Yaw Stiffness",
-        'ja': "ヨー剛性",
     },
     'maxvertexinfluence': {
         'en': "Max Vertex Influence",
@@ -983,10 +917,6 @@ _data = {
     'op_assign_bone_rot_export_offset': {
         'en': "Assign Bone Target Forward",
         'ja': "ボーンターゲット前方を割り当て",
-    },
-    'op_assign_bone_rot_export_offset_tip': {
-        'en': "Sets the bone's forward direction for export",
-        'ja': "エクスポート時のボーンの前方方向を設定",
     },
     'op_auto_assign_flex_groups': {
         'en': "Auto Assign Flex Groups",
@@ -1076,18 +1006,6 @@ _data = {
         'en': "Mesh Split",
         'ja': "メッシュ分割",
     },
-    'panel_select_armature': {
-        'en': "Select an armature",
-        'ja': "アーマチュアを選択",
-    },
-    'panel_select_curve': {
-        'en': "Select a curve",
-        'ja': "カーブを選択",
-    },
-    'panel_select_empty': {
-        'en': "Select an empty",
-        'ja': "エンプティを選択",
-    },
     'panel_select_mesh': {
         'en': "Select a Mesh",
         'ja': "メッシュを選択",
@@ -1095,10 +1013,6 @@ _data = {
     'panel_select_mesh_mat': {
         'en': "Select a material",
         'ja': "マテリアルを選択",
-    },
-    'panel_select_noneditbone': {
-        'en': "Select a non-edit bone",
-        'ja': "非編集ボーンを選択",
     },
     'panel_toon_outline_edgeline': {
         'en': "Toon Outline/Edgeline",
@@ -1117,8 +1031,8 @@ _data = {
         'ja': "頂点マップ",
     },
     'panel_viewport_simulation': {
-        'en': "Simulation",
-        'ja': "シミュレーション",
+        'en': "Source Engine Preview & Simulation",
+        'ja': "Source Engine プレビュー & シミュレーション",
     },
     'prefab_to_clipboard': {
         'en': "Prefab to Clipboard",
@@ -1342,7 +1256,7 @@ _data = {
     },
     'prop_jiggle_along_damping': {
         'en': "Along Damping",
-        'ja': "沿方向減衰",
+        'ja': "軸方向減衰",
     },
     'prop_jiggle_along_damping_tip': {
         'en': "Damping along the bone length",
@@ -1350,7 +1264,7 @@ _data = {
     },
     'prop_jiggle_along_stiffness': {
         'en': "Along Stiffness",
-        'ja': "沿方向剛性",
+        'ja': "軸方向剛性",
     },
     'prop_jiggle_along_stiffness_tip': {
         'en': "Spring strength along the bone length",
@@ -1856,6 +1770,22 @@ _data = {
         'en': "Draw edgeline shell in the viewport, approximating the exported result",
         'ja': "エクスポート結果に近いエッジラインシェルをビューポートに描画",
     },
+    'warn_edgeline_jiggle_sim': {
+        'en': "Inactive: paused while jiggle simulation runs",
+        'ja': "非アクティブ: ジグルシミュレーション中は停止",
+    },
+    'warn_edgeline_expensive': {
+        'en': "Expensive - may cause viewport lag",
+        'ja': "負荷が高い - ビューポートが重くなる場合があります",
+    },
+    'warn_edgeline_approximate': {
+        'en': "Preview is approximate - may show",
+        'ja': "プレビューは近似値です。エクスポートには",
+    },
+    'warn_edgeline_smudging': {
+        'en': "smudging not present in export",
+        'ja': "存在しないにじみが表示される場合があります",
+    },
     'prop_preview_export_pose': {
         'en': "Preview Export Pose",
         'ja': "エクスポートポーズをプレビュー",
@@ -2022,18 +1952,19 @@ _data = {
     },
     'triangulate': {
         'en': "Triangulate",
-        'ja': "三角測量",
+        'ja': "三角化",
     },
     'triangulate_tip': {
         'en': "Avoids concave DMX faces, which are not supported by Source",
+        'ja': "Sourceがサポートしない凹面DMX面を回避",
     },
     'up_axis': {
         'en': "Target Up Axis",
-        'ja': "対象の上昇軸",
+        'ja': "対象の上方向軸",
     },
     'up_axis_offset': {
         'en': "Target Up Axis Offset",
-        'ja': "ターゲット上昇軸オフセット",
+        'ja': "ターゲット上方向軸オフセット",
     },
     'up_axis_tip': {
         'en': "Use for compatibility with data from other 3D tools",
@@ -2042,18 +1973,6 @@ _data = {
     'use_scene_export_tip': {
         'en': "Export this item with the scene",
         'ja': "このアイテムをシーンと一緒にエクスポート",
-    },
-    'valvesource_vertex_blend': {
-        'en': "Blend Params RGB",
-        'ja': "ブレンドパラメーター RGB",
-    },
-    'valvesource_vertex_blend1': {
-        'en': "Blend Params Extra (?)",
-        'ja': "ブレンドパラメーター 追加(?)",
-    },
-    'valvesource_vertex_paint': {
-        'en': "Vertex Paint",
-        'ja': "頂点ペイント",
     },
     'vca_add': {
         'en': "Add Vertex Animation",
@@ -2097,7 +2016,7 @@ _data = {
     },
     'vca_sequence': {
         'en': "Generate Sequence",
-        'ja': "シクウェンスを生成します",
+        'ja': "シークエンスを生成します",
     },
     'vca_sequence_tip': {
         'en': "On export, generate an animation sequence that drives this Vertex Animation",
@@ -2132,7 +2051,7 @@ _data = {
         'ja': "ワールドスケール",
     },
     'world_scale_tip': {
-        'en': "Scales the the objects in the world proportionally",
+        'en': "Scales the objects in the world proportionally",
         'ja': "ワールドのすべてのオブジェクトを比例してスケーリング",
     },
 }

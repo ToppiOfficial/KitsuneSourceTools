@@ -535,6 +535,7 @@ _classes = (
     GUI.SMD_OT_CopyBoneExportName,
     GUI.SMD_OT_AssignBoneRotExportOffset,
     GUI.SMD_OT_CopySourceBoneProps,
+    GUI.SMD_OT_ResetJiggleSimulation,
     
     # Flex and Export/Import
     flex.DmxWriteFlexControllers,

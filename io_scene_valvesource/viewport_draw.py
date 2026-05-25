@@ -13,6 +13,7 @@ _handle_2d       = None
 _edgeline_handle = None
 _edgeline_cache: dict    = {}   # ob.session_uid -> (cache_key, [(color, verts)])
 _edgeline_mesh_map: dict = {}   # mesh.session_uid -> ob.session_uid (for weight-paint invalidation)
+_edgeline_last_mode: str = ''   # previous context.mode, used to detect pose-mode exit
 _edgeline_depsgraph_handle = None
 _EDGELINE_THICK_CLAMP = 3.5   # mirrors solid.thickness_clamp in EdgelineBuilder
 _label_queue: list       = []
@@ -678,12 +679,32 @@ def _on_edgeline_depsgraph_update(scene, depsgraph):
 
 
 def _draw_edgeline_preview():
+    global _edgeline_last_mode
     try:
         context = bpy.context
 
         if not getattr(getattr(context.scene, 'vs', None), 'preview_edgeline', False):
             return
-        if context.mode.startswith('EDIT'):
+
+        cur_mode = context.mode
+
+        # Edgeline is a static preview only - skip during animation playback.
+        if context.screen.is_animation_playing:
+            return
+
+        # Edgeline is incompatible with live simulation (pose or jiggle).
+        # Clear cache on exit so it rebuilds fresh from the current pose/sim state.
+        live = (cur_mode == 'POSE'
+                or getattr(getattr(context.scene, 'vs', None), 'jiggle_sim_enabled', False))
+        if live:
+            if not _edgeline_last_mode.startswith('_live'):
+                _edgeline_last_mode = '_live'
+            return
+        if _edgeline_last_mode == '_live':
+            _edgeline_cache.clear()
+        _edgeline_last_mode = cur_mode
+
+        if cur_mode.startswith('EDIT'):
             return
         try:
             if context.space_data.shading.type == 'WIREFRAME':
@@ -753,6 +774,8 @@ def register_draw_handler():
     if _edgeline_depsgraph_handle is not None:
         try: bpy.app.handlers.depsgraph_update_post.remove(_edgeline_depsgraph_handle)
         except Exception: pass
+    _edgeline_cache.clear()
+    _edgeline_mesh_map.clear()
     _handle    = bpy.types.SpaceView3D.draw_handler_add(
         _draw_export_pose_preview, (), 'WINDOW', 'POST_VIEW'
     )

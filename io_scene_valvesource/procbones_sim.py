@@ -547,20 +547,6 @@ def on_sim_enabled_changed(props, context):
         _restore_jiggle_bones()
 
 
-# -- Reset operator ------------------------------------------------------------
-
-class JIGGLE_OT_ResetSimulation(bpy.types.Operator):
-    bl_idname  = "jiggle.reset_simulation"
-    bl_label   = "Reset Jiggle Simulation"
-    bl_description = ("Clear all jiggle bone simulation states, "
-                      "snapping bones back to their animated pose")
-
-    def execute(self, context) -> set:
-        _states.clear()
-        _restore_jiggle_bones()
-        return {'FINISHED'}
-
-
 # -- Save handlers -------------------------------------------------------------
 
 _pre_save_jiggle_states: dict[str, bool] = {}
@@ -586,13 +572,8 @@ def _save_post(scene):
 
 # -- Registration --------------------------------------------------------------
 
-_classes = (JIGGLE_OT_ResetSimulation,)
-
 
 def register() -> None:
-    for cls in _classes:
-        bpy.utils.register_class(cls)
-    # Remove any leftover handlers from a previous reload
     for fn in bpy.app.handlers.frame_change_post[:]:
         if getattr(fn, '__module__', '').endswith('procbones_sim'):
             bpy.app.handlers.frame_change_post.remove(fn)
@@ -616,5 +597,3 @@ def unregister() -> None:
         bpy.app.handlers.save_pre.remove(_save_pre)
     if _save_post in bpy.app.handlers.save_post:
         bpy.app.handlers.save_post.remove(_save_post)
-    for cls in reversed(_classes):
-        bpy.utils.unregister_class(cls)

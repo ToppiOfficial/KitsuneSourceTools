@@ -27,6 +27,7 @@ from .export_smd import SmdExporter, PrefabExporter, SMD_OT_KitsuneResourceCompi
 from .import_smd import SmdImporter
 from .flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers,DmxWriteFlexControllers
 from .utils import *
+from . import procbones_sim as _procbones_sim
 
 def _mesh_type_allows(ob, feature: str) -> bool:
     mt = getattr(ob.vs, 'mesh_type', 'DEFAULT') if ob and hasattr(ob, 'vs') else 'DEFAULT'
@@ -151,17 +152,22 @@ class SMD_PT_ViewportSimulation(Panel):
         col = box.column(align=True)
         col.enabled = vs.jiggle_sim_enabled
         col.prop(vs, 'jiggle_sim_rate', slider=True)
-        col.operator('jiggle.reset_simulation', icon='FILE_REFRESH')
+        col.operator('smd.reset_simulation', icon='FILE_REFRESH')
 
         box2 = layout.box()
         box2.prop(vs, 'preview_export_pose', toggle=True, icon='AXIS_SIDE')
         box2.prop(vs, 'preview_edgeline', toggle=True, icon='SHADING_SOLID')
         if vs.preview_edgeline:
-            row = box2.row()
-            row.alert = True
-            row.label(text="Expensive - may cause viewport lag", icon='ERROR')
-            box2.label(text="Preview is approximate - may show", icon='INFO')
-            box2.label(text="smudging not present in export")
+            if vs.jiggle_sim_enabled:
+                row = box2.row()
+                row.alert = True
+                row.label(text=get_id('warn_edgeline_jiggle_sim'), icon='PAUSE')
+            else:
+                row = box2.row()
+                row.alert = True
+                row.label(text=get_id('warn_edgeline_expensive'), icon='ERROR')
+                box2.label(text=get_id('warn_edgeline_approximate'), icon='INFO')
+                box2.label(text=get_id('warn_edgeline_smudging'))
 
 
 class SMD_PT_Scene(Panel):
@@ -2395,4 +2401,15 @@ class SMD_OT_CopySourceBoneProps(Operator):
                     continue
 
         self.report({'INFO'}, f"Copied bone properties to {len(targets)} bone(s)")
+        return {'FINISHED'}
+
+
+class SMD_OT_ResetJiggleSimulation(Operator):
+    bl_idname  = "smd.reset_simulation"
+    bl_label   = get_id("op_reset_jiggle_simulation")
+    bl_description = get_id('op_reset_jiggle_simulation_tip')
+
+    def execute(self, context) -> set:
+        _procbones_sim._states.clear()
+        _procbones_sim._restore_jiggle_bones()
         return {'FINISHED'}
