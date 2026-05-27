@@ -38,14 +38,12 @@ Real-time overlays in the 3D viewport driven by the **Simulation** panel in the 
 ### Bone Controls
 
 - Per-bone export name, rotation offset, and position override.
-- Axis remapping to match target engine conventions.
 - Jigglebone property export directly to QC or VMDL.
 
 ### Source 2
 
 - Cloth proxy mesh export using `VertexFloatMap` attributes.
 - KeyValues3 serialization support.
-- Hitbox and attachment export to QC or VMDL.
 
 ### KitsuneResource Integration
 
