@@ -288,7 +288,7 @@ class ExportableProps():
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"),type=VertexAnimation)
     active_vertex_animation : IntProperty(default=-1)
 
-    merge_vertices : BoolProperty(name='Merge Vertices on Export', description=get_id("prop_merge_vertices_tip"), default=True)
+    merge_vertices : BoolProperty(name='Merge Vertices on Export', description=get_id("prop_merge_vertices_tip"), default=False)
 
     use_toon_edgeline : BoolProperty(name="Use Toon Edge Line",description=get_id("prop_use_toon_edgeline_tip"),default=False)
     edgeline_per_material : BoolProperty(name="Edgeline Per Material", description=get_id("prop_edgeline_per_material_tip"), default=False)
