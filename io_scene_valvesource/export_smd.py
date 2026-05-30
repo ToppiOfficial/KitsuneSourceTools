@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, bmesh, collections, re, typing, os
+import bpy, bmesh, collections, dataclasses, re, typing, os
 from bpy import ops
 from bpy.app.translations import pgettext
 from mathutils import Vector, Matrix
@@ -147,8 +147,9 @@ class EdgelineBuilder:
     TEMP_MAT = "temp_material"
     SOLIDIFY_MOD = "Toon_Edgeline"
 
-    def __init__(self, reporter):
+    def __init__(self, reporter, merge_fn=None):
         self._reporter = reporter
+        self._merge_fn = merge_fn
 
     def build(self, ob: bpy.types.Object, export_name: str) -> typing.Optional[bpy.types.Object]:
         """
@@ -166,6 +167,9 @@ class EdgelineBuilder:
         # of exporting ragdoll/collision mesh with outline which is catastrophic.
         if not ob.data or not ob.data.materials:
             self._reporter.warning(f"Toon Edgeline is disabled due to lacking of materials in {export_name}")
+            return None
+
+        if self._all_faces_suppressed(ob):
             return None
 
         base_name = re.sub(r"_lod[1-9]\d*$", "", export_name)
@@ -196,6 +200,10 @@ class EdgelineBuilder:
             bpy.context.view_layer.objects.active = temp
             bpy.ops.object.convert(target="MESH")
             bpy.context.view_layer.objects.active = ob
+
+        if self._merge_fn is not None and countShapes(ob) == (0, 0):
+            self._merge_fn(temp)
+
         return temp
 
     def _ensure_material(self, temp: bpy.types.Object) -> int:
@@ -316,6 +324,23 @@ class EdgelineBuilder:
         if temp.name in bpy.data.objects:
             bpy.context.scene.collection.objects.unlink(temp)
             bpy.data.objects.remove(temp, do_unlink=True)
+
+    def _all_faces_suppressed(self, ob: bpy.types.Object) -> bool:
+        """True if every polygon would be removed by the edgeline thickness VG filter."""
+        vg_name = ob.vs.toon_edgeline_vertexgroup
+        if not vg_name:
+            return False
+        vg = ob.vertex_groups.get(vg_name) if getattr(ob, "vertex_groups", None) else None
+        if vg is None:
+            return False
+        EDGE_VG_TOL = 0.90
+        suppressed = frozenset(
+            v.index for v in ob.data.vertices
+            if any(g.group == vg.index and g.weight >= EDGE_VG_TOL for g in v.groups)
+        )
+        if not suppressed:
+            return False
+        return all(all(vi in suppressed for vi in poly.vertices) for poly in ob.data.polygons)
 
 
 # -----------------------------------------------------------------------------
@@ -704,11 +729,29 @@ class ExportTask:
         return f"<ExportTask {self.export_name!r}>"
 
 
+@dataclasses.dataclass
+class _SplitPart:
+    ob:       bpy.types.Object
+    name:     str
+    edgeline: typing.Optional[bpy.types.Object]
+    backface: typing.Optional[bpy.types.Object]
+
+
+@dataclasses.dataclass
+class _MeshPlan:
+    source:        bpy.types.Object
+    target:        bpy.types.Object
+    lod_source:    typing.Optional[bpy.types.Object]
+    base_edgeline: typing.Optional[bpy.types.Object]
+    base_backface: typing.Optional[bpy.types.Object]
+    split_parts:   list
+
+
 class ExportPlanner:
     def __init__(self, reporter):
         self._reporter = reporter
         self._lod_builder = LODBuilder(reporter)
-        self._edgeline_builder = EdgelineBuilder(reporter)
+        self._edgeline_builder = EdgelineBuilder(reporter, merge_fn=self._apply_merge_vertices)
         self._backface_builder = BackfaceBuilder(reporter)
         self._mesh_split_builder = MeshSplitBuilder(reporter)
         self._owned_objects: list[bpy.types.Object] = []
@@ -861,133 +904,144 @@ class ExportPlanner:
 
         print(f"- Merged duplicate vertices in '{ob.name}'")
 
+    # -- per-object post-processing helpers -----------------------------------
+
+    def _make_ob_copy(self, ob: bpy.types.Object) -> bpy.types.Object:
+        copy = ob.copy()
+        if ob.data:
+            copy.data = ob.data.copy()
+        bpy.context.scene.collection.objects.link(copy)
+        self._owned_objects.append(copy)
+        return copy
+
+    def _apply_edgeline(
+        self,
+        target:         bpy.types.Object,
+        export_name:    str,
+        source_ob:      bpy.types.Object,
+        for_collection: bool,
+        ) -> typing.Optional[bpy.types.Object]:
+        
+        if not source_ob.vs.use_toon_edgeline:
+            return None
+        if source_ob.vs.export_edgeline_separately:
+            return None  # caller handles separately-exported case
+        if for_collection or State.exportFormat == ExportFormat.DMX:
+            target.vs.export_edgeline_separately = True
+            el = self._edgeline_builder.build(target, export_name)
+            target.vs.export_edgeline_separately = False
+            if el and el is not target:
+                self._owned_objects.append(el)
+                State.exportableObjects.add(el.session_uid)
+                return el
+        else:
+            self._edgeline_builder.build(target, export_name)
+        return None
+
+    def _apply_backface(self, target: bpy.types.Object, export_name: str, post_ok: bool) -> typing.Optional[bpy.types.Object]:
+        if not post_ok or not target.vs.generate_backface:
+            return None
+        if not is_mesh_compatible(target) or target.type not in modifier_compatible:
+            return None
+        if State.exportFormat == ExportFormat.SMD:
+            self._backface_builder.build_merged(target, export_name)
+            return None
+        bf = self._backface_builder.build(target, export_name)
+        if bf:
+            self._owned_objects.append(bf)
+            State.exportableObjects.add(bf.session_uid)
+            return bf
+        return None
+
+    def _plan_mesh_ob(self, ob: bpy.types.Object, export_name: str, *, for_collection: bool = False ) -> _MeshPlan:
+        post_ok  = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
+        is_mesh  = is_mesh_compatible(ob) and ob.type in modifier_compatible
+
+        needs_pp = post_ok and is_mesh and (ob.vs.use_mesh_split or ob.vs.use_toon_edgeline or ob.vs.generate_backface)
+
+        lod_source = None
+        if post_ok and is_mesh and ob.vs.generate_lods and ob.vs.lod_count > 0 \
+                and not self._is_existing_lod(export_name):
+            lod_source = self._make_ob_copy(ob)
+            if not hasShapes(ob):
+                self._apply_merge_vertices(lod_source)
+
+        target = ob
+        if for_collection or needs_pp:
+            target = self._make_ob_copy(ob)
+            self._name_map[target.session_uid] = ob.name
+
+        split_parts: list[_SplitPart] = []
+        if post_ok and is_mesh and ob.vs.use_mesh_split \
+                and not export_name.endswith(("_order", "_edgeline", "_backface")):
+            for so in self._mesh_split_builder.build(target, export_name):
+                self._owned_objects.append(so)
+                State.exportableObjects.add(so.session_uid)
+                n       = so.get("mesh_split_n", 0)
+                so_name = re.sub(r"_lod[1-9]\d*$", "", export_name) + f"_split{n}"
+                so_el   = self._apply_edgeline(so, so_name, ob, for_collection)
+                so_bf   = self._apply_backface(so, so_name, post_ok)
+                split_parts.append(_SplitPart(so, so_name, so_el, so_bf))
+
+        base_edgeline = None
+        if post_ok and not export_name.endswith("_edgeline"):
+            base_edgeline = self._apply_edgeline(target, export_name, ob, for_collection)
+
+        base_backface = None
+        if not export_name.endswith("_backface"):
+            base_backface = self._apply_backface(target, export_name, post_ok)
+
+        return _MeshPlan(ob, target, lod_source, base_edgeline, base_backface, split_parts)
+
     # -- collection planning --------------------------------------------------
 
     def _plan_collection(self, col: Collection) -> list[ExportTask]:
-        needs_merged_edgeline = any(
-            ob.vs.export and ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately
-            and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
-            for ob in col.objects
-        )
-        needs_merge_verts = any(
-            ob.vs.export and ob.vs.merge_vertices
-            and is_mesh_compatible(ob) and ob.type in modifier_compatible
-            and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
-            for ob in col.objects
-        )
-        needs_backface_smd = (
-            State.exportFormat == ExportFormat.SMD
-            and any(
-                ob.vs.export and ob.vs.generate_backface
-                and is_mesh_compatible(ob) and ob.type in modifier_compatible
-                and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
-                for ob in col.objects
-            )
-        )
-        needs_merged_backface_dmx = (
-            State.exportFormat == ExportFormat.DMX
-            and any(
-                ob.vs.export and ob.vs.generate_backface
-                and is_mesh_compatible(ob) and ob.type in modifier_compatible
-                and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
-                for ob in col.objects
-            )
-        )
-        needs_use_mesh_split = any(
-            ob.vs.export and ob.vs.use_mesh_split
-            and is_mesh_compatible(ob) and ob.type in modifier_compatible
-            and getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
-            for ob in col.objects
-        )
+        plans: dict[bpy.types.Object, _MeshPlan] = {}
+        for ob in col.objects:
+            if not ob.vs.export:
+                continue
+            plans[ob] = self._plan_mesh_ob(ob, ob.name, for_collection=True)
 
-        effective_objects: dict[bpy.types.Object, bpy.types.Object] = {}
-        pre_split_copies: dict[bpy.types.Object, bpy.types.Object] = {}
-        target_col = col
+        base_obs:          list[bpy.types.Object]                     = []
+        effective_objects: dict[bpy.types.Object, bpy.types.Object]   = {}
+        edgeline_copies:   list[bpy.types.Object]                     = []
 
-        if (needs_merged_edgeline or needs_merge_verts or needs_backface_smd
-                or needs_merged_backface_dmx or needs_use_mesh_split):
-            base_obs = []
-            edgeline_copies = []
+        for ob, plan in plans.items():
+            effective_objects[ob] = plan.target
+            base_obs.append(plan.target)
+            for sp in plan.split_parts:
+                base_obs.append(sp.ob)
+                if sp.edgeline:
+                    base_obs.append(sp.edgeline)
+                    edgeline_copies.append(sp.edgeline)
+                if sp.backface:
+                    base_obs.append(sp.backface)
+            if plan.base_edgeline:
+                base_obs.append(plan.base_edgeline)
+                edgeline_copies.append(plan.base_edgeline)
+            if plan.base_backface:
+                base_obs.append(plan.base_backface)
 
-            for ob in col.objects:
-                if not ob.vs.export:
-                    continue
-                copy = ob.copy()
-                if ob.data:
-                    copy.data = ob.data.copy()
-                bpy.context.scene.collection.objects.link(copy)
-                self._owned_objects.append(copy)
-                self._name_map[copy.session_uid] = ob.name
-                post_process_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
+        for copy in effective_objects.values():
+            for mod in copy.modifiers:
+                if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
+                    mod.object = effective_objects[mod.object]
+        for edgeline_ob in edgeline_copies:
+            for mod in edgeline_ob.modifiers:
+                if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
+                    mod.object = effective_objects[mod.object]
 
-                # MESH SPLIT - split before edgeline / backface / merge
-                pre_split_copies[ob] = copy
-                order_split_obs: list[bpy.types.Object] = []
-                if post_process_ok and copy.vs.use_mesh_split and is_mesh_compatible(copy) and copy.type in modifier_compatible:
-                    order_split_obs = self._mesh_split_builder.build(copy, ob.name)
-                    for so in order_split_obs:
-                        self._owned_objects.append(so)
-                        base_obs.append(so)
-
-                if post_process_ok and needs_backface_smd and copy.vs.generate_backface \
-                        and is_mesh_compatible(copy) and copy.type in modifier_compatible:
-                    self._backface_builder.build_merged(copy, ob.name)
-
-                bf_copy = None
-                if post_process_ok and needs_merged_backface_dmx and copy.vs.generate_backface \
-                        and is_mesh_compatible(copy) and copy.type in modifier_compatible:
-                    bf_copy = self._backface_builder.build(copy, ob.name)
-                    if bf_copy:
-                        self._owned_objects.append(bf_copy)
-                        base_obs.append(bf_copy)
-
-                if post_process_ok and ob.vs.merge_vertices and is_mesh_compatible(copy) and copy.type in modifier_compatible:
-                    flexcontrollers, corrective_shapes = countShapes(ob)
-                    if flexcontrollers > 0 or corrective_shapes > 0:
-                        self._reporter.warning(
-                            f"'{ob.name}': merge vertices skipped - object has exportable flex/shape keys."
-                        )
-                    else:
-                        self._apply_merge_vertices(copy)
-                        if bf_copy:
-                            self._apply_merge_vertices(bf_copy)
-
-                if post_process_ok and copy.vs.use_toon_edgeline and not copy.vs.export_edgeline_separately:
-                    copy.vs.export_edgeline_separately = True
-                    edgeline_copy = self._edgeline_builder.build(copy, ob.name)
-                    copy.vs.export_edgeline_separately = False
-                    if edgeline_copy and edgeline_copy is not copy:
-                        self._owned_objects.append(edgeline_copy)
-                        base_obs.append(edgeline_copy)
-                        edgeline_copies.append(edgeline_copy)
-
-                effective_objects[ob] = copy
-                base_obs.append(copy)
-
-            for ob, copy in effective_objects.items():
-                for mod in copy.modifiers:
-                    if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
-                        mod.object = effective_objects[mod.object]
-
-            for edgeline_ob in edgeline_copies:
-                for mod in edgeline_ob.modifiers:
-                    if hasattr(mod, 'object') and mod.object and mod.object in effective_objects:
-                        mod.object = effective_objects[mod.object]
-
+        needs_temp = any(p.target is not p.source for p in plans.values())
+        if needs_temp:
             target_col = self._make_collection(col.name + "_temp_base", base_obs)
         else:
-            for ob in col.objects:
-                effective_objects[ob] = ob
+            target_col = col
+            effective_objects = {ob: ob for ob in col.objects}
 
-        base_allowed_uids = {
-            ob.session_uid
-            for ob in target_col.objects
-            if ob.vs.export
-        }
-        
+        base_allowed_uids = {ob.session_uid for ob in target_col.objects if ob.vs.export}
         tasks = [ExportTask(target_col, col.name, base_allowed_uids)]
 
-        lod_buckets: dict[int, list[bpy.types.Object]] = collections.defaultdict(list)
+        lod_buckets:  dict[int, list[bpy.types.Object]] = collections.defaultdict(list)
         edgeline_obs: list[bpy.types.Object] = []
 
         for ob in col.objects:
@@ -996,31 +1050,32 @@ class ExportPlanner:
             if not is_mesh_compatible(ob) or ob.type not in modifier_compatible:
                 continue
 
-            working_ob = effective_objects.get(ob, ob)
-            pre_split_copy = pre_split_copies.get(ob, working_ob)
+            plan          = plans.get(ob)
+            working_ob    = effective_objects.get(ob, ob)
+            post_ok       = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
             is_lod_member = self._is_existing_lod(working_ob.name)
-            post_process_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
 
-            if post_process_ok and not is_lod_member and pre_split_copy.vs.generate_lods and pre_split_copy.vs.lod_count > 0:
-                for lod_idx, lod_ob in self._lod_builder.build_all(pre_split_copy, pre_split_copy.name):
+            if plan and plan.lod_source and post_ok and not is_lod_member:
+                for lod_idx, lod_ob in self._lod_builder.build_all(plan.lod_source, working_ob.name):
                     self._owned_objects.append(lod_ob)
                     lod_buckets[lod_idx].append(lod_ob)
-                    # Backface after decimation so geometry matches the LOD mesh.
-                    if pre_split_copy.vs.generate_backface:
-                        if State.exportFormat == ExportFormat.SMD:
-                            self._backface_builder.build_merged(lod_ob, lod_ob.name)
-                        else:
-                            bf_lod = self._backface_builder.build(lod_ob, lod_ob.name)
-                            if bf_lod:
-                                self._owned_objects.append(bf_lod)
-                                lod_buckets[lod_idx].append(bf_lod)
+                    bf = self._apply_backface(lod_ob, lod_ob.name, post_ok=True)
+                    if bf:
+                        lod_buckets[lod_idx].append(bf)
 
-            if post_process_ok and not working_ob.name.endswith("_edgeline") and working_ob.vs.use_toon_edgeline:
-                if working_ob.vs.export_edgeline_separately:
-                    edgeline_ob = self._edgeline_builder.build(working_ob, working_ob.name)
-                    if edgeline_ob and edgeline_ob is not working_ob:
-                        self._owned_objects.append(edgeline_ob)
-                        edgeline_obs.append(edgeline_ob)
+            if post_ok and not working_ob.name.endswith("_edgeline") \
+                    and working_ob.vs.use_toon_edgeline and working_ob.vs.export_edgeline_separately:
+                el = self._edgeline_builder.build(working_ob, working_ob.name)
+                if el and el is not working_ob:
+                    self._owned_objects.append(el)
+                    edgeline_obs.append(el)
+            if plan:
+                for sp in plan.split_parts:
+                    if ob.vs.export_edgeline_separately:
+                        sp_el = self._edgeline_builder.build(sp.ob, sp.name)
+                        if sp_el and sp_el is not sp.ob:
+                            self._owned_objects.append(sp_el)
+                            edgeline_obs.append(sp_el)
 
         for lod_idx, lod_obs in lod_buckets.items():
             lod_col = self._make_lod_collection(target_col, lod_idx, lod_obs, col.name)
@@ -1082,153 +1137,57 @@ class ExportPlanner:
     # -- object planning ------------------------------------------------------
 
     def _plan_object(self, ob: bpy.types.Object, export_name: str) -> list[ExportTask]:
-        allowed_uids = set()
+        post_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
+        plan    = self._plan_mesh_ob(ob, export_name, for_collection=False)
+        target  = plan.target
 
-        allowed_uids.add(ob.session_uid)
-        target_ob = ob
-        companions = []
-        post_process_ok = getattr(ob.vs, 'mesh_type', 'DEFAULT') == 'DEFAULT'
+        allowed_uids = {target.session_uid}
+        companions   = [x for x in [plan.base_edgeline, plan.base_backface] if x is not None]
 
-        # MESH SPLIT
         order_tasks: list[ExportTask] = []
-        if (post_process_ok and ob.vs.use_mesh_split
-                and is_mesh_compatible(ob) and ob.type in modifier_compatible
-                and not export_name.endswith(("_order", "_edgeline", "_backface"))):
-
-            # We need a working copy to split from (same pattern as edgeline/backface).
-            if target_ob is ob:
-                merged = ob.copy()
-                merged.data = ob.data.copy()
-                bpy.context.scene.collection.objects.link(merged)
-                self._owned_objects.append(merged)
-                State.exportableObjects.add(merged.session_uid)
-                self._name_map[merged.session_uid] = ob.name
-                target_ob = merged
-                allowed_uids = {merged.session_uid}
-
-            order_obs = self._mesh_split_builder.build(target_ob, export_name)
-            for so in order_obs:
-                self._owned_objects.append(so)
-                State.exportableObjects.add(so.session_uid)
-                n = so.get("mesh_split_n", 0)
-                base = re.sub(r"_lod[1-9]\d*$", "", export_name)
-                so_name = f"{base}_split{n}"
-
-                if ob.vs.export_mesh_split_separately:
-                    # Each order is its own ExportTask / file.
-                    order_tasks.append(
-                        ExportTask(so, so_name, {so.session_uid})
-                    )
-                else:
-                    # All orders ride as companions in the base task.
-                    companions.append(so)
-
-        if (post_process_ok and ob.vs.merge_vertices
-                and is_mesh_compatible(ob) and ob.type in modifier_compatible
-                and not self._is_existing_lod(export_name)):
-            flexcontrollers, corrective_shapes = countShapes(ob)
-            if flexcontrollers > 0 or corrective_shapes > 0:
-                self._reporter.warning(
-                    f"'{ob.name}': merge vertices skipped - object has exportable flex/shape keys."
-                )
+        for sp in plan.split_parts:
+            if ob.vs.export_mesh_split_separately:
+                sp_companions = [x for x in [sp.edgeline, sp.backface] if x is not None]
+                order_tasks.append(ExportTask(sp.ob, sp.name, {sp.ob.session_uid}, sp_companions))
             else:
-                if target_ob is ob:
-                    merged = ob.copy()
-                    merged.data = ob.data.copy()
-                    bpy.context.scene.collection.objects.link(merged)
-                    self._owned_objects.append(merged)
-                    State.exportableObjects.add(merged.session_uid)
-                    self._name_map[merged.session_uid] = ob.name
-                    target_ob = merged
-                    allowed_uids = {merged.session_uid}
-                self._apply_merge_vertices(target_ob)
+                companions.append(sp.ob)
+                if sp.edgeline:
+                    companions.append(sp.edgeline)
+                if sp.backface:
+                    companions.append(sp.backface)
 
-        if post_process_ok and ob.vs.use_toon_edgeline and not ob.vs.export_edgeline_separately:
-            if not export_name.endswith("_edgeline"):
-
-                # TODO: Check if smd and vta export properly
-                # TODO: is this even necessary??
-                if State.exportFormat == ExportFormat.SMD:
-                    # SMD can't handle multiple mesh objects in one file;
-                    # merge the edgeline into a copy of the base instead.
-                    if target_ob is ob:
-                        copy = ob.copy()
-                        copy.data = ob.data.copy()
-                        bpy.context.scene.collection.objects.link(copy)
-                        self._owned_objects.append(copy)
-                        State.exportableObjects.add(copy.session_uid)
-                        self._name_map[copy.session_uid] = ob.name
-                        target_ob = copy
-                        allowed_uids = {copy.session_uid}
-                    self._edgeline_builder.build(target_ob, export_name)  # merges in-place
-                else:
-                    # DMX: keep edgeline as a companion bake result in the same file.
-                    target_ob.vs.export_edgeline_separately = True
-                    edgeline_ob = self._edgeline_builder.build(target_ob, export_name)
-                    target_ob.vs.export_edgeline_separately = False
-                    if edgeline_ob and edgeline_ob is not target_ob:
-                        self._owned_objects.append(edgeline_ob)
-                        State.exportableObjects.add(edgeline_ob.session_uid)
-                        companions.append(edgeline_ob)
-
-        # Backface for base export.
-        # SMD: merge in-place (requires a copy if one wasn't already made for edgeline/merge).
-        # DMX: companion DmeMesh in the same file, matching edgeline's pattern.
-        bf_ob = None
-        if post_process_ok and not export_name.endswith("_backface") and ob.vs.generate_backface:
-            if State.exportFormat == ExportFormat.SMD:
-                if target_ob is ob:
-                    merged = ob.copy()
-                    merged.data = ob.data.copy()
-                    bpy.context.scene.collection.objects.link(merged)
-                    self._owned_objects.append(merged)
-                    State.exportableObjects.add(merged.session_uid)
-                    self._name_map[merged.session_uid] = ob.name
-                    target_ob = merged
-                    allowed_uids = {merged.session_uid}
-                self._backface_builder.build_merged(target_ob, export_name)
-            else:
-                bf_ob = self._backface_builder.build(target_ob, export_name)
-                if bf_ob:
-                    self._owned_objects.append(bf_ob)
-                    State.exportableObjects.add(bf_ob.session_uid)
-                    companions.append(bf_ob)
-
-        tasks = [ExportTask(target_ob, export_name, allowed_uids.copy(), companions)]
+        tasks = [ExportTask(target, export_name, allowed_uids, companions)]
 
         if not is_mesh_compatible(ob) or ob.type not in modifier_compatible:
+            tasks.extend(order_tasks)
             return tasks
 
-        is_lod = self._is_existing_lod(export_name)
-
-        if post_process_ok and not is_lod and ob.vs.generate_lods and ob.vs.lod_count > 0:
-            for lod_idx, lod_ob in self._lod_builder.build_all(ob, export_name):
+        if plan.lod_source is not None:
+            for lod_idx, lod_ob in self._lod_builder.build_all(plan.lod_source, export_name):
                 self._owned_objects.append(lod_ob)
                 State.exportableObjects.add(lod_ob.session_uid)
-                lod_uids = {lod_ob.session_uid}
                 lod_companions = []
-
-                # Backface after decimation so it matches the LOD geometry.
                 if not export_name.endswith("_backface") and ob.vs.generate_backface:
-                    if State.exportFormat == ExportFormat.SMD:
-                        self._backface_builder.build_merged(lod_ob, lod_ob.name)
-                    else:
-                        bf_lod = self._backface_builder.build(lod_ob, lod_ob.name)
-                        if bf_lod:
-                            self._owned_objects.append(bf_lod)
-                            State.exportableObjects.add(bf_lod.session_uid)
-                            lod_companions.append(bf_lod)
+                    bf = self._apply_backface(lod_ob, lod_ob.name, post_ok=True)
+                    if bf:
+                        lod_companions.append(bf)
+                tasks.append(ExportTask(lod_ob, lod_ob.name, {lod_ob.session_uid}, lod_companions))
 
-                tasks.append(ExportTask(lod_ob, lod_ob.name, lod_uids, lod_companions))
-
-        if post_process_ok and not export_name.endswith("_edgeline") and ob.vs.use_toon_edgeline:
-            if ob.vs.export_edgeline_separately:
-                edgeline_ob = self._edgeline_builder.build(target_ob, export_name)
-                if edgeline_ob and edgeline_ob is not target_ob:
-                    self._owned_objects.append(edgeline_ob)
-                    State.exportableObjects.add(edgeline_ob.session_uid)
-                    base = re.sub(r"_lod[1-9]\d*$", "", export_name)
-                    tasks.append(ExportTask(edgeline_ob, base + "_edgeline", {edgeline_ob.session_uid}))
+        if post_ok and not export_name.endswith("_edgeline") \
+                and ob.vs.use_toon_edgeline and ob.vs.export_edgeline_separately:
+            el = self._edgeline_builder.build(target, export_name)
+            if el and el is not target:
+                self._owned_objects.append(el)
+                State.exportableObjects.add(el.session_uid)
+                base = re.sub(r"_lod[1-9]\d*$", "", export_name)
+                tasks.append(ExportTask(el, base + "_edgeline", {el.session_uid}))
+            for sp in plan.split_parts:
+                sp_el = self._edgeline_builder.build(sp.ob, sp.name)
+                if sp_el and sp_el is not sp.ob:
+                    self._owned_objects.append(sp_el)
+                    State.exportableObjects.add(sp_el.session_uid)
+                    el_base = re.sub(r"_lod[1-9]\d*$", "", sp.name)
+                    tasks.append(ExportTask(sp_el, el_base + "_edgeline", {sp_el.session_uid}))
 
         tasks.extend(order_tasks)
         return tasks
@@ -1450,12 +1409,17 @@ class Baker:
     def _pre_bake_mesh_ops(self, ob: bpy.types.Object) -> None:
         scene_vs = bpy.context.scene.vs
         mt = getattr(ob.vs, 'mesh_type', 'DEFAULT')
+        limit_mode = getattr(scene_vs, 'vertex_influence_limit_mode', 'AUTO')
         if mt == 'COLLISION':
             vgroup_limit = 1
         elif mt == 'CLOTHPROXY':
             vgroup_limit = min(8, max(4, scene_vs.vertex_influence_limit))
         else:
-            vgroup_limit = scene_vs.vertex_influence_limit
+            if limit_mode == 'AUTO':
+                source2 = State.datamodelFormat >= 22 or State.compiler > Compiler.STUDIOMDL
+                vgroup_limit = 4 if source2 else 3
+            else:
+                vgroup_limit = scene_vs.vertex_influence_limit
 
         if not hasShapes(ob):
             VertexGroupNormalizer(ob, vgroup_limit=vgroup_limit, clean_tolerance=scene_vs.weightlink_threshold).run()
@@ -1726,6 +1690,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
     collection: bpy.props.StringProperty(name=get_id("exporter_prop_group"), description=get_id("exporter_prop_group_tip"))
     export_scene: bpy.props.BoolProperty(name=get_id("scene_export"), description=get_id("exporter_prop_scene_tip"), default=False)
+    object_name: bpy.props.StringProperty(name="Object", default="")
 
     def __init__(self, *args, **kwargs):
         bpy.types.Operator.__init__(self, *args, **kwargs)
@@ -1821,6 +1786,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
         self.collection = ""
         self.export_scene = False
+        self.object_name = ""
         return {"FINISHED"}
 
     def _collect_export_ids(self, context) -> list:
@@ -1842,7 +1808,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             else:
                 ids.append(col)
         else:
-            for exportable in getSelectedExportables():
+            exportables = getSelectedExportables()
+            if self.object_name:
+                exportables = [e for e in exportables if not isinstance(e.item, Collection) and e.item.name == self.object_name]
+            for exportable in exportables:
                 if not isinstance(exportable.item, Collection):
                     ids.append(exportable.item)
         return ids
@@ -2907,6 +2876,37 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     DmeModel_children.extend(root_elems)
             bench.report("Bones")
 
+        def _write_attach(name: str, relMat: Matrix, boneelem) -> datamodel.Element:
+            dag = dm.add_element(name, "DmeDag", id=name)
+            att = dm.add_element(name, "DmeAttachment", id="attachment" + name)
+            att["visible"] = True
+            att["isRigid"] = True
+            att["isWorldAligned"] = False
+            dag["shape"] = att
+            dag["visible"] = True
+            dag["children"] = datamodel.make_array([], datamodel.Element)
+
+            if want_jointlist:
+                jointList.append(dag)
+
+            if "children" not in boneelem:
+                boneelem["children"] = datamodel.make_array([], datamodel.Element)
+
+            trfm  = makeTransform(name, relMat, name)
+            trfm_base = makeTransform(name, relMat, "empty_base" + name)
+
+            for j in range(3):
+                trfm["position"][j] *= armature_scale[j]
+            trfm_base["position"] = trfm["position"]
+
+            dag["transform"] = trfm
+            DmeModel_transforms.append(trfm_base)
+            if want_jointtransforms:
+                jointTransforms.append(trfm)
+
+            boneelem["children"].append(dag)
+            return dag
+
         def writeattachment(empty: bpy.types.Object, empty_matrix: Matrix):
             current_bone = self.armature.data.bones.get(empty.parent_bone)
             exportable_parent = None
@@ -2920,45 +2920,42 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 self.warning(f"Attachment '{empty.name}' has no exportable parent bone. Skipping.")
                 return None
 
-            empty_elem = dm.add_element(empty.name, "DmeDag", id=empty.name)
-            attach_elem = dm.add_element(empty.name, "DmeAttachment", id="attachment" + empty.name)
-            attach_elem["visible"] = True
-            attach_elem["isRigid"] = True
-            attach_elem["isWorldAligned"] = False
-            empty_elem["shape"] = attach_elem
-            empty_elem["visible"] = True
-            empty_elem["children"] = datamodel.make_array([], datamodel.Element)
-
-            if want_jointlist:
-                jointList.append(empty_elem)
-
-            boneelem = bone_elements[exportable_parent.name]
-            if "children" not in boneelem:
-                boneelem["children"] = datamodel.make_array([], datamodel.Element)
-
-            pmat = get_bone_matrix(exportable_parent, rest_space=True)
+            pmat   = get_bone_matrix(exportable_parent, rest_space=True)
             relMat = pmat.inverted() @ empty_matrix
-
-            trfm = makeTransform(empty.name, relMat, empty.name)
-            trfm_base = makeTransform(empty.name, relMat, "empty_base" + empty.name)
-
-            if empty.parent:
-                for j in range(3):
-                    trfm["position"][j] *= armature_scale[j]
-            trfm_base["position"] = trfm["position"]
-
-            empty_elem["transform"] = trfm
-            DmeModel_transforms.append(trfm_base)
-            if want_jointtransforms:
-                jointTransforms.append(trfm)
-
-            boneelem["children"].append(empty_elem)
-            return empty_elem
+            return _write_attach(empty.name, relMat, bone_elements[exportable_parent.name])
 
         if not is_anim and self.exportable_empties and self.armature:
             for empty, world_matrix in self.exportable_empties:
                 writeattachment(empty, world_matrix)
             bench.report("Empties")
+
+        if not is_anim and not source2 and self.armature and self.armature_src:
+            avs = getattr(self.armature_src.data, 'vs', None)
+            proc_bones_list = list(getattr(avs, 'proc_bones', [])) if avs else []
+
+            lookat_by_driver: dict[str, list[tuple]] = {}
+            for entry in proc_bones_list:
+                if getattr(entry, 'proc_type', 'TRIGGER') != 'LOOKAT':
+                    continue
+                driver_name = entry.driver_bone
+                if not driver_name or driver_name not in bone_elements:
+                    continue
+                off = tuple(entry.lookat_offset)
+                lookat_by_driver.setdefault(driver_name, [])
+                if off not in lookat_by_driver[driver_name]:
+                    lookat_by_driver[driver_name].append(off)
+
+            for driver_name, offsets in lookat_by_driver.items():
+                if self.armature.pose.bones.get(driver_name) is None:
+                    continue
+                
+                driver_export = self.exportable_boneNames.get(driver_name, driver_name)
+                attach_base   = driver_export.split('.', 1)[-1]
+                multiple      = len(offsets) > 1
+
+                for idx, off in enumerate(offsets, start=1):
+                    attach_name = f"{attach_base}_lookat{idx}" if multiple else f"{attach_base}_lookat"
+                    _write_attach(attach_name, Matrix.Translation(Vector(off)), bone_elements[driver_name])
 
         for vca in bake_results[0].vertex_animations:
             DmeModel_children.extend(writeBone(f"vcabone_{vca}"))
@@ -3028,7 +3025,17 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             DmeDag["transform"] = trfm
             DmeModel_transforms.append(makeTransform(bake.name, trfm_mat, "ob_base" + bake.name))
 
-            weight_link_limit = 4 if source2 else 3
+            _limit_mode = getattr(bpy.context.scene.vs, 'vertex_influence_limit_mode', 'AUTO')
+            _src_mt = getattr(bake.src.vs, 'mesh_type', 'DEFAULT') if bake.src else 'DEFAULT'
+            if _src_mt == 'COLLISION':
+                weight_link_limit = 1
+            elif _src_mt == 'CLOTHPROXY':
+                weight_link_limit = min(8, max(4, bpy.context.scene.vs.vertex_influence_limit))
+            elif _limit_mode == 'MANUAL':
+                weight_link_limit = bpy.context.scene.vs.vertex_influence_limit
+            else:
+                weight_link_limit = 4 if source2 else 3
+
             jointCount = badJointCounts = 0
             have_weightmap = False
             src_mt = getattr(bake.src.vs, 'mesh_type', 'DEFAULT') if bake.src else 'DEFAULT'
@@ -3622,6 +3629,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             ('JIGGLEBONES', "Jigglebones", ""),
             ('ATTACHMENTS', "Attachments", ""),
             ('HITBOXES',    "Hitboxes",    ""),
+            ('PROCEDURAL',  "Procedural",  ""),
         ]
     )
 
@@ -3652,6 +3660,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             'JIGGLEBONES': vs.jigglebone_prefabfile,
             'ATTACHMENTS': vs.attachment_prefabfile,
             'HITBOXES':    vs.hitbox_prefabfile,
+            'PROCEDURAL':  vs.procedural_prefabfile,
         }.get(self.export_type, "")
 
     def _write_output(self, compiled, export_path=None, warnings=None):
@@ -3717,6 +3726,8 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                     fmt = 'QC'
                 elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
                     fmt = 'VMDL'
+                elif ext_lower == '.vrd':
+                    fmt = 'VRD'
                 else:
                     self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
                     return {'CANCELLED'}
@@ -3728,6 +3739,8 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                 compiled = self._run_attachments(arm, fmt, export_path, context)
             elif self.export_type == 'HITBOXES':
                 compiled, warnings = self._run_hitboxes(arm)
+            elif self.export_type == 'PROCEDURAL':
+                compiled = self._run_procedural(arm, context)
             else:
                 return {'CANCELLED'}
 
@@ -3889,21 +3902,54 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
 
     # Attachments
 
+    @staticmethod
+    def _collect_lookat_attachments(arm) -> list[tuple]:
+        avs = getattr(arm.data, 'vs', None)
+        if not avs:
+            return []
+        lookat_by_driver: dict[str, list[tuple]] = {}
+        for entry in getattr(avs, 'proc_bones', []):
+            if getattr(entry, 'proc_type', 'TRIGGER') != 'LOOKAT':
+                continue
+            driver_name = entry.driver_bone
+            if not driver_name or not arm.data.bones.get(driver_name):
+                continue
+            off = tuple(entry.lookat_offset)
+            lookat_by_driver.setdefault(driver_name, [])
+            if off not in lookat_by_driver[driver_name]:
+                lookat_by_driver[driver_name].append(off)
+
+        result = []
+        for driver_name, offsets in lookat_by_driver.items():
+            driver_export = get_bone_exportname(arm.data.bones[driver_name])
+            attach_base   = driver_export.split('.', 1)[-1]
+            multiple      = len(offsets) > 1
+            for idx, off in enumerate(offsets, start=1):
+                attach_name = f"{attach_base}_lookat{idx}" if multiple else f"{attach_base}_lookat"
+                result.append((attach_name, driver_name, off))
+        return result
+
     def _run_attachments(self, arm, fmt, export_path, context):
         attachments = get_attachments(arm)
-        if not attachments:
+
+        is_qc = (fmt == 'QC') or (self.to_clipboard and State.compiler != Compiler.MODELDOC)
+        lookat_attachments = self._collect_lookat_attachments(arm) if is_qc else []
+
+        if not attachments and not lookat_attachments:
             self.report({'WARNING'}, "No attachments found")
             return None
 
         if self.to_clipboard:
-            return self._attachments_vmdl(arm, attachments, None) if State.compiler == Compiler.MODELDOC else self._attachments_qc(arm, attachments)
+            if State.compiler == Compiler.MODELDOC:
+                return self._attachments_vmdl(arm, attachments, None)
+            return self._attachments_qc(arm, attachments, lookat_attachments)
         if fmt == 'QC':
-            return self._attachments_qc(arm, attachments)
+            return self._attachments_qc(arm, attachments, lookat_attachments)
         if fmt == 'VMDL':
             return self._attachments_vmdl(arm, attachments, export_path)
         return None
 
-    def _attachments_qc(self, arm, attachments):
+    def _attachments_qc(self, arm, attachments, lookat_attachments=()):
         lines = []
         for empty in attachments:
             if not empty.parent_bone:
@@ -3919,6 +3965,11 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             position = relMat.to_translation()
             rotation = relMat.to_quaternion().to_euler('XYZ')
             lines.append(f'$attachment "{empty.name}" "{get_bone_exportname(bone)}" {position.x:.2f} {position.y:.2f} {position.z:.2f} rotate {math.degrees(rotation.y):.0f} {math.degrees(rotation.z):.0f} {math.degrees(rotation.x):.0f}')
+        for attach_name, driver_name, off in lookat_attachments:
+            bone = arm.data.bones.get(driver_name)
+            if not bone:
+                continue
+            lines.append(f'$attachment "{attach_name}" "{get_bone_exportname(bone)}" {off[0]:.6f} {off[1]:.6f} {off[2]:.6f} rotate 0 0 0')
         return '\n'.join(lines)
 
     def _attachments_vmdl(self, arm, attachments, export_path):
@@ -4013,6 +4064,211 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         warnings = [f"{n} has rotation (ignored in Source 1 hitboxes)" for n in rotated] if rotated else None
         return '\n'.join(lines), warnings
 
+    # Procedural VRD
+
+    def _run_procedural(self, arm, context):
+        avs = getattr(arm.data, 'vs', None)
+        entries = list(getattr(avs, 'proc_bones', [])) if avs else []
+        valid = [e for e in entries if e.helper_bone and arm.data.bones.get(e.helper_bone)]
+        if not valid:
+            self.report({'WARNING'}, "No procedural bone entries found")
+            return None
+        return self._write_proc_vrd(arm, valid, context.scene)
+
+    def _write_proc_vrd(self, arm, entries, scene):
+        from . import procbones_sim as _pbsim
+
+        _VRD_AXIS = {
+            '+X': (1, 0, 0), '-X': (-1, 0, 0),
+            '+Y': (0, 1, 0), '-Y': (0, -1, 0),
+            '+Z': (0, 0, 1), '-Z': (0, 0, -1),
+        }
+        def _axes_to_vec(axes):
+            x = y = z = 0.0
+            for a in (axes if isinstance(axes, set) else {axes}):
+                v = _VRD_AXIS.get(a, (0, 0, 0))
+                x += v[0]; y += v[1]; z += v[2]
+            L = (x*x + y*y + z*z) ** 0.5
+            return (x/L, y/L, z/L) if L > 1e-9 else (1.0, 0.0, 0.0)
+
+        scale = scene.vs.world_scale * arm.matrix_world.to_scale().x
+
+        def _vrd_name(bone):
+            return get_bone_exportname(bone).split('.', 1)[-1]
+
+        def _basepos(helper_name, parent_name):
+            h_pb = arm.pose.bones.get(helper_name)
+            p_pb = arm.pose.bones.get(parent_name)
+            if not h_pb or not p_pb:
+                return 0.0, 0.0, 0.0
+            pos = (get_bone_matrix(p_pb, rest_space=True).inverted() @
+                   get_bone_matrix(h_pb, rest_space=True)).to_translation()
+            return pos.x * scale, pos.y * scale, pos.z * scale
+
+        # This is a stupid fix.
+        def _export_off_mat_rot_only(pb):
+            """Rotation-only export offset (no translation component)."""
+            bvs = pb.bone.vs
+            if bvs.ignore_rotation_offset:
+                return Matrix.Identity(4)
+            return (Matrix.Rotation(bvs.export_rotation_offset_z, 4, 'Z') @
+                    Matrix.Rotation(bvs.export_rotation_offset_y, 4, 'Y') @
+                    Matrix.Rotation(bvs.export_rotation_offset_x, 4, 'X'))
+
+        def _export_off_mat(pb):
+            bvs = pb.bone.vs
+            loc_x = 0.0 if bvs.ignore_location_offset else bvs.export_location_offset_x
+            loc_y = 0.0 if bvs.ignore_location_offset else bvs.export_location_offset_y
+            loc_z = 0.0 if bvs.ignore_location_offset else bvs.export_location_offset_z
+            rot_x = 0.0 if bvs.ignore_rotation_offset else bvs.export_rotation_offset_x
+            rot_y = 0.0 if bvs.ignore_rotation_offset else bvs.export_rotation_offset_y
+            rot_z = 0.0 if bvs.ignore_rotation_offset else bvs.export_rotation_offset_z
+            rot_mat = (Matrix.Rotation(rot_z, 4, 'Z') @
+                    Matrix.Rotation(rot_y, 4, 'Y') @
+                    Matrix.Rotation(rot_x, 4, 'X'))
+            return Matrix.Translation((loc_x, loc_y, loc_z)) @ rot_mat
+
+        def _driver_parent_vrd(driver_bone_name):
+            db = arm.data.bones.get(driver_bone_name)
+            if db and db.parent:
+                return _vrd_name(db.parent)
+            return _vrd_name(arm.data.bones[driver_bone_name]) if db else driver_bone_name.split('.', 1)[-1]
+
+        # Build lookat attachment name map (same deduplication as _collect_lookat_attachments)
+        lookat_by_driver: dict[str, list[tuple]] = {}
+        for entry in entries:
+            if getattr(entry, 'proc_type', 'TRIGGER') != 'LOOKAT':
+                continue
+            dn = entry.driver_bone
+            if not dn or not arm.data.bones.get(dn):
+                continue
+            off = tuple(entry.lookat_offset)
+            lookat_by_driver.setdefault(dn, [])
+            if off not in lookat_by_driver[dn]:
+                lookat_by_driver[dn].append(off)
+        lookat_name_map: dict[tuple, str] = {}
+        for dn, offsets in lookat_by_driver.items():
+            attach_base = get_bone_exportname(arm.data.bones[dn]).split('.', 1)[-1]
+            multiple = len(offsets) > 1
+            for idx, off in enumerate(offsets, start=1):
+                lookat_name_map[(dn, off)] = f"{attach_base}_lookat{idx}" if multiple else f"{attach_base}_lookat"
+
+        lines: list[str] = []
+
+        for entry_idx, entry in enumerate(entries):
+            proc_type   = getattr(entry, 'proc_type', 'TRIGGER')
+            helper_name = entry.helper_bone
+            driver_name = entry.driver_bone
+
+            if not driver_name or not arm.data.bones.get(driver_name):
+                continue
+
+            helper_bone = arm.data.bones[helper_name]
+            driver_bone = arm.data.bones[driver_name]
+            helper_vrd  = _vrd_name(helper_bone)
+            driver_vrd  = _vrd_name(driver_bone)
+
+            if helper_bone.parent:
+                parent_name = helper_bone.parent.name
+                parent_vrd  = _vrd_name(helper_bone.parent)
+            else:
+                parent_name = driver_name
+                parent_vrd  = driver_vrd
+
+            bx, by, bz = _basepos(helper_name, parent_name)
+
+            if proc_type == 'TRIGGER':
+                drv_parent_vrd = _driver_parent_vrd(driver_name)
+                lines.append(f'<helper>  {helper_vrd}  {parent_vrd}  {drv_parent_vrd}  {driver_vrd}')
+                lines.append(f'<basepos>  {bx:.6f} {by:.6f} {bz:.6f}')
+
+                action = entry.action
+                if not action:
+                    self.report({'WARNING'}, f"Procedural entry '{helper_name}' has no action; skipping triggers")
+                    lines.append('')
+                    continue
+
+                fcurves = _pbsim._get_action_fcurves(action, entry.action_slot_name)
+                frames  = _pbsim._bone_keyframes(fcurves, driver_name)
+                if not frames:
+                    self.report({'WARNING'}, f"Procedural entry '{helper_name}': no keyframes for driver '{driver_name}'")
+                    lines.append('')
+                    continue
+
+                tol_deg  = degrees(arm.data.bones[driver_name].vs.proc_tolerance)
+                d_pb = arm.pose.bones.get(driver_name)
+                h_pb = arm.pose.bones.get(helper_name)
+
+                d_off        = _export_off_mat(d_pb)          if d_pb                  else Matrix.Identity(4)
+                h_off        = _export_off_mat(h_pb)          if h_pb                  else Matrix.Identity(4)
+                d_parent_off = _export_off_mat_rot_only(d_pb.parent) if d_pb and d_pb.parent else Matrix.Identity(4)
+                h_parent_off = _export_off_mat_rot_only(h_pb.parent) if h_pb and h_pb.parent else Matrix.Identity(4)
+
+                # _build_proc_triggers() stores matrix_basis (animation delta from rest).
+                # VRD expects the absolute local rotation, so bake the rest orientation in here.
+                d_rest_rot = Matrix.Identity(4)
+                _d_bone_data = arm.data.bones.get(driver_name)
+                if _d_bone_data:
+                    if _d_bone_data.parent:
+                        d_rest_rot = (
+                            _d_bone_data.parent.matrix_local.to_3x3().normalized().inverted() @
+                            _d_bone_data.matrix_local.to_3x3().normalized()
+                        ).to_4x4()
+                    else:
+                        d_rest_rot = _d_bone_data.matrix_local.to_3x3().normalized().to_4x4()
+
+                triggers = _pbsim._build_proc_triggers(arm, entry, entry_idx, scene)
+
+                print(f"[VRD DEBUG] {len(triggers)} triggers for '{entry.helper_bone}'")
+                for i, (dq, hloc, hq, tol) in enumerate(triggers):
+                    print(f"  [{i}] dq={dq} hloc={hloc}")
+
+                if not triggers:
+                    lines.append('')
+                    continue
+
+                for dq, hloc, hq, tol in triggers:
+                    tol_deg = degrees(tol)
+
+                    # parent_off.inv @ rest_local @ delta @ own_off
+                    # mirrors how get_bone_matrix works: offset is post-multiplied,
+                    # so Source sees child relative to parent including both offsets.
+                    d_mat   = d_parent_off.inverted() @ d_rest_rot @ dq.to_matrix().to_4x4() @ d_off
+                    d_euler = d_mat.to_euler('XYZ')
+                    drx, dry, drz = degrees(d_euler.x), degrees(d_euler.y), degrees(d_euler.z)
+
+                    h_mat    = hq.to_matrix().to_4x4()
+                    h_mat.translation = hloc
+                    h_export = h_parent_off.inverted() @ h_mat @ h_off
+                    h_pos    = h_export.to_translation()
+                    h_euler  = h_export.to_euler('XYZ')
+
+                    hpx = h_pos.x * scale
+                    hpy = h_pos.y * scale
+                    hpz = h_pos.z * scale
+                    hrx, hry, hrz = degrees(h_euler.x), degrees(h_euler.y), degrees(h_euler.z)
+
+                    lines.append(f'<trigger>  {tol_deg:.4f}  {drx:.6f} {dry:.6f} {drz:.6f}  {hrx:.6f} {hry:.6f} {hrz:.6f}  {hpx:.6f} {hpy:.6f} {hpz:.6f}')
+
+                lines.append('')
+
+            elif proc_type == 'LOOKAT':
+                off           = tuple(entry.lookat_offset)
+                target_attach = lookat_name_map.get((driver_name, off))
+                if not target_attach:
+                    continue
+
+                aim = _axes_to_vec(entry.lookat_aim_axis)
+                up  = _axes_to_vec(entry.lookat_up_axis)
+
+                lines.append(f'<aimconstraint>  {helper_vrd}  {parent_vrd}  {target_attach}')
+                lines.append(f'<basepos>  {bx:.6f} {by:.6f} {bz:.6f}')
+                lines.append(f'<aimvector>  {aim[0]:.6f} {aim[1]:.6f} {aim[2]:.6f}')
+                lines.append(f'<upvector>  {up[0]:.6f} {up[1]:.6f} {up[2]:.6f}')
+                lines.append('')
+
+        return '\n'.join(lines)
+
     def _hitbox_bounds(self, obj, arm):
         half = mathutils.Vector((obj.empty_display_size * obj.scale.x, obj.empty_display_size * obj.scale.y, obj.empty_display_size * obj.scale.z))
         world_loc = obj.matrix_world.translation
@@ -4057,15 +4313,17 @@ class _PrefabRunnerAdapter(ExportCheck):
     _attachments_vmdl        = PrefabExporter._attachments_vmdl
     _run_hitboxes            = PrefabExporter._run_hitboxes
     _hitbox_bounds           = PrefabExporter._hitbox_bounds
+    _run_procedural          = PrefabExporter._run_procedural
+    _write_proc_vrd          = PrefabExporter._write_proc_vrd
 
 
 # -----------------------------------------------------------------------------
 # KitsuneResource compile operator
 # -----------------------------------------------------------------------------
 
-class SMD_OT_KitsuneResourceCompile(bpy.types.Operator):
+class KitsuneResourceCompile(bpy.types.Operator):
     bl_idname = "smd.kitsuneresource_compile"
-    bl_label  = "KitsuneResource Compile"
+    bl_label  = "Compile"
     bl_options = {'REGISTER'}
 
     export_choice: bpy.props.EnumProperty(items=[

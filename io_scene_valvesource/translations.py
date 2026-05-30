@@ -626,6 +626,10 @@ _data = {
         'en': "Inserts a random UUID at the current location",
         'ja': "現在の位置にランダムなUUIDを挿入",
     },
+    'label_armature_data': {
+        'en': "Armature Data",
+        'jp': "アーマチュアデータ"
+    },
     'label_activate': {
         'en': "Activate",
         'ja': "有効化",
@@ -694,10 +698,6 @@ _data = {
         'en': "Export Name",
         'ja': "エクスポート名",
     },
-    'label_export_options': {
-        'en': "Export Options",
-        'ja': "エクスポートオプション",
-    },
     'label_extra_args': {
         'en': "Extra Args",
         'ja': "追加引数",
@@ -749,10 +749,6 @@ _data = {
     'label_jiggle_type': {
         'en': "Jiggle Type:",
         'ja': "ジグルタイプ:",
-    },
-    'label_jigglebone_properties': {
-        'en': "Jigglebone Properties",
-        'ja': "ジグルボーンプロパティ",
     },
     'label_location_offset': {
         'en': "Location Offset:",
@@ -834,6 +830,22 @@ _data = {
         'en': "Side Constraints:",
         'ja': "サイド制約:",
     },
+    'label_sim_gizmo_disabled': {
+        'en': "Viewport gizmo posing is unusable while simulation is active.",
+        'ja': "シミュレーション実行中は、ビューポートギズモでのポージングが使用できません。",
+    },
+    'label_sim_gizmo_disabled_2': {
+        'en': "Use shortcut keys (R, G, S) to pose bones instead.",
+        'ja': "代わりにショートカットキー（R・G・S）でポーズを調整してください。",
+    },
+    'label_sim_keyframe_warning': {
+        'en': "Keyframed bones follow their action during simulation.",
+        'ja': "キーフレームが設定されたボーンは、シミュレーション中にアクションに従います。",
+    },
+    'label_sim_keyframe_warning_2': {
+        'en': "Unlink the active action to pose bones manually for testing.",
+        'ja': "テスト時に手動でポーズを調整するには、アクティブアクションのリンクを解除してください。",
+    },
     'label_simulate_jigglebones': {
         'en': "Simulate JiggleBones",
         'ja': "ジグルボーンをシミュレート",
@@ -886,13 +898,25 @@ _data = {
         'en': "Yaw Limits:",
         'ja': "ヨー制限:",
     },
-    'maxvertexinfluence': {
-        'en': "Max Vertex Influence",
-        'ja': "最大頂点影響数",
+    'vertex_influence_limit_mode': {
+        'en': "Limit Vertex Influence Mode",
+        'ja': "頂点ウェイト制限モード",
     },
-    'maxvertexinfluence_tip': {
+    'vertex_influence_limit': {
+        'en': "Limit Vertex Influence",
+        'ja': "頂点ウェイトを制限",
+    },
+    'vertex_influence_limit_tip': {
         'en': "The maximum number of bones that can influence a single vertex.",
         'ja': "1頂点に影響できるボーンの最大数",
+    },
+    'vertex_influence_limit_mode_auto_tip': {
+        'en': "Exporter determines the limit based on format: Source 1 (DMX/SMD) = 3, Source 2 = 4",
+        'ja': "エクスポーター形式に応じて自動決定：Source 1 (DMX/SMD) = 3、Source 2 = 4",
+    },
+    'vertex_influence_limit_mode_manual_tip': {
+        'en': "Manually set the vertex influence limit",
+        'ja': "頂点ウェイトの上限を手動で設定",
     },
     'menu_flex_controller_specials': {
         'en': "Flex Controller Specials",
@@ -966,17 +990,77 @@ _data = {
         'en': "Preview Flex Controller",
         'ja': "フレックスコントローラーをプレビュー",
     },
+    'op_proc_bone_copy_tolerance': {
+        'en': "Copy Tolerance",
+        'ja': "許容角度をコピー",
+    },
+    'op_proc_bone_copy_tolerance_tip': {
+        'en': "Copy this entry's tolerance keyframes to the clipboard",
+        'ja': "このエントリの許容角度キーフレームをクリップボードにコピー",
+    },
+    'op_proc_bone_paste_tolerance': {
+        'en': "Paste Tolerance",
+        'ja': "許容角度を貼り付け",
+    },
+    'op_proc_bone_paste_tolerance_tip': {
+        'en': "Paste tolerance keyframes from the clipboard into this entry's action",
+        'ja': "クリップボードの許容角度キーフレームをこのエントリのアクションに貼り付け",
+    },
+    'op_proc_bone_copy_active': {
+        'en': "Copy Active Entry",
+        'ja': "アクティブなエントリをコピー",
+    },
+    'op_proc_bone_copy_active_tip': {
+        'en': "Copy the active proc bone entry to clipboard",
+        'ja': "アクティブなProcボーンエントリをクリップボードにコピー",
+    },
+    'op_proc_bone_copy_by_driver_bone': {
+        'en': "Copy by Driver Bone",
+        'ja': "ドライバーボーンでコピー",
+    },
+    'op_proc_bone_copy_by_driver_bone_tip': {
+        'en': "Copy all proc bone entries sharing the active entry's driver bone to clipboard",
+        'ja': "アクティブエントリと同じドライバーボーンを持つすべてのProcボーンエントリをクリップボードにコピー",
+    },
+    'op_proc_bone_copy_all': {
+        'en': "Copy All Entries",
+        'ja': "すべてのエントリをコピー",
+    },
+    'op_proc_bone_copy_all_tip': {
+        'en': "Copy all proc bone entries to clipboard",
+        'ja': "すべてのProcボーンエントリをクリップボードにコピー",
+    },
+    'op_proc_bone_paste_entries': {
+        'en': "Paste Entries",
+        'ja': "エントリを貼り付け",
+    },
+    'op_proc_bone_paste_entries_tip': {
+        'en': "Paste proc bone entries from clipboard into this armature",
+        'ja': "クリップボードのProcボーンエントリをこのアーマチュアに貼り付け",
+    },
+    'op_proc_bone_add_from_selected': {
+        'en': "Add Selected as Proc Helpers",
+        'ja': "選択ボーンをProcヘルパーとして追加",
+    },
+    'op_proc_bone_add_from_selected_tip': {
+        'en': "Add each selected bone as a helper bone for new Procedural Bone entries. Optionally set a shared driver bone, action, and slot in the dialog",
+        'ja': "選択した各ボーンを新しいProcedural Boneのエントリとして追加します。ダイアログで共有ドライバーボーン、アクション、スロットも設定可能です。",
+    },
+    'op_proc_bone_add_optional_hint': {
+        'en': "Optional - leave blank to configure later",
+        'ja': "任意 — 後で設定する場合は空欄のままにしてください",
+    },
     'op_remove_flex_controller': {
         'en': "Remove Flex Controller",
         'ja': "フレックスコントローラーを削除",
     },
     'op_reset_jiggle_simulation': {
-        'en': "Reset Jiggle Simulation",
-        'ja': "ジグルシミュレーションをリセット",
+        'en': "Reset Simulation",
+        'ja': "シミュレーションをリセット",
     },
     'op_reset_jiggle_simulation_tip': {
-        'en': "Clear all jiggle bone simulation states, snapping bones back to their animated pose",
-        'ja': "すべてのジグルボーンシミュレーション状態をクリアし、ボーンをアニメーションポーズに戻します",
+        'en': "Clear all jiggle and procedural bone simulation states, snapping bones back to their animated pose. Also clears the procedural bone trigger cache so actions are re-sampled on the next tick",
+        'ja': "すべてのジグルおよびProcedural Boneのシミュレーション状態をクリアし、ボーンを元のアニメーションポーズに戻します。また、Procedural Boneのトリガーキャッシュもクリアされ、次のティックでアクションが再サンプリングされます。",
     },
     'op_sort_flex_controllers': {
         'en': "Sort Flex Controllers",
@@ -1005,6 +1089,10 @@ _data = {
     'panel_mesh_split': {
         'en': "Mesh Split",
         'ja': "メッシュ分割",
+    },
+    'panel_proc_bones': {
+        'en': "Procedural Bones",
+        'ja': "プロシージャルボーン",
     },
     'panel_select_mesh': {
         'en': "Select a Mesh",
@@ -1042,6 +1130,10 @@ _data = {
         'en': "Copy prefab export content to clipboard instead of to a file",
         'ja': "プレハブエクスポートのコンテンツをファイルではなくクリップボードにコピー",
     },
+    'prop_arm_items_view': {
+        'en': "View",
+        'ja': "表示",
+    },
     'prop_attachment_prefabfile': {
         'en': "Attachments Prefab",
         'ja': "アタッチメントプレハブ",
@@ -1049,6 +1141,14 @@ _data = {
     'prop_attachment_prefabfile_tip': {
         'en': "QC prefab file containing $attachment definitions to append on export",
         'ja': "エクスポート時に追加する$attachmentの定義を含むQCプレハブファイル",
+    },
+    'prop_procedural_prefabfile': {
+        'en': "Procedural Prefab",
+        'ja': "プロシージャルプレハブ",
+    },
+    'prop_procedural_prefabfile_tip': {
+        'en': "Path to an existing .vrd file, or where to export the procedural prefab .vrd",
+        'ja': "既存の .vrd ファイルのパス、またはプロシージャルプレハブ .vrd のエクスポート先",
     },
     'prop_backface_vgroup': {
         'en': "Backface Group",
@@ -1486,13 +1586,13 @@ _data = {
         'en': "Friction applied when sliding against side constraint",
         'ja': "サイド制約に当たって滑るときの摩擦",
     },
-    'prop_jiggle_sim_enabled': {
-        'en': "Jiggle Simulation",
-        'ja': "ジグルシミュレーション",
+    'prop_proc_sim_enabled': {
+        'en': "Procedural Simulation",
+        'ja': "プロシージャルシミュレーション",
     },
-    'prop_jiggle_sim_enabled_tip': {
-        'en': "Enable real-time jiggle bone spring physics in the viewport",
-        'ja': "ビューポートでリアルタイムのジグルボーンばね物理を有効化",
+    'prop_proc_sim_enabled_tip': {
+        'en': "Enable real-time Jiggle/procedural in the 3D viewport",
+        'ja': "3Dビューポートでのリアルタイムのジグル/プロシージャルを有効にします",
     },
     'prop_jiggle_sim_rate': {
         'en': "Sim Rate (Hz)",
@@ -1714,14 +1814,6 @@ _data = {
         'en': "Maximum number of mesh split order segments to generate",
         'ja': "生成するメッシュ分割の最大セグメント数",
     },
-    'prop_merge_vertices': {
-        'en': "Merge Vertices on Export",
-        'ja': "エクスポート時に頂点をマージ",
-    },
-    'prop_merge_vertices_tip': {
-        'en': "Merge vertices to remove doubles before export",
-        'ja': "エクスポート前に重複頂点を結合して削除",
-    },
     'prop_mesh_split_threshold': {
         'en': "Mesh Split Threshold",
         'ja': "メッシュ分割しきい値",
@@ -1731,20 +1823,20 @@ _data = {
         'ja': "このしきい値を超える頂点は分割メッシュに属します",
     },
     'prop_non_exportable_vgroup': {
-        'en': "Non-Exportable Vertex Group",
-        'ja': "エクスポート除外頂点グループ",
+        'en': "Export Cull Vertex Group",
+        'ja': "エクスポートカリング頂点グループ",
     },
     'prop_non_exportable_vgroup_tip': {
-        'en': "Vertices above the weight threshold in this group are excluded from export",
-        'ja': "このグループでしきい値を超える頂点はエクスポートから除外されます",
+        'en': "Vertices in this group above the weight threshold are culled from export",
+        'ja': "このグループでしきい値を超える頂点はエクスポート時に削除されます",
     },
     'prop_non_exportable_vgroup_tolerance': {
-        'en': "Non-Exportable Weight Tolerance",
-        'ja': "エクスポート除外ウェイト許容値",
+        'en': "Export Cull Weight Threshold",
+        'ja': "エクスポートカリングウェイトしきい値",
     },
     'prop_non_exportable_vgroup_tolerance_tip': {
-        'en': "Weight threshold above which vertices are excluded from export",
-        'ja': "このしきい値を超える頂点はエクスポートから除外されます",
+        'en': "Vertices with weights above this threshold are culled from export",
+        'ja': "このしきい値を超えるウェイトの頂点はエクスポート時に削除されます",
     },
     'prop_normalize_shapekeys': {
         'en': "Normalize Shapekeys",
@@ -1794,6 +1886,102 @@ _data = {
         'en': "Draw a ghost bone showing where this bone will be after export offsets are applied",
         'ja': "エクスポートオフセット適用後のボーン位置をゴーストボーンで表示",
     },
+    'prop_preview_jigglebone_constraints': {
+        'en': "Preview Jigglebone Constraints",
+        'ja': "ジグルボーン制約のプレビュー",
+    },
+    'prop_preview_jigglebone_constraints_tip': {
+        'en': "Show jigglebone angle and constraint visualizations in the viewport",
+        'ja': "ビューポートでジグルボーンの角度と制約の可視化を表示",
+    },
+    'prop_preview_proc_bones': {
+        'en': "Preview Procedural Bones",
+        'ja': "プロシージャルボーンのプレビュー",
+    },
+    'prop_preview_proc_bones_tip': {
+        'en': "Draw aim target and offset markers for the active procedural bone list entry",
+        'ja': "アクティブなプロシージャルボーンリストのエントリのエイムターゲットとオフセットマーカーを表示",
+    },
+    'prop_proc_bone_action': {
+        'en': "Action",
+        'ja': "アクション",
+    },
+    'prop_proc_bone_action_tip': {
+        'en': "Action whose keyframes define trigger-to-target pose pairs for the procedural bone",
+        'ja': "プロシージャルボーンのトリガー→ターゲットポーズペアを定義するキーフレームを持つアクション",
+    },
+    'prop_proc_bone_driver': {
+        'en': "Driver Bone",
+        'ja': "ドライバーボーン",
+    },
+    'prop_proc_bone_driver_tip': {
+        'en': "Bone whose current pose is compared against the action triggers",
+        'ja': "現在のポーズをアクションのトリガーと比較するボーン",
+    },
+    'prop_proc_bone_helper': {
+        'en': "Helper Bone",
+        'ja': "ヘルパーボーン",
+    },
+    'prop_proc_bone_helper_tip': {
+        'en': "Bone that is driven by the procedural simulation",
+        'ja': "プロシージャルシミュレーションによって駆動されるボーン",
+    },
+    'prop_proc_bone_lookat_aim_axis': {
+        'en': "Aim Axis",
+        'ja': "エイム軸",
+    },
+    'prop_proc_bone_lookat_aim_axis_tip': {
+        'en': "Local bone axis that points toward the target bone (aimvector)",
+        'ja': "ターゲットボーンに向くボーンのローカル軸（aimvector）",
+    },
+    'prop_proc_bone_lookat_offset': {
+        'en': "Aim Offset",
+        'ja': "エイムオフセット",
+    },
+    'prop_proc_bone_lookat_offset_tip': {
+        'en': "Local-space offset from the target bone's exported origin to aim at",
+        'ja': "ターゲットボーンのエクスポート原点からのローカル空間オフセット",
+    },
+    'prop_proc_bone_lookat_target': {
+        'en': "Target Bone",
+        'ja': "ターゲットボーン",
+    },
+    'prop_proc_bone_lookat_target_tip': {
+        'en': "Bone whose head position this bone aims at",
+        'ja': "このボーンが向くヘッド位置を持つボーン",
+    },
+    'prop_proc_bone_lookat_up_axis': {
+        'en': "Up Axis",
+        'ja': "アップ軸",
+    },
+    'prop_proc_bone_lookat_up_axis_tip': {
+        'en': "Local bone axis kept aligned with world up (upvector)",
+        'ja': "ワールドのアップ方向に合わせるボーンのローカル軸（upvector）",
+    },
+    'prop_proc_bone_slot': {
+        'en': "Slot",
+        'ja': "スロット",
+    },
+    'prop_proc_bone_slot_tip': {
+        'en': "Action slot identifier for Blender 4.5+ layered actions (leave empty to use the first slot)",
+        'ja': "Blender 4.5+のレイヤーアクション用スロット識別子（空の場合は最初のスロットを使用）",
+    },
+    'prop_proc_bone_type': {
+        'en': "Type",
+        'ja': "タイプ",
+    },
+    'prop_proc_bone_type_tip': {
+        'en': "Trigger: action-driven pose blending.  LookAt: continuously aim toward a target bone",
+        'ja': "トリガー：アクション駆動のポーズブレンド。  LookAt：ターゲットボーンへ継続的に向く",
+    },
+    'prop_pose_bone_proc_tolerance': {
+        'en': "Proc Bone Tolerance",
+        'ja': "Procボーン許容角度",
+    },
+    'prop_pose_bone_proc_tolerance_tip': {
+        'en': "Angular cone within which this trigger pose is active when used as a Proc Bone driver. Keyframe in the driver's action to vary per trigger",
+        'ja': "このボーンがProcボーンのドライバーとして使用される場合のトリガーポーズが有効になるコーンの角度。アクション内でキーフレームを打つとトリガーごとに変化させることができます。",
+    },
     'prop_reset_pose_per_anim': {
         'en': "Reset Pose Per Animation Export",
         'ja': "アニメーションエクスポートごとにポーズをリセット",
@@ -1829,6 +2017,22 @@ _data = {
     'prop_shapekey': {
         'en': "ShapeKey",
         'ja': "シェイプキー",
+    },
+    'prop_sim_jiggle_bones': {
+        'en': "Simulate Jiggle Bones",
+        'ja': "ジグルボーンをシミュレート",
+    },
+    'prop_sim_jiggle_bones_tip': {
+        'en': "Run jiggle bone spring simulation",
+        'ja': "ジグルボーンのばねシミュレーションを実行",
+    },
+    'prop_sim_proc_bones': {
+        'en': "Simulate Procedural Bones",
+        'ja': "プロシージャルボーンをシミュレート",
+    },
+    'prop_sim_proc_bones_tip': {
+        'en': "Run action-driven procedural bone simulation",
+        'ja': "アクション駆動のプロシージャルボーンシミュレーションを実行",
     },
     'prop_smd_hitbox': {
         'en': "Is Hitbox",
@@ -2038,11 +2242,11 @@ _data = {
         'en': "Select Source 2 Vertex Map",
         'ja': "Source 2 頂点マップを選択",
     },
-    'weightlinkcull': {
+    'weightlink_threshold': {
         'en': "Weight Link Cull Threshold",
         'ja': "ウェイト・リンクの間引きのしきい値",
     },
-    'weightlinkcull_tip': {
+    'weightlink_threshold_tip': {
         'en': "The minimum weight value below which vertex weights are removed to eliminate noise.",
         'ja': "頂点ウェイトが削除される最小ウェイト値",
     },

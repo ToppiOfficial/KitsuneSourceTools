@@ -1,6 +1,7 @@
 #   MIT License
 #   
 #   Copyright (c) 2024 Jakob
+#   Copyright (c) 2026 Toppi
 #   
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +26,7 @@ import math
 import bpy
 from mathutils import Vector, Matrix, Quaternion
 
+# FIXME: When the driver bone is also the parent of the helper, the procedural simulation just borked. WHY!?
 
 # -- Per-bone simulation state -------------------------------------------------
 
@@ -53,6 +55,23 @@ _states: dict[tuple[str, str], BoneSimState] = {}
 _tick_sim_world: dict[tuple[str, str], Matrix] = {}
 _timer_handle = None
 _last_real_time: float = 0.0
+
+# arm_name -> depth-sorted list of jiggle bone names (rebuilt on reset / rig change)
+_jiggle_bone_cache: dict[str, list[str]] = {}
+# scene_name -> list of armature object names that have jiggle/proc bones
+_sim_arm_cache: dict[str, list[str]] = {}
+
+# key: (arm_name, entry_index, action_name, slot_name)
+# value: list of (driver_quat, helper_quat) or None (empty = no triggers found)
+_proc_trigger_cache: dict[tuple, list] = {}
+_building_proc_cache: bool = False
+
+# Tracks helper bones whose constraints/drivers are currently muted by the sim.
+# key: (arm_name, bone_name)
+_overridden_helpers: set[tuple] = set()
+# Saved original mute states before we overrode them.
+# 'C' keys = constraints, 'D' keys = driver fcurves.
+_helper_saved_mutes: dict[tuple, bool] = {}
 
 
 # -- Helpers -------------------------------------------------------------------
@@ -92,10 +111,6 @@ def _get_cols(is_s2: bool) -> tuple[int, int, int]:
     return (0, 1, 2) if is_s2 else (2, 0, 1)
 
 
-def _col(mat, c: int) -> Vector:
-    return Vector([mat[r][c] for r in range(3)]).normalized()
-
-
 def _get_export_offset_mat(pb) -> Matrix:
     bvs = pb.bone.vs
     if bvs.ignore_rotation_offset:
@@ -105,7 +120,7 @@ def _get_export_offset_mat(pb) -> Matrix:
             Matrix.Rotation(bvs.export_rotation_offset_x, 4, 'X'))
 
 
-def _get_animated_goal(arm_ob, pb) -> tuple:
+def _get_animated_goal(arm_ob, pb, arm_world_inv: Matrix) -> tuple:
     """Compute goal matrices from the parent chain, bypassing this bone's matrix_basis.
 
     pb.matrix is contaminated by our own simulation writes on non-keyframed bones.
@@ -113,11 +128,13 @@ def _get_animated_goal(arm_ob, pb) -> tuple:
     simulation result - using it gives zero lag so child goals track the parent's
     current simulated rotation instantly, eliminating the per-level cascade jitter.
     For non-jiggle parents, pb.parent.matrix is the clean animated pose.
+    arm_world_inv is pre-computed by simulate_armature and passed in to avoid
+    recomputing it per bone.
     """
     if pb.parent:
         parent_key = (arm_ob.name, pb.parent.name)
         if pb.parent.bone.vs.bone_is_jigglebone and parent_key in _tick_sim_world:
-            parent_arm = arm_ob.matrix_world.inverted_safe() @ _tick_sim_world[parent_key]
+            parent_arm = arm_world_inv @ _tick_sim_world[parent_key]
         else:
             parent_arm = pb.parent.matrix
         bone_in_parent = pb.parent.bone.matrix_local.inverted_safe() @ pb.bone.matrix_local
@@ -149,7 +166,7 @@ def _constrain_axis(state: BoneSimState, axis: Vector,
 
 # -- Per-bone simulation step --------------------------------------------------
 
-def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
+def _sim_bone(arm_ob, pb, dt: float, is_s2: bool, arm_world_inv: Matrix) -> None:
     jvs  = pb.bone.vs
     state = _get_state(arm_ob, pb)
 
@@ -161,13 +178,19 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
 
     # Compute goal from parent chain - NOT from pb.matrix, which retains our own
     # simulation writes on non-keyframed bones and would make the goal chase the sim.
-    anim_world, goal_world = _get_animated_goal(arm_ob, pb)
+    anim_world, goal_world = _get_animated_goal(arm_ob, pb, arm_world_inv)
 
-    export_fwd   = _col(goal_world, fwd_col)
-    export_perp1 = _col(goal_world, yp_col)   # yaw perp
-    export_perp2 = _col(goal_world, pp_col)   # pitch perp
+    _fwd_vec  = Vector([goal_world[r][fwd_col] for r in range(3)])
+    _yp_vec   = Vector([goal_world[r][yp_col]  for r in range(3)])
+    _pp_vec   = Vector([goal_world[r][pp_col]  for r in range(3)])
+    fwd_scale = _fwd_vec.length
+    yp_scale  = _yp_vec.length
+    pp_scale  = _pp_vec.length
+    export_fwd   = _fwd_vec.normalized() if fwd_scale > 1e-9 else Vector((0.0, 0.0, 1.0))
+    export_perp1 = _yp_vec.normalized()  if yp_scale  > 1e-9 else Vector((1.0, 0.0, 0.0))
+    export_perp2 = _pp_vec.normalized()  if pp_scale  > 1e-9 else Vector((0.0, 1.0, 0.0))
     goal_base    = goal_world.to_translation()
-    length       = _get_length(pb, jvs)
+    length       = _get_length(pb, jvs) * fwd_scale
     goal_tip     = goal_base + export_fwd * length
 
     # Start from animated matrix; may be overwritten below
@@ -316,6 +339,7 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
             to_tip = state.tip_position - goal_base
             if to_tip.length > 1e-6:
                 state.tip_position = goal_base + to_tip.normalized() * length
+
             # Use the post-clamp direction so radial velocity is removed correctly
             sim_dir = to_tip.normalized() if to_tip.length > 1e-6 else export_fwd
             along_v = state.tip_velocity.dot(sim_dir)
@@ -329,7 +353,7 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
         # Composing it with the animated rotation correctly carries the export
         # offset along (see plan - at rest delta_q = identity, no visual jump).
         delta_q  = export_fwd.rotation_difference(sim_fwd)
-        new_rot  = (delta_q.to_matrix() @ anim_world.to_3x3()).normalized()
+        new_rot  = delta_q.to_matrix() @ anim_world.to_3x3() # DO NOT NORMALIZED THIS!!
         new_world = new_rot.to_4x4()
         new_world.translation = anim_world.to_translation()
 
@@ -352,18 +376,18 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
             # Axis constraints (lo = stored positive -> treated as negative)
             _constrain_axis(state, export_perp1,
                             jvs.jiggle_has_left_constraint,
-                            -jvs.jiggle_left_constraint_min,
-                             jvs.jiggle_left_constraint_max,
+                            -jvs.jiggle_left_constraint_min  * yp_scale,
+                             jvs.jiggle_left_constraint_max  * yp_scale,
                             jvs.jiggle_left_friction, dt)
             _constrain_axis(state, export_perp2,
                             jvs.jiggle_has_up_constraint,
-                            -jvs.jiggle_up_constraint_min,
-                             jvs.jiggle_up_constraint_max,
+                            -jvs.jiggle_up_constraint_min  * pp_scale,
+                             jvs.jiggle_up_constraint_max  * pp_scale,
                             jvs.jiggle_up_friction, dt)
             _constrain_axis(state, export_fwd,
                             jvs.jiggle_has_forward_constraint,
-                            -jvs.jiggle_forward_constraint_min,
-                             jvs.jiggle_forward_constraint_max,
+                            -jvs.jiggle_forward_constraint_min  * fwd_scale,
+                             jvs.jiggle_forward_constraint_max  * fwd_scale,
                             jvs.jiggle_forward_friction, dt)
             state.base_abs_pos = anim_base + state.base_offset
 
@@ -388,18 +412,18 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
 
         _constrain_axis(state, export_perp1,
                         jvs.jiggle_has_left_constraint,
-                        -jvs.jiggle_left_constraint_min,
-                         jvs.jiggle_left_constraint_max,
+                        -jvs.jiggle_left_constraint_min  * yp_scale,
+                         jvs.jiggle_left_constraint_max  * yp_scale,
                         jvs.jiggle_left_friction, dt)
         _constrain_axis(state, export_perp2,
                         jvs.jiggle_has_up_constraint,
-                        -jvs.jiggle_up_constraint_min,
-                         jvs.jiggle_up_constraint_max,
+                        -jvs.jiggle_up_constraint_min  * pp_scale,
+                         jvs.jiggle_up_constraint_max  * pp_scale,
                         jvs.jiggle_up_friction, dt)
         _constrain_axis(state, export_fwd,
                         jvs.jiggle_has_forward_constraint,
-                        -jvs.jiggle_forward_constraint_min,
-                         jvs.jiggle_forward_constraint_max,
+                        -jvs.jiggle_forward_constraint_min  * fwd_scale,
+                         jvs.jiggle_forward_constraint_max  * fwd_scale,
                         jvs.jiggle_forward_friction, dt)
         state.base_abs_pos = anim_base + state.base_offset
 
@@ -410,31 +434,448 @@ def _sim_bone(arm_ob, pb, dt: float, is_s2: bool) -> None:
     _tick_sim_world[(arm_ob.name, pb.name)] = new_world
 
     # -- Write simulated matrix back to the bone -------------------------------
-    local_mat = arm_ob.convert_space(
-        pose_bone=pb,
-        matrix=new_world,
-        from_space='WORLD',
-        to_space='LOCAL',
-    )
+    # Direct mathutils equivalent of convert_space(WORLD->LOCAL) avoids the
+    # C-API call that forces a depsgraph evaluation per bone (which would re-skin
+    # all attached meshes N times per tick instead of once).
+    pose_mat = arm_world_inv @ new_world
+    if pb.parent:
+        parent_key = (arm_ob.name, pb.parent.name)
+        parent_pose = (arm_world_inv @ _tick_sim_world[parent_key]
+                       if parent_key in _tick_sim_world else pb.parent.matrix)
+        bone_rest = pb.parent.bone.matrix_local.inverted_safe() @ pb.bone.matrix_local
+        local_mat = (parent_pose @ bone_rest).inverted_safe() @ pose_mat
+    else:
+        local_mat = pb.bone.matrix_local.inverted_safe() @ pose_mat
     if jvs.jiggle_base_type == 'BASESPRING':
         pb.matrix_basis = local_mat
     else:
         pb.matrix_basis = local_mat.to_3x3().to_4x4()
 
 
+# -- Procedural bone simulation ------------------------------------------------
+
+def _find_action_slot(action, slot_name: str):
+    """Return the ActionSlot matching slot_name (by any name form), or first slot."""
+    if not slot_name:
+        return action.slots[0] if action.slots else None
+    for s in action.slots:
+        if (s.identifier == slot_name
+                or s.name_display == slot_name
+                or getattr(s, 'name', '') == slot_name):
+            return s
+    return action.slots[0] if action.slots else None
+
+
+def _get_action_fcurves(action, slot_name: str) -> list:
+    if getattr(action, 'is_action_legacy', True):
+        return list(action.fcurves)
+    target_slot = _find_action_slot(action, slot_name)
+    if target_slot is None:
+        return []
+    for layer in action.layers:
+        for strip in layer.strips:
+            # Blender 4.5: strip.channelbag(slot) or iterate strip.channelbags
+            cb_fn = getattr(strip, 'channelbag', None)
+            if cb_fn and callable(cb_fn):
+                try:
+                    bag = cb_fn(target_slot)
+                    if bag is not None:
+                        return list(bag.fcurves)
+                except Exception:
+                    pass
+            # Iterate all channelbags and match by slot handle
+            for bag in getattr(strip, 'channelbags', ()):
+                if getattr(bag, 'slot_handle', None) == target_slot.handle:
+                    return list(bag.fcurves)
+    return []
+
+
+def _bone_keyframes(fcurves, bone_name: str) -> list[float]:
+    """Return sorted unique keyframe times for ANY channel on the given bone."""
+    prefix = f'pose.bones["{bone_name}"].'
+    frames: set[float] = set()
+    for fc in fcurves:
+        if fc.data_path.startswith(prefix):
+            for kp in fc.keyframe_points:
+                frames.add(kp.co[0])
+    return sorted(frames)
+
+
+def _set_helper_mute(arm_ob, bone_name: str, mute: bool) -> None:
+    """Mute or restore constraints and driver fcurves on a helper bone.
+    Original states are saved on first mute and restored on unmute."""
+    pb = arm_ob.pose.bones.get(bone_name)
+    if pb:
+        for c in pb.constraints:
+            key = (arm_ob.name, bone_name, 'C', c.name)
+            if mute:
+                if key not in _helper_saved_mutes:
+                    _helper_saved_mutes[key] = c.mute
+                c.mute = True
+            else:
+                c.mute = _helper_saved_mutes.pop(key, False)
+    anim = arm_ob.animation_data
+    if anim:
+        prefix = f'pose.bones["{bone_name}"].'
+        for fc in anim.drivers:
+            if fc.data_path.startswith(prefix):
+                key = (arm_ob.name, bone_name, 'D', fc.data_path, fc.array_index)
+                if mute:
+                    if key not in _helper_saved_mutes:
+                        _helper_saved_mutes[key] = fc.mute
+                    fc.mute = True
+                else:
+                    fc.mute = _helper_saved_mutes.pop(key, False)
+
+
+def _temp_unmute_helper(arm_ob, bone_name: str) -> None:
+    """Directly unmute constraints and drivers on a helper bone WITHOUT
+    touching saved-state dicts. Used during cache building so frame_set
+    captures their effect, while saved states from a previous mute are preserved."""
+    pb = arm_ob.pose.bones.get(bone_name)
+    if pb:
+        for c in pb.constraints:
+            c.mute = False
+    anim = arm_ob.animation_data
+    if anim:
+        prefix = f'pose.bones["{bone_name}"].'
+        for fc in anim.drivers:
+            if fc.data_path.startswith(prefix):
+                fc.mute = False
+
+
+def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene) -> list:
+    """Sample trigger-target pairs from the action by evaluating the scene at each
+    driver bone keyframe frame. Returns list of (driver_quat, helper_quat)."""
+    global _building_proc_cache
+    if _building_proc_cache:
+        return []
+
+    action = entry.action
+    if not action:
+        return []
+
+    anim = arm_ob.animation_data
+    if anim is None:
+        return []
+
+    # Get keyframe times from driver bone's channels in the action
+    fcurves = _get_action_fcurves(action, entry.action_slot_name)
+    frames  = _bone_keyframes(fcurves, entry.driver_bone)
+
+    # Find per-trigger tolerance fcurve once; avoids re-driving edit bone props per frame.
+    _tol_dp = f'bones["{entry.driver_bone}"].vs.proc_tolerance'
+    _tol_fc = next((fc for fc in fcurves
+                    if fc.data_path == _tol_dp and fc.array_index == 0), None)
+
+    # Fallback: sample every integer frame in the action's frame range
+    if not frames:
+        try:
+            fr = action.frame_range
+            start, end = int(fr.x), int(fr.y)
+            frames = list(range(start, min(end + 1, start + 51)))
+        except Exception:
+            pass
+
+    if not frames:
+        print(f"[ProcBones] No keyframes found for driver bone '{entry.driver_bone}' "
+              f"in action '{action.name}' (slot '{entry.action_slot_name}')")
+        return []
+
+    # Resolve target slot for assignment
+    is_legacy     = getattr(action, 'is_action_legacy', True)
+    target_slot   = None if is_legacy else _find_action_slot(action, entry.action_slot_name)
+
+    # Save state
+    orig_frame   = scene.frame_current
+    orig_action  = anim.action
+    orig_use_nla = anim.use_nla
+    orig_slot_handle = getattr(anim, 'action_slot_handle', None)
+
+    was_overridden = (arm_ob.name, entry.helper_bone) in _overridden_helpers
+    # Snapshot the current pose so it can be restored exactly after cache build.
+    # The identity-then-frame_set approach in the finally block only restores
+    # keyframed bones; this snapshot preserves manually posed (non-keyframed) bones.
+    saved_pose = {pb.name: pb.matrix_basis.copy() for pb in arm_ob.pose.bones}
+
+    _building_proc_cache = True
+    try:
+        # Unmute constraints/drivers on the helper so frame_set captures their
+        # effect. If sim was already running (was_overridden), saved states are
+        # preserved in _helper_saved_mutes - _temp_unmute_helper doesn't touch them.
+        _temp_unmute_helper(arm_ob, entry.helper_bone)
+
+        anim.use_nla = False
+        anim.action  = action
+        if target_slot is not None:
+            try:
+                anim.action_slot_handle = target_slot.handle
+            except AttributeError:
+                try:
+                    anim.action_slot = target_slot
+                except Exception:
+                    pass
+
+        triggers = []
+        for frame in frames:
+            scene.frame_set(int(frame), subframe=frame - int(frame))
+            d_pb = arm_ob.pose.bones.get(entry.driver_bone)
+            h_pb = arm_ob.pose.bones.get(entry.helper_bone)
+            if d_pb and h_pb:
+                dq = d_pb.matrix_basis.to_quaternion().normalized()
+                # Read the full constraint/driver-evaluated pose in local space.
+                h_local = arm_ob.convert_space(
+                    pose_bone=h_pb, matrix=h_pb.matrix,
+                    from_space='POSE', to_space='LOCAL')
+                hloc = h_local.to_translation()
+                hq   = h_local.to_quaternion().normalized()
+                tol = (_tol_fc.evaluate(frame) if _tol_fc is not None
+                       else d_pb.bone.vs.proc_tolerance)
+                triggers.append((dq, hloc, hq, tol))
+    finally:
+        anim.action  = orig_action
+        anim.use_nla = orig_use_nla
+        if orig_slot_handle is not None:
+            try:
+                anim.action_slot_handle = orig_slot_handle
+            except Exception:
+                pass
+        # Restore the pre-build pose. frame_set re-evaluates the original action
+        # and updates scene.frame_current; the snapshot then restores ALL bones
+        # (including non-keyframed ones that frame_set would leave at identity).
+        scene.frame_set(orig_frame)
+        for pb in arm_ob.pose.bones:
+            if pb.name in saved_pose:
+                pb.matrix_basis = saved_pose[pb.name]
+        # Re-mute the helper if it was already overridden before this build.
+        if was_overridden:
+            _set_helper_mute(arm_ob, entry.helper_bone, True)
+        _building_proc_cache = False
+
+    print(f"[ProcBones] Cached {len(triggers)} triggers for '{entry.helper_bone}' "
+          f"driven by '{entry.driver_bone}' via '{action.name}'")
+    return triggers
+
+
+def invalidate_proc_cache(arm_name: str) -> None:
+    for k in [k for k in _proc_trigger_cache if k[0] == arm_name]:
+        del _proc_trigger_cache[k]
+    # Restore overrides so the next cache build can sample with constraints/drivers active.
+    arm_ob = bpy.data.objects.get(arm_name)
+    for key in [k for k in _overridden_helpers if k[0] == arm_name]:
+        if arm_ob and arm_ob.pose:
+            _set_helper_mute(arm_ob, key[1], False)
+        _overridden_helpers.discard(key)
+
+
+_AXIS_TO_VEC = {
+    '+X': Vector(( 1,  0,  0)), '+Y': Vector(( 0,  1,  0)), '+Z': Vector(( 0,  0,  1)),
+    '-X': Vector((-1,  0,  0)), '-Y': Vector(( 0, -1,  0)), '-Z': Vector(( 0,  0, -1)),
+}
+
+
+def _axis_to_vec(axes) -> Vector:
+    if isinstance(axes, str):
+        return _AXIS_TO_VEC.get(axes, Vector((1.0, 0.0, 0.0)))
+    result = Vector((0.0, 0.0, 0.0))
+    for a in axes:
+        result += _AXIS_TO_VEC.get(a, Vector((0.0, 0.0, 0.0)))
+    return result.normalized() if result.length > 1e-9 else Vector((1.0, 0.0, 0.0))
+
+
+def _sim_lookat_entry(arm_ob, entry, is_s2: bool, arm_world_inv: Matrix) -> None:
+    helper_pb = arm_ob.pose.bones.get(entry.helper_bone)
+    driver_pb = arm_ob.pose.bones.get(entry.driver_bone)
+    if not helper_pb or not driver_pb:
+        return
+
+    anim_world, goal_world = _get_animated_goal(arm_ob, helper_pb, arm_world_inv)
+    anim_rot      = anim_world.to_3x3()
+    goal_rot      = goal_world.to_3x3()
+    helper_base   = anim_world.to_translation()
+
+    # Aim and up vectors: local bone space -> world space, via goal_world so that
+    # the bone's export rotation offset is respected (mirrors the jiggle bone pattern
+    # which uses _col(goal_world, fwd_col) for the same reason).
+    aim_local     = _axis_to_vec(getattr(entry, 'lookat_aim_axis', '+X'))
+    up_local      = _axis_to_vec(getattr(entry, 'lookat_up_axis',  '+Z'))
+    aim_world_cur = (goal_rot @ aim_local).normalized()
+    up_world_cur  = (goal_rot @ up_local).normalized()
+
+    # Driver bone: use pb.matrix (actual animated pose, not rest-pose reconstruction)
+    # then apply the same export rotation offset that _get_animated_goal would add.
+    # NOTE: _get_animated_goal must NOT be used here it rebuilds from bone.matrix_local
+    # (rest pose), giving wrong positions whenever the driver bone is animated/posed. too bad!
+    driver_key = (arm_ob.name, entry.driver_bone)
+    if driver_key in _tick_sim_world:
+        driver_mat = _tick_sim_world[driver_key]
+    else:
+        driver_mat = arm_ob.matrix_world @ driver_pb.matrix @ _get_export_offset_mat(driver_pb)
+
+    off = getattr(entry, 'lookat_offset', None)
+    if off is not None:
+        target_pos = (driver_mat @ Vector((off[0], off[1], off[2], 1.0))).to_3d()
+    else:
+        target_pos = driver_mat.to_translation()
+
+    aim_dir = target_pos - helper_base
+    if aim_dir.length > 1e-6:
+        aim_dir = aim_dir.normalized()
+    else:
+        aim_dir = aim_world_cur.copy()
+
+    # Primary rotation: align aim axis -> desired aim direction
+    r1          = aim_world_cur.rotation_difference(aim_dir)
+    up_after_r1 = (r1.to_matrix() @ up_world_cur).normalized()
+
+    # Secondary rotation: twist around aim_dir to keep up axis near world Z
+    world_up      = Vector((0.0, 0.0, 1.0))
+    up_proj       = up_after_r1 - aim_dir * up_after_r1.dot(aim_dir)
+    world_up_proj = world_up    - aim_dir * world_up.dot(aim_dir)
+
+    if up_proj.length > 1e-6 and world_up_proj.length > 1e-6:
+        r2 = up_proj.normalized().rotation_difference(world_up_proj.normalized())
+    else:
+        r2 = Quaternion()
+
+    new_rot   = ((r2.to_matrix() @ r1.to_matrix()) @ anim_rot).normalized()
+    new_world = new_rot.to_4x4()
+    new_world.translation = helper_base
+
+    _tick_sim_world[(arm_ob.name, helper_pb.name)] = new_world
+    pose_mat = arm_world_inv @ new_world
+    pb = helper_pb
+    if pb.parent:
+        parent_key = (arm_ob.name, pb.parent.name)
+        parent_pose = (arm_world_inv @ _tick_sim_world[parent_key]
+                       if parent_key in _tick_sim_world else pb.parent.matrix)
+        bone_rest = pb.parent.bone.matrix_local.inverted_safe() @ pb.bone.matrix_local
+        local_mat = (parent_pose @ bone_rest).inverted_safe() @ pose_mat
+    else:
+        local_mat = pb.bone.matrix_local.inverted_safe() @ pose_mat
+    helper_pb.matrix_basis = local_mat.to_3x3().to_4x4()
+
+
+def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> None:
+    jiggle_helpers: set[str] = {
+        pb.name for pb in arm_ob.pose.bones if pb.bone.vs.bone_is_jigglebone
+    }
+    seen_helpers: set[str] = set()
+
+    for entry_idx, entry in enumerate(arm_ob.data.vs.proc_bones):
+        is_lookat = getattr(entry, 'proc_type', 'TRIGGER') == 'LOOKAT'
+        if not entry.helper_bone or not entry.driver_bone:
+            continue
+        if not is_lookat and not entry.action:
+            continue
+        if entry.helper_bone not in arm_ob.pose.bones:
+            continue
+        if entry.driver_bone not in arm_ob.pose.bones:
+            continue
+        if entry.helper_bone in jiggle_helpers:
+            continue
+
+        # First entry for a given helper wins; warn once on subsequent duplicates.
+        if entry.helper_bone in seen_helpers:
+            if not is_lookat:
+                cache_key = (arm_ob.name, entry_idx,
+                             entry.action.name, entry.action_slot_name)
+                if cache_key not in _proc_trigger_cache:
+                    print(f"[ProcBones] Warning: helper '{entry.helper_bone}' in entry "
+                          f"{entry_idx} is already controlled by an earlier entry - skipping")
+                    _proc_trigger_cache[cache_key] = []
+            continue
+        seen_helpers.add(entry.helper_bone)
+
+        if is_lookat:
+            _sim_lookat_entry(arm_ob, entry, is_s2, arm_world_inv)
+            continue
+
+        cache_key = (arm_ob.name, entry_idx,
+                     entry.action.name, entry.action_slot_name)
+        if cache_key not in _proc_trigger_cache:
+            if _building_proc_cache:
+                continue
+            _proc_trigger_cache[cache_key] = _build_proc_triggers(
+                arm_ob, entry, entry_idx, scene)
+
+        triggers = _proc_trigger_cache[cache_key]
+        if not triggers:
+            continue
+
+        # Mute constraints and driver fcurves on the helper so our matrix_basis
+        # write is the final result. Called every tick - undo can restore c.mute
+        # to its original value (undo stack is Blender data, not our Python dicts),
+        # so we re-assert the mute each tick to catch that case.
+        # _set_helper_mute saves original state only once (key not in dict guard),
+        # so repeated calls are safe and don't overwrite the saved value.
+        override_key = (arm_ob.name, entry.helper_bone)
+        _set_helper_mute(arm_ob, entry.helper_bone, True)
+        _overridden_helpers.add(override_key)
+
+        driver_pb    = arm_ob.pose.bones[entry.driver_bone]
+        current_quat = driver_pb.matrix_basis.to_quaternion().normalized()
+
+        weights = []
+        for trig_q, _loc, _rot, trig_tol in triggers:
+            dot   = abs(current_quat.dot(trig_q))
+            dot   = max(-1.0, min(1.0, dot))
+            angle = 2.0 * math.acos(dot)
+            weights.append(max(0.0, 1.0 - angle / trig_tol))
+
+        total = sum(weights)
+        if total <= 1e-4:
+            blended_loc = Vector(triggers[0][1])
+            blended_rot = Quaternion(triggers[0][2])
+        else:
+            blended_loc = Vector((0.0, 0.0, 0.0))
+            blended_rot = Quaternion((0.0, 0.0, 0.0, 0.0))
+            for w, (_drv, tloc, trot, _tol) in zip(weights, triggers):
+                nw = w / total
+                blended_loc        += nw * tloc
+                blended_rot.x      += nw * trot.x
+                blended_rot.y      += nw * trot.y
+                blended_rot.z      += nw * trot.z
+                blended_rot.w      += nw * trot.w
+            blended_rot.normalize()
+
+        helper_pb = arm_ob.pose.bones[entry.helper_bone]
+        mat = blended_rot.to_matrix().to_4x4()
+        mat.translation = blended_loc
+        helper_pb.matrix_basis = mat
+
+
 # -- Armature-level simulation -------------------------------------------------
 
-def simulate_armature(arm_ob, scene, dt: float) -> None:
-    if not arm_ob.pose:
+def simulate_armature(arm_ob, scene, dt: float, skip_selected: bool = False) -> None:
+    if not arm_ob.pose or _building_proc_cache:
         return
     _tick_sim_world.clear()
-    is_s2     = _is_source2(scene)
-    jiggle_pbs = [pb for pb in arm_ob.pose.bones
-                  if pb.bone.vs.bone_is_jigglebone]
-    jiggle_pbs.sort(key=_bone_depth)
-    for pb in jiggle_pbs:
+    is_s2 = _is_source2(scene)
+    arm_world_inv = arm_ob.matrix_world.inverted_safe()
+
+    if getattr(scene.vs, 'sim_jiggle_bones', True):
+        arm_name = arm_ob.name
+        if arm_name not in _jiggle_bone_cache:
+            pbs = [pb for pb in arm_ob.pose.bones if pb.bone.vs.bone_is_jigglebone]
+            pbs.sort(key=_bone_depth)
+            _jiggle_bone_cache[arm_name] = [pb.name for pb in pbs]
+        jiggle_pbs = [arm_ob.pose.bones[n] for n in _jiggle_bone_cache[arm_name]
+                      if n in arm_ob.pose.bones]
+        # In Pose Mode, selected jiggle bones are skipped so the user can pose
+        # them manually. Stale detection resumes sim cleanly after deselection.
+        if skip_selected and bpy.context.mode == 'POSE':
+            jiggle_pbs = [pb for pb in jiggle_pbs if not pb.bone.select]
+        for pb in jiggle_pbs:
+            try:
+                _sim_bone(arm_ob, pb, dt, is_s2, arm_world_inv)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+
+    if getattr(scene.vs, 'sim_proc_bones', True):
         try:
-            _sim_bone(arm_ob, pb, dt, is_s2)
+            _sim_proc_entries(arm_ob, scene, is_s2, arm_world_inv)
         except Exception:
             import traceback
             traceback.print_exc()
@@ -443,9 +884,35 @@ def simulate_armature(arm_ob, scene, dt: float) -> None:
 def reset_state(arm_ob=None) -> None:
     if arm_ob is None:
         _states.clear()
+        _proc_trigger_cache.clear()
+        _jiggle_bone_cache.clear()
+        _sim_arm_cache.clear()
+        for arm_name, bone_name in list(_overridden_helpers):
+            ob = bpy.data.objects.get(arm_name)
+            if ob and ob.pose:
+                _set_helper_mute(ob, bone_name, False)
+        _overridden_helpers.clear()
+        _helper_saved_mutes.clear()
     else:
         for k in [k for k in _states if k[0] == arm_ob.name]:
             del _states[k]
+        _jiggle_bone_cache.pop(arm_ob.name, None)
+        invalidate_proc_cache(arm_ob.name)  # also restores overrides for this arm
+
+
+# -- Armature candidate cache --------------------------------------------------
+
+def _rebuild_sim_arm_cache(scene) -> list[str]:
+    """Scan scene once and cache names of armatures that have jiggle/proc bones."""
+    names = []
+    for ob in scene.objects:
+        if ob.type != 'ARMATURE' or not ob.pose:
+            continue
+        if (any(pb.bone.vs.bone_is_jigglebone for pb in ob.pose.bones)
+                or ob.data.vs.proc_bones):
+            names.append(ob.name)
+    _sim_arm_cache[scene.name] = names
+    return names
 
 
 # -- Timer (real-time viewport simulation) -------------------------------------
@@ -478,14 +945,13 @@ def _timer_callback():
         for scene in bpy.data.scenes:
             if not getattr(scene.vs, 'jiggle_sim_enabled', False):
                 continue
-            for ob in scene.objects:
-                if ob.type == 'ARMATURE' and ob.pose and not ob.hide_render and ob.visible_get():
-                    simulate_armature(ob, scene, dt)
-
-        for window in ctx.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
+            arm_names = _sim_arm_cache.get(scene.name)
+            if arm_names is None:
+                arm_names = _rebuild_sim_arm_cache(scene)
+            for arm_name in arm_names:
+                ob = bpy.data.objects.get(arm_name)
+                if ob and ob.pose and not ob.hide_render and ob.visible_get():
+                    simulate_armature(ob, scene, dt, skip_selected=True)
 
     except Exception:
         import traceback
@@ -517,8 +983,12 @@ def _frame_change_post(scene, depsgraph):
         return
     fps = scene.render.fps / scene.render.fps_base
     dt  = 1.0 / fps
-    for ob in scene.objects:
-        if ob.type == 'ARMATURE' and ob.pose and not ob.hide_render and ob.visible_get():
+    arm_names = _sim_arm_cache.get(scene.name)
+    if arm_names is None:
+        arm_names = _rebuild_sim_arm_cache(scene)
+    for arm_name in arm_names:
+        ob = bpy.data.objects.get(arm_name)
+        if ob and ob.pose and not ob.hide_render and ob.visible_get():
             simulate_armature(ob, scene, dt)
 
 
@@ -538,19 +1008,42 @@ def _restore_jiggle_bones() -> None:
             for pb in ob.pose.bones:
                 if pb.bone.vs.bone_is_jigglebone:
                     pb.matrix_basis = Matrix.Identity(4)
-    try:
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-    except Exception:
-        pass
+            proc_bone_names = {e.helper_bone for e in ob.data.vs.proc_bones
+                               if e.helper_bone}
+            for pb in ob.pose.bones:
+                if pb.name in proc_bone_names:
+                    # Restore constraints/drivers before clearing matrix_basis
+                    # so Blender re-evaluates them naturally on the next tick.
+                    override_key = (ob.name, pb.name)
+                    if override_key in _overridden_helpers:
+                        _set_helper_mute(ob, pb.name, False)
+                        _overridden_helpers.discard(override_key)
+                    pb.matrix_basis = Matrix.Identity(4)
+
+
+# -- Depsgraph handler (cache invalidation) ------------------------------------
+
+@bpy.app.handlers.persistent
+def _depsgraph_update(scene, depsgraph):
+    """Invalidate bone/armature caches when rig data changes.
+
+    Armature data-block updates (bone additions/removals, property changes)
+    are rare in normal use and only happen when the user edits the rig, so
+    clearing both caches here is safe and doesn't fire during animation playback.
+    """
+    for update in depsgraph.updates:
+        if isinstance(update.id, bpy.types.Armature):
+            _jiggle_bone_cache.clear()
+            _sim_arm_cache.pop(scene.name, None)
+            break
 
 
 # -- Property update callback --------------------------------------------------
 
 def on_sim_enabled_changed(props, context):
     if props.jiggle_sim_enabled:
+        _proc_trigger_cache.clear()
+        _sim_arm_cache.clear()
         _start_timer()
     else:
         _stop_timer()
@@ -597,6 +1090,10 @@ def register() -> None:
         if getattr(fn, '__module__', '').endswith('procbones_sim'):
             bpy.app.handlers.save_post.remove(fn)
     bpy.app.handlers.save_post.append(_save_post)
+    for fn in bpy.app.handlers.depsgraph_update_post[:]:
+        if getattr(fn, '__module__', '').endswith('procbones_sim'):
+            bpy.app.handlers.depsgraph_update_post.remove(fn)
+    bpy.app.handlers.depsgraph_update_post.append(_depsgraph_update)
 
 
 def unregister() -> None:
@@ -608,3 +1105,5 @@ def unregister() -> None:
         bpy.app.handlers.save_pre.remove(_save_pre)
     if _save_post in bpy.app.handlers.save_post:
         bpy.app.handlers.save_post.remove(_save_post)
+    if _depsgraph_update in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_depsgraph_update)

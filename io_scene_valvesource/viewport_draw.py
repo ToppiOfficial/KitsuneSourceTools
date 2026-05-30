@@ -5,11 +5,12 @@ import bpy
 import gpu
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector
-from .utils import get_bone_matrix, is_armature, is_mesh_compatible
+from mathutils import Matrix, Vector
+from .utils import get_bone_matrix, get_id, is_armature, is_mesh_compatible
 
 _handle          = None
 _handle_2d       = None
+_hud_handle      = None
 _edgeline_handle = None
 _edgeline_cache: dict    = {}   # ob.session_uid -> (cache_key, [(color, verts)])
 _edgeline_mesh_map: dict = {}   # mesh.session_uid -> ob.session_uid (for weight-paint invalidation)
@@ -17,6 +18,7 @@ _edgeline_last_mode: str = ''   # previous context.mode, used to detect pose-mod
 _edgeline_depsgraph_handle = None
 _EDGELINE_THICK_CLAMP = 3.5   # mirrors solid.thickness_clamp in EdgelineBuilder
 _label_queue: list       = []
+_proc_label_queue: list  = []
 
 
 def _is_source2(context):
@@ -250,6 +252,7 @@ _COLOR_BASE_SPRING  = (0.2, 0.9, 0.9)
 
 
 def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
+    scevs = bpy.context.scene.vs
     jvs  = pb.bone.vs
     x_ax = Vector((ghost_mat[0][0], ghost_mat[1][0], ghost_mat[2][0])).normalized()
     y_ax = Vector((ghost_mat[0][1], ghost_mat[1][1], ghost_mat[2][1])).normalized()
@@ -277,6 +280,9 @@ def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
     has_base_spring = jvs.jiggle_base_type == 'BASESPRING'
 
     if not has_angle and not has_yaw and not has_pitch and not has_length and not has_base_spring:
+        return
+    
+    if not scevs.preview_jigglebone_constraints:
         return
 
     display_len = (pb.bone.length if jvs.use_bone_length_for_jigglebone_length else (
@@ -389,7 +395,7 @@ def _draw_ghost_axes(shader, context, ghost_mat, bone_length):
 
 
 def _draw_labels_2d():
-    if not _label_queue:
+    if not _label_queue and not _proc_label_queue:
         return
     try:
         dm        = 8
@@ -409,10 +415,107 @@ def _draw_labels_2d():
             w, h = blf.dimensions(0, text)
             blf.position(0, x - w * 0.5, y + dm + 4, 0)
             blf.draw(0, text)
+        for x, y, r, g, b, text in _proc_label_queue:
+            blf.size(0, 13)
+            blf.color(0, r, g, b, 1.0)
+            w, h = blf.dimensions(0, text)
+            blf.position(0, x - w * 0.5, y + 4, 0)
+            blf.draw(0, text)
         gpu.state.blend_set('NONE')
     except Exception:
         pass
     _label_queue.clear()
+    _proc_label_queue.clear()
+
+
+# -- Procedural bone preview ----------------------------------------------------
+
+_COLOR_LOOKAT_HELPER = (0.2, 0.75, 1.0)   # cyan  - the bone doing the aiming
+_COLOR_LOOKAT_TARGET = (1.0, 0.55, 0.1)   # orange - the aim target point
+
+
+def _draw_active_proc_bone_preview(shader, context, ob):
+    avs = getattr(ob.data, 'vs', None)
+    if avs is None:
+        return
+    idx = avs.proc_bones_index
+    if idx < 0 or idx >= len(avs.proc_bones):
+        return
+
+    entry = avs.proc_bones[idx]
+    if getattr(entry, 'proc_type', 'TRIGGER') != 'LOOKAT':
+        return
+    if not entry.helper_bone or not entry.driver_bone:
+        return
+
+    helper_pb = ob.pose.bones.get(entry.helper_bone)
+    driver_pb = ob.pose.bones.get(entry.driver_bone)
+    if not driver_pb:
+        return
+
+    region = context.region
+    rv3d   = context.region_data
+    hr, hg, hb = _COLOR_LOOKAT_HELPER
+    tr, tg, tb = _COLOR_LOOKAT_TARGET
+
+    bvs = driver_pb.bone.vs
+    if not bvs.ignore_rotation_offset:
+        rot_off = (Matrix.Rotation(bvs.export_rotation_offset_z, 4, 'Z') @
+                   Matrix.Rotation(bvs.export_rotation_offset_y, 4, 'Y') @
+                   Matrix.Rotation(bvs.export_rotation_offset_x, 4, 'X'))
+        driver_mat = ob.matrix_world @ driver_pb.matrix @ rot_off
+    else:
+        driver_mat = ob.matrix_world @ driver_pb.matrix
+    arm_scale  = Vector((driver_mat[0][0], driver_mat[1][0], driver_mat[2][0])).length
+    off        = getattr(entry, 'lookat_offset', None)
+    has_offset = off is not None and not (abs(off[0]) < 1e-9 and abs(off[1]) < 1e-9 and abs(off[2]) < 1e-9)
+
+    if has_offset:
+        aim_target  = (driver_mat @ Vector((off[0], off[1], off[2], 1.0))).to_3d()
+        driver_head = driver_mat.to_translation()
+        gpu.state.line_width_set(1.5)
+        shader.uniform_float('color', (tr, tg, tb, 0.6))
+        batch_for_shader(shader, 'LINES', {'pos': [driver_head, aim_target]}).draw(shader)
+    else:
+        aim_target = driver_mat.to_translation()
+
+    # Aim direction line: helper -> aim target (neutral white)
+    if helper_pb:
+        helper_mat  = ob.matrix_world @ helper_pb.matrix
+        helper_head = helper_mat.to_translation()
+        gpu.state.line_width_set(1.0)
+        shader.uniform_float('color', (0.9, 0.9, 0.9, 0.35))
+        batch_for_shader(shader, 'LINES', {'pos': [helper_head, aim_target]}).draw(shader)
+
+        # Cyan crosshair at helper bone head
+        h_scale = Vector((helper_mat[0][0], helper_mat[1][0], helper_mat[2][0])).length
+        hs = helper_pb.bone.length * h_scale * 0.07
+        gpu.state.line_width_set(2.0)
+        shader.uniform_float('color', (hr, hg, hb, 0.9))
+        batch_for_shader(shader, 'LINES', {'pos': [
+            helper_head + Vector(( hs,   0,   0)), helper_head + Vector((-hs,   0,   0)),
+            helper_head + Vector((  0,  hs,   0)), helper_head + Vector((  0, -hs,   0)),
+            helper_head + Vector((  0,   0,  hs)), helper_head + Vector((  0,   0, -hs)),
+        ]}).draw(shader)
+
+        pos_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, helper_head)
+        if pos_2d:
+            _proc_label_queue.append((pos_2d.x + 6, pos_2d.y + 6, hr, hg, hb, entry.helper_bone))
+
+    # Orange crosshair at aim target
+    s = driver_pb.bone.length * arm_scale * 0.09
+    gpu.state.line_width_set(2.0)
+    shader.uniform_float('color', (tr, tg, tb, 1.0))
+    batch_for_shader(shader, 'LINES', {'pos': [
+        aim_target + Vector(( s,  0,  0)), aim_target + Vector((-s,  0,  0)),
+        aim_target + Vector(( 0,  s,  0)), aim_target + Vector(( 0, -s,  0)),
+        aim_target + Vector(( 0,  0,  s)), aim_target + Vector(( 0,  0, -s)),
+    ]}).draw(shader)
+
+    pos_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, aim_target)
+    if pos_2d:
+        label = entry.driver_bone + (" + offset" if has_offset else "")
+        _proc_label_queue.append((pos_2d.x + 6, pos_2d.y + 6, tr, tg, tb, label))
 
 
 # -- Main draw callback ---------------------------------------------------------
@@ -446,11 +549,26 @@ def _draw_export_pose_preview():
 
         if context.mode != 'POSE':
             return
-        
+
         ob = context.active_object
         if not ob or not is_armature(ob):
             return
-        preview_pose = context.scene.vs.preview_export_pose
+
+        scvs = context.scene.vs
+
+        if scvs.preview_proc_bones:
+            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_test_set('ALWAYS')
+            gpu.state.face_culling_set('NONE')
+            shader.bind()
+            _draw_active_proc_bone_preview(shader, context, ob)
+            gpu.state.face_culling_set('NONE')
+            gpu.state.blend_set('NONE')
+            gpu.state.depth_test_set('NONE')
+            gpu.state.line_width_set(1.0)
+
+        preview_pose = scvs.preview_export_pose
         if not context.selected_pose_bones:
             return
 
@@ -760,13 +878,82 @@ def _draw_edgeline_preview():
         import traceback; traceback.print_exc()
 
 
+def _draw_sim_hud():
+    try:
+        context = bpy.context
+        if not getattr(getattr(context.scene, 'vs', None), 'jiggle_sim_enabled', False):
+            return
+
+        region = context.region
+        cx     = region.width // 2
+
+        lines = [
+            get_id('label_sim_gizmo_disabled',    format_string=True),
+            get_id('label_sim_gizmo_disabled_2',  format_string=True),
+            get_id('label_sim_keyframe_warning',  format_string=True),
+            get_id('label_sim_keyframe_warning_2', format_string=True),
+        ]
+
+        font_id    = 0
+        font_size  = 12
+        pad        = 7
+        gap        = 3
+        group_gap  = 9
+        y_base     = 16
+
+        blf.size(font_id, font_size)
+        # Split into two groups: gizmo (first 2) and keyframe (last 2)
+        group1 = lines[:2]
+        group2 = lines[2:]
+        dims1  = [blf.dimensions(font_id, l) for l in group1]
+        dims2  = [blf.dimensions(font_id, l) for l in group2]
+        all_dims = dims1 + dims2
+        max_w   = max(w for w, h in all_dims)
+        total_h = (sum(h for _, h in dims2) + gap * (len(dims2) - 1) +
+                   group_gap +
+                   sum(h for _, h in dims1) + gap * (len(dims1) - 1))
+
+        box_x0 = cx - max_w * 0.5 - pad
+        box_x1 = cx + max_w * 0.5 + pad
+        box_y0 = y_base - pad
+        box_y1 = y_base + total_h + pad
+
+        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        gpu.state.blend_set('ALPHA')
+        shader.bind()
+        shader.uniform_float('color', (0.05, 0.05, 0.05, 0.68))
+        batch_for_shader(shader, 'TRIS', {'pos': [
+            (box_x0, box_y0), (box_x1, box_y0), (box_x1, box_y1),
+            (box_x0, box_y0), (box_x1, box_y1), (box_x0, box_y1),
+        ]}).draw(shader)
+
+        blf.color(font_id, 1.0, 0.88, 0.55, 0.90)
+        y = y_base
+        for text, (w, h) in zip(reversed(group2), reversed(dims2)):
+            blf.position(font_id, cx - w * 0.5, y, 0)
+            blf.draw(font_id, text)
+            y += h + gap
+        y += group_gap - gap  # extra space between groups
+        for text, (w, h) in zip(reversed(group1), reversed(dims1)):
+            blf.position(font_id, cx - w * 0.5, y, 0)
+            blf.draw(font_id, text)
+            y += h + gap
+
+        gpu.state.blend_set('NONE')
+    except Exception:
+        pass
+
+
 def register_draw_handler():
-    global _handle, _handle_2d, _edgeline_handle, _edgeline_depsgraph_handle
+    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle
     if _handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
         except Exception: pass
     if _handle_2d is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle_2d, 'WINDOW')
+        except Exception: pass
+    if _hud_handle is not None:
+        try: bpy.types.SpaceView3D.draw_handler_remove(_hud_handle, 'WINDOW')
         except Exception: pass
     if _edgeline_handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_edgeline_handle, 'WINDOW')
@@ -782,6 +969,9 @@ def register_draw_handler():
     _handle_2d = bpy.types.SpaceView3D.draw_handler_add(
         _draw_labels_2d, (), 'WINDOW', 'POST_PIXEL'
     )
+    _hud_handle = bpy.types.SpaceView3D.draw_handler_add(
+        _draw_sim_hud, (), 'WINDOW', 'POST_PIXEL'
+    )
     _edgeline_handle = bpy.types.SpaceView3D.draw_handler_add(
         _draw_edgeline_preview, (), 'WINDOW', 'POST_VIEW'
     )
@@ -790,7 +980,7 @@ def register_draw_handler():
 
 
 def unregister_draw_handler():
-    global _handle, _handle_2d, _edgeline_handle, _edgeline_depsgraph_handle
+    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle
     if _handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
         except Exception: pass
@@ -799,6 +989,10 @@ def unregister_draw_handler():
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle_2d, 'WINDOW')
         except Exception: pass
         _handle_2d = None
+    if _hud_handle is not None:
+        try: bpy.types.SpaceView3D.draw_handler_remove(_hud_handle, 'WINDOW')
+        except Exception: pass
+        _hud_handle = None
     if _edgeline_handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_edgeline_handle, 'WINDOW')
         except Exception: pass

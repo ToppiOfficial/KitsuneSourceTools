@@ -1,0 +1,1277 @@
+import bpy, math
+from bpy.types import Panel, UILayout, Collection, PoseBone, Bone, EditBone
+from bpy.app.translations import pgettext
+from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh, is_empty,
+                     is_curve, is_mesh_compatible, modifier_compatible, vertex_maps, vertex_float_maps,
+                     cloth_map_groups, hasFlexControllerSource, get_armature, countShapes,
+                     MakeObjectIcon, get_active_exportable, get_valid_vertexanimation_object,
+                     get_bone_exportname, get_jigglebones, get_hitboxes, get_attachments,
+                     sanitize_string_for_delta)
+from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
+from ..import_smd import SmdImporter
+from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
+from .helpers import _mesh_type_allows, _ensure_cloth_remaps, _get_entry_proc_tol
+from .operators import (
+    SMD_OT_KitsuneResourceLoadEntries,
+    SMD_OT_AssignBoneRotExportOffset,
+    SMD_OT_AddFlexController,
+    SMD_OT_RemoveFlexController,
+    SMD_OT_MoveFlexController,
+    SMD_OT_PreviewFlexController,
+    SMD_OT_AddVertexAnimation,
+    SMD_OT_RemoveVertexAnimation,
+    SMD_OT_GenerateVertexAnimationQCSnippet,
+    SMD_OT_CreateVertexMap_idname,
+    SMD_OT_RemoveVertexMap_idname,
+    SMD_OT_SelectVertexMap_idname,
+    SMD_OT_CreateVertexFloatMap_idname,
+    SMD_OT_RemoveVertexFloatMap_idname,
+    SMD_OT_SelectVertexFloatMap_idname,
+)
+
+
+class Properties_Panel(Panel):
+    bl_label = 'sample_propertiessub'
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+
+
+class SMD_PT_ViewportSimulation(Panel):
+    bl_label = get_id('panel_viewport_simulation')
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        vs = context.scene.vs
+
+        box.label(text=get_id('label_simulate_jigglebones', format_string=True))
+        box.prop(context.scene.vs, 'jiggle_sim_enabled', toggle=True)
+        sub = box.column(align=True)
+        sub.prop(vs, 'sim_jiggle_bones')
+        sub.prop(vs, 'sim_proc_bones')
+        col = box.column(align=True)
+        col.enabled = vs.jiggle_sim_enabled
+        col.prop(vs, 'jiggle_sim_rate', slider=True)
+        col.operator('smd.reset_simulation', icon='FILE_REFRESH')
+
+        box2 = layout.box().column(align=True)
+        box2.label(text='Preview')
+        box2.prop(vs, 'preview_export_pose')
+        box2.prop(vs, 'preview_jigglebone_constraints')
+        box2.prop(vs, 'preview_proc_bones')
+        box2.prop(vs, 'preview_edgeline')
+        if vs.preview_edgeline:
+            if vs.jiggle_sim_enabled:
+                row = box2.row()
+                row.alert = True
+                row.label(text=get_id('warn_edgeline_jiggle_sim'), icon='PAUSE')
+            else:
+                row = box2.row()
+                row.alert = True
+                row.label(text=get_id('warn_edgeline_expensive'), icon='ERROR')
+                box2.label(text=get_id('warn_edgeline_approximate'), icon='INFO')
+                box2.label(text=get_id('warn_edgeline_smudging'))
+
+
+class SMD_PT_Scene(Panel):
+    bl_label = get_id("exportpanel_title")
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+
+    def draw(self, context) -> None:
+        l = self.layout
+        scene = context.scene
+
+        # Export
+        row = l.row(align=True)
+        row.scale_y = 1.5
+        row.operator(SmdImporter.bl_idname, text="Import", icon='IMPORT')
+        row.operator(SmdExporter.bl_idname, text="Export", icon='EXPORT')
+
+        box = l.box()
+        row = box.row()
+        row.alert = len(scene.vs.export_path) == 0
+        row.prop(scene.vs, "export_path")
+
+        row = box.row()
+        row.alert = len(scene.vs.engine_path) > 0 and State.compiler == Compiler.UNKNOWN
+        row.prop(scene.vs, "engine_path")
+
+        # Format
+
+        if State.datamodelEncoding != 0:
+            row = box.row().split(factor=0.33)
+            row.label(text=get_id("export_format", True) + ":")
+            row.row().prop(scene.vs, "export_format", expand=True)
+
+        if scene.vs.export_format == 'DMX':
+            if State.engineBranch is None:
+                row = box.split(factor=0.33)
+                row.label(text=get_id("exportpanel_dmxver"))
+                sub = row.row(align=True)
+                sub.prop(scene.vs, "dmx_encoding", text="")
+                sub.prop(scene.vs, "dmx_format", text="")
+                sub.enabled = not sub.alert
+            if State.exportFormat == ExportFormat.DMX:
+                col1 = box.column()
+                col1.scale_y = 1.2
+                col1.prop(scene.vs, "material_path")
+        else:
+            row = box.split(factor=0.33)
+            row.label(text=get_id("smd_format", True) + ":")
+            row.row().prop(scene.vs, "smd_format", expand=True)
+
+        #Scene
+
+        row = box.row().split(factor=0.33)
+        row.label(text=get_id("up_axis", True) + ":")
+        row.row().prop(scene.vs, "up_axis", expand=True)
+
+        row = box.row().split(factor=0.33)
+        row.label(text=get_id("up_axis_offset", True) + ":")
+        row.row().prop(scene.vs, "up_axis_offset", expand=True)
+
+        row = box.row().split(factor=0.33)
+        row.label(text=get_id("forward_axis", True) + ":")
+        row.row().prop(scene.vs, "forward_axis", expand=True)
+
+        row = box.row().split(factor=0.33)
+        row.label(text=get_id("world_scale", True) + ":")
+        row.row().prop(scene.vs, "world_scale")
+
+        # Mesh
+        row = box.row().split(factor=0.33)
+        row.label(text=get_id("weightlink_threshold", True) + ":")
+        row.row().prop(scene.vs, "weightlink_threshold", slider=True)
+
+        row = box.row().split(factor=0.33)
+        row.label(text=get_id("vertex_influence_limit_mode", True) + ":")
+        row.row().prop(scene.vs, "vertex_influence_limit_mode", expand=True)
+
+        if scene.vs.vertex_influence_limit_mode == 'MANUAL':
+            row = box.row().split(factor=0.33)
+            row.label(text=get_id("vertex_influence_limit", True) + ":")
+            row.row().prop(scene.vs, "vertex_influence_limit", slider=True)
+
+
+class SMD_PT_KitsuneResource(Panel):
+    bl_label = 'Kitsune Resource Compile'
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context) -> None:
+        l = self.layout
+        l.use_property_split = True
+        l.use_property_decorate = False
+        scene = context.scene
+        vs = scene.vs
+
+        col = l.column(align=True).row(align=True)
+        col.scale_y = 1.2
+        col.operator(KitsuneResourceCompile.bl_idname)
+
+        box = l.box()
+
+        col = box.column()
+        col.alert = len(vs.kitsuneresource_app_path) == 0
+        col.prop(vs, 'kitsuneresource_app_path')
+
+        col = box.column()
+        col.enabled = len(vs.kitsuneresource_app_path) > 0
+        col.prop(vs, 'kitsuneresource_config')
+
+        col = box.column()
+        col.enabled = len(vs.kitsuneresource_config) > 0
+        col.prop(vs, 'kitsuneresource_project_path')
+
+        col = box.column()
+        col.enabled = len(vs.kitsuneresource_app_path) > 0
+        col.row(align=True).prop(vs, 'kitsuneresource_flag_game_or_package', expand=True)
+
+        if vs.kitsuneresource_flag_game_or_package == 'PACKAGE':
+            col.prop(vs, 'kitsuneresource_flag_single_addon')
+            col.prop(vs, 'kitsuneresource_flag_no_mat_local')
+            col.prop(vs, 'kitsuneresource_flag_archive_old')
+
+        col.prop(vs, 'kitsuneresource_args', text=get_id('label_extra_args', True))
+
+        col = box.column()
+        col.enabled = len(vs.kitsuneresource_config) > 0
+        row = col.row()
+        col2 = row.column()
+        col2.template_list("SMD_UL_KitsuneResourceEntries", "", vs, "kitsuneresource_entries",
+                           vs, "kitsuneresource_entry_index", rows=6)
+        row.operator(SMD_OT_KitsuneResourceLoadEntries.bl_idname, text="", icon='FILE_REFRESH')
+
+
+class SMD_PT_Exportables(Panel):
+    bl_label = get_id('exportables_title')
+    bl_category = 'KitsuneSrcTool'
+    bl_region_type = 'UI'
+    bl_space_type = 'VIEW_3D'
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None
+
+    @classmethod
+    def get_item(cls, context):
+        active_exportable = get_active_exportable(context)
+        if not active_exportable:
+            return None
+        return active_exportable.item
+
+    @classmethod
+    def is_collection(cls, item):
+        return isinstance(item, Collection)
+
+    def draw(self, context) -> None:
+        layout = self.layout
+        active_object = context.object
+        item = self.get_item(context)
+        scene = context.scene
+
+        if item is not None:vs = item.vs
+        else: vs = None
+        if vs is not None: layout.column().prop(vs,"subdir",icon='FILE_FOLDER')
+
+        layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
+
+        if not item or not self.is_collection(item): return
+
+        if vs:
+            r = layout.row()
+            r.alignment = 'CENTER'
+            r.prop(vs, "mute")
+            if vs.mute:
+                return
+            elif State.exportFormat == ExportFormat.DMX:
+                r.prop(vs, "automerge")
+
+            if not vs.mute:
+                layout.template_list("SMD_UL_GroupItems", item.name, item, "objects", vs, "selected_item", columns=2, rows=2, maxrows=10)
+
+
+class SMD_PT_Armature(Properties_Panel):
+    bl_label = ''
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(get_armature(context.object))
+
+    def draw_header(self, context):
+        active_object = get_armature(context.object)
+        label = '{} ({})'.format(pgettext("Armature"), active_object.name) if active_object else pgettext("Armature")
+        self.layout.label(text=label, icon='ARMATURE_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = get_armature(context.object)
+
+        box = layout.box()
+        col = box.column()
+        col.prop(active_object.vs,"attachment_prefabfile")
+        col.prop(active_object.vs,"hitbox_prefabfile")
+        col.prop(active_object.vs,"jigglebone_prefabfile")
+        col.prop(active_object.vs,"procedural_prefabfile")
+
+
+class SMD_PT_ArmatureData(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Armature'
+
+    def draw_header(self, context):
+        self.layout.label(text='Armature Data', icon='ARMATURE_DATA')
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(get_armature(context.object))
+
+    def draw(self, context):
+        layout = self.layout
+        active_armature = get_armature(context.object)
+
+        box = layout.box()
+        col = box.column()
+        col.enabled = bool(State.exportFormat == ExportFormat.SMD)
+        col.prop(active_armature.data.vs,"implicit_zero_bone")
+
+        box = layout.box()
+        col = box.column(align=True)
+        col.prop(active_armature.data.vs, "ignore_bone_exportnames")
+        col.label(text=get_id('label_direction_naming', format_string=True))
+
+        row = col.row()
+        row.prop(active_armature.data.vs, 'bone_direction_naming_left', text='Left')
+        row.prop(active_armature.data.vs, 'bone_direction_naming_right', text='Right')
+
+        box.prop(active_armature.data.vs, 'bone_name_startcount', slider=True)
+
+
+class SMD_PT_Action(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Armature'
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(get_armature(context.object))
+
+    def draw_header(self, context):
+        active_object = get_armature(context.object)
+        label = '{} ({})'.format(pgettext("Action"), active_object.name) if active_object else pgettext("Action")
+        self.layout.label(text=label, icon='ACTION')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = get_armature(context.object)
+
+        box = layout.box()
+        col = box.column()
+        col.row().prop(active_object.data.vs, "action_selection", expand=True)
+        if active_object.data.vs.action_selection != 'CURRENT':
+            is_slot_filter = active_object.data.vs.action_selection == 'FILTERED'
+            col.prop(active_object.vs, "action_filter", text=get_id("slot_filter") if is_slot_filter else get_id("action_filter"))
+            col.prop(active_object.data.vs, "reset_pose_per_anim")
+
+
+class SMD_PT_ProcBones(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Armature'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(get_armature(context.object))
+
+    def draw_header(self, context):
+        arm_ob = get_armature(context.object)
+        count = len(arm_ob.data.vs.proc_bones) if arm_ob else 0
+        label = '{} ({})'.format(get_id('panel_proc_bones', True), count)
+        self.layout.label(text=label, icon='CONSTRAINT_BONE')
+
+    def draw(self, context):
+        layout = self.layout
+        arm_ob = get_armature(context.object)
+        arm_data = arm_ob.data
+        avs = arm_data.vs
+
+        row = layout.row()
+        row.template_list("SMD_UL_ProcBones", "", avs, "proc_bones",
+                          avs, "proc_bones_index", rows=3)
+        col = row.column(align=True)
+        col.operator("smd.proc_bone_add", icon='ADD', text='')
+        col.operator("smd.proc_bone_remove", icon='REMOVE', text='')
+        col.separator()
+        col.menu("SMD_MT_ProcBoneSpecials", icon='DOWNARROW_HLT', text='')
+
+        idx = avs.proc_bones_index
+        if 0 <= idx < len(avs.proc_bones):
+            entry = avs.proc_bones[idx]
+            box = layout.box()
+            row = box.row(align=True)
+            row.prop(entry, 'proc_type', expand=True)
+            box.prop_search(entry, 'helper_bone', arm_data, 'bones')
+            if entry.proc_type == 'TRIGGER':
+                box.prop_search(entry, 'driver_bone', arm_data, 'bones')
+                box.prop(entry, 'action')
+                if entry.action and not getattr(entry.action, 'is_action_legacy', True):
+                    box.prop_search(entry, 'action_slot_name', entry.action, 'slots',
+                                    text=get_id('prop_proc_bone_slot'))
+                if entry.driver_bone:
+                    driver_pb = arm_ob.pose.bones.get(entry.driver_bone)
+                    if driver_pb:
+                        tol_val = _get_entry_proc_tol(entry, context.scene.frame_current, arm_ob)
+                        box.operator("smd.proc_bone_set_tolerance",
+                                     text=f"{get_id('prop_pose_bone_proc_tolerance')}: "
+                                          f"{math.degrees(tol_val):.1f}°")
+            elif entry.proc_type == 'LOOKAT':
+                box.prop_search(entry, 'driver_bone', arm_data, 'bones',
+                                text=get_id('prop_proc_bone_lookat_target'))
+                col = box.column(align=True)
+
+                split = col.split(factor=0.22)
+                split.label(text=get_id('prop_proc_bone_lookat_aim_axis'))
+                split.row().prop(entry, 'lookat_aim_axis', expand=True)
+
+                split = col.split(factor=0.22)
+                split.label(text=get_id('prop_proc_bone_lookat_up_axis'))
+                split.row().prop(entry, 'lookat_up_axis', expand=True)
+
+                col.separator()
+
+                split = col.split(factor=0.30)
+                split.label(text=get_id('prop_proc_bone_lookat_offset'))
+                split.prop(entry, 'lookat_offset', text='')
+
+
+class SMD_PT_Bone(Properties_Panel):
+    bl_label = ''
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object) and isinstance(context.active_bone, (PoseBone, Bone))
+
+    def draw_header(self, context):
+        active_bone = context.active_bone
+        label = '{} ({})'.format(pgettext("Bone"), active_bone.name) if active_bone else pgettext("Bone")
+        self.layout.label(text=label, icon='BONE_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+
+
+class SMD_PT_BoneData(Properties_Panel):
+    bl_label = 'Bone Data'
+    bl_parent_id = 'SMD_PT_Bone'
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_bone = context.active_bone
+
+        box = layout.box()
+        col = box.column(align=True)
+
+        if isinstance(active_bone, PoseBone):
+            active_bone_vs = active_bone.bone.vs
+        else:
+            active_bone_vs = active_bone.vs
+
+        active_bone_exportname = get_bone_exportname(active_bone)
+        col.prop(active_bone.vs, 'export_name', placeholder=active_bone_exportname, text='')
+        col.separator()
+        col.prop(active_bone.vs, 'bone_sort_order', slider=True)
+        col.label(text='{}: {}'.format(get_id('label_export_name_format', True), active_bone_exportname))
+
+        split = box.split(factor=0.5)
+
+        col_left = split.column(align=True)
+        col_left.label(text=get_id('label_location_offset', format_string=True), icon='ORIENTATION_LOCAL')
+        col_left.prop(active_bone_vs, 'ignore_location_offset', text='Ignore', toggle=True)
+
+        sub1 = col_left.column(align=True)
+        sub1.active = not active_bone_vs.ignore_location_offset
+        sub1.prop(active_bone_vs, 'export_location_offset_x')
+        sub1.prop(active_bone_vs, 'export_location_offset_y')
+        sub1.prop(active_bone_vs, 'export_location_offset_z')
+
+        col_right = split.column(align=True)
+        col_right.label(text=get_id('label_rotation_offset', format_string=True), icon='ORIENTATION_GIMBAL')
+        col_right.prop(active_bone_vs, 'ignore_rotation_offset', text='Ignore', toggle=True)
+
+        sub2 = col_right.column(align=True)
+        sub2.active = not active_bone_vs.ignore_rotation_offset
+        sub2.prop(active_bone_vs, 'export_rotation_offset_x')
+        sub2.prop(active_bone_vs, 'export_rotation_offset_y')
+        sub2.prop(active_bone_vs, 'export_rotation_offset_z')
+
+        box.operator(SMD_OT_AssignBoneRotExportOffset.bl_idname)
+
+
+class SMD_PT_Jigglebones(Properties_Panel):
+    bl_label = get_id('panel_jigglebones')
+    bl_parent_id = 'SMD_PT_Bone'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return is_armature(context.object) and context.active_bone is not None and not isinstance(context.active_bone, EditBone)
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_armature = get_armature(active_object)
+        active_bone = context.active_bone
+
+        box = layout.box()
+        if active_bone and active_bone.select:
+            self.draw_jigglebone_properties(box, active_bone)
+        else:
+            box = box.box()
+            box.label(text=get_id('label_select_valid_bone', format_string=True), icon='ERROR')
+
+    def _draw_export_buttons(self, layout: UILayout, operator: str, scale_y: float = 1.25,
+                            clipboard_text= 'Write to Clipboard',
+                            file_text= 'Write to File',
+                            clipboard_icon= 'FILE_TEXT',
+                            file_icon= 'EXPORT') -> None:
+        """Draw standard export button pair (clipboard/file)."""
+        row = layout.row(align=True)
+        row.scale_y = scale_y
+        row.operator(operator, text=clipboard_text, icon=clipboard_icon).to_clipboard = True
+        row.operator(operator, text=file_text, icon=file_icon).to_clipboard = False
+
+    def draw_jigglebone_properties(self, layout: UILayout, bone: Bone) -> None:
+        vs_bone = bone.vs
+
+        box = layout
+        row = box.row()
+        row.prop(
+            vs_bone, 'bone_is_jigglebone',
+            toggle=True,
+            icon='DOWNARROW_HLT' if vs_bone.bone_is_jigglebone else 'RIGHTARROW',
+            text=f'{bone.name}',
+            emboss=True
+        )
+
+        if not vs_bone.bone_is_jigglebone:
+            return
+
+        box = layout
+        col = box.column(align=False)
+
+        col.label(text=get_id('label_jiggle_type', format_string=True), icon='DRIVER')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_flex_type', text=get_id('label_jiggle_flexibility', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_type')
+
+        col.separator(factor=0.5)
+
+        self._draw_flexible_rigid_props(col, vs_bone)
+
+        if vs_bone.jiggle_base_type == 'BASESPRING':
+            self._draw_basespring_props(col, vs_bone)
+        elif vs_bone.jiggle_base_type == 'BOING':
+            self._draw_boing_props(col, vs_bone)
+
+    def _draw_flexible_rigid_props(self, layout: UILayout, vs_bone) -> None:
+        if vs_bone.jiggle_flex_type not in ['FLEXIBLE', 'RIGID']:
+            return
+
+        box = layout.box()
+        col = box.column(align=False)
+
+        col.label(text=get_id('label_physical_properties', format_string=True), icon='PHYSICS')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'use_bone_length_for_jigglebone_length', toggle=True, text=get_id('label_use_bone_length', format_string=True))
+        if not vs_bone.use_bone_length_for_jigglebone_length:
+            subcol.prop(vs_bone, 'jiggle_length', text=get_id('label_jiggle_length', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_tip_mass')
+
+        if vs_bone.jiggle_flex_type == 'FLEXIBLE':
+            col.separator(factor=0.5)
+            col.label(text=get_id('label_stiffness_damping', format_string=True), icon='FORCE_TURBULENCE')
+
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_yaw_stiffness', slider=True)
+            subcol.prop(vs_bone, 'jiggle_yaw_damping', slider=True)
+
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_pitch_stiffness', slider=True)
+            subcol.prop(vs_bone, 'jiggle_pitch_damping', slider=True)
+
+            col.separator(factor=0.5)
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_allow_length_flex', toggle=True)
+
+            if vs_bone.jiggle_allow_length_flex:
+                subcol.prop(vs_bone, 'jiggle_along_stiffness', slider=True)
+                subcol.prop(vs_bone, 'jiggle_along_damping', slider=True)
+
+        layout.separator(factor=0.5)
+        self._draw_angle_constraints(layout, vs_bone)
+
+    def _draw_angle_constraints(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+
+        col.label(text=get_id('label_angle_constraints', format_string=True), icon='CON_ROTLIMIT')
+        row = col.row(align=True)
+        row.prop(vs_bone, 'jiggle_has_angle_constraint', toggle=True, text=get_id('label_angle', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_yaw_constraint', toggle=True, text=get_id('label_yaw', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_pitch_constraint', toggle=True, text=get_id('label_pitch', format_string=True))
+
+        has_any = any([
+            vs_bone.jiggle_has_angle_constraint,
+            vs_bone.jiggle_has_yaw_constraint,
+            vs_bone.jiggle_has_pitch_constraint])
+
+        if not has_any:
+            return
+
+        col.separator(factor=0.3)
+
+        if vs_bone.jiggle_has_angle_constraint:
+            subcol = col.column(align=True)
+            subcol.prop(vs_bone, 'jiggle_angle_constraint')
+            col.separator(factor=0.3)
+
+        if vs_bone.jiggle_has_yaw_constraint:
+            subcol = col.column(align=False)
+            subcol.label(text=get_id('label_yaw_limits', format_string=True), icon='EMPTY_SINGLE_ARROW')
+            row = subcol.row(align=True)
+            row.prop(vs_bone, 'jiggle_yaw_constraint_min', slider=True, text=get_id('label_min', format_string=True))
+            row.prop(vs_bone, 'jiggle_yaw_constraint_max', slider=True, text=get_id('label_max', format_string=True))
+            subcol.prop(vs_bone, 'jiggle_yaw_friction', slider=True, text=get_id('label_friction', format_string=True))
+            col.separator(factor=0.3)
+
+        if vs_bone.jiggle_has_pitch_constraint:
+            subcol = col.column(align=False)
+            subcol.label(text=get_id('label_pitch_limits', format_string=True), icon='EMPTY_SINGLE_ARROW')
+            row = subcol.row(align=True)
+            row.prop(vs_bone, 'jiggle_pitch_constraint_min', slider=True, text=get_id('label_min', format_string=True))
+            row.prop(vs_bone, 'jiggle_pitch_constraint_max', slider=True, text=get_id('label_max', format_string=True))
+            subcol.prop(vs_bone, 'jiggle_pitch_friction', slider=True, text=get_id('label_friction', format_string=True))
+
+    def _draw_basespring_props(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+
+        col.label(text=get_id('label_base_spring_properties', format_string=True), icon='FORCE_HARMONIC')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_base_stiffness', slider=True, text=get_id('label_stiffness', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_damping', slider=True, text=get_id('label_damping', format_string=True))
+        subcol.prop(vs_bone, 'jiggle_base_mass', slider=True, text=get_id('label_mass', format_string=True))
+
+        col.separator(factor=0.5)
+        col.label(text=get_id('label_side_constraints', format_string=True), icon='CON_LOCLIMIT')
+        row = col.row(align=True)
+        row.prop(vs_bone, 'jiggle_has_left_constraint', toggle=True, text=get_id('label_side', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_up_constraint', toggle=True, text=get_id('label_up', format_string=True))
+        row.prop(vs_bone, 'jiggle_has_forward_constraint', toggle=True, text=get_id('label_forward', format_string=True))
+
+        has_any = any([
+            vs_bone.jiggle_has_left_constraint,
+            vs_bone.jiggle_has_up_constraint,
+            vs_bone.jiggle_has_forward_constraint
+        ])
+
+        if not has_any:
+            return
+
+        col.separator(factor=0.3)
+
+        constraint_props = [
+            (vs_bone.jiggle_has_left_constraint,    'left',    'label_side_limits'),
+            (vs_bone.jiggle_has_up_constraint,      'up',      'label_up_limits'),
+            (vs_bone.jiggle_has_forward_constraint, 'forward', 'label_forward_limits'),
+        ]
+
+        for has_constraint, direction, limits_key in constraint_props:
+            if has_constraint:
+                subcol = col.column(align=False)
+                subcol.label(text=get_id(limits_key, format_string=True), icon='EMPTY_SINGLE_ARROW')
+                row = subcol.row(align=True)
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_min', slider=True, text=get_id('label_min', format_string=True))
+                row.prop(vs_bone, f'jiggle_{direction}_constraint_max', slider=True, text=get_id('label_max', format_string=True))
+                subcol.prop(vs_bone, f'jiggle_{direction}_friction', slider=True, text=get_id('label_friction', format_string=True))
+                col.separator(factor=0.3)
+
+    def _draw_boing_props(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+
+        col.label(text=get_id('label_boing_properties', format_string=True), icon='FORCE_FORCE')
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_impact_speed', slider=True)
+        subcol.prop(vs_bone, 'jiggle_impact_angle', slider=True)
+        subcol.prop(vs_bone, 'jiggle_damping_rate', slider=True)
+        subcol.prop(vs_bone, 'jiggle_frequency', slider=True)
+        subcol.prop(vs_bone, 'jiggle_amplitude', slider=True)
+
+
+class SMD_PT_Mesh(Properties_Panel):
+    bl_label = ''
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object)
+
+    def draw_header(self, context):
+        layout = self.layout
+        active_object = context.object
+        label = '{} ({})'.format(pgettext("Mesh"), active_object.name) if is_mesh_compatible(active_object) else pgettext("Mesh")
+        layout.label(text=label, icon='MESH_DATA')
+
+    def draw(self, context):
+        active_object = context.object
+        vs = active_object.vs
+
+        layout = self.layout
+        layout.use_property_split = False
+        layout.use_property_decorate = False
+
+        box = layout.box().column(align=True)
+        box.label(text='Mesh Type')
+        box.row(align=True).prop(vs, 'mesh_type',expand=True)
+        if vs.mesh_type == 'CLOTHPROXY' and context.scene.vs.export_format != 'DMX':
+            box.label(text="Cloth Proxy requires DMX export format", icon='ERROR')
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        if vs.mesh_type == 'DEFAULT':
+            box = layout.box().column(align=True)
+            box.prop_search(vs, 'non_exportable_vgroup', active_object, 'vertex_groups')
+            box.separator(factor=0.5)
+            box.prop(vs, 'non_exportable_vgroup_tolerance')
+
+
+class SMD_PT_Shapekey(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'shapekey')
+
+    def draw_header(self, context):
+        active_object = context.object
+        val1, val2 = countShapes(active_object)
+        label = '{} ({} Shapes, {} Correctives)'.format(pgettext("Shape keys"), val1, val2) if is_mesh_compatible(active_object) else pgettext("Shape Keys")
+        self.layout.label(text=label, icon='SHAPEKEY_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object):
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        num_shapes, num_correctives = countShapes(active_object)
+
+        box = layout.box()
+        col = box.column()
+        col.prop(active_object.data.vs, "bake_shapekey_as_basis_normals")
+        col.prop(active_object.data.vs, "normalize_shapekeys")
+
+        col = box.column()
+        col.scale_y = 1.2
+        row = col.row(align=True)
+        row.prop(active_object.vs,"flex_controller_mode",expand=True)
+
+        def insertCorrectiveUi(parent):
+            col = parent.column(align=True)
+            col.operator(AddCorrectiveShapeDrivers.bl_idname, icon='DRIVER',text=get_id("gen_drivers",True))
+            col.operator(RenameShapesToMatchCorrectiveDrivers.bl_idname, icon='SYNTAX_OFF',text=get_id("apply_drivers",True))
+
+        def insertStereoSplitUi(parent):
+            col = parent.column()
+            subbx = col.box()
+
+            subbx.label(text=get_id("exportables_flex_split"))
+            sharpness_col = subbx.column(align=True)
+
+            r = sharpness_col.split(factor=0.33,align=True)
+            r.label(text=active_object.data.name + ":",icon=MakeObjectIcon(active_object,suffix='_DATA'),translate=False) # type: ignore
+            r2 = r.split(factor=0.7,align=True)
+
+            if active_object.data.vs.flex_stereo_mode == 'VGROUP':
+                r2.alert = active_object.vertex_groups.get(active_object.data.vs.flex_stereo_vg) is None
+                r2.prop_search(active_object.data.vs,"flex_stereo_vg",active_object,"vertex_groups",text="")
+            else:
+                r2.prop(active_object.data.vs,"flex_stereo_sharpness",text="Sharpness")
+
+            r2.prop(active_object.data.vs,"flex_stereo_mode",text="")
+
+        if active_object.vs.flex_controller_mode == 'ADVANCED':
+            controller_source = col.row()
+            controller_source.alert = hasFlexControllerSource(active_object.vs.flex_controller_source) == False
+            controller_source.prop(active_object.vs,"flex_controller_source",text=get_id("exportables_flex_src"),icon = 'TEXT' if active_object.vs.flex_controller_source in bpy.data.texts else 'NONE')
+
+            row = col.row(align=True)
+            row.operator(DmxWriteFlexControllers.bl_idname,icon='TEXT',text=get_id("exportables_flex_generate", True))
+            row.operator("wm.url_open",text=get_id("exportables_flex_help", True),icon='HELP').url = "http://developer.valvesoftware.com/wiki/Blender_SMD_Tools_Help#Flex_properties"
+
+            insertCorrectiveUi(col)
+
+            insertStereoSplitUi(col)
+
+        elif active_object.vs.flex_controller_mode == 'BUILDER':
+            col = box.column()
+            row = col.row()
+            first_col = row.column()
+            first_col.template_list("SMD_UL_FlexControllers","",active_object.vs,"dme_flexcontrollers", active_object.vs,"dme_flexcontrollers_index")
+
+            second_col = row.column(align=True)
+            second_col.operator(SMD_OT_AddFlexController.bl_idname, icon='ADD', text='')
+            second_col.operator(SMD_OT_RemoveFlexController.bl_idname, icon='REMOVE', text='')
+
+            second_col.separator()
+
+            second_col.menu('SMD_MT_FlexControllerSpecials', icon='DOWNARROW_HLT', text='')
+
+            second_col.separator()
+
+            move_up = second_col.operator(SMD_OT_MoveFlexController.bl_idname, icon='TRIA_UP', text='')
+            move_up.direction = 'UP'
+            move_down = second_col.operator(SMD_OT_MoveFlexController.bl_idname, icon='TRIA_DOWN', text='')
+            move_down.direction = 'DOWN'
+
+            if len(active_object.vs.dme_flexcontrollers) > 0 and active_object.vs.dme_flexcontrollers_index != -1:
+
+                box = col.box()
+                box_col = box.column(align=True)
+
+                item = active_object.vs.dme_flexcontrollers[active_object.vs.dme_flexcontrollers_index]
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Controller Name')
+                prop_col.prop(item,'controller_name',text='')
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Delta Name')
+                prop_col.prop(item,'raw_delta_name',text='')
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Shapekey')
+                prop_col.prop_search(item,'shapekey',active_object.data.shape_keys,'key_blocks',text='')
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='')
+                prop_col.prop(item,'eyelid',text='Is Eyelid')
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='')
+                prop_col.prop(item,'stereo',text='Is Stereo')
+
+                prop_col = box_col.split(factor=0.33, align=True)
+                prop_col.alignment = 'RIGHT'
+                prop_col.label(text='Flex Type')
+                prop_col.prop(item,'flexgroup',text='')
+
+                box_row = box.row(align=True)
+
+                preview_op = box_row.operator(SMD_OT_PreviewFlexController.bl_idname, text="Preview (Reset)", icon='HIDE_OFF')
+                preview_op.reset_others = True
+
+                preview_op = box_row.operator(SMD_OT_PreviewFlexController.bl_idname, text="Preview (Additive)", icon='ADD')
+                preview_op.reset_others = False
+
+                box_row.operator("object.shape_key_clear", icon='X', text="")
+
+            insertStereoSplitUi(col)
+
+        else:
+            insertCorrectiveUi(col)
+
+        col.separator()
+        row = col.row()
+        row.alignment = 'CENTER'
+        row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count", True).format(num_shapes))
+
+        if active_object.vs.flex_controller_mode != 'BUILDER':
+            row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count_corrective", True).format(num_correctives))
+
+
+class SMD_PT_Vertexmap(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'vertexmap')
+
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='Vertex Maps', icon='MOD_VERTEX_WEIGHT')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        box : UILayout = layout.box()
+        col = box.column(align=True)
+
+        if State.exportFormat != ExportFormat.DMX:
+            box.label(text=get_id('label_dmx_only', format_string=True), icon='ERROR')
+
+        col.label(text=get_id('label_vertex_maps', format_string=True))
+        for map_name in vertex_maps:
+            r = col.row()
+            r.label(text=get_id(map_name),icon='GROUP_VCOL')
+
+            add_remove = r.row(align=True)
+            add_remove.operator(SMD_OT_CreateVertexMap_idname + map_name,icon='ADD',text="")
+            add_remove.operator(SMD_OT_RemoveVertexMap_idname + map_name,icon='REMOVE',text="")
+            add_remove.operator(SMD_OT_SelectVertexMap_idname + map_name,text="Activate")
+
+
+class SMD_PT_Vertexfloatmap(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'vertexfloatmap')
+
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='Vertex Float Maps', icon='MOD_VERTEX_WEIGHT')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        layout.operator("wm.url_open", text=get_id("help", True), icon='INTERNET').url = "http://developer.valvesoftware.com/wiki/DMX/Source_2_Vertex_attributes"
+
+        box : UILayout = layout.box()
+
+        col = box.column()
+        col.label(text=get_id('label_vertex_float_maps', format_string=True))
+
+        col.scale_y = 1.15
+
+        existing_remaps = {r.group: r for r in active_object.vs.vertex_map_remaps}
+
+        # Defer remap initialization to avoid drawing data mutation
+        if len(existing_remaps) < len(vertex_float_maps):
+            bpy.app.timers.register(_ensure_cloth_remaps)
+
+        # Draw cloth maps grouped by category
+        for group_name, group_maps in cloth_map_groups.items():
+            group_box = col.box()
+            group_col = group_box.column(align=True)
+
+            # Group header with category icon
+            group_header = group_col.row(align=True)
+            group_header.scale_y = 0.9
+            group_header.label(text=group_name, icon='FOLDER_REDIRECT')
+
+            # Render each map in the group
+            for map_name in group_maps:
+                display_name = map_name.replace("cloth_", "").replace("_", " ").title()
+                remap = existing_remaps.get(map_name)
+
+                split = group_col.split(align=True, factor=0.5)
+
+                # Left: activate / add / remove
+                left = split.row(align=True)
+                left.operator(SMD_OT_SelectVertexFloatMap_idname + map_name, text=display_name, icon='GROUP_VERTEX')
+                left.operator(SMD_OT_CreateVertexFloatMap_idname + map_name, icon='ADD', text="")
+                left.operator(SMD_OT_RemoveVertexFloatMap_idname + map_name, icon='REMOVE', text="")
+
+                # Right: remap range (always show, as timer will ensure entries exist)
+                right = split.row(align=True)
+                if remap is not None:
+                    right.prop(remap, "min", text="Min")
+                    right.prop(remap, "max", text="Max")
+                else:
+                    right.label(text="0.0 -> 1.0", icon='LOCKED')
+
+
+class SMD_PT_Vertexanimations(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'vertexanimation')
+
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text='Vertex Animations', icon='ANIM_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = get_valid_vertexanimation_object(context.object)
+
+        op3 = layout.operator("wm.url_open", text='Vertex Animations Help', icon='INTERNET')
+        op3.url = "http://developer.valvesoftware.com/wiki/Vertex_animation"
+
+        if active_object is None:
+            layout.label(text=get_id("panel_select_mesh"))
+            return
+
+        box = layout.box()
+
+        box.label(text='{}: {}'.format(get_id('label_target_object', True), active_object.name), icon='MESH_DATA' if is_mesh_compatible(active_object) else "OUTLINER_COLLECTION")
+        row = box.row(align=True)
+        row.operator(SMD_OT_AddVertexAnimation.bl_idname, icon="ADD", text="Add")
+
+        remove_op = row.operator(SMD_OT_RemoveVertexAnimation.bl_idname, icon="REMOVE", text="Remove")
+        remove_op.vertexindex = active_object.vs.active_vertex_animation
+
+        if active_object.vs.vertex_animations:
+            box.template_list("SMD_UL_VertexAnimationItem", "", active_object.vs, "vertex_animations", active_object.vs, "active_vertex_animation", rows=2, maxrows=4)
+            box.operator(SMD_OT_GenerateVertexAnimationQCSnippet.bl_idname, icon='FILE_TEXT')
+
+
+class SMD_PT_ToonEdgeline(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'toonedgeline')
+
+    def draw_header(self, context):
+        active_object = context.object
+        is_outline = active_object.vs.use_toon_edgeline
+        label = '{} ({})'.format(get_id("panel_toon_outline_edgeline", True), str(is_outline)) if is_mesh_compatible(active_object) else get_id("panel_toon_outline_edgeline", True)
+        self.layout.label(text=label, icon='MOD_SOLIDIFY')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box().column(align=True)
+        box.prop(vs, 'use_toon_edgeline')
+
+        col = box.column(align=True)
+        col.enabled = vs.use_toon_edgeline
+        col.prop(vs, 'edgeline_per_material')
+        col.prop(vs, 'export_edgeline_separately', text="Export Edgeline Separately")
+        col.prop(vs, 'base_toon_edgeline_thickness', text='Thickness')
+        col.prop_search(vs, 'toon_edgeline_vertexgroup', active_object, 'vertex_groups', text="Outline Width VertexGroup", icon='GROUP_VERTEX')
+
+
+class SMD_PT_LOD(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'lod')
+
+    def draw_header(self, context):
+        active_object = context.object
+        is_lod = active_object.vs.generate_lods
+        label = '{} ({})'.format(get_id("panel_level_of_detail", True), str(is_lod)) if is_mesh_compatible(active_object) else get_id("panel_level_of_detail", True)
+        self.layout.label(text=label, icon='MOD_DECIM')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box()
+        box.prop(vs, 'generate_lods', text="Generate LODs on export", toggle=True)
+
+        col = box.column(align=True)
+        col.enabled = vs.generate_lods
+
+        col.prop(vs, 'lod_count', slider=True)
+        col.prop(vs, 'decimate_factor', slider=True)
+
+
+class SMD_PT_MeshSplit(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'meshsplit')
+
+    def draw_header(self, context):
+        active_object = context.object
+        is_meshsplited = active_object.vs.use_mesh_split
+        label = '{} ({})'.format(get_id("panel_mesh_split", True), str(is_meshsplited)) if is_mesh_compatible(active_object) else get_id("panel_mesh_split", True)
+        self.layout.label(text=label, icon='TEXTURE_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box()
+        box.prop(vs, 'use_mesh_split', toggle=True)
+
+        col = box.column(align=True)
+        col.enabled = vs.use_mesh_split
+
+        col.prop(vs, 'export_mesh_split_separately')
+        col.prop(vs, 'max_mesh_split', slider=True)
+        col.prop(vs, 'mesh_split_threshold', slider=True)
+
+
+class SMD_PT_MeshBackface(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Mesh'
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object) and _mesh_type_allows(context.object, 'backface')
+
+    def draw_header(self, context):
+        active_object = context.object
+        generate_backface = active_object.vs.generate_backface
+        label = '{} ({})'.format(get_id("panel_backface", True), str(generate_backface)) if is_mesh_compatible(active_object) else get_id("panel_backface", True)
+        self.layout.label(text=label, icon='NORMALS_FACE')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        if not is_mesh_compatible(active_object) or active_object.type not in modifier_compatible:
+            layout.label(text=get_id("panel_select_mesh"), icon='ERROR')
+            return
+
+        vs = active_object.vs
+
+        box = layout.box()
+        col = box.column(align=True)
+        col.prop(vs, 'generate_backface', toggle=True)
+
+        col = box.column(align=True)
+        col.enabled = vs.generate_backface
+        col.prop_search(vs, 'backface_vgroup', active_object, 'vertex_groups')
+        col.separator(factor=0.5)
+        col.prop(vs, 'backface_vgroup_tolerance')
+
+
+class SMD_PT_Material(Properties_Panel):
+    bl_label = ''
+
+    @classmethod
+    def poll(cls, context):
+        return is_mesh_compatible(context.object)
+
+    def draw_header(self, context):
+        active_object = context.object
+        active_material = active_object.active_material if is_mesh(active_object) else None
+        label = '{} ({})'.format(pgettext("Material"), active_material.name) if active_material else pgettext("Material")
+        self.layout.label(text=label, icon='MATERIAL_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+        active_material = active_object.active_material
+
+        if not active_material:
+            layout.label(text=get_id("panel_select_mesh_mat"), icon='ERROR')
+            return
+
+        box = layout.box()
+
+        if State.exportFormat == ExportFormat.DMX:
+            box.prop(active_material.vs, 'override_dmx_export_path', placeholder=context.scene.vs.material_path)
+
+
+class SMD_PT_Empty(Properties_Panel):
+    bl_label = ''
+
+    @classmethod
+    def poll(cls, context):
+        return is_empty(context.object)
+
+    def draw_header(self, context):
+        active_object = context.object
+        label = '{} ({})'.format(pgettext("Empty"), active_object.name) if is_empty(active_object) else pgettext("Empty")
+        self.layout.label(text=label, icon='EMPTY_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        box = layout.box()
+
+        col = box.column()
+        col.prop(active_object.vs, 'dmx_attachment', toggle=False)
+        col.prop(active_object.vs, 'smd_hitbox', toggle=False)
+
+        if active_object.vs.smd_hitbox:
+            col.prop(active_object.vs, 'smd_hitbox_group', text='Hitbox Group')
+
+        if active_object.vs.dmx_attachment and active_object.children:
+            col.alert = True
+            col.box().label(text="Attachment cannot be a parent",icon='WARNING_LARGE')
+
+
+class SMD_PT_Curve(Properties_Panel):
+    bl_label = ''
+
+    @classmethod
+    def poll(cls, context):
+        return is_curve(context.object)
+
+    def draw_header(self, context):
+        active_object = context.object
+        label = '{} ({})'.format(pgettext("Curve"), active_object.name) if is_curve(active_object) else pgettext("Curve")
+        self.layout.label(text=label, icon='CURVE_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        active_object = context.object
+
+        box = layout.box()
+
+        done = set()
+
+        row = box.split(factor=0.33)
+        row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False) # type: ignore
+        row.prop(context.object.data.vs,"faces",text="")
+        done.add(context.object.data)
+
+
+class SMD_PT_ArmatureItems(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Armature'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(get_armature(context.object))
+
+    def draw_header(self, context):
+        arm = get_armature(context.object)
+        mode = context.scene.vs.arm_items_view
+        if mode == 'JIGGLEBONES':
+            label, items = get_id('label_all_jigglebones', True), get_jigglebones(arm)
+        elif mode == 'HITBOXES':
+            label, items = get_id('label_all_hitboxes', True), get_hitboxes(arm)
+        else:
+            label, items = get_id('label_all_attachments', True), get_attachments(arm)
+        label = '{} ({})'.format(label, len(items))
+        self.layout.label(text=label, icon='EMPTY_DATA')
+
+    def draw(self, context):
+        layout = self.layout
+        armvs = get_armature(context.object).data.vs
+        vs = context.scene.vs
+
+        row = layout.row(align=True)
+        row.prop(vs, 'arm_items_view')
+
+        mode = vs.arm_items_view
+        if mode == 'JIGGLEBONES':
+            layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_jigglebone_entries",
+                                 armvs, "arm_jigglebone_index", rows=3)
+        elif mode == 'HITBOXES':
+            layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_hitbox_entries",
+                                 armvs, "arm_hitbox_index", rows=3)
+        else:
+            layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_attachment_entries",
+                                 armvs, "arm_attachment_index", rows=3)

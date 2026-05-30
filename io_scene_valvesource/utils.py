@@ -259,6 +259,14 @@ class State(metaclass=_StateMeta):
         assert(scene)
         cls._exportableObjects = set([ob.session_uid for ob in scene.objects if ob.type in exportable_types and not (ob.type == 'CURVE' and ob.data.bevel_depth == 0 and ob.data.extrude == 0)])
         make_export_list(scene)
+        for arm_obj in (ob for ob in scene.objects if ob.type == 'ARMATURE'):
+            avs = arm_obj.data.vs
+            if _sync_object_entries(avs.arm_hitbox_entries, get_hitboxes(arm_obj)):
+                avs.arm_hitbox_index = min(avs.arm_hitbox_index, len(avs.arm_hitbox_entries) - 1)
+            if _sync_object_entries(avs.arm_attachment_entries, get_attachments(arm_obj)):
+                avs.arm_attachment_index = min(avs.arm_attachment_index, len(avs.arm_attachment_entries) - 1)
+            if _sync_bone_entries(avs.arm_jigglebone_entries, get_jigglebones(arm_obj)):
+                avs.arm_jigglebone_index = min(avs.arm_jigglebone_index, len(avs.arm_jigglebone_entries) - 1)
         cls.last_export_refresh = time.time()
     
     @staticmethod
@@ -780,11 +788,32 @@ def getSelectedExportables():
         for exportable in getExportablesForObject(bpy.context.active_object):
             yield exportable
 
+def _sync_object_entries(coll, objects) -> bool:
+    current = {ob.session_uid for ob in objects if ob}
+    stored  = {e.obj.session_uid for e in coll if e.obj}
+    has_stale = any(not e.obj for e in coll)
+    if current != stored or has_stale:
+        coll.clear()
+        for ob in objects:
+            coll.add().obj = ob
+        return True
+    return False
+
+def _sync_bone_entries(coll, bones) -> bool:
+    current = {b.name for b in bones}
+    stored  = {e.bone_name for e in coll}
+    if current != stored:
+        coll.clear()
+        for b in bones:
+            coll.add().bone_name = b.name
+        return True
+    return False
+
 def make_export_list(scene: bpy.types.Scene):
     scene.vs.export_list.clear()
 
     def makeDisplayName(item, name=None):
-        return os.path.join(item.vs.subdir if item.vs.subdir != "." else "", (name if name else item.name) + getFileExt())
+        return (name if name else item.name) + getFileExt()
 
     if not State.exportableObjects:
         return
@@ -828,10 +857,11 @@ def make_export_list(scene: bpy.types.Scene):
                 if ob.data.vs.action_selection != 'CURRENT':
                     export_slots = ob.data.vs.action_selection == 'FILTERED'
                     exportables_count = len(actionSlotsForFilter(ob) if export_slots else actionsForFilter(ob.vs.action_filter))
-                    if not export_slots or (ob.vs.action_filter and ob.vs.action_filter != "*"):
-                        i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, exportables_count)
-                    else:
-                        i_name = get_id("exportables_arm_no_slot_filter", True).format(exportables_count, ob.name)
+                    if exportables_count > 0:
+                        if not export_slots or (ob.vs.action_filter and ob.vs.action_filter != "*"):
+                            i_name = get_id("exportables_arm_filter_result", True).format(ob.vs.action_filter, exportables_count)
+                        else:
+                            i_name = get_id("exportables_arm_no_slot_filter", True).format(exportables_count, ob.name)
                 elif ad.action_slot:
                     i_name = makeDisplayName(ob, actionSlotExportName(ad))
         else:
