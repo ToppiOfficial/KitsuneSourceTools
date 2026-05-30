@@ -3,6 +3,7 @@ __all__ = [
     'KitsuneResourceItem',
     'PrefabItem',
     'FlexControllerItem',
+    'DmeFlexRuleItem',
     'VertexAnimation',
     'ArmatureItemEntry',
     'ProcBoneEntry',
@@ -64,6 +65,28 @@ class FlexControllerItem(bpy.types.PropertyGroup):
         ('MISC', 'MISC', ''),
         ('CHEEK', 'CHEEK', ''),
     ], default='NONE')
+    flex_min : FloatProperty(name='Flex Min', description=get_id("prop_flex_min_tip"), default=0.0, soft_min=-1.0, soft_max=1.0, precision=3)
+    flex_max : FloatProperty(name='Flex Max', description=get_id("prop_flex_max_tip"), default=1.0, soft_min=0.0, soft_max=2.0, precision=3)
+
+
+class DmeFlexRuleItem(bpy.types.PropertyGroup):
+    rule_type: EnumProperty(
+        name="Rule Type",
+        description=get_id("prop_dme_flex_rule_type_tip"),
+        items=[
+            ('EXPRESSION',  "Expression",  get_id("prop_dme_flex_rule_expression_tip")),
+            ('PASSTHROUGH', "Pass Through", get_id("prop_dme_flex_rule_passthrough_tip")),
+            ('LOCALVAR',    "Local Var",    get_id("prop_dme_flex_rule_localvar_tip")),
+            ('DOMINATION',  "Domination",   get_id("prop_dme_flex_rule_domination_tip")),
+            ('CORRECTIVE',  "Corrective",   get_id("prop_dme_flex_rule_corrective_tip")),
+        ],
+        default='EXPRESSION',
+    )
+    name: StringProperty(name="Name", description=get_id("prop_dme_flex_rule_name_tip"))
+    expression: StringProperty(name="Expression", description=get_id("prop_dme_flex_rule_expr_tip"))
+    components: StringProperty(name="Components", description=get_id("prop_dme_corrective_components_tip"))
+    dominator_names: StringProperty(name="Dominators", description=get_id("prop_dme_dominator_names_tip"))
+    suppressed_names: StringProperty(name="Suppressed", description=get_id("prop_dme_suppressed_names_tip"))
 
 
 class VertexAnimation(bpy.types.PropertyGroup):

@@ -485,6 +485,60 @@ class SMD_OT_ClearFlexControllers(Operator):
         return {'FINISHED'}
 
 
+class SMD_OT_AddFlexRule(Operator):
+    bl_idname = "smd.add_flex_rule"
+    bl_label = "Add Flex Rule"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context) -> set:
+        ob = context.object
+        new_item = ob.vs.dme_flex_rules.add()
+        ob.vs.dme_flex_rules_index = len(ob.vs.dme_flex_rules) - 1
+        new_item.rule_type = 'EXPRESSION'
+        if ob.data and hasattr(ob.data, 'shape_keys') and ob.data.shape_keys and ob.active_shape_key_index > 0:
+            new_item.name = ob.data.shape_keys.key_blocks[ob.active_shape_key_index].name
+        return {'FINISHED'}
+
+
+class SMD_OT_RemoveFlexRule(Operator):
+    bl_idname = "smd.remove_flex_rule"
+    bl_label = "Remove Flex Rule"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and len(context.object.vs.dme_flex_rules) > 0)
+
+    def execute(self, context) -> set:
+        ob = context.object
+        ob.vs.dme_flex_rules.remove(ob.vs.dme_flex_rules_index)
+        ob.vs.dme_flex_rules_index = min(
+            max(0, ob.vs.dme_flex_rules_index - 1),
+            len(ob.vs.dme_flex_rules) - 1
+        )
+        return {'FINISHED'}
+
+
+class SMD_OT_MoveFlexRule(Operator):
+    bl_idname = "smd.move_flex_rule"
+    bl_label = "Move Flex Rule"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    direction: EnumProperty(items=[('UP', "Up", ""), ('DOWN', "Down", "")])
+
+    def execute(self, context) -> set:
+        ob = context.object
+        rules = ob.vs.dme_flex_rules
+        index = ob.vs.dme_flex_rules_index
+        if self.direction == 'UP' and index > 0:
+            rules.move(index, index - 1)
+            ob.vs.dme_flex_rules_index -= 1
+        elif self.direction == 'DOWN' and index < len(rules) - 1:
+            rules.move(index, index + 1)
+            ob.vs.dme_flex_rules_index += 1
+        return {'FINISHED'}
+
+
 class SMD_OT_AddVertexMapRemap(Operator):
     bl_idname = "smd.add_vertex_map_remap"
     bl_label = "Apply Remap Range"

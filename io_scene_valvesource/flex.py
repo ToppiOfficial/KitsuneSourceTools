@@ -20,7 +20,7 @@
 
 import bpy, re
 from . import datamodel, utils
-from .utils import get_id, getCorrectiveShapeSeparator, get_flexcontrollers
+from .utils import get_id, getCorrectiveShapeSeparator, get_flexcontrollers, sanitize_string_for_delta, sanitize_flex_expression_deltas, get_dme_corrective_delta_names
 
 class DmxWriteFlexControllers(bpy.types.Operator):
     bl_idname = "export_scene.dmx_flex_controller"
@@ -52,8 +52,11 @@ class DmxWriteFlexControllers(bpy.types.Operator):
         DmeCombinationOperator = dm.add_element("combinationOperator","DmeCombinationOperator",id=id.name+"controllers")
         root["combinationOperator"] = DmeCombinationOperator
         controls = DmeCombinationOperator["controls"] = datamodel.make_array([],datamodel.Element)
+        # Initialize dominators and targets early so DME branch can populate them
+        DmeCombinationOperator["dominators"] = datamodel.make_array([],datamodel.Element)
+        targets = DmeCombinationOperator["targets"] = datamodel.make_array([],datamodel.Element)
 
-        def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, normalize_shapekeys=False):
+        def createController(namespace, name, deltas, shape_key=None, flexcontroller=None, normalize_shapekeys=False, flex_min=0.0, flex_max=1.0):
             if flexcontroller is not None:
                 shapekey_name, eyelid, stereo, raw_delta_name, controller_name, flextype = flexcontroller
                 raw_control_names = [raw_delta_name] if raw_delta_name else []
@@ -63,17 +66,17 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                 stereo = False
                 flextype = ""
                 raw_control_names = deltas
-            
+
             DmeCombinationInputControl = dm.add_element(controller_name, "DmeCombinationInputControl", id=namespace + controller_name + "inputcontrol")
             controls.append(DmeCombinationInputControl)
-            
+
             DmeCombinationInputControl["rawControlNames"] = datamodel.make_array(raw_control_names, str)
             DmeCombinationInputControl["stereo"] = bool(stereo)
             DmeCombinationInputControl["eyelid"] = bool(eyelid)
             DmeCombinationInputControl["flexgroup"] = flextype.lower()
 
-            DmeCombinationInputControl["flexMin"] = 0.0
-            DmeCombinationInputControl["flexMax"] = 1.0
+            DmeCombinationInputControl["flexMin"] = float(flex_min)
+            DmeCombinationInputControl["flexMax"] = float(flex_max)
 
         for ob in objects:
             normalize = ob.data.vs.normalize_shapekeys if ob.data.shape_keys else False
@@ -85,26 +88,92 @@ class DmxWriteFlexControllers(bpy.types.Operator):
 
                 if ob_flexcontrollers is None:
                     continue
-                
+
                 for fc in ob_flexcontrollers:
                     shapekey_name = fc[0]
                     shape = None
-                    
+
                     if shapekey_name and ob.data.shape_keys:
                         shape = ob.data.shape_keys.key_blocks.get(shapekey_name)
 
                     createController(ob.name, fc[4], [], shape_key=shape, flexcontroller=fc, normalize_shapekeys=normalize)
                     if shape:
                         shapes.add(shape.name)
+
+            elif ob.vs.flex_controller_mode == 'DME':
+                corrective_names = get_dme_corrective_delta_names(ob)
+
+                for fc in ob.vs.dme_flexcontrollers:
+                    if not fc.controller_name or not fc.controller_name.strip():
+                        continue
+                    shape = ob.data.shape_keys.key_blocks.get(fc.shapekey) if (ob.data.shape_keys and fc.shapekey) else None
+                    ctrl = dm.add_element(fc.controller_name, "DmeCombinationInputControl",
+                                         id=ob.name + fc.controller_name + "inputcontrol")
+                    controls.append(ctrl)
+                    raw = fc.shapekey if fc.shapekey else ''
+                    if raw and raw not in corrective_names:
+                        raw = sanitize_string_for_delta(raw)
+                    ctrl["rawControlNames"] = datamodel.make_array([raw] if raw else [], str)
+                    ctrl["stereo"]   = bool(fc.stereo)
+                    ctrl["eyelid"]   = bool(fc.eyelid)
+                    ctrl["flexgroup"] = ""
+                    ctrl["flexMin"]  = float(fc.flex_min)
+                    ctrl["flexMax"]  = float(fc.flex_max)
+                    if shape:
+                        shapes.add(shape.name)
+
+                # Domination rules - dominator_names are controller names (not sanitized),
+                # suppressed_names are delta references (sanitized)
+                dom_array = DmeCombinationOperator["dominators"]
+                for rule in ob.vs.dme_flex_rules:
+                    if rule.rule_type != 'DOMINATION':
+                        continue
+                    d_names = [n.strip() for n in rule.dominator_names.split(',') if n.strip()]
+                    s_names = [sanitize_string_for_delta(n.strip()) for n in rule.suppressed_names.split(',') if n.strip()]
+                    if not d_names or not s_names:
+                        continue
+                    dom_elem = dm.add_element("", "DmeCombinationDominationRule",
+                                             id=ob.name + rule.dominator_names + "dom")
+                    dom_elem["dominators"] = datamodel.make_array(d_names, str)
+                    dom_elem["supressed"]  = datamodel.make_array(s_names, str)
+                    dom_array.append(dom_elem)
+
+                # Flex rules - exclude DOMINATION and CORRECTIVE (correctives are pure deltas)
+                non_dom = [r for r in ob.vs.dme_flex_rules if r.rule_type not in ('DOMINATION', 'CORRECTIVE') and r.name]
+                if non_dom:
+                    flex_rules_elem = dm.add_element("flexRules", "DmeFlexRules",
+                                                     id=ob.name + "flexrules")
+                    rule_deltas  = flex_rules_elem["deltaStates"]      = datamodel.make_array([], datamodel.Element)
+                    rule_weights = flex_rules_elem["deltaStateWeights"] = datamodel.make_array([], datamodel.Vector2)
+                    targets.append(flex_rules_elem)
+                    for rule in non_dom:
+                        if rule.rule_type == 'PASSTHROUGH':
+                            delta_name = sanitize_string_for_delta(rule.name)
+                            rule_elem = dm.add_element(delta_name, "DmeFlexRulePassThrough",
+                                                       id=ob.name + delta_name + "passthrough")
+                            rule_elem["result"] = 0.0
+                        elif rule.rule_type == 'EXPRESSION':
+                            delta_name = sanitize_string_for_delta(rule.name)
+                            rule_elem = dm.add_element(delta_name, "DmeFlexRuleExpression",
+                                                       id=ob.name + delta_name + "expression")
+                            rule_elem["result"] = 0.0
+                            rule_elem["expr"]   = sanitize_flex_expression_deltas(rule.expression.strip())
+                        else:  # LOCALVAR - name is a variable, not a delta; don't sanitize it
+                            rule_elem = dm.add_element(rule.name, "DmeFlexRuleLocalVar",
+                                                       id=ob.name + rule.name + "localvar")
+                            rule_elem["result"] = 0.0
+                        rule_deltas.append(rule_elem)
+                        rule_weights.append(datamodel.Vector2([0.0, 0.0]))
+
             else:
                 if not ob.data.shape_keys:
                     continue
-                    
+
                 corrective_separator = getCorrectiveShapeSeparator()
                 for shape in ob.data.shape_keys.key_blocks[1:]:
                     if corrective_separator in shape.name or shape.name in shapes:
                         continue
-                    
+
                     createController(ob.name, shape.name, [shape.name], shape_key=shape, flexcontroller=None, normalize_shapekeys=normalize)
                     shapes.add(shape.name)
 
@@ -114,9 +183,6 @@ class DmxWriteFlexControllers(bpy.types.Operator):
         controlValues = DmeCombinationOperator["controlValues"] = datamodel.make_array( [ [0.0,0.0,0.5] ] * len(controls), datamodel.Vector3)
         DmeCombinationOperator["controlValuesLagged"] = datamodel.make_array( controlValues, datamodel.Vector3)
         DmeCombinationOperator["usesLaggedValues"] = False
-        
-        DmeCombinationOperator["dominators"] = datamodel.make_array([],datamodel.Element)
-        targets = DmeCombinationOperator["targets"] = datamodel.make_array([],datamodel.Element)
 
         return dm
 

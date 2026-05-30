@@ -1,5 +1,5 @@
 import bpy, math
-from ..utils import get_armature, vertex_float_maps
+from ..utils import get_armature, vertex_float_maps, validate_corrective_components, validate_flex_expression
 from .. import procbones_sim as _procbones_sim
 
 

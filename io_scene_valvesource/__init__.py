@@ -81,6 +81,7 @@ _classes = (
 
     # Simple Item Classes
     FlexControllerItem,
+    DmeFlexRuleItem,
     VertexAnimation,
     ProcBoneEntry,
     ArmatureItemEntry,
@@ -160,6 +161,8 @@ _classes = (
 
     # Properties Operators
     GUI.SMD_UL_FlexControllers,
+    GUI.SMD_UL_DmeFlexControllers,
+    GUI.SMD_UL_DmeFlexRules,
     GUI.SMD_MT_FlexControllerSpecials,
     GUI.SMD_OT_AutoAssignFlexGroups,
     GUI.SMD_OT_AddFlexController,
@@ -170,6 +173,9 @@ _classes = (
     GUI.SMD_OT_CopyFlexControllers,
     GUI.SMD_OT_ClearFlexControllers,
     GUI.SMD_OT_PreviewFlexController,
+    GUI.SMD_OT_AddFlexRule,
+    GUI.SMD_OT_RemoveFlexRule,
+    GUI.SMD_OT_MoveFlexRule,
     GUI.SMD_OT_AddVertexMapRemap,
     GUI.SMD_UL_VertexAnimationItem,
     GUI.SMD_OT_AddVertexAnimation,

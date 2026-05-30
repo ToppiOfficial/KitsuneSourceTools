@@ -6,11 +6,11 @@ from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh
                      cloth_map_groups, hasFlexControllerSource, get_armature, countShapes,
                      MakeObjectIcon, get_active_exportable, get_valid_vertexanimation_object,
                      get_bone_exportname, get_jigglebones, get_hitboxes, get_attachments,
-                     sanitize_string_for_delta)
+                     sanitize_string_for_delta, _build_dme_ctrl_names)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from ..import_smd import SmdImporter
 from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
-from .helpers import _mesh_type_allows, _ensure_cloth_remaps, _get_entry_proc_tol
+from .helpers import _mesh_type_allows, _ensure_cloth_remaps, _get_entry_proc_tol, validate_flex_expression, validate_corrective_components
 from .operators import (
     SMD_OT_KitsuneResourceLoadEntries,
     SMD_OT_AssignBoneRotExportOffset,
@@ -18,6 +18,9 @@ from .operators import (
     SMD_OT_RemoveFlexController,
     SMD_OT_MoveFlexController,
     SMD_OT_PreviewFlexController,
+    SMD_OT_AddFlexRule,
+    SMD_OT_RemoveFlexRule,
+    SMD_OT_MoveFlexRule,
     SMD_OT_AddVertexAnimation,
     SMD_OT_RemoveVertexAnimation,
     SMD_OT_GenerateVertexAnimationQCSnippet,
@@ -796,6 +799,7 @@ class SMD_PT_Shapekey(Properties_Panel):
             insertStereoSplitUi(col)
 
         elif active_object.vs.flex_controller_mode == 'BUILDER':
+            
             col = box.column()
             row = col.row()
             first_col = row.column()
@@ -865,16 +869,186 @@ class SMD_PT_Shapekey(Properties_Panel):
 
             insertStereoSplitUi(col)
 
+        elif active_object.vs.flex_controller_mode == 'DME':
+            if State.exportFormat != ExportFormat.DMX:
+                info_row = box.row()
+                info_row.label(text=get_id("warn_dme_dmx_only_panel"), icon='INFO')
+
+            # --- Flex Controllers ---
+            ctrl_header = box.row()
+            ctrl_header.prop(active_object.vs, "show_items",
+                             icon='TRIA_DOWN' if active_object.vs.show_items else 'TRIA_RIGHT',
+                             icon_only=True, emboss=False)
+            ctrl_header.label(text=get_id("label_dme_flex_controllers"), icon='SHAPEKEY_DATA')
+
+            if active_object.vs.show_items:
+                ctrl_col = box.column()
+                ctrl_row = ctrl_col.row()
+                ctrl_list_col = ctrl_row.column()
+                ctrl_list_col.template_list(
+                    "SMD_UL_DmeFlexControllers", "",
+                    active_object.vs, "dme_flexcontrollers",
+                    active_object.vs, "dme_flexcontrollers_index",
+                )
+                ctrl_btn_col = ctrl_row.column(align=True)
+                ctrl_btn_col.operator(SMD_OT_AddFlexController.bl_idname, icon='ADD', text='')
+                ctrl_btn_col.operator(SMD_OT_RemoveFlexController.bl_idname, icon='REMOVE', text='')
+                ctrl_btn_col.separator()
+                ctrl_btn_col.menu('SMD_MT_FlexControllerSpecials', icon='DOWNARROW_HLT', text='')
+                ctrl_btn_col.separator()
+                up = ctrl_btn_col.operator(SMD_OT_MoveFlexController.bl_idname, icon='TRIA_UP', text='')
+                up.direction = 'UP'
+                down = ctrl_btn_col.operator(SMD_OT_MoveFlexController.bl_idname, icon='TRIA_DOWN', text='')
+                down.direction = 'DOWN'
+
+                idx = active_object.vs.dme_flexcontrollers_index
+                if len(active_object.vs.dme_flexcontrollers) > 0 and idx != -1:
+                    item = active_object.vs.dme_flexcontrollers[idx]
+                    ctrl_col.separator(factor=0.5)
+                    item_col = ctrl_col.column(align=True)
+
+                    r = item_col.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='Controller Name')
+                    name_r = r.row()
+                    name_r.alert = not bool(item.controller_name and item.controller_name.strip())
+                    name_r.prop(item, 'controller_name', text='')
+
+                    r = item_col.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='Shape Key')
+                    if active_object.data.shape_keys:
+                        r.prop_search(item, 'shapekey', active_object.data.shape_keys, 'key_blocks', text='')
+                    else:
+                        r.prop(item, 'shapekey', text='')
+
+                    r = item_col.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='')
+                    flags = r.row(align=True)
+                    flags.prop(item, 'stereo', text='Stereo', toggle=True)
+                    flags.prop(item, 'eyelid', text='Eyelid', toggle=True)
+
+                    r = item_col.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='Range')
+                    range_row = r.row(align=True)
+                    range_row.prop(item, 'flex_min', text='Min')
+                    range_row.prop(item, 'flex_max', text='Max')
+
+            # --- Flex Rules & Domination ---
+            rules_header = box.row()
+            rules_header.prop(active_object.vs, "show_flex_rules_items",
+                              icon='TRIA_DOWN' if active_object.vs.show_flex_rules_items else 'TRIA_RIGHT',
+                              icon_only=True, emboss=False)
+            rules_header.label(text=get_id("label_dme_flex_rules"), icon='DRIVER')
+
+            if active_object.vs.show_flex_rules_items:
+                rules_col = box.column()
+                rules_row = rules_col.row()
+                rules_list_col = rules_row.column()
+                rules_list_col.template_list(
+                    "SMD_UL_DmeFlexRules", "",
+                    active_object.vs, "dme_flex_rules",
+                    active_object.vs, "dme_flex_rules_index",
+                )
+                rules_btn_col = rules_row.column(align=True)
+                rules_btn_col.operator(SMD_OT_AddFlexRule.bl_idname, icon='ADD', text='')
+                rules_btn_col.operator(SMD_OT_RemoveFlexRule.bl_idname, icon='REMOVE', text='')
+                rules_btn_col.separator()
+                up = rules_btn_col.operator(SMD_OT_MoveFlexRule.bl_idname, icon='TRIA_UP', text='')
+                up.direction = 'UP'
+                dn = rules_btn_col.operator(SMD_OT_MoveFlexRule.bl_idname, icon='TRIA_DOWN', text='')
+                dn.direction = 'DOWN'
+
+                ridx = active_object.vs.dme_flex_rules_index
+                if len(active_object.vs.dme_flex_rules) > 0 and ridx != -1:
+                    rule = active_object.vs.dme_flex_rules[ridx]
+                    rules_col.separator(factor=0.5)
+                    rule_col = rules_col.column(align=True)
+
+                    rule_col.row().prop(rule, 'rule_type', expand=True)
+                    rule_col.separator(factor=0.5)
+
+                    if rule.rule_type == 'PASSTHROUGH':
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Controller')
+                        r.prop(rule, 'name', text='')
+                    elif rule.rule_type == 'EXPRESSION':
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Local Var')
+                        r.prop(rule, 'name', text='')
+                    elif rule.rule_type == 'LOCALVAR':
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Variable Name')
+                        r.prop(rule, 'name', text='')
+                    elif rule.rule_type == 'CORRECTIVE':
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Components')
+                        r.prop(rule, 'components', text='')
+                        rule_col.label(text=get_id("label_dme_corrective_hint"), icon='INFO')
+
+                        comp_str = rule.components.strip()
+                        if comp_str:
+                            sk_names = set(active_object.data.shape_keys.key_blocks.keys()) if active_object.data.shape_keys else set()
+                            comp_errs = validate_corrective_components(comp_str, sk_names)
+                            if not comp_errs:
+                                rule_col.label(text=get_id("label_dme_components_valid"), icon='CHECKMARK')
+                            else:
+                                for name in comp_errs:
+                                    err_row = rule_col.row()
+                                    err_row.alert = True
+                                    err_row.label(text=get_id("label_dme_unknown_shapekey", True).format(name), icon='ERROR')
+
+                    elif rule.rule_type == 'DOMINATION':
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Dominators')
+                        r.prop(rule, 'dominator_names', text='')
+
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Suppressed')
+                        r.prop(rule, 'suppressed_names', text='')
+
+                        rule_col.label(text=get_id("label_dme_dominator_hint"), icon='INFO')
+                        rule_col.label(text=get_id("label_dme_suppressed_hint"), icon='BLANK1')
+
+                    if rule.rule_type == 'EXPRESSION':
+                        r = rule_col.split(factor=0.25, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Expression')
+                        r.prop(rule, 'expression', text='')
+                        rule_col.label(text=get_id("label_dme_expression_hint"), icon='INFO')
+
+                        expr = rule.expression.strip()
+                        if expr:
+                            sk_names = set(active_object.data.shape_keys.key_blocks.keys()) if active_object.data.shape_keys else set()
+                            ctrl_names = _build_dme_ctrl_names(active_object.vs)
+                            localvar_names = set(
+                                r.name for r in active_object.vs.dme_flex_rules
+                                if r.rule_type == 'LOCALVAR' and r.name
+                            )
+                            delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names)
+                            if not delta_errs and not ctrl_errs:
+                                rule_col.label(text=get_id("label_dme_expression_valid"), icon='CHECKMARK')
+                            else:
+                                for name in delta_errs:
+                                    err_row = rule_col.row()
+                                    err_row.alert = True
+                                    err_row.label(text=get_id("label_dme_unknown_delta", True).format(name), icon='ERROR')
+                                for name in ctrl_errs:
+                                    err_row = rule_col.row()
+                                    err_row.alert = True
+                                    err_row.label(text=get_id("label_dme_unknown_controller", True).format(name), icon='ERROR')
+
+            insertStereoSplitUi(box.column())
         else:
             insertCorrectiveUi(col)
-
-        col.separator()
-        row = col.row()
-        row.alignment = 'CENTER'
-        row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count", True).format(num_shapes))
-
-        if active_object.vs.flex_controller_mode != 'BUILDER':
-            row.label(icon='SHAPEKEY_DATA',text = get_id("exportables_flex_count_corrective", True).format(num_correctives))
 
 
 class SMD_PT_Vertexmap(Properties_Panel):

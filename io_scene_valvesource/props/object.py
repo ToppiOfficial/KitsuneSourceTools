@@ -10,7 +10,7 @@ import bpy
 from bpy.props import (StringProperty, BoolProperty, EnumProperty, IntProperty,
                        CollectionProperty, FloatProperty, PointerProperty)
 from ..utils import get_id, hitbox_group
-from .items import FlexControllerItem, VertexAnimation, ValveSource_FloatMapRemap
+from .items import FlexControllerItem, DmeFlexRuleItem, VertexAnimation, ValveSource_FloatMapRemap
 from .mixins import ShapeTypeProps, CurveTypeProps, ExportableProps
 from .scene import on_flexcontroller_index_changed
 
@@ -48,6 +48,8 @@ class ValveSource_ObjectProps(ExportableProps, bpy.types.PropertyGroup):
 
     dme_flexcontrollers : CollectionProperty(name='Flex Controllers', type=FlexControllerItem)
     dme_flexcontrollers_index : IntProperty(default=-1, update=on_flexcontroller_index_changed)
+    dme_flex_rules : CollectionProperty(name='Flex Rules', type=DmeFlexRuleItem)
+    dme_flex_rules_index : IntProperty(default=-1)
 
     dmx_attachment : BoolProperty(name=get_id('prop_dmx_attachment'), description=get_id('prop_dmx_attachment_tip'), default=False)
     smd_hitbox : BoolProperty(name=get_id('prop_smd_hitbox'), description=get_id('prop_smd_hitbox_tip'), default=False)

@@ -680,6 +680,9 @@ def countShapes(*objects):
             flex_controllers = get_flexcontrollers(ob)
             unique_names = set(fc[4] for fc in flex_controllers)
             num_shapes += len(unique_names)
+        elif ob.vs.flex_controller_mode == 'DME':
+            num_shapes += sum(1 for fc in ob.vs.dme_flexcontrollers if fc.controller_name and fc.controller_name.strip())
+            num_correctives += sum(1 for r in ob.vs.dme_flex_rules if r.rule_type == 'CORRECTIVE' and r.components.strip())
         else:
             if ob.data.shape_keys:
                 for shape in ob.data.shape_keys.key_blocks[1:]:
@@ -1830,6 +1833,131 @@ def sanitize_string(data: typing.Union[str, list], allow_unicode: bool = False) 
 
 def sanitize_string_for_delta(name: str) -> str:
     return re.sub(r'[^a-zA-Z0-9]', '', name)
+
+
+def get_dme_corrective_delta_names(ob) -> set:
+    """Return the set of corrective delta names derived from an object's DME CORRECTIVE rules.
+    Components (e.g. 'brow+anger+mouth') are joined with the corrective separator to produce
+    the delta name the engine expects (e.g. 'brow_anger_mouth').
+    """
+    sep = getCorrectiveShapeSeparator()
+    result = set()
+    for rule in ob.vs.dme_flex_rules:
+        if rule.rule_type == 'CORRECTIVE' and rule.components.strip():
+            components = [c.strip() for c in rule.components.split('+') if c.strip()]
+            if components:
+                result.add(sep.join(components))
+    return result
+
+
+def sanitize_flex_expression_deltas(expr: str) -> str:
+    """Sanitize %name delta tokens inside a DME flex expression string."""
+    return re.sub(r'%(\w+)', lambda m: '%' + sanitize_string_for_delta(m.group(1)), expr)
+
+_FLEX_MATH_KEYWORDS = frozenset({
+    'min', 'max', 'sqrt', 'abs', 'pow', 'clamp', 'atan2', 'log', 'sin', 'cos',
+})
+
+
+def validate_corrective_components(components_str: str, sk_names: set) -> list:
+    """Return unknown component names from a '+'-separated components string."""
+    if not components_str.strip():
+        return []
+    return [c for c in (t.strip() for t in components_str.split('+')) if c and c not in sk_names]
+
+
+def validate_flex_expression(expr: str, sk_names: set, ctrl_names: set, localvar_names: set = frozenset()) -> tuple:
+    """Parse a DME flex expression and return (delta_errors, controller_errors).
+
+    %name  -> must match a shape key or local var
+    name   -> must match a flex controller, ignoring math keywords
+    """
+    delta_errors = []
+    controller_errors = []
+    for m in re.finditer(r'%(\w+)', expr):
+        name = m.group(1)
+        if name not in sk_names and name not in localvar_names:
+            delta_errors.append(name)
+    stripped = re.sub(r'%\w+', '', expr)
+    for m in re.finditer(r'\b([a-zA-Z_]\w*)\b', stripped):
+        name = m.group(1)
+        if name not in _FLEX_MATH_KEYWORDS and name not in ctrl_names:
+            controller_errors.append(name)
+    return delta_errors, controller_errors
+
+
+def _build_dme_ctrl_names(vs) -> set:
+    """Build the full set of valid controller name variants (including stereo) for an object's vs."""
+    ctrl_names = set()
+    for fc in vs.dme_flexcontrollers:
+        if not fc.controller_name or not fc.controller_name.strip():
+            continue
+        name = fc.controller_name.strip()
+        ctrl_names.add(name)
+        if fc.stereo:
+            ctrl_names |= {f"left_{name}", f"right_{name}", f"{name}L", f"{name}R"}
+    return ctrl_names
+
+
+def validate_dme_flex_for_export(ob) -> list:
+    """Return a list of error strings for DME flex data on *ob*. Empty list = valid."""
+    errors = []
+    vs = ob.vs
+    sk = ob.data.shape_keys if ob.data and hasattr(ob.data, 'shape_keys') else None
+    sk_names = set(sk.key_blocks.keys()) if sk else set()
+
+    ctrl_names = set()
+    for fc in vs.dme_flexcontrollers:
+        if not fc.controller_name or not fc.controller_name.strip():
+            errors.append(get_id('exporter_err_dme_no_ctrl_name', True).format(ob.name))
+            continue
+        name = fc.controller_name.strip()
+        ctrl_names.add(name)
+        if fc.stereo:
+            ctrl_names |= {f"left_{name}", f"right_{name}", f"{name}L", f"{name}R"}
+
+    localvar_names = {r.name for r in vs.dme_flex_rules if r.rule_type == 'LOCALVAR' and r.name}
+
+    for rule in vs.dme_flex_rules:
+        if rule.rule_type == 'PASSTHROUGH':
+            if not rule.name:
+                errors.append(get_id('exporter_err_dme_passthrough_no_name', True).format(ob.name))
+            elif rule.name not in ctrl_names:
+                errors.append(get_id('exporter_err_dme_passthrough_unknown', True).format(ob.name, rule.name))
+
+        elif rule.rule_type == 'EXPRESSION':
+            if not rule.name:
+                errors.append(get_id('exporter_err_dme_expression_no_name', True).format(ob.name))
+            elif rule.name not in sk_names and rule.name not in localvar_names:
+                errors.append(get_id('exporter_err_dme_expression_unknown_target', True).format(ob.name, rule.name))
+            expr = rule.expression.strip()
+            if expr:
+                delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names)
+                for n in delta_errs:
+                    errors.append(get_id('exporter_err_dme_expression_unknown_delta', True).format(ob.name, n))
+                for n in ctrl_errs:
+                    errors.append(get_id('exporter_err_dme_expression_unknown_ctrl', True).format(ob.name, n))
+
+        elif rule.rule_type == 'LOCALVAR':
+            if not rule.name:
+                errors.append(get_id('exporter_err_dme_localvar_no_name', True).format(ob.name))
+
+        elif rule.rule_type == 'CORRECTIVE':
+            comp_errs = validate_corrective_components(rule.components, sk_names)
+            if not rule.components.strip():
+                errors.append(get_id('exporter_err_dme_corrective_no_components', True).format(ob.name))
+            else:
+                for comp in comp_errs:
+                    errors.append(get_id('exporter_err_dme_corrective_unknown_component', True).format(ob.name, comp))
+
+        elif rule.rule_type == 'DOMINATION':
+            if not rule.dominator_names.strip():
+                errors.append(get_id('exporter_err_dme_domination_no_dominators', True).format(ob.name))
+            if not rule.suppressed_names.strip():
+                errors.append(get_id('exporter_err_dme_domination_no_suppressed', True).format(ob.name))
+
+    return errors
+
 
 def sort_bone_by_hierarchy(bones: typing.Iterable[bpy.types.Bone]) -> list[bpy.types.Bone]:
     bone_set = set(bones)

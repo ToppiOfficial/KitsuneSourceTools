@@ -84,14 +84,15 @@ class JiggleBoneProps():
 
 class ExportableProps():
     flex_controller_modes = (
-        ('SIMPLE', "Simple", get_id("controllers_simple_tip")),
-        ('ADVANCED', "Advanced", get_id("controllers_advanced_tip")),
-        ('BUILDER', "Build", get_id("controllers_strict_tip"))
+        ('SIMPLE',   "Simple",    get_id("controllers_simple_tip")),
+        ('ADVANCED', "Advanced",  get_id("controllers_advanced_tip")),
+        ('BUILDER',  "QC-DMX",    get_id("controllers_strict_tip")),
+        ('DME',      "DME",       get_id("controllers_dme_tip")),
     )
 
     export : BoolProperty(name=get_id("scene_export"), description=get_id("use_scene_export_tip"), default=True)
     subdir : StringProperty(name=get_id("subdir"), description=get_id("subdir_tip"))
-    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"), description=get_id("controllers_mode_tip"), items=flex_controller_modes, default='BUILDER')
+    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"), description=get_id("controllers_mode_tip"), items=flex_controller_modes, default='DME')
     flex_controller_source : StringProperty(name=get_id("controller_source"), description=get_id("controllers_source_tip"), subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"), type=VertexAnimation)
@@ -113,6 +114,7 @@ class ExportableProps():
 
     show_items : BoolProperty()
     show_vertexanim_items : BoolProperty()
+    show_flex_rules_items : BoolProperty(default=True)
 
     generate_backface : BoolProperty(name='Generate Backface', description=get_id("prop_generate_backface_tip"), default=False)
     backface_vgroup : StringProperty(name='Backface Group', description=get_id("prop_backface_vgroup_tip"), default='')

@@ -1918,11 +1918,26 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             if not ad:
                 return False
 
+        check_obs = id.objects if isinstance(id, Collection) else [id]
+
         if State.exportFormat != ExportFormat.DMX:
-            cloth_obs = id.objects if isinstance(id, Collection) else [id]
-            for _ob in cloth_obs:
-                if getattr(getattr(_ob, 'vs', None), 'mesh_type', 'DEFAULT') == 'CLOTHPROXY':
+            for _ob in check_obs:
+                vs = getattr(_ob, 'vs', None)
+                if not vs:
+                    continue
+                if getattr(vs, 'mesh_type', 'DEFAULT') == 'CLOTHPROXY':
                     self.warning(f"'{_ob.name}' is set to Cloth Proxy but scene export format is not DMX - cloth attributes will be omitted.")
+                if getattr(vs, 'flex_controller_mode', '') == 'DME':
+                    self.warning(get_id("exporter_warn_dme_smd", True).format(_ob.name))
+
+        for _ob in check_obs:
+            vs = getattr(_ob, 'vs', None)
+            if vs and getattr(vs, 'flex_controller_mode', '') == 'DME':
+                dme_errors = validate_dme_flex_for_export(_ob)
+                for err in dme_errors:
+                    self.error(err)
+                if dme_errors:
+                    return False
 
         planner = ExportPlanner(self)
         try:
@@ -3312,40 +3327,50 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 num_shapes = len(bake.shapes)
                 num_correctives = num_wrinkles = 0
 
+                dme_corrective_names = get_dme_corrective_delta_names(bake.src) if self.flex_controller_mode == 'DME' else None
+
                 for shape_name, shape in bake.shapes.items():
                     wrinkle_scale = 0
-                    corrective = getCorrectiveShapeSeparator() in shape_name
 
-                    if corrective:
-                        driver_targets = ordered_set.OrderedSet(flex.getCorrectiveShapeKeyDrivers(bake.src.data.shape_keys.key_blocks[shape_name]) or [])
-                        name_targets = ordered_set.OrderedSet(shape_name.split(getCorrectiveShapeSeparator()))
-                        corrective_targets = driver_targets or name_targets
-                        corrective_targets.source = shape_name
-
-                        if corrective_targets in corrective_shapes_seen:
-                            prev = next(x for x in corrective_shapes_seen if x == corrective_targets)
-                            self.warning(get_id("exporter_warn_correctiveshape_duplicate", True).format(shape_name, "+".join(corrective_targets), prev.source))
-                            continue
-                        corrective_shapes_seen.append(corrective_targets)
-
-                        if driver_targets and driver_targets != name_targets:
-                            generated = getCorrectiveShapeSeparator().join(driver_targets)
-                            print(f"- Renamed shape key '{shape_name}' to '{generated}' to match corrective drivers.")
-                            shape_name = generated
-                        num_correctives += 1
+                    if self.flex_controller_mode == 'DME':
+                        corrective = shape_name in dme_corrective_names
+                        if corrective:
+                            num_correctives += 1
+                        else:
+                            shape_name = sanitize_string_for_delta(shape_name)
                     else:
-                        if self.flex_controller_mode == "ADVANCED":
-                            def _find_scale():
-                                for ctrl in controller_dm.root["combinationOperator"]["controls"]:
-                                    for i in range(len(ctrl["rawControlNames"])):
-                                        if ctrl["rawControlNames"][i] == shape_name:
-                                            scales = ctrl.get("wrinkleScales")
-                                            return scales[i] if scales else 0
-                                raise ValueError()
-                            try:
-                                wrinkle_scale = _find_scale()
-                            except ValueError:
-                                self.warning(get_id("exporter_err_flexctrl_missing", True).format(shape_name))
+                        corrective = getCorrectiveShapeSeparator() in shape_name
+
+                        if corrective:
+                            driver_targets = ordered_set.OrderedSet(flex.getCorrectiveShapeKeyDrivers(bake.src.data.shape_keys.key_blocks[shape_name]) or [])
+                            name_targets = ordered_set.OrderedSet(shape_name.split(getCorrectiveShapeSeparator()))
+                            corrective_targets = driver_targets or name_targets
+                            corrective_targets.source = shape_name
+
+                            if corrective_targets in corrective_shapes_seen:
+                                prev = next(x for x in corrective_shapes_seen if x == corrective_targets)
+                                self.warning(get_id("exporter_warn_correctiveshape_duplicate", True).format(shape_name, "+".join(corrective_targets), prev.source))
+                                continue
+                            corrective_shapes_seen.append(corrective_targets)
+
+                            if driver_targets and driver_targets != name_targets:
+                                generated = getCorrectiveShapeSeparator().join(driver_targets)
+                                print(f"- Renamed shape key '{shape_name}' to '{generated}' to match corrective drivers.")
+                                shape_name = generated
+                            num_correctives += 1
+                        else:
+                            if self.flex_controller_mode == "ADVANCED":
+                                def _find_scale():
+                                    for ctrl in controller_dm.root["combinationOperator"]["controls"]:
+                                        for i in range(len(ctrl["rawControlNames"])):
+                                            if ctrl["rawControlNames"][i] == shape_name:
+                                                scales = ctrl.get("wrinkleScales")
+                                                return scales[i] if scales else 0
+                                    raise ValueError()
+                                try:
+                                    wrinkle_scale = _find_scale()
+                                except ValueError:
+                                    self.warning(get_id("exporter_err_flexctrl_missing", True).format(shape_name))
 
                     shape_names.append(shape_name)
                     DmeVertexDeltaData = dm.add_element(shape_name, "DmeVertexDeltaData", id=ob.name + shape_name)

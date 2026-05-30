@@ -139,6 +139,88 @@ class SMD_UL_FlexControllers(UIList):
             info_row.label(text="", icon='HIDE_OFF')
 
 
+class SMD_UL_DmeFlexControllers(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
+        row = layout.row(align=True)
+
+        has_name = bool(item.controller_name and item.controller_name.strip())
+        name_row = row.row(align=True)
+        name_row.alert = not has_name
+        name_row.label(
+            text=item.controller_name if has_name else "(unnamed)",
+            icon='SHAPEKEY_DATA' if has_name else 'ERROR',
+        )
+
+        info_row = row.row(align=True)
+        info_row.alignment = 'RIGHT'
+        if item.shapekey:
+            info_row.label(text=item.shapekey)
+        if item.stereo:
+            info_row.label(text="", icon='MOD_MIRROR')
+        if item.eyelid:
+            info_row.label(text="", icon='HIDE_OFF')
+
+
+class SMD_UL_DmeFlexRules(UIList):
+    _ICONS = {
+        'EXPRESSION':  'DRIVER',
+        'PASSTHROUGH': 'SHAPEKEY_DATA',
+        'LOCALVAR':    'NODE',
+        'DOMINATION':  'RESTRICT_SELECT_ON',
+        'CORRECTIVE':  'SCULPTMODE_HLT',
+    }
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
+        ob = context.object
+        row = layout.row(align=True)
+
+        type_icon = self._ICONS.get(item.rule_type, 'QUESTION')
+        row.label(text="", icon=type_icon)
+
+        if item.rule_type == 'CORRECTIVE':
+            name_row = row.row(align=True)
+            name_row.alert = not item.components
+            name_row.label(text=item.components if item.components else "(no components)")
+
+        elif item.rule_type == 'DOMINATION':
+            dom_label = item.dominator_names[:24] + ("…" if len(item.dominator_names) > 24 else "") if item.dominator_names else "(no dominators)"
+            sup_label = item.suppressed_names[:20] + ("…" if len(item.suppressed_names) > 20 else "") if item.suppressed_names else ""
+            name_col = row.row(align=True)
+            name_col.alert = not item.dominator_names or not item.suppressed_names
+            name_col.label(text=dom_label)
+            if sup_label:
+                right = row.row(align=True)
+                right.alignment = 'RIGHT'
+                right.label(text="→ " + sup_label)
+        else:
+            # PASSTHROUGH names must be a controller; EXPRESSION names must be a delta or local var
+            name_alert = False
+            if item.name:
+                if item.rule_type == 'PASSTHROUGH':
+                    ctrl_names = {fc.controller_name for fc in ob.vs.dme_flexcontrollers if fc.controller_name and fc.controller_name.strip()}
+                    name_alert = item.name not in ctrl_names
+                elif item.rule_type == 'EXPRESSION':
+                    sk = ob.data.shape_keys if ob.data and hasattr(ob.data, 'shape_keys') else None
+                    in_shapekeys = sk is not None and item.name in sk.key_blocks
+                    in_localvars = any(r.rule_type == 'LOCALVAR' and r.name == item.name for r in ob.vs.dme_flex_rules)
+                    name_alert = not in_shapekeys and not in_localvars
+            name_row = row.row(align=True)
+            name_row.alert = name_alert
+            display_name = item.name if item.name else ("(unnamed)" if item.rule_type != 'LOCALVAR' else "(local var)")
+            name_row.label(text=display_name)
+
+            if item.rule_type == 'EXPRESSION' and item.expression:
+                expr_row = row.row(align=True)
+                expr_row.alignment = 'RIGHT'
+                truncated = item.expression[:28] + ("…" if len(item.expression) > 28 else "")
+                expr_row.label(text=truncated)
+            elif item.rule_type == 'PASSTHROUGH':
+                pass_row = row.row(align=True)
+                pass_row.alignment = 'RIGHT'
+                pass_row.enabled = False
+                pass_row.label(text="pass-through")
+
+
 class SMD_UL_VertexAnimationItem(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index): # pyright: ignore
         r = layout.row()

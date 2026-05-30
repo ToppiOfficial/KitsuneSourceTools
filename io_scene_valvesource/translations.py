@@ -90,9 +90,13 @@ _data = {
         'en': "A DMX file (or Text datablock) containing flex controllers",
         'ja': "フレックスコントローラーを含むDMXファイルまたはテキストブロック",
     },
+    'controllers_dme_tip': {
+        'en': "Define flex controllers and flex rules following the DMX model spec (DMX export only)",
+        'ja': "DMXモデル仕様に従いフレックスコントローラーとルールを定義（DMXエクスポート専用）",
+    },
     'controllers_strict_tip': {
-        'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored.",
-        'ja': "明示的にリストされたシェイプキーのみエクスポート",
+        'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored. [Deprecated: use DME Rule mode instead]",
+        'ja': "明示的にリストされたシェイプキーのみエクスポート（非推奨: DMEルールモードを使用してください）",
     },
     'curve_poly_side': {
         'en': "Polygon Generation",
@@ -213,6 +217,42 @@ _data = {
     'exporter_err_bonelimit': {
         'en': "Exported {0} bones, but SMD only supports {1}!",
         'ja': "{0}ボーンをエクスポートしましたが、SMDは{1}ボーンまでしかサポートしていません",
+    },
+    'exporter_err_dme_corrective_no_components': {
+        'en': "'{0}': CORRECTIVE rule has no components",
+    },
+    'exporter_err_dme_corrective_unknown_component': {
+        'en': "'{0}': CORRECTIVE component '{1}' is not a known shape key",
+    },
+    'exporter_err_dme_domination_no_dominators': {
+        'en': "'{0}': DOMINATION rule has no dominators",
+    },
+    'exporter_err_dme_domination_no_suppressed': {
+        'en': "'{0}': DOMINATION rule has no suppressed names",
+    },
+    'exporter_err_dme_expression_no_name': {
+        'en': "'{0}': EXPRESSION rule has no name",
+    },
+    'exporter_err_dme_expression_unknown_ctrl': {
+        'en': "'{0}': expression '{1}' is not a known controller",
+    },
+    'exporter_err_dme_expression_unknown_delta': {
+        'en': "'{0}': expression '%{1}' is not a known shape key or local var",
+    },
+    'exporter_err_dme_expression_unknown_target': {
+        'en': "'{0}': EXPRESSION target '{1}' is not a shape key or local var",
+    },
+    'exporter_err_dme_localvar_no_name': {
+        'en': "'{0}': LOCALVAR rule has no name",
+    },
+    'exporter_err_dme_no_ctrl_name': {
+        'en': "'{0}': flex controller has no name",
+    },
+    'exporter_err_dme_passthrough_no_name': {
+        'en': "'{0}': PASSTHROUGH rule has no name",
+    },
+    'exporter_err_dme_passthrough_unknown': {
+        'en': "'{0}': PASSTHROUGH '{1}' is not a known controller",
     },
     'exporter_err_dmxother': {
         'en': "Cannot export DMX. Resolve errors with the SOURCE ENGINE EXPORT panel in SCENE PROPERTIES.",
@@ -689,6 +729,39 @@ _data = {
     'label_direction_naming': {
         'en': "Direction Naming:",
         'ja': "方向命名:",
+    },
+    'label_dme_components_valid': {
+        'en': "Components valid",
+    },
+    'label_dme_corrective_hint': {
+        'en': "component shape keys separated by +",
+    },
+    'label_dme_dominator_hint': {
+        'en': "Dominators: controller names, comma-separated",
+    },
+    'label_dme_expression_hint': {
+        'en': "%localvar  or  controller:  + - * / () min() max() sqrt()",
+    },
+    'label_dme_expression_valid': {
+        'en': "Expression valid",
+    },
+    'label_dme_flex_controllers': {
+        'en': "Flex Controllers",
+    },
+    'label_dme_flex_rules': {
+        'en': "Flex Rules & Domination",
+    },
+    'label_dme_suppressed_hint': {
+        'en': "Suppressed: delta shape names, comma-separated",
+    },
+    'label_dme_unknown_controller': {
+        'en': "{0}: unknown controller",
+    },
+    'label_dme_unknown_delta': {
+        'en': "%{0}: unknown shape key or local var",
+    },
+    'label_dme_unknown_shapekey': {
+        'en': "{0}: unknown shape key",
     },
     'label_dmx_only': {
         'en': "Only Applicable in DMX!",
@@ -1298,9 +1371,63 @@ _data = {
         'en': "Flex group category used for QC organization",
         'ja': "QC整理に使用されるフレックスグループカテゴリー",
     },
+    'prop_flex_min_tip': {
+        'en': "Minimum value for this flex controller",
+        'ja': "このフレックスコントローラーの最小値",
+    },
+    'prop_flex_max_tip': {
+        'en': "Maximum value for this flex controller",
+        'ja': "このフレックスコントローラーの最大値",
+    },
     'prop_flexctrl_shapekey_tip': {
         'en': "Shape key driven by this flex controller",
         'ja': "このフレックスコントローラーが制御するシェイプキー",
+    },
+    'prop_dme_flex_rule_type_tip': {
+        'en': "Type of flex rule element to write in DmeFlexRules",
+        'ja': "DmeFlexRulesに書き込むフレックスルール要素の種類",
+    },
+    'prop_dme_flex_rule_expression_tip': {
+        'en': "Shape driven by a math expression referencing controller names",
+        'ja': "コントローラー名を参照する数式で制御されるシェイプ",
+    },
+    'prop_dme_flex_rule_passthrough_tip': {
+        'en': "Shape controlled directly by its matching flex controller (no expression needed)",
+        'ja': "対応するフレックスコントローラーで直接制御されるシェイプ（数式不要）",
+    },
+    'prop_dme_flex_rule_localvar_tip': {
+        'en': "Intermediate variable that can be referenced in other expressions",
+        'ja': "他の数式から参照できる中間変数",
+    },
+    'prop_dme_flex_rule_domination_tip': {
+        'en': "Suppress certain shapes when specified controllers are active",
+        'ja': "指定したコントローラーがアクティブなときに特定のシェイプを無効化",
+    },
+    'prop_dme_flex_rule_corrective_tip': {
+        'en': "Mark a shape key as a corrective driven by the combination of its component shapes",
+    },
+    'prop_dme_corrective_components_tip': {
+        'en': "Component shape key names separated by +, e.g. brow+anger+mouth",
+    },
+    'prop_dme_flex_rule_name_tip': {
+        'en': "Delta shape key name (for Expression/PassThrough) or local variable name (for Local Var)",
+        'ja': "デルタシェイプキー名（Expression/PassThrough用）またはローカル変数名（Local Var用）",
+    },
+    'prop_dme_flex_rule_expr_tip': {
+        'en': "Math expression using controller names, +, -, *, /, (), min(), max(), sqrt()",
+        'ja': "コントローラー名と +, -, *, /, (), min(), max(), sqrt() を使う数式",
+    },
+    'prop_dme_dominator_names_tip': {
+        'en': "Comma-separated flex controller names that trigger this domination rule",
+        'ja': "このドミネーションルールを発動するフレックスコントローラー名（カンマ区切り）",
+    },
+    'prop_dme_suppressed_names_tip': {
+        'en': "Comma-separated delta shape names to suppress when dominators are active",
+        'ja': "ドミネーターがアクティブなときに無効化するデルタシェイプ名（カンマ区切り）",
+    },
+    'exporter_warn_dme_smd': {
+        'en': "'{0}' uses DME Rule mode which is DMX-only - flex rules are ignored for SMD export",
+        'ja': "'{0}' はDMEルールモードを使用していますがSMDエクスポートでは無視されます",
     },
     'prop_float_map_group_tip': {
         'en': "Vertex map group name to remap",
@@ -1861,6 +1988,10 @@ _data = {
     'prop_preview_edgeline_tip': {
         'en': "Draw edgeline shell in the viewport, approximating the exported result",
         'ja': "エクスポート結果に近いエッジラインシェルをビューポートに描画",
+    },
+    'warn_dme_dmx_only_panel': {
+        'en': "DME mode is DMX-only - ignored for SMD export.",
+        'ja': "DMEモードはDMX専用です — SMDエクスポートでは無視されます。",
     },
     'warn_edgeline_jiggle_sim': {
         'en': "Inactive: paused while jiggle simulation runs",
