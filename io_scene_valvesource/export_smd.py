@@ -3331,11 +3331,17 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
                 for shape_name, shape in bake.shapes.items():
                     wrinkle_scale = 0
+                    _extra_delta_names = []
 
                     if self.flex_controller_mode == 'DME':
                         corrective = shape_name in dme_corrective_names
                         if corrective:
                             num_correctives += 1
+                        elif '+' in shape_name:
+                            # Compound "nameL+nameR" shape key - write one delta per component
+                            parts = [sanitize_string_for_delta(c) for c in shape_name.split('+') if c.strip()]
+                            shape_name = parts[0]
+                            _extra_delta_names = parts[1:]
                         else:
                             shape_name = sanitize_string_for_delta(shape_name)
                     else:
@@ -3440,6 +3446,16 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                         num_wrinkles += 1
                         DmeVertexDeltaData[keywords["wrinkle"]] = datamodel.make_array(wrinkle, float)
                         DmeVertexDeltaData[keywords["wrinkle"] + "Indices"] = datamodel.make_array(wrinkleIdx, int)
+
+                    for _ename in _extra_delta_names:
+                        shape_names.append(_ename)
+                        _evdd = dm.add_element(_ename, "DmeVertexDeltaData", id=ob.name + _ename)
+                        delta_states.append(_evdd)
+                        _evdd["vertexFormat"] = datamodel.make_array([keywords["pos"], keywords["norm"]], str)
+                        _evdd[keywords["pos"]] = datamodel.make_array(shape_pos[:], datamodel.Vector3)
+                        _evdd[keywords["pos"] + "Indices"] = datamodel.make_array(shape_posIdx[:], int)
+                        _evdd[keywords["norm"]] = datamodel.make_array(shape_norms[:], datamodel.Vector3)
+                        _evdd[keywords["norm"] + "Indices"] = datamodel.make_array(shape_normIdx[:], int)
 
                     bpy.context.window_manager.progress_update(len(shape_names) / num_shapes)
                     if two_percent and len(shape_names) % two_percent == 0:

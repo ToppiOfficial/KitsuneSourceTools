@@ -28,6 +28,11 @@ from typing import cast
 from .utils import *
 from . import datamodel, ordered_set, flex, keyvalues3
 
+_QC_FLEXGROUP_MAP = {
+    'eyelid': 'EYELID', 'brow': 'BROW', 'nose': 'MISC',
+    'mouth': 'MOUTH', 'phoneme': 'MISC', 'eyes': 'EYES', 'cheek': 'CHEEK',
+}
+
 
 class SmdImporter(bpy.types.Operator, Logger):
     bl_idname = "import_scene.smd"
@@ -877,6 +882,12 @@ class SmdImporter(bpy.types.Operator, Logger):
             qc.root_filedir = filedir
             qc.makeCamera = makeCamera
             qc.animation_names = []
+            qc.flex_controllers_pending = []
+            qc.localvars_pending = []
+            qc.expressions_pending = []
+            qc.stereo_flex_names_pending = set()
+            qc.flex_target_mesh = None
+            qc.flex_target_combo_op = None
             if newscene:
                 bpy.context.screen.scene = bpy.data.scenes.new(filename)
             elif filename.lower().endswith('.qc'):
@@ -909,6 +920,11 @@ class SmdImporter(bpy.types.Operator, Logger):
         file = open(filepath, 'r')
         in_bodygroup = in_lod = in_sequence = False
         lod = 0
+        def _pin_flex_target():
+            if qc.flex_target_mesh is None and qc.ref_mesh:
+                qc.flex_target_mesh     = qc.ref_mesh
+                qc.flex_target_combo_op = qc.pending_combo_op
+
         for line_str in file:
             line = self.parseQuoteBlockedLine(line_str)
             if len(line) == 0:
@@ -1068,6 +1084,46 @@ class SmdImporter(bpy.types.Operator, Logger):
                         if shape and shape.name.startswith("Key"):
                             shape.name = line[1]
                         break
+                if line[0] == "flexpair":
+                    qc.stereo_flex_names_pending.add(line[1])
+                continue
+
+            if line[0] == "flexcontroller" and qc.ref_mesh and len(line) >= 3:
+                try:
+                    fc_type = line[1]
+                    if len(line) >= 5 and line[2] == "range":
+                        flex_min, flex_max = float(line[3]), float(line[4])
+                        names = line[5:]
+                    else:
+                        flex_min, flex_max = 0.0, 1.0
+                        names = line[2:]
+                except (ValueError, IndexError):
+                    continue
+                if not names:
+                    continue
+                _pin_flex_target()
+                for name in names:
+                    qc.flex_controllers_pending.append((name, fc_type, flex_min, flex_max))
+                continue
+
+            if line[0] == "localvar" and qc.ref_mesh and len(line) >= 2:
+                _pin_flex_target()
+                _lv_m = re.match(r'(?i)localvar\s+(.+?)(?:\s*//.*)?$', line_str.strip())
+                if _lv_m:
+                    for _lv in _lv_m.group(1).split():
+                        qc.localvars_pending.append(_lv)
+                continue
+
+            if line[0].startswith('%') and qc.ref_mesh:
+                m = re.match(r'^\s*%(\w+)\s*=\s*(.+?)(?:\s*//.*)?$', line_str.rstrip())
+                if m:
+                    _pin_flex_target()
+                    qc.expressions_pending.append((m.group(1), m.group(2).strip()))
+                continue
+
+            if line[0] == "noautodmxrules":
+                _pin_flex_target()
+                qc.no_auto_dmx_rules = True
                 continue
 
             if line[0] in ["$collisionmodel", "$collisionjoints"]:
@@ -1115,16 +1171,6 @@ class SmdImporter(bpy.types.Operator, Logger):
                         path = appendExt(path, ".qc")
                 try:
                     self.readQC(path, False, doAnim, makeCamera, rotMode)
-                    if path.lower().endswith(('.qci', '.qc')):
-                        already_added = False
-                        for prefab in bpy.context.scene.vs.smd_prefabs:
-                            if os.path.normpath(prefab.filepath) == os.path.normpath(path):
-                                already_added = True
-                                break
-                        if not already_added:
-                            prefab = bpy.context.scene.vs.smd_prefabs.add()
-                            prefab.filepath = path
-                            print(f"- Added QCI prefab: {os.path.basename(path)}")
                 except IOError:
                     self.warning(get_id("importer_err_qci", True).format(path))
 
@@ -1140,6 +1186,74 @@ class SmdImporter(bpy.types.Operator, Logger):
                     qc.origin.empty_display_size = size
 
         if outer_qc:
+            # Apply all accumulated flex data from this file and any $include children
+            if qc.flex_target_mesh and (qc.flex_controllers_pending or qc.localvars_pending
+                                        or qc.expressions_pending or qc.no_auto_dmx_rules
+                                        or qc.flex_target_combo_op):
+                ob = qc.flex_target_mesh
+                if qc.no_auto_dmx_rules:
+                    ob.vs.dme_flexcontrollers.clear()
+                    ob.vs.dme_flex_rules.clear()
+                    # Rename stereo shape keys from the DMX combo op: a controller with stereo=True
+                    # and exactly one rawControlName means a single shape key that should use the
+                    # compound L+R naming convention (e.g. "AU15" = "AU15L+AU15R").
+                    # Controllers with two rawControlNames already have separate L/R shape keys.
+                    if (qc.flex_target_combo_op
+                            and ob.data and hasattr(ob.data, 'shape_keys') and ob.data.shape_keys):
+                        _key_blocks = ob.data.shape_keys.key_blocks
+                        for _ctrl in qc.flex_target_combo_op.get("controls", []):
+                            _raw = _ctrl.get("rawControlNames", [])
+                            if bool(_ctrl.get("stereo", False)) and len(_raw) == 1:
+                                _sk = _key_blocks.get(_raw[0])
+                                if _sk:
+                                    _sk.name = f"{_raw[0]}L+{_raw[0]}R"
+                elif qc.flex_target_combo_op:
+                    self._populate_dme_flex_from_dmx(ob, qc.flex_target_combo_op)
+
+                for name, fc_type, flex_min, flex_max in qc.flex_controllers_pending:
+                    stereo = name in qc.stereo_flex_names_pending
+                    existing = next((i for i in ob.vs.dme_flexcontrollers if i.controller_name == name), None)
+                    if existing:
+                        existing.flex_min = flex_min
+                        existing.flex_max = flex_max
+                        existing.flexgroup = _QC_FLEXGROUP_MAP.get(fc_type, 'NONE')
+                        existing.eyelid = (fc_type == 'eyelid')
+                        existing.stereo = stereo
+                    else:
+                        item = ob.vs.dme_flexcontrollers.add()
+                        item.controller_name = name
+                        item.flex_min = flex_min
+                        item.flex_max = flex_max
+                        item.flexgroup = _QC_FLEXGROUP_MAP.get(fc_type, 'NONE')
+                        item.eyelid = (fc_type == 'eyelid')
+                        item.stereo = stereo
+
+                existing_lv = {r.name for r in ob.vs.dme_flex_rules if r.rule_type == 'LOCALVAR'}
+                for varname in qc.localvars_pending:
+                    if varname not in existing_lv:
+                        item = ob.vs.dme_flex_rules.add()
+                        item.rule_type = 'LOCALVAR'
+                        item.name = varname
+                        existing_lv.add(varname)
+
+                for delta_name, expr in qc.expressions_pending:
+                    existing = next(
+                        (r for r in ob.vs.dme_flex_rules if r.rule_type == 'EXPRESSION' and r.name == delta_name),
+                        None,
+                    )
+                    if existing:
+                        existing.expression = expr
+                    else:
+                        item = ob.vs.dme_flex_rules.add()
+                        item.rule_type = 'EXPRESSION'
+                        item.name = delta_name
+                        item.expression = expr
+
+                if ob.vs.dme_flexcontrollers:
+                    ob.vs.flex_controller_mode = 'DME'
+                    print(f"- Imported {len(ob.vs.dme_flexcontrollers)} flex controllers and "
+                          f"{len(ob.vs.dme_flex_rules)} flex rules from QC/DMX")
+
             printTimeMessage(qc.startTime, filename, "import", "QC")
         return self.num_files_imported
 
@@ -1723,84 +1837,105 @@ class SmdImporter(bpy.types.Operator, Logger):
             if smd.jobType in [REF, PHYS]:
                 parseModel(DmeModel)
 
+            # Import flex controllers from combinationOperator (REF meshes only).
+            # When called from readQC, defer so readQC can merge QC data on top.
+            if smd.jobType == REF and smd.m:
+                if self.qc:
+                    self.qc.ref_mesh = smd.m
+                _combo_op = dm.root.get("combinationOperator")
+                if _combo_op:
+                    if self.qc:
+                        self.qc.pending_combo_op = _combo_op
+                    else:
+                        self._populate_dme_flex_from_dmx(smd.m, _combo_op)
+
             # -----------------------------------------------------------------
             # Animation
             # -----------------------------------------------------------------
             if smd.jobType == ANIM:
                 print(f"Importing DMX animation \"{smd.jobName}\"")
 
-                animation  = dm.root["animationList"]["animations"][0]
-                frameRate  = animation.get("frameRate", 30)
-                timeFrame  = animation["timeFrame"]
-                scale      = timeFrame.get("scale", 1.0)
-                duration   = timeFrame.get("duration") or timeFrame.get("durationTime")
-                offset     = timeFrame.get("offset") or timeFrame.get("offsetTime", 0.0)
-                start      = timeFrame.get("start", 0)
-
-                if type(duration) == int:
-                    duration = datamodel.Time.from_int(duration)
-                if type(offset) == int:
-                    offset = datamodel.Time.from_int(offset)
-
-                lastFrameIndex = 0
-                keyframes: dict[bpy.types.PoseBone, list[KeyFrame]] = collections.defaultdict(list)
-                unknown_bones: list[str] = []
-
-                for channel in animation["channels"]:
-                    toElement = channel["toElement"]
-                    if not toElement:
-                        continue
-
-                    bone_name = smd.boneTransformIDs.get(toElement.id)
-                    bone = smd.a.pose.bones.get(bone_name) if bone_name else None
-                    if not bone:
-                        if self.append != 'NEW_ARMATURE' and toElement.name not in unknown_bones:
-                            unknown_bones.append(toElement.name)
-                            print(f"- Animation refers to unrecognised bone \"{toElement.name}\"")
-                        continue
-
-                    is_position_channel = channel["toAttribute"] == "position"
-                    is_rotation_channel = channel["toAttribute"] == "orientation"
-                    if not (is_position_channel or is_rotation_channel):
-                        continue
-
-                    frame_log = channel["log"]["layers"][0]
-                    times  = frame_log["times"]
-                    values = frame_log["values"]
-
-                    for i in range(len(times)):
-                        frame_time = times[i] + start
-                        if type(frame_time) == int:
-                            frame_time = datamodel.Time.from_int(frame_time)
-                        frame_value = values[i]
-
-                        keyframe = KeyFrame()
-                        keyframes[bone].append(keyframe)
-                        keyframe.frame = frame_time * frameRate
-                        lastFrameIndex = max(lastFrameIndex, keyframe.frame)
-
-                        if not (bone.parent or keyframe.pos or keyframe.rot):
-                            keyframe.matrix = getUpAxisMat(smd.upAxis).inverted()
-
-                        if is_position_channel and not keyframe.pos:
-                            keyframe.matrix @= Matrix.Translation(frame_value)
-                            keyframe.pos = True
-                        elif is_rotation_channel and not keyframe.rot:
-                            keyframe.matrix @= getBlenderQuat(frame_value).to_matrix().to_4x4()
-                            keyframe.rot = True
-
-                if smd.a is None:
-                    self.warning(get_id("importer_err_noanimationbones", True).format(smd.jobName))
+                _anim_list = dm.root.get("animationList")
+                if _anim_list is not None:
+                    animation = _anim_list["animations"][0]
+                elif dm.root.get("channels") is not None:
+                    animation = dm.root
                 else:
-                    smd.a.hide_set(False)
-                    bpy.context.view_layer.objects.active = smd.a
-                    if unknown_bones:
-                        self.warning(get_id("importer_err_missingbones", True).format(
-                            smd.jobName, len(unknown_bones), smd.a.name))
+                    self.warning(f"DMX file \"{smd.jobName}\" has no animation data - skipping")
+                    animation = None
 
-                    total_frames = ceil((duration * frameRate) if duration else lastFrameIndex) + 1
-                    self.applyFrames(keyframes, total_frames)
-                    bpy.context.scene.frame_end += int(round(start * 2 * frameRate, 0))
+                if animation is not None:
+                    frameRate  = animation.get("frameRate", 30)
+                    timeFrame  = animation["timeFrame"]
+                    scale      = timeFrame.get("scale", 1.0)
+                    duration   = timeFrame.get("duration") or timeFrame.get("durationTime")
+                    offset     = timeFrame.get("offset") or timeFrame.get("offsetTime", 0.0)
+                    start      = timeFrame.get("start", 0)
+
+                    if type(duration) == int:
+                        duration = datamodel.Time.from_int(duration)
+                    if type(offset) == int:
+                        offset = datamodel.Time.from_int(offset)
+
+                    lastFrameIndex = 0
+                    keyframes: dict[bpy.types.PoseBone, list[KeyFrame]] = collections.defaultdict(list)
+                    unknown_bones: list[str] = []
+
+                    for channel in animation["channels"]:
+                        toElement = channel["toElement"]
+                        if not toElement:
+                            continue
+
+                        bone_name = smd.boneTransformIDs.get(toElement.id)
+                        bone = smd.a.pose.bones.get(bone_name) if bone_name else None
+                        if not bone:
+                            if self.append != 'NEW_ARMATURE' and toElement.name not in unknown_bones:
+                                unknown_bones.append(toElement.name)
+                                print(f"- Animation refers to unrecognised bone \"{toElement.name}\"")
+                            continue
+
+                        is_position_channel = channel["toAttribute"] == "position"
+                        is_rotation_channel = channel["toAttribute"] == "orientation"
+                        if not (is_position_channel or is_rotation_channel):
+                            continue
+
+                        frame_log = channel["log"]["layers"][0]
+                        times  = frame_log["times"]
+                        values = frame_log["values"]
+
+                        for i in range(len(times)):
+                            frame_time = times[i] + start
+                            if type(frame_time) == int:
+                                frame_time = datamodel.Time.from_int(frame_time)
+                            frame_value = values[i]
+
+                            keyframe = KeyFrame()
+                            keyframes[bone].append(keyframe)
+                            keyframe.frame = frame_time * frameRate
+                            lastFrameIndex = max(lastFrameIndex, keyframe.frame)
+
+                            if not (bone.parent or keyframe.pos or keyframe.rot):
+                                keyframe.matrix = getUpAxisMat(smd.upAxis).inverted()
+
+                            if is_position_channel and not keyframe.pos:
+                                keyframe.matrix @= Matrix.Translation(frame_value)
+                                keyframe.pos = True
+                            elif is_rotation_channel and not keyframe.rot:
+                                keyframe.matrix @= getBlenderQuat(frame_value).to_matrix().to_4x4()
+                                keyframe.rot = True
+
+                    if smd.a is None:
+                        self.warning(get_id("importer_err_noanimationbones", True).format(smd.jobName))
+                    else:
+                        smd.a.hide_set(False)
+                        bpy.context.view_layer.objects.active = smd.a
+                        if unknown_bones:
+                            self.warning(get_id("importer_err_missingbones", True).format(
+                                smd.jobName, len(unknown_bones), smd.a.name))
+
+                        total_frames = ceil((duration * frameRate) if duration else lastFrameIndex) + 1
+                        self.applyFrames(keyframes, total_frames)
+                        bpy.context.scene.frame_end += int(round(start * 2 * frameRate, 0))
 
         except datamodel.AttributeError as e:
             e.args = [f"Invalid DMX file: {e.args[0] if e.args else 'Unknown error'}"]
@@ -1815,6 +1950,53 @@ class SmdImporter(bpy.types.Operator, Logger):
             bpy.context.scene.vs.dmx_format = version.format_enum
         if State.datamodelEncoding < version.encoding:
             bpy.context.scene.vs.dmx_encoding = str(version.encoding)
+
+    def _populate_dme_flex_from_dmx(self, ob: bpy.types.Object, combo_op) -> None:
+        ob.vs.dme_flexcontrollers.clear()
+        ob.vs.dme_flex_rules.clear()
+
+        for ctrl in combo_op.get("controls", []):
+            item = ob.vs.dme_flexcontrollers.add()
+            item.controller_name = ctrl.name
+            raw = ctrl.get("rawControlNames", [])
+            item.shapekey = raw[0] if raw else ''
+            item.stereo = bool(ctrl.get("stereo", False)) or len(raw) >= 2
+            item.eyelid = bool(ctrl.get("eyelid", False))
+            item.flex_min = float(ctrl.get("flexMin", 0.0))
+            item.flex_max = float(ctrl.get("flexMax", 1.0))
+
+        for dom in combo_op.get("dominators", []):
+            d_names = dom.get("dominators", [])
+            s_names = dom.get("supressed", [])  # note: "supressed" is Valve's typo in the DMX format
+            if d_names or s_names:
+                item = ob.vs.dme_flex_rules.add()
+                item.rule_type = 'DOMINATION'
+                item.dominator_names = ", ".join(d_names)
+                item.suppressed_names = ", ".join(s_names)
+
+        for target in combo_op.get("targets", []):
+            if target.type != "DmeFlexRules":
+                continue
+            for rule in target.get("deltaStates", []):
+                rt = rule.type
+                if rt not in ("DmeFlexRulePassThrough", "DmeFlexRuleExpression", "DmeFlexRuleLocalVar"):
+                    continue
+                item = ob.vs.dme_flex_rules.add()
+                if rt == "DmeFlexRulePassThrough":
+                    item.rule_type = 'PASSTHROUGH'
+                    item.name = rule.name
+                elif rt == "DmeFlexRuleExpression":
+                    item.rule_type = 'EXPRESSION'
+                    item.name = rule.name
+                    item.expression = rule.get("expr", "")
+                else:  # DmeFlexRuleLocalVar
+                    item.rule_type = 'LOCALVAR'
+                    item.name = rule.name
+
+        if ob.vs.dme_flexcontrollers:
+            ob.vs.flex_controller_mode = 'DME'
+            print(f"- Imported {len(ob.vs.dme_flexcontrollers)} flex controllers and "
+                  f"{len(ob.vs.dme_flex_rules)} flex rules from DMX combinationOperator")
 
     # -------------------------------------------------------------------------
     # VMDL helpers

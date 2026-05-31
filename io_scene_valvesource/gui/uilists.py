@@ -201,7 +201,10 @@ class SMD_UL_DmeFlexRules(UIList):
                     name_alert = item.name not in ctrl_names
                 elif item.rule_type == 'EXPRESSION':
                     sk = ob.data.shape_keys if ob.data and hasattr(ob.data, 'shape_keys') else None
-                    in_shapekeys = sk is not None and item.name in sk.key_blocks
+                    in_shapekeys = sk is not None and (
+                        item.name in sk.key_blocks or
+                        any(item.name in key.name.split('+') for key in sk.key_blocks)
+                    )
                     in_localvars = any(r.rule_type == 'LOCALVAR' and r.name == item.name for r in ob.vs.dme_flex_rules)
                     name_alert = not in_shapekeys and not in_localvars
             name_row = row.row(align=True)

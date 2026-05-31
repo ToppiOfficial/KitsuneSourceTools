@@ -1052,6 +1052,15 @@ class QcInfo:
     in_block_comment = False
     jobName = ""
     root_filedir = ""
+    pending_combo_op = None  # deferred DmeCombinationOperator from a DMX $model import
+    no_auto_dmx_rules = False  # $model noautodmxrules: ignore DMX flex, QC is sole source
+    # Flex accumulation — shared across all recursive readQC calls; applied once by outer call
+    flex_target_mesh = None
+    flex_target_combo_op = None
+    flex_controllers_pending: list = None
+    localvars_pending: list = None
+    expressions_pending: list = None
+    stereo_flex_names_pending: set = None
     
     def __init__(self):
         self.imported_smds = []
@@ -1869,14 +1878,15 @@ def validate_corrective_components(components_str: str, sk_names: set) -> list:
 def validate_flex_expression(expr: str, sk_names: set, ctrl_names: set, localvar_names: set = frozenset()) -> tuple:
     """Parse a DME flex expression and return (delta_errors, controller_errors).
 
-    %name  -> must match a shape key or local var
+    %name  -> must match a shape key, a component of a compound "L+R" shape key, or a local var
     name   -> must match a flex controller, ignoring math keywords
     """
+    expanded_sk = sk_names | {part for name in sk_names for part in name.split('+')}
     delta_errors = []
     controller_errors = []
     for m in re.finditer(r'%(\w+)', expr):
         name = m.group(1)
-        if name not in sk_names and name not in localvar_names:
+        if name not in expanded_sk and name not in localvar_names:
             delta_errors.append(name)
     stripped = re.sub(r'%\w+', '', expr)
     for m in re.finditer(r'\b([a-zA-Z_]\w*)\b', stripped):

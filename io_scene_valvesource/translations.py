@@ -94,9 +94,9 @@ _data = {
         'en': "Define flex controllers and flex rules following the DMX model spec (DMX export only)",
         'ja': "DMXモデル仕様に従いフレックスコントローラーとルールを定義（DMXエクスポート専用）",
     },
-    'controllers_strict_tip': {
-        'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored. [Deprecated: use DME Rule mode instead]",
-        'ja': "明示的にリストされたシェイプキーのみエクスポート（非推奨: DMEルールモードを使用してください）",
+    'controllers_builder_tip': {
+        'en': "Only shapekeys explicitly listed as flex controllers will be exported. All other shapekeys are ignored.",
+        'ja': "明示的にリストされたシェイプキーのみエクスポート",
     },
     'curve_poly_side': {
         'en': "Polygon Generation",

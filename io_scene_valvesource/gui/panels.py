@@ -876,12 +876,12 @@ class SMD_PT_Shapekey(Properties_Panel):
 
             # --- Flex Controllers ---
             ctrl_header = box.row()
-            ctrl_header.prop(active_object.vs, "show_items",
-                             icon='TRIA_DOWN' if active_object.vs.show_items else 'TRIA_RIGHT',
+            ctrl_header.prop(context.scene.vs, "show_flex_items",
+                             icon='TRIA_DOWN' if context.scene.vs.show_flex_items else 'TRIA_RIGHT',
                              icon_only=True, emboss=False)
             ctrl_header.label(text=get_id("label_dme_flex_controllers"), icon='SHAPEKEY_DATA')
 
-            if active_object.vs.show_items:
+            if context.scene.vs.show_flex_items:
                 ctrl_col = box.column()
                 ctrl_row = ctrl_col.row()
                 ctrl_list_col = ctrl_row.column()
@@ -938,12 +938,12 @@ class SMD_PT_Shapekey(Properties_Panel):
 
             # --- Flex Rules & Domination ---
             rules_header = box.row()
-            rules_header.prop(active_object.vs, "show_flex_rules_items",
-                              icon='TRIA_DOWN' if active_object.vs.show_flex_rules_items else 'TRIA_RIGHT',
+            rules_header.prop(context.scene.vs, "show_flex_rules_items",
+                              icon='TRIA_DOWN' if context.scene.vs.show_flex_rules_items else 'TRIA_RIGHT',
                               icon_only=True, emboss=False)
             rules_header.label(text=get_id("label_dme_flex_rules"), icon='DRIVER')
 
-            if active_object.vs.show_flex_rules_items:
+            if context.scene.vs.show_flex_rules_items:
                 rules_col = box.column()
                 rules_row = rules_col.row()
                 rules_list_col = rules_row.column()

@@ -132,6 +132,9 @@ class ValveSource_SceneProps(bpy.types.PropertyGroup):
     sim_proc_bones   : BoolProperty(name=get_id('prop_sim_proc_bones'), description=get_id('prop_sim_proc_bones_tip'), default=True)
     preview_edgeline : BoolProperty(name=get_id('prop_preview_edgeline'), description=get_id('prop_preview_edgeline_tip'), default=False)
 
+    show_flex_items : BoolProperty(default=False)
+    show_flex_rules_items : BoolProperty(default=True)
+
     arm_items_view : EnumProperty(name=get_id('prop_arm_items_view'), items=[
         ('JIGGLEBONES', get_id('label_all_jigglebones'), '', 'BONE_DATA',   0),
         ('HITBOXES',    get_id('label_all_hitboxes'),    '', 'CUBE',        1),
