@@ -3,15 +3,18 @@ import math
 import blf
 import bpy
 import gpu
+from bpy.app.handlers import persistent
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 from .utils import get_bone_matrix, get_id, is_armature, is_mesh_compatible
 
 _handle          = None
 _handle_2d       = None
 _hud_handle      = None
 _edgeline_handle = None
+_hitbox_sync_handle = None
+_last_active_bone_key: str = ''
 _edgeline_cache: dict    = {}   # ob.session_uid -> (cache_key, [(color, verts)])
 _edgeline_mesh_map: dict = {}   # mesh.session_uid -> ob.session_uid (for weight-paint invalidation)
 _edgeline_last_mode: str = ''   # previous context.mode, used to detect pose-mode exit
@@ -62,24 +65,74 @@ def _bone_octahedron_verts(mat, length):
     return head, tail, vr, vl, vf, vb
 
 
-def _bone_octahedron_tris_split(mat, length):
-    """Returns (lit_tris, shadow_tris) where the face with the most -Z normal is shadowed."""
+def _bone_octahedron_shaded_tris(mat, length):
+    """Per-face flat-shaded octahedron triangles, like Blender's solid bones.
+    Returns [(shade, [a, b, c]), ...] with shade in 0..1 from a fixed overhead light,
+    so every face (head pyramid and tail pyramid alike) gets its own brightness."""
     head, tail, vr, vl, vf, vb = _bone_octahedron_verts(mat, length)
+    y_ax  = Vector((mat[0][1], mat[1][1], mat[2][1])).normalized()
     faces = [
         (head, vr, vf), (head, vf, vl), (head, vl, vb), (head, vb, vr),
         (tail, vf, vr), (tail, vl, vf), (tail, vb, vl), (tail, vr, vb),
     ]
-    nz = [(b - a).cross(c - a).z for a, b, c in faces]
-    shadow_idxs = {nz.index(min(nz)), nz.index(max(nz))}
-    lit, shadow = [], []
-    for i, (a, b, c) in enumerate(faces):
-        (shadow if i in shadow_idxs else lit).extend([a, b, c])
-    return lit, shadow
+    out = []
+    for a, b, c in faces:
+        n = (b - a).cross(c - a)
+        if n.length < 1e-12:
+            continue
+        n = n.normalized()
+        centroid = (a + b + c) / 3.0
+        axis_pt  = head + y_ax * (centroid - head).dot(y_ax)   # nearest point on bone axis
+        if n.dot(centroid - axis_pt) < 0:                      # force normal to face outward
+            n = -n
+        shade = 0.35 + 0.65 * (n.z * 0.5 + 0.5)                # down-faces dark, up-faces bright
+        out.append((shade, [a, b, c]))
+    return out
 
 
 def _bone_octahedron_lines(mat, length):
     head, tail, vr, vl, vf, vb = _bone_octahedron_verts(mat, length)
-    return [head, vr,  head, vl,  head, vf,  head, vb]
+    return [
+        head, vr,  head, vf,  head, vl,  head, vb,   # head pyramid spokes
+        vr, vf,  vf, vl,  vl, vb,  vb, vr,            # mid ring
+        tail, vr,  tail, vf,  tail, vl,  tail, vb,    # tail pyramid spokes
+    ]
+
+
+def _circle_lines(center, ax1, ax2, radius, n=24):
+    """Line-segment loop of a circle lying in the ax1/ax2 plane."""
+    pts = [center + (ax1 * math.cos(2 * math.pi * i / n) +
+                     ax2 * math.sin(2 * math.pi * i / n)) * radius
+           for i in range(n)]
+    verts = []
+    for i in range(n):
+        verts += [pts[i], pts[(i + 1) % n]]
+    return verts
+
+
+def _sphere_lines(center, ax1, ax2, ax3, radius, n=24):
+    """Wireframe sphere: three orthogonal great circles, like Blender's bone head/tail."""
+    return (_circle_lines(center, ax1, ax2, radius, n) +
+            _circle_lines(center, ax2, ax3, radius, n) +
+            _circle_lines(center, ax3, ax1, radius, n))
+
+
+def _sphere_tris(center, ax1, ax2, ax3, radius, n=16, lat=8):
+    """Solid UV-sphere triangles; ax3 is the pole axis."""
+    rings = []
+    for i in range(lat + 1):
+        theta  = math.pi * i / lat            # 0..pi, measured from the +ax3 pole
+        ct, st = math.cos(theta), math.sin(theta)
+        rings.append([center + ax3 * (radius * ct) +
+                      (ax1 * math.cos(2*math.pi*k/n) + ax2 * math.sin(2*math.pi*k/n)) * (radius * st)
+                      for k in range(n)])
+    verts = []
+    for s in range(lat):
+        r0, r1 = rings[s], rings[s + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            verts += [r0[i], r0[j], r1[i], r0[j], r1[j], r1[i]]
+    return verts
 
 
 # -- Jiggle geometry helpers ----------------------------------------------------
@@ -196,20 +249,105 @@ def _capsule_lines(tip, fwd, perp1, perp2, length, radius, n=16):
 
 
 def _capsule_tris(tip, fwd, perp1, perp2, length, radius, n=16):
-    end   = tip + fwd * length
-    ring_s = [tip + (perp1 * math.cos(2*math.pi*i/n) + perp2 * math.sin(2*math.pi*i/n)) * radius
-              for i in range(n)]
-    ring_e = [end + (perp1 * math.cos(2*math.pi*i/n) + perp2 * math.sin(2*math.pi*i/n)) * radius
-              for i in range(n)]
+    end  = tip + fwd * length
+    lat  = max(4, n // 4)  # latitude steps per hemisphere cap
+
+    def _circ(center, r, off):
+        return [center + fwd * off + (perp1 * math.cos(2*math.pi*k/n) +
+                                      perp2 * math.sin(2*math.pi*k/n)) * r
+                for k in range(n)]
+
+    ring_s = _circ(tip, radius, 0)
+    ring_e = _circ(end, radius, 0)
+
     verts = []
+    # Cylinder body
     for i in range(n):
-        j = (i+1) % n
+        j = (i + 1) % n
         verts += [ring_s[i], ring_s[j], ring_e[i], ring_s[j], ring_e[j], ring_e[i]]
-    pole_s = tip - fwd * radius
-    pole_e = end + fwd * radius
-    for i in range(n):
-        verts += [pole_s, ring_s[(i+1)%n], ring_s[i]]
-        verts += [pole_e, ring_e[i], ring_e[(i+1)%n]]
+
+    # Start hemisphere (tip, extends in -fwd)
+    caps = [ring_s] + [_circ(tip, radius * math.cos(math.pi * 0.5 * s / lat),
+                              -radius * math.sin(math.pi * 0.5 * s / lat))
+                       for s in range(1, lat + 1)]
+    for s in range(lat):
+        r0, r1 = caps[s], caps[s + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            verts += [r0[i], r0[j], r1[i], r0[j], r1[j], r1[i]]
+
+    # End hemisphere (end, extends in +fwd)
+    caps = [ring_e] + [_circ(end, radius * math.cos(math.pi * 0.5 * s / lat),
+                              radius * math.sin(math.pi * 0.5 * s / lat))
+                       for s in range(1, lat + 1)]
+    for s in range(lat):
+        r0, r1 = caps[s], caps[s + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            verts += [r0[i], r0[j], r1[i], r0[j], r1[j], r1[i]]
+
+    return verts
+
+
+def _tapered_capsule_ring_list(p0, p1, perp1, perp2, fwd, r0, r1, n, lat):
+    """Ordered latitude rings forming a seamless tapered capsule (convex hull of two
+    spheres of radii r0/r1 at p0/p1). Rings run from the head back-pole, through both
+    spheres' tangent rings (the connecting band), to the tip front-pole. Each ring is
+    a list of n points. theta is measured from +f (toward p1): 0 = +f pole, pi = -f pole."""
+    axis = p1 - p0
+    L    = axis.length
+    if L >= 1e-6:
+        f = axis / L
+    else:
+        f = fwd.normalized() if fwd.length > 1e-9 else Vector((1.0, 0.0, 0.0))
+
+    def ring(center, R, theta):
+        ct, st = math.cos(theta), math.sin(theta)
+        return [center + f * (R * ct) +
+                (perp1 * math.cos(2*math.pi*k/n) + perp2 * math.sin(2*math.pi*k/n)) * (R * st)
+                for k in range(n)]
+
+    if L < 1e-6:
+        # Coincident endpoints: a single sphere of the larger radius.
+        R = max(r0, r1)
+        return [ring(p0, R, math.pi - math.pi * i / (2 * lat)) for i in range(2 * lat + 1)]
+
+    sin_a   = max(-1.0, min(1.0, (r0 - r1) / L))
+    theta_t = math.acos(sin_a)   # polar angle of both tangent rings
+    rings = []
+    for i in range(lat + 1):                    # head sphere: theta pi -> theta_t
+        rings.append(ring(p0, r0, math.pi - (math.pi - theta_t) * i / lat))
+    for i in range(1, lat + 1):                 # tip sphere:  theta theta_t -> 0
+        rings.append(ring(p1, r1, theta_t - theta_t * i / lat))
+    return rings
+
+
+def _tapered_capsule_tris(p0, p1, perp1, perp2, fwd, r0, r1, n=32):
+    lat   = max(6, n // 3)
+    rings = _tapered_capsule_ring_list(p0, p1, perp1, perp2, fwd, r0, r1, n, lat)
+    verts = []
+    for s in range(len(rings) - 1):
+        r_a, r_b = rings[s], rings[s + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            verts += [r_a[i], r_a[j], r_b[i], r_a[j], r_b[j], r_b[i]]
+    return verts
+
+
+def _tapered_capsule_lines(p0, p1, perp1, perp2, fwd, r0, r1, n=32):
+    lat   = max(6, n // 3)
+    rings = _tapered_capsule_ring_list(p0, p1, perp1, perp2, fwd, r0, r1, n, lat)
+    verts = []
+    # A few latitude rings: head tangent ring (lat), tip tangent ring (lat+1), plus near-poles.
+    ring_idxs = {1, lat, min(lat + 1, len(rings) - 1), len(rings) - 2}
+    for s in ring_idxs:
+        rg = rings[s]
+        for i in range(n):
+            verts += [rg[i], rg[(i + 1) % n]]
+    # Longitudinal seams along cardinal directions.
+    for k in range(0, n, max(1, n // 4)):
+        for s in range(len(rings) - 1):
+            verts += [rings[s][k], rings[s + 1][k]]
     return verts
 
 
@@ -249,6 +387,105 @@ _COLOR_PITCH        = (1.0, 0.2, 0.2)
 _COLOR_YAW          = (0.2, 0.4, 1.0)
 _COLOR_ANGLE        = (0.2, 1.0, 0.3)
 _COLOR_BASE_SPRING  = (0.2, 0.9, 0.9)
+_COLOR_COLLIDER     = (1.0, 0.6, 0.1)   # jigglebone collision capsule - orange
+
+# Hitbox group colors matching HLMV
+_HBOX_COLORS = {
+    0: (1.0,  1.0,  1.0),   # Generic - White
+    1: (1.0,  0.15, 0.15),  # Head - Red
+    2: (0.15, 1.0,  0.15),  # Chest - Green
+    3: (1.0,  1.0,  0.1),   # Stomach - Yellow
+    4: (0.15, 0.2,  1.0),   # Left Arm - Deep Blue
+    5: (0.85, 0.15, 1.0),   # Right Arm - Bright Violet
+    6: (0.1,  1.0,  1.0),   # Left Leg - Bright Cyan
+    7: (1.0,  0.55, 0.0),   # Right Leg - Orange
+    8: (1.0,  0.4,  0.15),  # Neck - Reddish Orange
+}
+
+
+def _draw_hitbox_for_bone(shader, ob, pb, hb):
+    """Draw a single hitbox entry (box or capsule) in bone-local space."""
+    bone_mat  = ob.matrix_world @ get_bone_matrix(pb)
+    arm_scale = Vector((bone_mat[0][0], bone_mat[1][0], bone_mat[2][0])).length
+
+    r, g, b = _HBOX_COLORS.get(int(hb.group) if hb.group.isdigit() else 0, (1.0, 1.0, 1.0))
+
+    rot_mat = Euler((hb.rotation[0], hb.rotation[1], hb.rotation[2]), 'XYZ').to_matrix()
+    bm3     = bone_mat.to_3x3()
+
+    # Axes in world space (not normalized - magnitude encodes object scale,
+    # so multiplying by local half-extents gives correct world-space offsets).
+    x_w = bm3 @ rot_mat.col[0]
+    y_w = bm3 @ rot_mat.col[1]
+    z_w = bm3 @ rot_mat.col[2]
+
+    mn = Vector(hb.vec_min)
+    mx = Vector(hb.vec_max)
+    ctr_local = (mn + mx) * 0.5
+
+    if hb.scale < 0:
+        # Oriented Box
+        center_w = (bone_mat @ Vector((*ctr_local, 1.0))).to_3d()
+        hx = abs(mx[0] - mn[0]) * 0.5
+        hy = abs(mx[1] - mn[1]) * 0.5
+        hz = abs(mx[2] - mn[2]) * 0.5
+        tris  = _box_tris( center_w, x_w, y_w, z_w, hx, hx, hy, hy, hz, hz)
+        lines = _box_lines(center_w, x_w, y_w, z_w, hx, hx, hy, hy, hz, hz)
+    else:
+        # Capsule - rotate endpoints around the midpoint
+        p1_local = ctr_local + rot_mat @ (mn - ctr_local)
+        p2_local = ctr_local + rot_mat @ (mx - ctr_local)
+        p1_w = (bone_mat @ Vector((*p1_local, 1.0))).to_3d()
+        p2_w = (bone_mat @ Vector((*p2_local, 1.0))).to_3d()
+        cap_vec = p2_w - p1_w
+        length  = cap_vec.length
+        if length < 1e-6:
+            return
+        fwd = cap_vec.normalized()
+        up  = Vector((0, 0, 1)) if abs(fwd.z) < 0.9 else Vector((1, 0, 0))
+        perp1 = fwd.cross(up).normalized()
+        perp2 = fwd.cross(perp1).normalized()
+        radius_w = hb.scale * arm_scale
+        tris  = _capsule_tris( p1_w, fwd, perp1, perp2, length, radius_w)
+        lines = _capsule_lines(p1_w, fwd, perp1, perp2, length, radius_w)
+
+    gpu.state.depth_mask_set(False)
+    shader.uniform_float('color', (r, g, b, 0.12))
+    batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
+    gpu.state.depth_mask_set(True)
+    gpu.state.line_width_set(1.5)
+    shader.uniform_float('color', (r, g, b, 0.70))
+    batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
+
+
+def _draw_jigglebone_collider(shader, pb, ghost_mat, scale_fac=1.0):
+    """Draw the Source 2 jigglebone collision capsule (tapered, independent end radii).
+    Endpoints are bone-local; ghost_mat already bakes in the bone's export offsets."""
+    jvs = pb.bone.vs
+    if not getattr(jvs, 'jiggle_has_collision', False):
+        return
+
+    p0 = (ghost_mat @ Vector((*jvs.jiggle_collision_point0, 1.0))).to_3d()
+    p1 = (ghost_mat @ Vector((*jvs.jiggle_collision_point1, 1.0))).to_3d()
+    r0 = jvs.jiggle_collision_radius0 * scale_fac
+    r1 = jvs.jiggle_collision_radius1 * scale_fac
+    if r0 <= 0.0 and r1 <= 0.0:
+        return
+
+    axis = p1 - p0
+    if axis.length < 1e-6:
+        fwd = Vector((ghost_mat[0][0], ghost_mat[1][0], ghost_mat[2][0])).normalized()
+    else:
+        fwd = axis.normalized()
+    up    = Vector((0, 0, 1)) if abs(fwd.z) < 0.9 else Vector((1, 0, 0))
+    perp1 = fwd.cross(up).normalized()
+    perp2 = fwd.cross(perp1).normalized()
+
+    r, g, b = _COLOR_COLLIDER
+    lines = _tapered_capsule_lines(p0, p1, perp1, perp2, fwd, r0, r1)
+    gpu.state.line_width_set(1.5)
+    shader.uniform_float('color', (r, g, b, 0.85))
+    batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
 
 
 def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
@@ -293,14 +530,10 @@ def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
     if has_angle:
         r, g, b = _COLOR_ANGLE
         tris  = _cone_tris(tip, fwd, perp1, perp2, jvs.jiggle_angle_constraint, display_len * 0.8)
-        lines = _cone_lines(tip, fwd, perp1, perp2, jvs.jiggle_angle_constraint, display_len * 0.8)
         gpu.state.depth_mask_set(False)
-        shader.uniform_float('color', (r, g, b, 0.10))
+        shader.uniform_float('color', (r, g, b, 0.18))
         batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
         gpu.state.depth_mask_set(True)
-        gpu.state.line_width_set(1.5)
-        shader.uniform_float('color', (r, g, b, 0.55))
-        batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
 
     if has_pitch:
         r, g, b = _COLOR_PITCH
@@ -308,15 +541,10 @@ def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
         max_a = jvs.jiggle_pitch_constraint_max
         tris  = (_plane_tris(tip, fwd, pitch_perp, -min_a, plane_len) +
                  _plane_tris(tip, fwd, pitch_perp, +max_a, plane_len))
-        lines = (_plane_lines(tip, fwd, pitch_perp, -min_a, plane_len) +
-                 _plane_lines(tip, fwd, pitch_perp, +max_a, plane_len))
         gpu.state.depth_mask_set(False)
-        shader.uniform_float('color', (r, g, b, 0.15))
+        shader.uniform_float('color', (r, g, b, 0.22))
         batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
         gpu.state.depth_mask_set(True)
-        gpu.state.line_width_set(1.5)
-        shader.uniform_float('color', (r, g, b, 0.75))
-        batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
 
     if has_yaw:
         r, g, b = _COLOR_YAW
@@ -324,15 +552,10 @@ def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
         max_a = jvs.jiggle_yaw_constraint_max
         tris  = (_plane_tris(tip, fwd, yaw_perp, -min_a, plane_len) +
                  _plane_tris(tip, fwd, yaw_perp, +max_a, plane_len))
-        lines = (_plane_lines(tip, fwd, yaw_perp, -min_a, plane_len) +
-                 _plane_lines(tip, fwd, yaw_perp, +max_a, plane_len))
         gpu.state.depth_mask_set(False)
-        shader.uniform_float('color', (r, g, b, 0.15))
+        shader.uniform_float('color', (r, g, b, 0.22))
         batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
         gpu.state.depth_mask_set(True)
-        gpu.state.line_width_set(1.5)
-        shader.uniform_float('color', (r, g, b, 0.75))
-        batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
 
     if has_base_spring:
         if s2:
@@ -348,25 +571,16 @@ def _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac=1.0):
         if l_min or l_max or u_min or u_max or f_min or f_max:
             r, g, b = _COLOR_BASE_SPRING
             tris  = _box_tris(tip, box_l, box_u, box_f, l_min, l_max, u_min, u_max, f_min, f_max)
-            lines = _box_lines(tip, box_l, box_u, box_f, l_min, l_max, u_min, u_max, f_min, f_max)
             gpu.state.depth_mask_set(False)
-            shader.uniform_float('color', (r, g, b, 0.12))
+            shader.uniform_float('color', (r, g, b, 0.18))
             batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
             gpu.state.depth_mask_set(True)
-            gpu.state.line_width_set(1.5)
-            shader.uniform_float('color', (r, g, b, 0.65))
-            batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
 
     if has_length:
         cap_r = pb.bone.length * scale_fac * 0.06
-        tris  = _capsule_tris(tip, fwd, perp1, perp2, display_len, cap_r)
         lines = _capsule_lines(tip, fwd, perp1, perp2, display_len, cap_r)
-        gpu.state.depth_mask_set(False)
-        shader.uniform_float('color', (cr, cg, cb, 0.10))
-        batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
-        gpu.state.depth_mask_set(True)
         gpu.state.line_width_set(1.5)
-        shader.uniform_float('color', (cr, cg, cb, 0.70))
+        shader.uniform_float('color', (cr, cg, cb, 0.85))
         batch_for_shader(shader, 'LINES', {'pos': lines}).draw(shader)
 
 
@@ -518,6 +732,50 @@ def _draw_active_proc_bone_preview(shader, context, ob):
         _proc_label_queue.append((pos_2d.x + 6, pos_2d.y + 6, tr, tg, tb, label))
 
 
+# -- Pose UIList active-bone sync --------------------------------------------
+
+@persistent
+def _on_hitbox_sync_depsgraph(scene, depsgraph):
+    global _last_active_bone_key
+    try:
+        context = bpy.context
+        if context.mode != 'POSE':
+            if _last_active_bone_key:
+                _last_active_bone_key = ''
+            return
+
+        ob = context.active_object
+        if not ob or ob.type != 'ARMATURE':
+            return
+
+        scvs = getattr(getattr(context, 'scene', None), 'vs', None)
+        if not getattr(scvs, 'hitbox_sync_pose', True):
+            return
+
+        active_pb = context.active_pose_bone
+        bone_name = active_pb.name if active_pb else ''
+        bone_key  = f"{ob.name}::{bone_name}"
+
+        if bone_key == _last_active_bone_key:
+            return
+        _last_active_bone_key = bone_key
+
+        if not bone_name:
+            return
+
+        avs = getattr(ob.data, 'vs', None)
+        if not avs or not avs.hitboxes:
+            return
+
+        for i, hb in enumerate(avs.hitboxes):
+            if hb.bone_name == bone_name:
+                if avs.hitboxes_index != i:
+                    avs.hitboxes_index = i  # triggers refresh_hitbox_snapshot via update callback
+                break
+    except Exception:
+        pass
+
+
 # -- Main draw callback ---------------------------------------------------------
 
 def _draw_export_pose_preview():
@@ -527,6 +785,8 @@ def _draw_export_pose_preview():
         if context.mode == 'EDIT_ARMATURE':
             ob = context.active_object
             if not ob or not is_armature(ob):
+                return
+            if not context.scene.vs.preview_export_pose:
                 return
             if not context.selected_bones or ob.data.show_axes:
                 return
@@ -547,14 +807,45 @@ def _draw_export_pose_preview():
             gpu.state.line_width_set(1.0)
             return
 
-        if context.mode != 'POSE':
-            return
-
         ob = context.active_object
         if not ob or not is_armature(ob):
             return
 
         scvs = context.scene.vs
+
+        # -- Hitbox preview --------------------------------------------------------
+        avs            = getattr(ob.data, 'vs', None)
+        hitbox_entries = list(getattr(avs, 'hitboxes', [])) if avs else []
+        preview_mode   = getattr(scvs, 'preview_hitboxes', 'NONE')
+
+        if preview_mode != 'NONE' and hitbox_entries:
+            if preview_mode == 'ALL':
+                to_draw = hitbox_entries
+            elif preview_mode == 'POSE':
+                sel_names = {pb.name for pb in (context.selected_pose_bones or [])}
+                to_draw   = [hb for hb in hitbox_entries if hb.bone_name in sel_names]
+            else:  # SELECTED
+                idx     = avs.hitboxes_index if avs else -1
+                to_draw = [hitbox_entries[idx]] if 0 <= idx < len(hitbox_entries) else []
+            if to_draw:
+                shader_hb = gpu.shader.from_builtin('UNIFORM_COLOR')
+                gpu.state.blend_set('ALPHA')
+                gpu.state.depth_test_set('ALWAYS')
+                gpu.state.face_culling_set('NONE')
+                shader_hb.bind()
+                for hb in to_draw:
+                    pb_hb = ob.pose.bones.get(hb.bone_name)
+                    if pb_hb:
+                        _draw_hitbox_for_bone(shader_hb, ob, pb_hb, hb)
+                gpu.state.face_culling_set('NONE')
+                gpu.state.blend_set('NONE')
+                gpu.state.depth_test_set('NONE')
+                gpu.state.line_width_set(1.0)
+
+        if context.mode != 'POSE':
+            return
+
+        # -------------------------------------------------------------------------
 
         if scvs.preview_proc_bones:
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -567,6 +858,8 @@ def _draw_export_pose_preview():
             gpu.state.blend_set('NONE')
             gpu.state.depth_test_set('NONE')
             gpu.state.line_width_set(1.0)
+
+        # -------------------------------------------------------------------------
 
         preview_pose = scvs.preview_export_pose
         if not context.selected_pose_bones:
@@ -605,35 +898,44 @@ def _draw_export_pose_preview():
             world_bl  = bl * scale_fac
 
             if preview_pose and (has_rot or has_loc):
-                lit_tris, shadow_tris = _bone_octahedron_tris_split(ghost_mat, world_bl)
                 gpu.state.face_culling_set('BACK')
                 gpu.state.depth_mask_set(False)
-                if shadow_tris:
-                    shader.uniform_float('color', (cr * 0.5, cg * 0.5, cb * 0.5, 0.30))
-                    batch_for_shader(shader, 'TRIS', {'pos': shadow_tris}).draw(shader)
-                if lit_tris:
-                    shader.uniform_float('color', (cr, cg, cb, 0.25))
-                    batch_for_shader(shader, 'TRIS', {'pos': lit_tris}).draw(shader)
+                for shade, tri in _bone_octahedron_shaded_tris(ghost_mat, world_bl):
+                    shader.uniform_float('color', (cr * shade, cg * shade, cb * shade, 0.28))
+                    batch_for_shader(shader, 'TRIS', {'pos': tri}).draw(shader)
                 gpu.state.depth_mask_set(True)
                 gpu.state.face_culling_set('NONE')
 
-                gpu.state.line_width_set(2.0)
-                shader.uniform_float('color', (cr, cg, cb, 0.85))
-                batch_for_shader(shader, 'LINES', {'pos': _bone_octahedron_lines(ghost_mat, world_bl)}).draw(shader)
-
+                ghost_head = ghost_mat.to_translation()
                 ghost_y    = y_col.normalized()
                 curr_y     = Vector((curr_mat[0][1], curr_mat[1][1], curr_mat[2][1])).normalized()
-                ghost_tail = ghost_mat.to_translation() + ghost_y * world_bl
-                curr_tail  = curr_mat.to_translation()  + curr_y  * world_bl
+                ghost_tail = ghost_head + ghost_y * world_bl
+                curr_tail  = curr_mat.to_translation() + curr_y * world_bl
                 gpu.state.line_width_set(1.5)
                 shader.uniform_float('color', (0.6, 0.85, 1.0, 0.55))
                 batch_for_shader(shader, 'LINES', {'pos': [curr_tail, ghost_tail]}).draw(shader)
+
+                # Blender-style joint caps: solid translucent sphere + wireframe, at the tip
+                # and (only when there's a location offset) at the head, so the head cap
+                # doesn't pile onto the real bone head.
+                gx        = Vector((ghost_mat[0][0], ghost_mat[1][0], ghost_mat[2][0])).normalized()
+                gz        = Vector((ghost_mat[0][2], ghost_mat[1][2], ghost_mat[2][2])).normalized()
+                sphere_r  = world_bl * 0.05
+                cap_pts   = [ghost_tail] + ([ghost_head] if has_loc else [])
+                for c in cap_pts:
+                    gpu.state.face_culling_set('BACK')
+                    gpu.state.depth_mask_set(False)
+                    shader.uniform_float('color', (cr, cg, cb, 0.25))
+                    batch_for_shader(shader, 'TRIS', {'pos': _sphere_tris(c, gx, gz, ghost_y, sphere_r)}).draw(shader)
+                    gpu.state.depth_mask_set(True)
+                    gpu.state.face_culling_set('NONE')
 
                 if not ob.data.show_axes:
                     _draw_ghost_axes(shader, context, ghost_mat, world_bl)
 
             if is_jiggle:
                 _draw_jigglebone(shader, pb, ghost_mat, cr, cg, cb, s2, scale_fac)
+                _draw_jigglebone_collider(shader, pb, ghost_mat, scale_fac)
 
         gpu.state.face_culling_set('NONE')
         gpu.state.blend_set('NONE')
@@ -778,6 +1080,7 @@ def _build_edgeline_verts(ob: bpy.types.Object, depsgraph) -> list:
     return result
 
 
+@persistent
 def _on_edgeline_depsgraph_update(scene, depsgraph):
     """Invalidate cache entries when an Object or its Mesh data-block is updated."""
     if not _edgeline_cache:
@@ -945,7 +1248,7 @@ def _draw_sim_hud():
 
 
 def register_draw_handler():
-    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle
+    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle, _hitbox_sync_handle
     if _handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
         except Exception: pass
@@ -960,6 +1263,9 @@ def register_draw_handler():
         except Exception: pass
     if _edgeline_depsgraph_handle is not None:
         try: bpy.app.handlers.depsgraph_update_post.remove(_edgeline_depsgraph_handle)
+        except Exception: pass
+    if _hitbox_sync_handle is not None:
+        try: bpy.app.handlers.depsgraph_update_post.remove(_hitbox_sync_handle)
         except Exception: pass
     _edgeline_cache.clear()
     _edgeline_mesh_map.clear()
@@ -977,10 +1283,12 @@ def register_draw_handler():
     )
     bpy.app.handlers.depsgraph_update_post.append(_on_edgeline_depsgraph_update)
     _edgeline_depsgraph_handle = _on_edgeline_depsgraph_update
+    bpy.app.handlers.depsgraph_update_post.append(_on_hitbox_sync_depsgraph)
+    _hitbox_sync_handle = _on_hitbox_sync_depsgraph
 
 
 def unregister_draw_handler():
-    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle
+    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle, _hitbox_sync_handle
     if _handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
         except Exception: pass
@@ -1001,5 +1309,9 @@ def unregister_draw_handler():
         try: bpy.app.handlers.depsgraph_update_post.remove(_edgeline_depsgraph_handle)
         except Exception: pass
         _edgeline_depsgraph_handle = None
+    if _hitbox_sync_handle is not None:
+        try: bpy.app.handlers.depsgraph_update_post.remove(_hitbox_sync_handle)
+        except Exception: pass
+        _hitbox_sync_handle = None
     _edgeline_cache.clear()
     _edgeline_mesh_map.clear()

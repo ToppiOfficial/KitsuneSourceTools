@@ -52,10 +52,3 @@ class ValveSource_ObjectProps(ExportableProps, bpy.types.PropertyGroup):
     dme_flex_rules_index : IntProperty(default=-1)
 
     dmx_attachment : BoolProperty(name=get_id('prop_dmx_attachment'), description=get_id('prop_dmx_attachment_tip'), default=False)
-    smd_hitbox : BoolProperty(name=get_id('prop_smd_hitbox'), description=get_id('prop_smd_hitbox_tip'), default=False)
-    smd_hitbox_group : EnumProperty(name=get_id('prop_smd_hitbox_group'), description=get_id('prop_smd_hitbox_group_tip'), items=hitbox_group, default='0')
-
-    jigglebone_prefabfile : StringProperty(name=get_id('prop_jigglebone_prefabfile'), description=get_id('prop_jigglebone_prefabfile_tip'), default='', subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    attachment_prefabfile : StringProperty(name=get_id('prop_attachment_prefabfile'), description=get_id('prop_attachment_prefabfile_tip'), default='', subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    hitbox_prefabfile : StringProperty(name=get_id('prop_hitbox_prefabfile'), description=get_id('prop_hitbox_prefabfile_tip'), default='', subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})
-    procedural_prefabfile : StringProperty(name=get_id('prop_procedural_prefabfile'), description=get_id('prop_procedural_prefabfile_tip'), default='', subtype="FILE_PATH", options={'PATH_SUPPORTS_BLEND_RELATIVE'})

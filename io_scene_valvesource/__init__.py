@@ -84,8 +84,10 @@ _classes = (
     DmeFlexRuleItem,
     VertexAnimation,
     ProcBoneEntry,
+    HitboxEntry,
     ArmatureItemEntry,
     KitsuneResourceItem,
+    PrefabItem,
 
     # Material Classes
     ValveSource_MaterialProps,
@@ -142,19 +144,33 @@ _classes = (
     GUI.SMD_PT_Empty,
     GUI.SMD_PT_Curve,
     GUI.SMD_UL_ArmatureItems,
+    GUI.SMD_UL_Hitboxes,
     GUI.SMD_UL_ProcBones,
+    GUI.SMD_MT_HitboxSpecials,
     GUI.SMD_MT_ProcBoneSpecials,
+    GUI.SMD_OT_HitboxAdd,
+    GUI.SMD_OT_HitboxRemove,
+    GUI.SMD_OT_HitboxFromBone,
+    GUI.SMD_OT_HitboxDuplicate,
+    GUI.SMD_OT_HitboxCopyEntry,
+    GUI.SMD_OT_HitboxCopyAll,
+    GUI.SMD_OT_HitboxPasteEntries,
+    GUI.SMD_OT_HitboxPasteValues,
+    GUI.SMD_OT_HitboxCopyToArmature,
+    GUI.SMD_OT_HitboxMirror,
     GUI.SMD_OT_ProcBoneAdd,
     GUI.SMD_OT_ProcBoneAddFromSelected,
     GUI.SMD_OT_ProcBoneDuplicate,
     GUI.SMD_OT_ProcBoneRemove,
     GUI.SMD_OT_ProcBoneSetTolerance,
+    GUI.SMD_OT_ProcBoneNavigateFrame,
     GUI.SMD_OT_ProcBoneCopyTolerance,
     GUI.SMD_OT_ProcBonePasteTolerance,
     GUI.SMD_OT_ProcBoneCopyActive,
     GUI.SMD_OT_ProcBoneCopyByDriverBone,
     GUI.SMD_OT_ProcBoneCopyAll,
     GUI.SMD_OT_ProcBonePasteEntries,
+    GUI.SMD_PT_Hitboxes,
     GUI.SMD_PT_ProcBones,
     GUI.SMD_PT_ArmatureItems,
     GUI.SMD_PT_Jigglebones,
@@ -207,7 +223,11 @@ def register():
         bpy.utils.register_class(cls)
 
     from . import translations
-    bpy.app.translations.register(__name__,translations.translations)
+    try:
+        bpy.app.translations.unregister(__name__)
+    except Exception:
+        pass
+    bpy.app.translations.register(__name__, translations.translations)
 
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
@@ -234,6 +254,8 @@ def register():
     bpy.types.Material.vs = make_pointer(ValveSource_MaterialProps)
 
     State.hook_events()
+    bpy.app.handlers.depsgraph_update_post.append(_on_armature_data_updated)
+    bpy.app.handlers.load_post.append(_on_blend_load_refresh_hitbox_snapshot)
 
     procbones_sim.register()
 
@@ -258,6 +280,10 @@ def unregister():
 
     procbones_sim.unregister()
 
+    if _on_armature_data_updated in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_on_armature_data_updated)
+    if _on_blend_load_refresh_hitbox_snapshot in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_blend_load_refresh_hitbox_snapshot)
     State.unhook_events()
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)

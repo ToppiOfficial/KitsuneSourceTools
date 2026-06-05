@@ -48,7 +48,7 @@ class SmdImporter(bpy.types.Operator, Logger):
     files: CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN'})
     directory: StringProperty(maxlen=1024, default="", subtype='FILE_PATH', options={'HIDDEN'})
     filter_folder: BoolProperty(name="Filter Folders", description="", default=True, options={'HIDDEN'})
-    filter_glob: StringProperty(default="*.smd;*.vta;*.dmx;*.qc;*.qci", options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.smd;*.vta;*.dmx;*.qc;*.qci;*.vmdl;*.vmdl_prefab", options={'HIDDEN'})
 
     # Custom properties
     doAnim: BoolProperty(name=get_id("importer_doanims"), default=True)
@@ -95,7 +95,7 @@ class SmdImporter(bpy.types.Operator, Logger):
 
         for filepath in [os.path.join(self.directory, file.name) for file in self.files] if self.files else [self.filepath]:
             filepath_lc = filepath.lower()
-            if filepath_lc.endswith(('.qc', '.qci')):
+            if filepath_lc.endswith(('.qc', '.qci', '.vmdl', '.vmdl_prefab')):
                 self.num_files_imported = self.readQC(filepath, False, self.properties.doAnim, self.properties.makeCamera, self.properties.rotMode, outer_qc=True)
                 bpy.context.view_layer.objects.active = self.qc.a
             elif filepath_lc.endswith('.smd'):
@@ -896,9 +896,8 @@ class SmdImporter(bpy.types.Operator, Logger):
             qc = self.qc
 
         filepath_lc = filepath.lower()
-        # VMDL import disabled - implementation kept in _import_vmdl() below
-        # if filepath_lc.endswith(('.vmdl', '.vmdl_prefab')):
-        #     return self._import_vmdl(filepath, qc, rotMode)
+        if filepath_lc.endswith(('.vmdl', '.vmdl_prefab')):
+            return self._import_vmdl(filepath, qc, rotMode)
 
         try:
             with open(filepath, 'r') as f:
@@ -972,6 +971,15 @@ class SmdImporter(bpy.types.Operator, Logger):
             if line[0] == "$definebone":
                 pass
 
+            if line[0] == "$hboxset":
+                if len(line) >= 2:
+                    new_set = line[1].strip('"')
+                    if not qc.hboxset_name:
+                        qc.hboxset_name = new_set
+                    elif qc.hboxset_name != new_set:
+                        self.warning(f"Multiple $hboxset values found; using first (\"{qc.hboxset_name}\"), ignoring \"{new_set}\"")
+                continue
+
             if line[0] == "$hbox":
                 if not qc.a:
                     qc.a = self.findArmature()
@@ -983,7 +991,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 qc.a.data.pose_position = 'REST'
                 bpy.context.view_layer.update()
 
-                created, skipped, bones = import_hitboxes_from_content(line_str, qc.a, bpy.context, self.createCollections)
+                created, skipped, bones = import_hitboxes_from_content(line_str, qc.a, bpy.context, self.createCollections, hboxset_name=qc.hboxset_name)
 
                 qc.a.data.pose_position = prev_pose_position
                 bpy.context.view_layer.update()
@@ -1339,12 +1347,6 @@ class SmdImporter(bpy.types.Operator, Logger):
         if target_arm:
             smd.a = target_arm
 
-        is_vmdl_backed = (
-            target_arm is not None
-            and self.qc is not None
-            and len(getattr(self.qc, 'vmdl_bone_list', [])) > 0
-        )
-
         ob = bone = smd.atch = None
         smd.layer = target_layer
         if bpy.context.active_object:
@@ -1433,7 +1435,7 @@ class SmdImporter(bpy.types.Operator, Logger):
             # -----------------------------------------------------------------
             bone_matrices: dict[str, Matrix] = {}
 
-            if target_arm and not is_vmdl_backed:
+            if target_arm:
                 # Validate / append against existing armature
                 missing_bones: list[str] = []
                 bpy.context.view_layer.objects.active = smd.a
@@ -1475,7 +1477,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                     self.warning(get_id("importer_err_missingbones", True).format(smd.jobName, len(missing_bones), smd.a.name))
                     print("\n".join(missing_bones))
 
-            elif not target_arm:
+            else:
                 # No existing armature - inspect what the DMX contains
                 skeleton_items = list(enumerateBonesAndAttachments(DmeModel))
                 has_actual_bones = any(isBone(e) for e, _ in skeleton_items)
@@ -1703,17 +1705,11 @@ class SmdImporter(bpy.types.Operator, Logger):
 
                         for jidx in weighted_bone_indices:
                             jname: str | None = None
-                            if is_vmdl_backed:
-                                # Source 2 VMDL: blendindices are direct global skeleton indices
-                                vbl = self.qc.vmdl_bone_list
-                                if jidx < len(vbl):
-                                    jname = vbl[jidx]
-                            else:
-                                try:
-                                    if joints_list:
-                                        jname = joints_list[jidx].name or None
-                                except (IndexError, KeyError, TypeError):
-                                    pass
+                            try:
+                                if joints_list:
+                                    jname = joints_list[jidx].name or None
+                            except (IndexError, KeyError, TypeError):
+                                pass
                             deform_group_names.add(jname if jname else f"joint_{jidx}")
 
                     for face_set in DmeMesh["faceSets"]:
@@ -2002,6 +1998,16 @@ class SmdImporter(bpy.types.Operator, Logger):
     # VMDL helpers
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _vmdl_local_matrix(origin, angles_deg) -> Matrix:
+        # Source stores rotations as a QAngle [pitch, yaw, roll] (degrees) where
+        # pitch is about Y, yaw about Z and roll about X. Source builds the matrix
+        # as Rz(yaw) @ Ry(pitch) @ Rx(roll), which is a Blender 'XYZ' Euler of
+        # (roll, pitch, yaw).
+        pitch, yaw, roll = angles_deg[0], angles_deg[1], angles_deg[2]
+        rot = Euler((radians(roll), radians(pitch), radians(yaw)), 'XYZ').to_matrix().to_4x4()
+        return Matrix.Translation(Vector(origin)) @ rot
+
     def _extract_vmdl_bones(self, skeleton_node) -> list[tuple[str, object]]:
         result = []
         def _dfs(node):
@@ -2078,8 +2084,6 @@ class SmdImporter(bpy.types.Operator, Logger):
             self.warning(f"{filename}: Skeleton has no Bone children")
             return 0
 
-        qc.vmdl_bone_list = [name for name, _ in bone_pairs]
-
         arm_name = self.truncate_id_name(qc.jobName + "_skeleton", bpy.types.Armature)
         arm = self.createArmature(arm_name)
         qc.a = smd.a = arm
@@ -2098,11 +2102,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 eb.parent = edit_bone_map[parent_name]
             origin = node.properties.get("origin", [0.0, 0.0, 0.0])
             angles_deg = node.properties.get("angles", [0.0, 0.0, 0.0])
-            p, y, r = angles_deg[0], angles_deg[1], angles_deg[2]
-            bone_matrices[eb.name] = (
-                Matrix.Translation(Vector(origin))
-                @ Euler([radians(r), radians(p), radians(y)], 'XYZ').to_matrix().to_4x4()
-            )
+            bone_matrices[eb.name] = self._vmdl_local_matrix(origin, angles_deg)
 
         def _dfs_create(node, parent_name: str | None):
             name = node.properties.get("name")
@@ -2158,6 +2158,8 @@ class SmdImporter(bpy.types.Operator, Logger):
         att_list = root_node.get(recursive=False, _class="AttachmentList")
         if att_list:
             coll = smd.g if smd.g else bpy.context.scene.collection
+            # Source bone names are case-insensitive; map them to the real bones.
+            bone_lower = {b.name.lower(): b.name for b in arm.data.bones}
             imported_att = 0
             for att in att_list.children:
                 if att.properties.get("_class") != "Attachment":
@@ -2166,25 +2168,26 @@ class SmdImporter(bpy.types.Operator, Logger):
                 parent_bone = att.properties.get("parent_bone", "")
                 if not att_name:
                     continue
-                if parent_bone and parent_bone not in arm.data.bones:
-                    self.warning(f"Attachment '{att_name}': bone '{parent_bone}' not found - skipped")
-                    continue
+                resolved_bone = ""
+                if parent_bone:
+                    resolved_bone = (arm.data.bones[parent_bone].name
+                                     if parent_bone in arm.data.bones
+                                     else bone_lower.get(parent_bone.lower(), ""))
+                    if not resolved_bone:
+                        self.warning(f"Attachment '{att_name}': bone '{parent_bone}' not found - skipped")
+                        continue
                 origin = att.properties.get("relative_origin", [0.0, 0.0, 0.0])
                 angles_deg = att.properties.get("relative_angles", [0.0, 0.0, 0.0])
-                p, y, r = angles_deg[0], angles_deg[1], angles_deg[2]
-                mat = (
-                    Matrix.Translation(Vector(origin))
-                    @ Euler([radians(r), radians(p), radians(y)], 'XYZ').to_matrix().to_4x4()
-                )
+                mat = self._vmdl_local_matrix(origin, angles_deg)
                 atch = bpy.data.objects.new(
                     name=self.truncate_id_name(att_name, "Attachment"), object_data=None)
                 coll.objects.link(atch)
                 atch.show_in_front = True
                 atch.empty_display_type = 'ARROWS'
                 atch.parent = arm
-                if parent_bone:
+                if resolved_bone:
                     atch.parent_type = 'BONE'
-                    atch.parent_bone = parent_bone
+                    atch.parent_bone = resolved_bone
                 atch.vs.dmx_attachment = True
                 atch.matrix_local = mat
                 imported_att += 1
@@ -2201,5 +2204,54 @@ class SmdImporter(bpy.types.Operator, Logger):
         if missing:
             self.warning(f"Could not find bones for {len(missing)} jigglebone(s): {', '.join(missing)}")
 
+        # -----------------------------------------------------------------
+        # Hitboxes (HitboxSetList)
+        # -----------------------------------------------------------------
+        hb_created, hb_skipped, hb_bones = import_hitboxes_from_kv3(kv_doc, arm)
+        if hb_created:
+            self.imported_hitboxes += hb_created
+            print(f"- Imported {hb_created} hitbox(es) from {filename}")
+        if hb_skipped:
+            missing_names = ', '.join(sorted({b for b in hb_bones if b}))
+            self.warning(f"Skipped {hb_skipped} hitbox(es) with missing bones: {missing_names}")
+
+        # -----------------------------------------------------------------
+        # Animations (AnimationList)
+        # Every AnimFile (including those nested in Folder nodes) is imported
+        # as a separate action slot on a single action named after the VMDL.
+        # -----------------------------------------------------------------
+        if self.properties.doAnim:
+            anim_files = root_node.find_all(recursive=True, _class="AnimFile")
+            if anim_files:
+                action_name = self.truncate_id_name(
+                    os.path.splitext(qc.jobName)[0], bpy.types.Action)
+                arm.animation_data_create()
+                if not arm.animation_data.action:
+                    act = bpy.data.actions.new(action_name)
+                    act.use_fake_user = True
+                    arm.animation_data.action = act
+
+                bpy.context.view_layer.objects.active = arm
+                imported_anims = 0
+                for af in anim_files:
+                    src = af.properties.get("source_filename", "")
+                    if not src:
+                        continue
+                    anim_path = self._resolve_dmx_ref(filepath, src)
+                    if not anim_path:
+                        self.warning(f"{filename}: could not find animation DMX '{src}'")
+                        continue
+                    if anim_path in qc.imported_smds:
+                        continue
+                    qc.imported_smds.append(anim_path)
+                    prev_append = self.append
+                    self.append = 'VALIDATE'
+                    self.num_files_imported += self.readDMX(anim_path, qc.upAxis, rotMode, False, ANIM)
+                    self.append = prev_append
+                    imported_anims += 1
+                if imported_anims:
+                    print(f"- Imported {imported_anims} animation(s) into action '{action_name}'")
+
         printTimeMessage(qc.startTime, filename, "import", "VMDL")
+        # Count referenced meshes when present, otherwise the VMDL itself.
         return self.num_files_imported or 1

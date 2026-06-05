@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import UIList, UILayout, Collection, Object, UI_UL_list
-from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments
+from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group
 
 
 class SMD_UL_KitsuneResourceEntries(UIList):
@@ -24,6 +24,10 @@ class SMD_UL_KitsuneResourceEntries(UIList):
 
 class SMD_UL_ExportItems(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
+        if item.prefab_type:
+            self._draw_prefab_row(layout, item)
+            return
+
         obj = item.item
         is_collection = isinstance(obj, Collection)
         enabled = not (is_collection and obj.vs.mute)
@@ -46,6 +50,25 @@ class SMD_UL_ExportItems(UIList):
         split1.label(text=item.name)
 
         return split1
+
+    def _draw_prefab_row(self, layout : UILayout, item):
+        pitem = item.prefab_item
+        row = layout.row(align=True)
+
+        if pitem is not None:
+            export_icon = 'CHECKBOX_HLT' if pitem.export else 'CHECKBOX_DEHLT'
+            row.prop(pitem, "export", icon=export_icon, text="", emboss=False)
+        else:
+            row.label(text="", icon='BLANK1')
+
+        row.label(text="", icon='FILE')
+        row.label(text=item.name)
+
+        right = row.row(align=True)
+        right.alignment = 'RIGHT'
+        if pitem is not None and (pitem.filepath or '').strip():
+            right.label(text="", icon='FILE_TICK')
+        right.label(text=str(item.prefab_count), icon=item.icon)
 
     def _draw_stats_row(self, split1 : UILayout, obj):
         row = split1.row(align=True)
@@ -237,18 +260,29 @@ class SMD_UL_VertexAnimationItem(UIList):
         r.prop(item,"export_sequence",text="",icon='ACTION')
 
 
+_HBOX_GROUP_LABELS = {ident: label for ident, label, *_ in hitbox_group}
+
+
+class SMD_UL_Hitboxes(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row = layout.row(align=True)
+        is_capsule = item.scale >= 0
+        is_inverted = not is_capsule and any(item.vec_min[i] > item.vec_max[i] for i in range(3))
+        shape_icon = 'META_CAPSULE' if is_capsule else 'MESH_CUBE'
+        row.label(text='', icon=shape_icon)
+        row.label(text=item.bone_name if item.bone_name else '—', icon='BONE_DATA')
+        grp_label = _HBOX_GROUP_LABELS.get(item.group, item.group)
+        row.label(text=grp_label)
+        if is_capsule:
+            row.label(text=f"r={item.scale:.2f}")
+        if is_inverted:
+            row.label(text='', icon='ERROR')
+
+
 class SMD_UL_ArmatureItems(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         arm = get_armature(context.object)
-        if active_propname == 'arm_hitbox_index':
-            obj = item.obj
-            if obj:
-                row = layout.row()
-                row.label(text=obj.name, icon='CUBE')
-                if arm:
-                    row.prop_search(obj, 'parent_bone', arm.data, 'bones', text='')
-                row.prop(obj.vs, 'smd_hitbox_group', text='')
-        elif active_propname == 'arm_attachment_index':
+        if active_propname == 'arm_attachment_index':
             obj = item.obj
             if obj:
                 row = layout.row(align=True)

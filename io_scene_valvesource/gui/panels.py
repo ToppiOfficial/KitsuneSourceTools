@@ -1,5 +1,6 @@
 import bpy, math
 from bpy.types import Panel, UILayout, Collection, PoseBone, Bone, EditBone
+from .. import procbones_sim as _procbones_sim
 from bpy.app.translations import pgettext
 from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh, is_empty,
                      is_curve, is_mesh_compatible, modifier_compatible, vertex_maps, vertex_float_maps,
@@ -10,7 +11,7 @@ from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from ..import_smd import SmdImporter
 from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
-from .helpers import _mesh_type_allows, _ensure_cloth_remaps, _get_entry_proc_tol, validate_flex_expression, validate_corrective_components
+from .helpers import _mesh_type_allows, _ensure_cloth_remaps, validate_flex_expression, validate_corrective_components
 from .operators import (
     SMD_OT_KitsuneResourceLoadEntries,
     SMD_OT_AssignBoneRotExportOffset,
@@ -71,6 +72,7 @@ class SMD_PT_ViewportSimulation(Panel):
         box2.prop(vs, 'preview_export_pose')
         box2.prop(vs, 'preview_jigglebone_constraints')
         box2.prop(vs, 'preview_proc_bones')
+        box2.prop(vs, 'preview_hitboxes')
         box2.prop(vs, 'preview_edgeline')
         if vs.preview_edgeline:
             if vs.jiggle_sim_enabled:
@@ -209,6 +211,7 @@ class SMD_PT_KitsuneResource(Panel):
             col.prop(vs, 'kitsuneresource_flag_archive_old')
 
         col.prop(vs, 'kitsuneresource_args', text=get_id('label_extra_args', True))
+        col.prop(vs, 'kitsuneresource_external_console')
 
         col = box.column()
         col.enabled = len(vs.kitsuneresource_config) > 0
@@ -243,17 +246,24 @@ class SMD_PT_Exportables(Panel):
     def draw(self, context) -> None:
         layout = self.layout
         active_object = context.object
-        item = self.get_item(context)
+        active_exportable = get_active_exportable(context)
+        item = active_exportable.item if active_exportable else None
         scene = context.scene
 
-        if item is not None:vs = item.vs
-        else: vs = None
-        if vs is not None: layout.column().prop(vs,"subdir",icon='FILE_FOLDER')
+        if active_exportable and active_exportable.is_prefab:
+            pitem = active_exportable.prefab_item
+            if pitem is not None:
+                col = layout.column()
+                col.prop(pitem, "filepath", text=get_id("prop_prefab_filepath"), icon='FILE_FOLDER')
+        elif item is not None:
+            layout.column().prop(item.vs, "subdir", icon='FILE_FOLDER')
 
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
 
+        if active_exportable and active_exportable.is_prefab: return
         if not item or not self.is_collection(item): return
 
+        vs = item.vs
         if vs:
             r = layout.row()
             r.alignment = 'CENTER'
@@ -280,15 +290,7 @@ class SMD_PT_Armature(Properties_Panel):
         self.layout.label(text=label, icon='ARMATURE_DATA')
 
     def draw(self, context):
-        layout = self.layout
-        active_object = get_armature(context.object)
-
-        box = layout.box()
-        col = box.column()
-        col.prop(active_object.vs,"attachment_prefabfile")
-        col.prop(active_object.vs,"hitbox_prefabfile")
-        col.prop(active_object.vs,"jigglebone_prefabfile")
-        col.prop(active_object.vs,"procedural_prefabfile")
+        pass
 
 
 class SMD_PT_ArmatureData(Properties_Panel):
@@ -349,6 +351,76 @@ class SMD_PT_Action(Properties_Panel):
             col.prop(active_object.data.vs, "reset_pose_per_anim")
 
 
+class SMD_PT_Hitboxes(Properties_Panel):
+    bl_label = ''
+    bl_parent_id = 'SMD_PT_Armature'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(get_armature(context.object))
+
+    def draw_header(self, context):
+        arm_ob = get_armature(context.object)
+        count = len(arm_ob.data.vs.hitboxes) if arm_ob else 0
+        self.layout.label(text='{} ({})'.format(get_id('panel_hitboxes', True), count), icon='MESH_CUBE')
+
+    def draw(self, context):
+        layout = self.layout
+        arm_ob = get_armature(context.object)
+        arm_data = arm_ob.data
+        avs = arm_data.vs
+        scvs = context.scene.vs
+
+        row = layout.row(align=True)
+        row.prop(avs, 'hboxset_name')
+        row.prop(avs, 'hbox_capsule_support', toggle=True, icon='META_CAPSULE', text='')
+
+        row = layout.row()
+        row.template_list("SMD_UL_Hitboxes", "", avs, "hitboxes",
+                          avs, "hitboxes_index", rows=3)
+        col = row.column(align=True)
+        col.operator("smd.hitbox_add",    icon='ADD',    text='')
+        col.operator("smd.hitbox_remove", icon='REMOVE', text='')
+        col.separator()
+        col.operator("smd.hitbox_from_bone", icon='BONE_DATA', text='')
+        col.separator()
+        col.menu("SMD_MT_HitboxSpecials", icon='DOWNARROW_HLT', text='')
+
+        idx = avs.hitboxes_index
+        if 0 <= idx < len(avs.hitboxes):
+            entry = avs.hitboxes[idx]
+            box = layout.box()
+            is_capsule = entry.scale >= 0
+
+            box.prop_search(entry, 'bone_name', arm_data, 'bones',
+                            text=get_id('prop_hitbox_bone'))
+            box.prop(entry, 'group')
+
+            split = box.split(factor=0.22, align=True)
+            split.label(text=get_id('prop_hitbox_vec_min') + ":")
+            split.row(align=True).prop(entry, 'vec_min', text='')
+
+            split = box.split(factor=0.22, align=True)
+            split.label(text=get_id('prop_hitbox_vec_max') + ":")
+            split.row(align=True).prop(entry, 'vec_max', text='')
+
+            if not is_capsule and any(entry.vec_min[i] > entry.vec_max[i] for i in range(3)):
+                box.label(text="Min > Max : inverted box, swap Min and Max", icon='ERROR')
+
+            box.prop(entry, 'rotation', text=get_id('prop_hitbox_rotation'))
+
+            split = box.split(factor=0.7)
+            split.prop(entry, 'scale', text=get_id('prop_hitbox_scale'))
+            split.label(text="Capsule" if is_capsule else "Box",
+                      icon='META_CAPSULE' if is_capsule else 'MESH_CUBE')
+
+        row = layout.row(align=True)
+        scvs = context.scene.vs
+        row.prop(scvs, 'hitbox_sync_pose',      toggle=True, icon='BONE_DATA')
+        row.prop(scvs, 'hitbox_sync_propagate', toggle=True, icon='CONSTRAINT_BONE')
+
+
 class SMD_PT_ProcBones(Properties_Panel):
     bl_label = ''
     bl_parent_id = 'SMD_PT_Armature'
@@ -392,13 +464,28 @@ class SMD_PT_ProcBones(Properties_Panel):
                 if entry.action and not getattr(entry.action, 'is_action_legacy', True):
                     box.prop_search(entry, 'action_slot_name', entry.action, 'slots',
                                     text=get_id('prop_proc_bone_slot'))
-                if entry.driver_bone:
-                    driver_pb = arm_ob.pose.bones.get(entry.driver_bone)
-                    if driver_pb:
-                        tol_val = _get_entry_proc_tol(entry, context.scene.frame_current, arm_ob)
-                        box.operator("smd.proc_bone_set_tolerance",
-                                     text=f"{get_id('prop_pose_bone_proc_tolerance')}: "
-                                          f"{math.degrees(tol_val):.1f}°")
+                if entry.action:
+                    fs, fe, valid = _procbones_sim._get_proc_trigger_frame_range(entry, arm_ob)
+                    if entry.use_manual_frame_range:
+                        row = box.row(align=True)
+                        row.prop(entry, 'trigger_frame_start', text=get_id('prop_proc_bone_frame_start'))
+                        row.prop(entry, 'trigger_frame_end',   text=get_id('prop_proc_bone_frame_end'))
+                    else:
+                        row = box.row(align=True)
+                        if valid:
+                            row.label(text=f"{fs}", icon='KEYFRAME')
+                            row.label(text=f"–  {fe}", icon='KEYFRAME')
+                        else:
+                            row.label(text=get_id('warn_no_trigger_frames'), icon='ERROR')
+                    box.prop(entry, 'use_manual_frame_range', toggle=True)
+                    nav = box.row(align=True)
+                    nav.operator("smd.proc_bone_navigate_frame", text="", icon='REW').direction    = 'FIRST'
+                    nav.operator("smd.proc_bone_navigate_frame", text="", icon='PREV_KEYFRAME').direction = 'PREV'
+                    nav.prop(entry, 'trigger_preview_frame', text="")
+                    nav.operator("smd.proc_bone_navigate_frame", text="", icon='NEXT_KEYFRAME').direction = 'NEXT'
+                    nav.operator("smd.proc_bone_navigate_frame", text="", icon='FF').direction     = 'LAST'
+                    nav.enabled = valid
+                    box.prop(entry, 'trigger_preview_tol')
             elif entry.proc_type == 'LOOKAT':
                 box.prop_search(entry, 'driver_bone', arm_data, 'bones',
                                 text=get_id('prop_proc_bone_lookat_target'))
@@ -465,21 +552,35 @@ class SMD_PT_BoneData(Properties_Panel):
         split = box.split(factor=0.5)
 
         col_left = split.column(align=True)
-        col_left.label(text=get_id('label_location_offset', format_string=True), icon='ORIENTATION_LOCAL')
+        loc_icon = 'ORIENTATION_GLOBAL' if active_bone_vs.location_offset_in_armature_space else 'ORIENTATION_LOCAL'
+        col_left.label(text=get_id('label_location_offset', format_string=True), icon=loc_icon)
         col_left.prop(active_bone_vs, 'ignore_location_offset', text='Ignore', toggle=True)
+
+        row_space = col_left.row(align=True)
+        row_space.active = not active_bone_vs.ignore_location_offset
+        row_space.prop(active_bone_vs, 'location_offset_in_armature_space', toggle=True, text='ARM', icon='ORIENTATION_GLOBAL')
 
         sub1 = col_left.column(align=True)
         sub1.active = not active_bone_vs.ignore_location_offset
-        sub1.prop(active_bone_vs, 'export_location_offset_x')
-        sub1.prop(active_bone_vs, 'export_location_offset_y')
-        sub1.prop(active_bone_vs, 'export_location_offset_z')
+        if active_bone_vs.location_offset_in_armature_space:
+            sub1.prop(active_bone_vs, 'export_location_offset_arm_x')
+            sub1.prop(active_bone_vs, 'export_location_offset_arm_y')
+            sub1.prop(active_bone_vs, 'export_location_offset_arm_z')
+        else:
+            sub1.prop(active_bone_vs, 'export_location_offset_x')
+            sub1.prop(active_bone_vs, 'export_location_offset_y')
+            sub1.prop(active_bone_vs, 'export_location_offset_z')
 
         col_right = split.column(align=True)
         col_right.label(text=get_id('label_rotation_offset', format_string=True), icon='ORIENTATION_GIMBAL')
         col_right.prop(active_bone_vs, 'ignore_rotation_offset', text='Ignore', toggle=True)
 
+        row_copy_target = col_right.row(align=True)
+        row_copy_target.active = not active_bone_vs.ignore_rotation_offset
+        row_copy_target.prop_search(active_bone_vs, 'rotation_copy_target', active_object.data, 'bones', text='', icon='BONE_DATA')
+
         sub2 = col_right.column(align=True)
-        sub2.active = not active_bone_vs.ignore_rotation_offset
+        sub2.active = not active_bone_vs.ignore_rotation_offset and not active_bone_vs.rotation_copy_target
         sub2.prop(active_bone_vs, 'export_rotation_offset_x')
         sub2.prop(active_bone_vs, 'export_rotation_offset_y')
         sub2.prop(active_bone_vs, 'export_rotation_offset_z')
@@ -552,6 +653,29 @@ class SMD_PT_Jigglebones(Properties_Panel):
             self._draw_basespring_props(col, vs_bone)
         elif vs_bone.jiggle_base_type == 'BOING':
             self._draw_boing_props(col, vs_bone)
+
+        self._draw_collision_props(col, vs_bone)
+
+    def _draw_collision_props(self, layout: UILayout, vs_bone) -> None:
+        box = layout.box()
+        col = box.column(align=False)
+        col.prop(
+            vs_bone, 'jiggle_has_collision',
+            toggle=True,
+            icon='DOWNARROW_HLT' if vs_bone.jiggle_has_collision else 'RIGHTARROW',
+            text=get_id('label_jiggle_collision', format_string=True),
+        )
+
+        if not vs_bone.jiggle_has_collision:
+            return
+
+        subcol = col.column(align=True)
+        subcol.prop(vs_bone, 'jiggle_collision_radius0')
+        subcol.prop(vs_bone, 'jiggle_collision_radius1')
+
+        col.separator(factor=0.5)
+        col.prop(vs_bone, 'jiggle_collision_point0')
+        col.prop(vs_bone, 'jiggle_collision_point1')
 
     def _draw_flexible_rigid_props(self, layout: UILayout, vs_bone) -> None:
         if vs_bone.jiggle_flex_type not in ['FLEXIBLE', 'RIGID']:
@@ -1374,10 +1498,6 @@ class SMD_PT_Empty(Properties_Panel):
 
         col = box.column()
         col.prop(active_object.vs, 'dmx_attachment', toggle=False)
-        col.prop(active_object.vs, 'smd_hitbox', toggle=False)
-
-        if active_object.vs.smd_hitbox:
-            col.prop(active_object.vs, 'smd_hitbox_group', text='Hitbox Group')
 
         if active_object.vs.dmx_attachment and active_object.children:
             col.alert = True
@@ -1424,8 +1544,6 @@ class SMD_PT_ArmatureItems(Properties_Panel):
         mode = context.scene.vs.arm_items_view
         if mode == 'JIGGLEBONES':
             label, items = get_id('label_all_jigglebones', True), get_jigglebones(arm)
-        elif mode == 'HITBOXES':
-            label, items = get_id('label_all_hitboxes', True), get_hitboxes(arm)
         else:
             label, items = get_id('label_all_attachments', True), get_attachments(arm)
         label = '{} ({})'.format(label, len(items))
@@ -1443,9 +1561,6 @@ class SMD_PT_ArmatureItems(Properties_Panel):
         if mode == 'JIGGLEBONES':
             layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_jigglebone_entries",
                                  armvs, "arm_jigglebone_index", rows=3)
-        elif mode == 'HITBOXES':
-            layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_hitbox_entries",
-                                 armvs, "arm_hitbox_index", rows=3)
         else:
             layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_attachment_entries",
                                  armvs, "arm_attachment_index", rows=3)

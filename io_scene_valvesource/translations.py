@@ -206,6 +206,10 @@ _data = {
         'en': "(suppressed)",
         'ja': "(ミュート)",
     },
+    'exportables_prefab_row': {
+        'en': "{0} ({1})",
+        'ja': "{0} ({1})",
+    },
     'exportables_title': {
         'en': "Source Engine Exportables",
         'ja': "Source Engineのエクスポート可能",
@@ -1163,6 +1167,10 @@ _data = {
         'en': "Mesh Split",
         'ja': "メッシュ分割",
     },
+    'panel_hitboxes': {
+        'en': "Hitboxes",
+        'ja': "ヒットボックス",
+    },
     'panel_proc_bones': {
         'en': "Procedural Bones",
         'ja': "プロシージャルボーン",
@@ -1206,22 +1214,6 @@ _data = {
     'prop_arm_items_view': {
         'en': "View",
         'ja': "表示",
-    },
-    'prop_attachment_prefabfile': {
-        'en': "Attachments Prefab",
-        'ja': "アタッチメントプレハブ",
-    },
-    'prop_attachment_prefabfile_tip': {
-        'en': "QC prefab file containing $attachment definitions to append on export",
-        'ja': "エクスポート時に追加する$attachmentの定義を含むQCプレハブファイル",
-    },
-    'prop_procedural_prefabfile': {
-        'en': "Procedural Prefab",
-        'ja': "プロシージャルプレハブ",
-    },
-    'prop_procedural_prefabfile_tip': {
-        'en': "Path to an existing .vrd file, or where to export the procedural prefab .vrd",
-        'ja': "既存の .vrd ファイルのパス、またはプロシージャルプレハブ .vrd のエクスポート先",
     },
     'prop_backface_vgroup': {
         'en': "Backface Group",
@@ -1449,13 +1441,128 @@ _data = {
         'en': "Generate decimated LOD meshes automatically on export",
         'ja': "エクスポート時にデシメートされたLODメッシュを自動生成",
     },
-    'prop_hitbox_prefabfile': {
-        'en': "Hitbox Prefab",
-        'ja': "ヒットボックスプレハブ",
+    'op_hitbox_add': {
+        'en': "Add Hitbox",
+        'ja': "ヒットボックスを追加",
     },
-    'prop_hitbox_prefabfile_tip': {
-        'en': "QC prefab file containing $hbox definitions to append on export",
-        'ja': "エクスポート時に追加する$hboxの定義を含むQCプレハブファイル",
+    'op_hitbox_from_bone': {
+        'en': "Add from Selected Bones",
+        'ja': "選択ボーンから追加",
+    },
+    'op_hitbox_remove': {
+        'en': "Remove Hitbox",
+        'ja': "ヒットボックスを削除",
+    },
+    'op_hitbox_duplicate': {
+        'en': "Duplicate Hitbox",
+    },
+    'op_hitbox_copy_entry': {
+        'en': "Copy Hitbox Entry",
+    },
+    'op_hitbox_copy_entry_tip': {
+        'en': "Copy the active hitbox entry to the clipboard",
+    },
+    'op_hitbox_copy_all': {
+        'en': "Copy All Hitboxes",
+    },
+    'op_hitbox_copy_all_tip': {
+        'en': "Copy all hitbox entries from this armature to the clipboard",
+    },
+    'op_hitbox_paste_entries': {
+        'en': "Paste Hitbox Entries",
+    },
+    'op_hitbox_paste_entries_tip': {
+        'en': "Append clipboard hitbox entries to the current armature",
+    },
+    'op_hitbox_paste_values': {
+        'en': "Paste Values",
+    },
+    'op_hitbox_paste_values_tip': {
+        'en': "Overwrite the selected hitbox entry with values from the clipboard (no new entry created)",
+    },
+    'op_hitbox_copy_to_armature': {
+        'en': "Copy All to Selected Armature(s)",
+    },
+    'op_hitbox_copy_to_armature_tip': {
+        'en': "Replace hitboxes on all other selected armatures with a copy of this armature's hitboxes",
+    },
+    'op_hitbox_mirror_x': {
+        'en': "Mirror X",
+    },
+    'op_hitbox_mirror_x_tip': {
+        'en': "Mirror the active hitbox along the X axis",
+    },
+    'op_hitbox_mirror_y': {
+        'en': "Mirror Y",
+    },
+    'op_hitbox_mirror_y_tip': {
+        'en': "Mirror the active hitbox along the Y axis",
+    },
+    'op_hitbox_mirror_z': {
+        'en': "Mirror Z",
+    },
+    'op_hitbox_mirror_z_tip': {
+        'en': "Mirror the active hitbox along the Z axis",
+    },
+    'prop_hitbox_sync_pose': {
+        'en': "Pose Sync",
+    },
+    'prop_hitbox_sync_pose_tip': {
+        'en': "Automatically select the matching UIList entry when the active pose bone changes",
+    },
+    'prop_hitbox_sync_propagate': {
+        'en': "Propagate Edits",
+    },
+    'prop_hitbox_sync_propagate_tip': {
+        'en': "Apply the same delta to all hitbox entries on selected pose bones when editing the active entry (in Pose mode)",
+    },
+    'prop_hitbox_bone': {
+        'en': "Bone",
+        'ja': "ボーン",
+    },
+    'prop_hitbox_bone_tip': {
+        'en': "Bone this hitbox is attached to",
+        'ja': "このヒットボックスが関連付けられているボーン",
+    },
+    'prop_hitbox_rotation': {
+        'en': "Rotation",
+        'ja': "回転",
+    },
+    'prop_hitbox_rotation_tip': {
+        'en': "Rotation of the hitbox around its center in bone-local space (degrees in QC)",
+        'ja': "ボーンローカル空間でのヒットボックスの中心周りの回転（QCでは度数）",
+    },
+    'prop_hitbox_scale': {
+        'en': "Scale / Radius",
+        'ja': "スケール / 半径",
+    },
+    'prop_hitbox_scale_tip': {
+        'en': "-1 = oriented box (OBB), 0 or positive = capsule with this radius",
+        'ja': "-1 = 方向付きボックス (OBB)、0以上 = この半径のカプセル",
+    },
+    'prop_hitbox_vec_max': {
+        'en': "Max / P2",
+        'ja': "最大 / P2",
+    },
+    'prop_hitbox_vec_min': {
+        'en': "Min / P1",
+        'ja': "最小 / P1",
+    },
+    'prop_hitbox_hboxset': {
+        'en': "HBox Set",
+        'ja': "ヒットボックスセット",
+    },
+    'prop_hitbox_hboxset_tip': {
+        'en': "Name written to $hboxset in the prefab QC. Leave empty to omit $hboxset.",
+        'ja': "プリファブQCの$hboxsetに書き込まれる名前。空の場合は$hboxsetを省略します。",
+    },
+    'prop_hbox_capsule_support': {
+        'en': "Capsule Support",
+        'ja': "カプセルサポート",
+    },
+    'prop_hbox_capsule_support_tip': {
+        'en': "Write rotation and scale (capsule radius) fields in $hbox lines. Disable for games that only support basic boxes. studiomdl will error on unknown command and stop compiling if these fields are present on unsupported branches.",
+        'ja': "$hboxの行に回転とスケール（カプセル半径）フィールドを書き出します。基本的なボックスのみサポートするゲームでは無効にしてください。",
     },
     'prop_ignore_location_offset': {
         'en': "Ignore Location Offsets",
@@ -1504,6 +1611,50 @@ _data = {
     'prop_jiggle_amplitude_tip': {
         'en': "Oscillation amplitude of the boing spring",
         'ja': "ボイングスプリングの振幅",
+    },
+    'label_jiggle_collision': {
+        'en': "Collision (Source 2)",
+        'ja': "コリジョン (Source 2)",
+    },
+    'prop_jiggle_has_collision': {
+        'en': "Enable Collision",
+        'ja': "コリジョンを有効化",
+    },
+    'prop_jiggle_has_collision_tip': {
+        'en': "Add a collision capsule to this jigglebone (Source 2 / ModelDoc only)",
+        'ja': "このジグルボーンにコリジョンカプセルを追加します (Source 2 / ModelDoc 専用)",
+    },
+    'prop_jiggle_collision_radius0': {
+        'en': "Radius Head",
+        'ja': "半径 (始点)",
+    },
+    'prop_jiggle_collision_radius0_tip': {
+        'en': "Capsule radius at the head endpoint (point 0)",
+        'ja': "始点 (point 0) でのカプセル半径",
+    },
+    'prop_jiggle_collision_radius1': {
+        'en': "Radius Tip",
+        'ja': "半径 (終点)",
+    },
+    'prop_jiggle_collision_radius1_tip': {
+        'en': "Capsule radius at the tip endpoint (point 1)",
+        'ja': "終点 (point 1) でのカプセル半径",
+    },
+    'prop_jiggle_collision_point0': {
+        'en': "Point 0",
+        'ja': "ポイント 0",
+    },
+    'prop_jiggle_collision_point0_tip': {
+        'en': "Head endpoint of the collision capsule, in bone-local space (follows the bone's export rotation/location offset)",
+        'ja': "コリジョンカプセルの始点。ボーンローカル空間で指定します (ボーンのエクスポート回転/位置オフセットに追従します)",
+    },
+    'prop_jiggle_collision_point1': {
+        'en': "Point 1",
+        'ja': "ポイント 1",
+    },
+    'prop_jiggle_collision_point1_tip': {
+        'en': "Tip endpoint of the collision capsule, in bone-local space (follows the bone's export rotation/location offset)",
+        'ja': "コリジョンカプセルの終点。ボーンローカル空間で指定します (ボーンのエクスポート回転/位置オフセットに追従します)",
     },
     'prop_jiggle_angle_constraint': {
         'en': "Angle Constraint",
@@ -1817,14 +1968,6 @@ _data = {
         'en': "Spring strength resisting yaw rotation",
         'ja': "ヨー回転に抵抗するばね力",
     },
-    'prop_jigglebone_prefabfile': {
-        'en': "Jigglebone Prefab",
-        'ja': "ジグルボーンプレハブ",
-    },
-    'prop_jigglebone_prefabfile_tip': {
-        'en': "QC prefab file containing $jigglebone definitions to append on export",
-        'ja': "エクスポート時に追加する$jiggleboneの定義を含むQCプレハブファイル",
-    },
     'prop_kitsuneresource_active_entry': {
         'en': "Active Entry",
         'ja': "アクティブエントリー",
@@ -1844,6 +1987,10 @@ _data = {
     'prop_kitsuneresource_args_tip': {
         'en': "Additional command-line arguments passed to KitsuneResource",
         'ja': "KitsuneResourceに渡す追加のコマンドライン引数",
+    },
+    'prop_kitsuneresource_external_console_tip': {
+        'en': "Launch the compiler in a separate console window instead of streaming output into Blender. The window stays open after the compile and Blender does not wait for it to finish",
+        'ja': "コンパイラーをBlender内に出力する代わりに別のコンソールウィンドウで起動します。コンパイル後もウィンドウは開いたままで、Blenderは完了を待ちません",
     },
     'prop_kitsuneresource_config': {
         'en': "Config",
@@ -1925,6 +2072,38 @@ _data = {
         'en': "Location offset applied to this bone's Z position on export",
         'ja': "エクスポート時にこのボーンのZ位置に適用されるオフセット",
     },
+    'prop_location_offset_space': {
+        'en': "Armature Space Input",
+        'ja': "アーマチュア空間入力",
+    },
+    'prop_location_offset_space_tip': {
+        'en': "Enter location offset in armature space instead of bone local space. The stored value is always in local bone space.",
+        'ja': "ボーンのローカル空間ではなくアーマチュア空間で位置オフセットを入力します。保存される値は常にボーンのローカル空間です。",
+    },
+    'prop_location_arm_x': {
+        'en': "Location X (Arm)",
+        'ja': "位置 X (アーム)",
+    },
+    'prop_location_arm_x_tip': {
+        'en': "Location offset in armature space (X). Converted to local bone space on edit.",
+        'ja': "アーマチュア空間での位置オフセット (X)。編集時にボーンのローカル空間に変換されます。",
+    },
+    'prop_location_arm_y': {
+        'en': "Location Y (Arm)",
+        'ja': "位置 Y (アーム)",
+    },
+    'prop_location_arm_y_tip': {
+        'en': "Location offset in armature space (Y). Converted to local bone space on edit.",
+        'ja': "アーマチュア空間での位置オフセット (Y)。編集時にボーンのローカル空間に変換されます。",
+    },
+    'prop_location_arm_z': {
+        'en': "Location Z (Arm)",
+        'ja': "位置 Z (アーム)",
+    },
+    'prop_location_arm_z_tip': {
+        'en': "Location offset in armature space (Z). Converted to local bone space on edit.",
+        'ja': "アーマチュア空間での位置オフセット (Z)。編集時にボーンのローカル空間に変換されます。",
+    },
     'prop_lod_count': {
         'en': "LOD count",
         'ja': "LOD数",
@@ -1977,9 +2156,21 @@ _data = {
         'en': "Override the material path written into DMX for this material",
         'ja': "このマテリアルのDMXに書き込まれるマテリアルパスを上書き",
     },
+    'prop_prefab_filepath': {
+        'en': "Filepath",
+        'ja': "ファイルパス",
+    },
     'prop_prefab_filepath_tip': {
-        'en': "Path to the prefab file",
-        'ja': "プレハブファイルへのパス",
+        'en': "Output path for this prefab. Leave blank to export next to the Scene export path "
+              "using the default name \"<armature>_<type>\". A directory uses the default name; "
+              "a full file path is used as-is. Relative paths are taken from the Scene export path.",
+        'ja': "このプレハブの出力先パス。空欄の場合はシーンのエクスポートパスに既定名 "
+              "\"<アーマチュア>_<種類>\" で出力します。ディレクトリを指定すると既定名を使用し、"
+              "ファイルパスを指定するとそのまま使用します。相対パスはシーンのエクスポートパス基準です。",
+    },
+    'prop_prefab_export_tip': {
+        'en': "Include this prefab when exporting the scene",
+        'ja': "シーンのエクスポート時にこのプレハブを含める",
     },
     'prop_preview_edgeline': {
         'en': "Preview Edgeline",
@@ -2008,6 +2199,13 @@ _data = {
     'warn_edgeline_smudging': {
         'en': "smudging not present in export",
         'ja': "存在しないにじみが表示される場合があります",
+    },
+    'prop_preview_hitboxes': {
+        'en': "Preview Hitboxes",
+        'ja': "ヒットボックスをプレビュー",
+    },
+    'prop_preview_hitboxes_tip': {
+        'en': "All: draw all hitboxes; Selected: draw only the list-selected entry; Pose: draw hitboxes for selected pose bones; None: hide preview",
     },
     'prop_preview_export_pose': {
         'en': "Preview Export Pose",
@@ -2040,6 +2238,42 @@ _data = {
     'prop_proc_bone_action_tip': {
         'en': "Action whose keyframes define trigger-to-target pose pairs for the procedural bone",
         'ja': "プロシージャルボーンのトリガー→ターゲットポーズペアを定義するキーフレームを持つアクション",
+    },
+    'prop_proc_bone_frame_end': {
+        'en': "Frame End",
+        'ja': "終了フレーム",
+    },
+    'prop_proc_bone_frame_end_tip': {
+        'en': "Last frame to sample for trigger poses (only used when Manual Range is on)",
+        'ja': "トリガーポーズをサンプリングする最後のフレーム（手動範囲がオンの場合のみ使用）",
+    },
+    'prop_proc_bone_frame_start': {
+        'en': "Frame Start",
+        'ja': "開始フレーム",
+    },
+    'prop_proc_bone_frame_start_tip': {
+        'en': "First frame to sample for trigger poses (only used when Manual Range is on)",
+        'ja': "トリガーポーズをサンプリングする最初のフレーム（手動範囲がオンの場合のみ使用）",
+    },
+    'prop_proc_bone_preview_frame': {
+        'en': "Frame",
+        'ja': "フレーム",
+    },
+    'prop_proc_bone_preview_frame_tip': {
+        'en': "Current frame shown in the tolerance navigator; use << < > >> to step through the trigger range",
+        'ja': "許容角度ナビゲーターに表示される現在のフレーム。<< < > >>で範囲内を移動します",
+    },
+    'prop_proc_bone_use_manual_range': {
+        'en': "Manual Range",
+        'ja': "手動範囲",
+    },
+    'prop_proc_bone_use_manual_range_tip': {
+        'en': "Set frame range manually instead of detecting it from the action's bone keyframes",
+        'ja': "アクションのボーンキーフレームから自動検出する代わりに、フレーム範囲を手動で設定します",
+    },
+    'warn_no_trigger_frames': {
+        'en': "No valid bone keyframes in action",
+        'ja': "アクションに有効なボーンキーフレームがありません",
     },
     'prop_proc_bone_driver': {
         'en': "Driver Bone",
@@ -2145,6 +2379,14 @@ _data = {
         'en': "Rotation offset applied to this bone's Z axis on export",
         'ja': "エクスポート時にこのボーンのZ軸に適用される回転オフセット",
     },
+    'prop_rotation_copy_target': {
+        'en': "Copy Rotation From Bone",
+        'ja': "ボーンから回転をコピー",
+    },
+    'prop_rotation_copy_target_tip': {
+        'en': "When set, X/Y/Z rotation offset values are mirrored from this bone, adjusted for any difference in rest-pose orientation. Clear to set offsets manually",
+        'ja': "設定すると、このボーンからX/Y/Z回転オフセットが自動的にコピーされ、レストポーズの向きの差に応じて調整されます。手動設定する場合は空欄にしてください",
+    },
     'prop_shapekey': {
         'en': "ShapeKey",
         'ja': "シェイプキー",
@@ -2164,22 +2406,6 @@ _data = {
     'prop_sim_proc_bones_tip': {
         'en': "Run action-driven procedural bone simulation",
         'ja': "アクション駆動のプロシージャルボーンシミュレーションを実行",
-    },
-    'prop_smd_hitbox': {
-        'en': "Is Hitbox",
-        'ja': "ヒットボックスとして使用",
-    },
-    'prop_smd_hitbox_tip': {
-        'en': "Export this object as a hitbox in the QC file",
-        'ja': "このオブジェクトをQCファイルのヒットボックスとしてエクスポート",
-    },
-    'prop_smd_hitbox_group': {
-        'en': "Hitbox Group",
-        'ja': "ヒットボックスグループ",
-    },
-    'prop_smd_hitbox_group_tip': {
-        'en': "Hitbox type enumeration",
-        'ja': "ヒットボックスタイプ",
     },
     'prop_stereo': {
         'en': "Stereo",

@@ -261,8 +261,6 @@ class State(metaclass=_StateMeta):
         make_export_list(scene)
         for arm_obj in (ob for ob in scene.objects if ob.type == 'ARMATURE'):
             avs = arm_obj.data.vs
-            if _sync_object_entries(avs.arm_hitbox_entries, get_hitboxes(arm_obj)):
-                avs.arm_hitbox_index = min(avs.arm_hitbox_index, len(avs.arm_hitbox_entries) - 1)
             if _sync_object_entries(avs.arm_attachment_entries, get_attachments(arm_obj)):
                 avs.arm_attachment_index = min(avs.arm_attachment_index, len(avs.arm_attachment_entries) - 1)
             if _sync_bone_entries(avs.arm_jigglebone_entries, get_jigglebones(arm_obj)):
@@ -484,6 +482,8 @@ def getDmxKeywords(format_version):
 def count_exports(context):
     num = 0
     for exportable in context.scene.vs.export_list:
+        if exportable.prefab_type:
+            continue
         item = exportable.item
         if item and item.vs.export and (type(item) != bpy.types.Collection or not item.vs.mute):
             num += 1
@@ -759,9 +759,16 @@ def getExportablesForObject(ob):
     ob_session_uid = ob.session_uid
     seen = set()
 
-    while len(seen) < len(bpy.context.scene.vs.export_list):
+    # Prefab rows are synthetic and share their armature's session_uid, so they are
+    # excluded from both the iteration and the termination count.
+    def _real_count():
+        return sum(1 for e in bpy.context.scene.vs.export_list if not e.prefab_type)
+
+    while len(seen) < _real_count():
         # Handle the exportables list changing between yields by re-evaluating the whole thing
         for exportable in bpy.context.scene.vs.export_list:
+            if exportable.prefab_type:
+                continue
             if not exportable.item:
                 continue # Observed only in Blender release builds without a debugger attached
 
@@ -887,6 +894,26 @@ def make_export_list(scene: bpy.types.Scene):
             i.obj = obj
         if collection:
             i.collection = collection
+
+    # Prefab rows: one per available prefab type, for every armature in the scene
+    # that has matching content. The persistent settings live on the armature data;
+    # these rows are rebuilt every refresh.
+    for arm in sorted((ob for ob in scene.objects if ob.type == 'ARMATURE'),
+                      key=lambda a: a.name.lower()):
+        avs = getattr(arm.data, 'vs', None)
+        if avs is None:
+            continue
+        available = prefab_available_types(arm)
+        sync_prefab_items(avs, [t for t, _ in available])
+        for ptype, count in available:
+            icon, label = prefab_type_info[ptype]
+            row = scene.vs.export_list.add()
+            row.name = get_id("exportables_prefab_row", True).format(label, arm.name)
+            row.ob_type = 'PREFAB'
+            row.icon = icon
+            row.obj = arm
+            row.prefab_type = ptype
+            row.prefab_count = count
 
 def update_vmdl_container(container_class: str, nodes: list[keyvalues3.KVNode] | keyvalues3.KVNode, export_path: str | None = None,
                           to_clipboard: bool = False) -> keyvalues3.KVDocument | bool:
@@ -1054,7 +1081,8 @@ class QcInfo:
     root_filedir = ""
     pending_combo_op = None  # deferred DmeCombinationOperator from a DMX $model import
     no_auto_dmx_rules = False  # $model noautodmxrules: ignore DMX flex, QC is sole source
-    # Flex accumulation — shared across all recursive readQC calls; applied once by outer call
+    hboxset_name: str = ''  # first $hboxset encountered; '' means none seen yet
+    # Flex accumulation  shared across all recursive readQC calls; applied once by outer call
     flex_target_mesh = None
     flex_target_combo_op = None
     flex_controllers_pending: list = None
@@ -1066,7 +1094,6 @@ class QcInfo:
         self.imported_smds = []
         self.vars = {}
         self.dir_stack = []
-        self.vmdl_bone_list: list[str] = []
 
     def cd(self):
         return os.path.join(self.root_filedir,*self.dir_stack)
@@ -1116,7 +1143,21 @@ def build_base_cmd(vs, app_path: str, config_path: str) -> list:
     free_tokens = vs.kitsuneresource_args.split()
     return [app_path] + flags + free_tokens + [config_path]
 
-def run_and_report(operator, cmd: list, basedir: str) -> set:
+def run_and_report(operator, cmd: list, basedir: str, external_console: bool = False) -> set:
+    if external_console and sys.platform == 'win32':
+        inner = subprocess.list2cmdline(cmd)
+        try:
+            subprocess.Popen(
+                f'cmd /k "{inner}"',
+                cwd=basedir,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+        except Exception as e:
+            operator.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        operator.report({'INFO'}, "Launched compile in external console")
+        return {'FINISHED'}
+
     try:
         process = subprocess.Popen(
             cmd,
@@ -1260,136 +1301,76 @@ def parse_order_vg_name(name: str) -> int | None:
 
 
 def parse_hitbox_line(line: str):
-    """Parse a $hbox line and return hitbox data dict or None. Returns None for capsule hitboxes."""
+    """Parse a $hbox line. Returns dict with group, bone, min, max, rotation (degrees), scale or None."""
     import re
-    
-    pattern = r'\$hbox\s+(\d+)\s+"([^"]+)"\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?'
+    pattern = (r'\$hbox\s+(\d+)\s+"([^"]+)"\s+'
+               r'([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+'
+               r'([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)'
+               r'(?:\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+))?'
+               r'(?:\s+([-\d.]+))?')
     match = re.match(pattern, line.strip())
-    
     if not match:
         return None
-    
-    group = int(match.group(1))
-    bone_name = match.group(2)
-    min_x, min_y, min_z = float(match.group(3)), float(match.group(4)), float(match.group(5))
-    max_x, max_y, max_z = float(match.group(6)), float(match.group(7)), float(match.group(8))
-    scale = match.group(9) # capsule htibox is not supported for now. TODO
-    
-    if scale is not None:
-        scale_value = float(scale)
-        if scale_value != -1.0:
-            return None
-    
+    g = match.groups()
     return {
-        'group': group,
-        'bone': bone_name,
-        'min': mathutils.Vector((min_x, min_y, min_z)),
-        'max': mathutils.Vector((max_x, max_y, max_z))
+        'group':    int(g[0]),
+        'bone':     g[1],
+        'min':      mathutils.Vector((float(g[2]), float(g[3]), float(g[4]))),
+        'max':      mathutils.Vector((float(g[5]), float(g[6]), float(g[7]))),
+        'rotation': (float(g[8] or 0), float(g[9] or 0), float(g[10] or 0)),
+        'scale':    float(g[11]) if g[11] is not None else -1.0,
     }
 
-def import_hitboxes_from_content(content: str, armature : bpy.types.Object, context : bpy.types.Context, create_collection: bool = False):
-    """
-    Import hitboxes from text content containing $hbox lines.
+
+def import_hitboxes_from_content(content: str, armature: bpy.types.Object, context: bpy.types.Context, create_collection: bool = False, hboxset_name: str = ''):
+    """Import hitboxes from $hbox lines into the armature's hitboxes collection.
     Returns (created_count, skipped_count, skipped_bones list)
     """
-    
-    hitboxes = []
+    import math as _math
+    parsed = []
     for line in content.split('\n'):
-        if line.strip().startswith('$hbox'):
-            parsed = parse_hitbox_line(line)
-            if parsed:
-                hitboxes.append(parsed)
-    
-    if not hitboxes:
+        if line.strip().lower().startswith('$hbox'):
+            data = parse_hitbox_line(line)
+            if data:
+                parsed.append(data)
+
+    if not parsed:
         return (0, 0, [])
-    
+
+    avs = getattr(armature.data, 'vs', None)
+    if avs is None:
+        return (0, len(parsed), [d['bone'] for d in parsed])
+
+    if hboxset_name:
+        avs.hboxset_name = hboxset_name
+
     created_count = 0
     skipped_count = 0
     skipped_bones = []
 
-    hitbox_collection = None
-    if create_collection:
-        collection_name = f"{armature.name}_hitboxes"
-        hitbox_collection = bpy.data.collections.get(collection_name)
-        if not hitbox_collection:
-            hitbox_collection = bpy.data.collections.new(collection_name)
-            if armature.users_collection:
-                armature.users_collection[0].children.link(hitbox_collection)
-            else:
-                context.scene.collection.children.link(hitbox_collection)
-    
-    previous_mode = armature.mode
-    if previous_mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    
-    for hb_data in hitboxes:
+    for hb_data in parsed:
         bone_name = hb_data['bone']
-        
         bone = None
         for b in armature.data.bones:
             if get_bone_exportname(b) == bone_name:
                 bone = b
                 break
-        
         if not bone:
             skipped_bones.append(bone_name)
             skipped_count += 1
             continue
-        
-        min_point = hb_data['min']
-        max_point = hb_data['max']
-        
-        center = (min_point + max_point) / 2
-        half_extents = (max_point - min_point) / 2
-        
-        bpy.ops.object.empty_add(type='CUBE', location=(0, 0, 0))
-        empty = context.active_object
-        empty.name = f"{bone.name}_hbox_{armature.name}"
-        
-        if hitbox_collection:
-            for coll in empty.users_collection:
-                coll.objects.unlink(empty)
-            hitbox_collection.objects.link(empty)
 
-        empty.parent = armature
-        empty.parent_type = 'BONE'
-        empty.parent_bone = bone.name
-        
-        pose_bone = armature.pose.bones[bone.name]
-        
-        bone_matrix_no_offset = bone.matrix_local
-        bone_matrix_world_no_offset = armature.matrix_world @ bone_matrix_no_offset
-        
-        bone_matrix_with_offset = get_bone_matrix(pose_bone, rest_space=True)
-        offset_only = bone_matrix_no_offset.inverted() @ bone_matrix_with_offset
-        
-        local_center = offset_only @ center
-        world_center = bone_matrix_world_no_offset @ local_center
-        
-        empty.matrix_world.translation = world_center
-        empty.rotation_euler = (0, 0, 0)
-        
-        avg_scale = (half_extents.x + half_extents.y + half_extents.z) / 3
-        empty.empty_display_size = avg_scale
-        
-        scale_factor = offset_only.to_3x3() @ half_extents
-        if avg_scale > 0.0001:
-            empty.scale = mathutils.Vector((
-                scale_factor.x / avg_scale,
-                scale_factor.y / avg_scale,
-                scale_factor.z / avg_scale
-            ))
-        
-        empty.vs.smd_hitbox = True
-        empty.vs.smd_hitbox_group = str(hb_data['group'])
-        
+        entry = avs.hitboxes.add()
+        entry.bone_name = bone.name
+        entry.group     = str(min(max(hb_data['group'], 0), 8))
+        entry.vec_min   = hb_data['min']
+        entry.vec_max   = hb_data['max']
+        rx, ry, rz      = hb_data['rotation']
+        entry.rotation  = (_math.radians(rx), _math.radians(ry), _math.radians(rz))
+        entry.scale     = hb_data['scale']
+        avs.hitboxes_index = len(avs.hitboxes) - 1
         created_count += 1
-    
-    if previous_mode != 'OBJECT':
-        armature.select_set(True)
-        context.view_layer.objects.active = armature
-        bpy.ops.object.mode_set(mode=previous_mode)
-    
+
     return (created_count, skipped_count, skipped_bones)
 
 def import_jigglebones_from_content(content: str, armature: bpy.types.Object) -> tuple[int, list[str]]:
@@ -1614,7 +1595,11 @@ def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[i
     imported_count = 0
     missing_bones = []
 
+    # Source bone names are case-insensitive; keep a lowercase fallback map.
     bone_map = {get_bone_exportname(b): b for b in armature.data.bones}
+    bone_map_lower = {get_bone_exportname(b).lower(): b for b in armature.data.bones}
+    for b in armature.data.bones:
+        bone_map_lower.setdefault(b.name.lower(), b)
 
     def find_jigglebone_nodes(node):
         found = []
@@ -1645,7 +1630,7 @@ def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[i
         if not current_bone_name:
             continue
 
-        blender_bone = bone_map.get(current_bone_name)
+        blender_bone = bone_map.get(current_bone_name) or bone_map_lower.get(current_bone_name.lower())
         if not blender_bone:
             missing_bones.append(current_bone_name)
             continue
@@ -1705,29 +1690,110 @@ def import_jigglebones_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[i
     return imported_count, missing_bones
 
 
+def import_hitboxes_from_kv3(kv_doc, armature: 'bpy.types.Object') -> tuple[int, int, list[str]]:
+    """Import Source 2 capsule hitboxes from a parsed VMDL KV3 document.
+
+    Source 2 only supports capsule hitboxes, defined by two bone-local endpoints
+    and a radius. The KitsuneSrcTool hitbox entry stores the same data as
+    vec_min/vec_max with an identity rotation and scale=radius, which round-trips
+    back to the exact same capsule on export.
+
+    Returns (created_count, skipped_count, skipped_bones list).
+    """
+    avs = getattr(armature.data, 'vs', None)
+    if avs is None:
+        return (0, 0, [])
+
+    def find_nodes(node, cls):
+        found = []
+        if isinstance(node, keyvalues3.KVNode):
+            if node.properties.get('_class') == cls:
+                found.append(node)
+            for child in node.children:
+                found.extend(find_nodes(child, cls))
+        elif isinstance(node, dict):
+            for value in node.values():
+                found.extend(find_nodes(value, cls))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                found.extend(find_nodes(item, cls))
+        return found
+
+    hitbox_sets = []
+    for root_node in kv_doc.roots.values():
+        hitbox_sets.extend(find_nodes(root_node, 'HitboxSet'))
+
+    if not hitbox_sets:
+        return (0, 0, [])
+
+    # Source bone names are case-insensitive; Blender lookups are not. Build both
+    # an export-name map and a lowercase fallback so e.g. "leg_upper_l" in a hitbox
+    # resolves to a "leg_upper_L" bone.
+    bone_map = {get_bone_exportname(b): b for b in armature.data.bones}
+    bone_map_lower = {get_bone_exportname(b).lower(): b for b in armature.data.bones}
+    for b in armature.data.bones:
+        bone_map_lower.setdefault(b.name.lower(), b)
+
+    created = 0
+    skipped = 0
+    skipped_bones = []
+    set_name_applied = False
+
+    for hbset in hitbox_sets:
+        set_name = hbset.properties.get('name', '')
+        if set_name and not set_name_applied:
+            avs.hboxset_name = set_name
+            set_name_applied = True
+
+        for cap in hbset.children:
+            if cap.properties.get('_class') != 'HitboxCapsule':
+                continue
+            props = cap.properties
+
+            bone_name = props.get('parent_bone', '')
+            bone = (bone_map.get(bone_name)
+                    or armature.data.bones.get(bone_name)
+                    or bone_map_lower.get(bone_name.lower()))
+            if not bone:
+                skipped += 1
+                skipped_bones.append(bone_name)
+                continue
+
+            p0 = props.get('point0', [0.0, 0.0, 0.0])
+            p1 = props.get('point1', [0.0, 0.0, 0.0])
+            radius = float(props.get('radius', 0.0))
+            group_id = int(float(props.get('group_id', 0)))
+
+            entry = avs.hitboxes.add()
+            entry.bone_name = bone.name
+            entry.group     = str(min(max(group_id, 0), 8))
+            entry.vec_min   = (float(p0[0]), float(p0[1]), float(p0[2]))
+            entry.vec_max   = (float(p1[0]), float(p1[1]), float(p1[2]))
+            entry.rotation  = (0.0, 0.0, 0.0)
+            entry.scale     = radius
+            avs.hitboxes_index = len(avs.hitboxes) - 1
+            created += 1
+
+    # Source 2 hitboxes are always capsules; enable capsule support so the
+    # imported entries display and export correctly.
+    if created:
+        avs.hbox_capsule_support = True
+
+    return (created, skipped, skipped_bones)
+
+
 #
 #   GET
 #
 
-def get_hitboxes(ob : bpy.types.Object | None) -> list[bpy.types.Object | None]:
-    
-    armature : bpy.types.Object | None = None
-    if ob is None:
-        armature = get_armature()
-    else:
-        armature = get_armature(ob)
-        
-    if armature is None: return []
-    
-    hitboxes = []
-    for ob in bpy.data.objects:
-        if not ob.type == 'EMPTY': continue
-        if ob.empty_display_type != 'CUBE' or not ob.vs.smd_hitbox: continue
-        if ob.parent is not armature or ob.parent_type != 'BONE' or not ob.parent_bone.strip(): continue
-        
-        hitboxes.append(ob)
-        
-    return hitboxes
+def get_hitboxes(ob):
+    armature = get_armature(ob) if ob is not None else get_armature()
+    if armature is None:
+        return []
+    avs = getattr(armature.data, 'vs', None)
+    if avs is None:
+        return []
+    return list(avs.hitboxes)
 
 def get_jigglebones(ob : bpy.types.Object | None) -> list[bpy.types.Bone | None]:
     armature = None
@@ -1761,6 +1827,66 @@ def get_attachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | Non
         attchs.append(ob)
         
     return attchs
+
+# Display metadata for each prefab type: (icon, singular label). The default
+# output filename suffix and file extension are resolved in export_smd.py.
+prefab_type_info = {
+    'JIGGLEBONES': ('BONE_DATA',    'Jigglebones'),
+    'ATTACHMENTS': ('EMPTY_ARROWS', 'Attachments'),
+    'HITBOXES':    ('MESH_CUBE',    'Hitboxes'),
+    'PROCEDURAL':  ('CON_TRACKTO',  'Procedural'),
+}
+
+
+def prefab_available_types(arm: bpy.types.Object) -> list[tuple[str, int]]:
+    """Prefab types that the given armature currently has content for.
+
+    Returns a list of (prefab_type, count) in display order. PROCEDURAL is only
+    offered for Source 1 (.vrd); Source 2 procedural export is not implemented.
+    """
+    if arm is None or arm.type != 'ARMATURE':
+        return []
+
+    avs = getattr(arm.data, 'vs', None)
+    proc_entries = list(getattr(avs, 'proc_bones', [])) if avs else []
+
+    result: list[tuple[str, int]] = []
+
+    jiggles = get_jigglebones(arm)
+    if jiggles:
+        result.append(('JIGGLEBONES', len(jiggles)))
+
+    attachments = get_attachments(arm)
+    lookat_drivers = {e.driver_bone for e in proc_entries
+                      if getattr(e, 'proc_type', 'TRIGGER') == 'LOOKAT'
+                      and e.driver_bone and arm.data.bones.get(e.driver_bone)}
+    if attachments or lookat_drivers:
+        result.append(('ATTACHMENTS', len(attachments) + len(lookat_drivers)))
+
+    hitboxes = get_hitboxes(arm)
+    if hitboxes:
+        result.append(('HITBOXES', len(hitboxes)))
+
+    if State.compiler != Compiler.MODELDOC:
+        valid_proc = [e for e in proc_entries if e.helper_bone and arm.data.bones.get(e.helper_bone)]
+        if valid_proc:
+            result.append(('PROCEDURAL', len(valid_proc)))
+
+    return result
+
+
+def sync_prefab_items(arm_vs, types: list[str]) -> None:
+    """Sync an armature's prefab_items collection to exactly `types`,
+    preserving each entry's export toggle and filepath across syncs."""
+    want = set(types)
+    for i in range(len(arm_vs.prefab_items) - 1, -1, -1):
+        if arm_vs.prefab_items[i].prefab_type not in want:
+            arm_vs.prefab_items.remove(i)
+    have = {p.prefab_type for p in arm_vs.prefab_items}
+    for t in types:
+        if t not in have:
+            arm_vs.prefab_items.add().prefab_type = t
+
 
 def get_armature(ob: bpy.types.Object | bpy.types.Bone | bpy.types.EditBone | bpy.types.PoseBone | None = None) -> bpy.types.Object | None:
     if isinstance(ob, bpy.types.Object):

@@ -1,7 +1,7 @@
 import bpy
 from bpy.types import Menu
 from ..utils import (get_id, getSelectedExportables, count_exports, is_armature,
-                     get_attachments, get_hitboxes, get_jigglebones)
+                     prefab_available_types, prefab_type_info)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from .operators import (
     SMD_OT_AddAllFlexControllers,
@@ -16,6 +16,13 @@ from .operators import (
     SMD_OT_ProcBoneCopyTolerance,
     SMD_OT_ProcBonePasteEntries,
     SMD_OT_ProcBonePasteTolerance,
+    SMD_OT_HitboxDuplicate,
+    SMD_OT_HitboxCopyEntry,
+    SMD_OT_HitboxCopyAll,
+    SMD_OT_HitboxPasteEntries,
+    SMD_OT_HitboxPasteValues,
+    SMD_OT_HitboxCopyToArmature,
+    SMD_OT_HitboxMirror,
 )
 
 
@@ -65,31 +72,24 @@ class SMD_MT_ExportChoice(Menu):
                 arm = active.parent
 
         if arm:
-            l.separator()
+            available = prefab_available_types(arm)
             if is_armature(active):
-                if get_jigglebones(arm) and arm.vs.jigglebone_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Jigglebones ({len(get_jigglebones(arm))}) \"{arm.name}\"", icon='BONE_DATA').export_type = 'JIGGLEBONES'
-                _emp_att = get_attachments(arm)
-                _avs_pb  = getattr(getattr(arm.data, 'vs', None), 'proc_bones', [])
-                _lookat_count = len({e.driver_bone for e in _avs_pb
-                                     if getattr(e, 'proc_type', 'TRIGGER') == 'LOOKAT'
-                                     and e.driver_bone and arm.data.bones.get(e.driver_bone)})
-                if (_emp_att or _lookat_count) and arm.vs.attachment_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Attachments ({len(_emp_att) + _lookat_count}) \"{arm.name}\"", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
-                if get_hitboxes(arm) and arm.vs.hitbox_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Hitboxes ({len(get_hitboxes(arm))}) \"{arm.name}\"", icon='MESH_CUBE').export_type = 'HITBOXES'
-                _proc_entries = [e for e in getattr(getattr(arm.data, 'vs', None), 'proc_bones', [])
-                                 if e.helper_bone and arm.data.bones.get(e.helper_bone)]
-                if _proc_entries and arm.vs.procedural_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Procedural ({len(_proc_entries)}) \"{arm.name}\"", icon='CON_TRACKTO').export_type = 'PROCEDURAL'
+                allowed = {t for t, _ in available}
             else:
-                is_hitbox = active.type == 'EMPTY' and active.empty_display_type == 'CUBE' and getattr(active.vs, 'smd_hitbox', False)
+                # From a child object, only offer the prefabs relevant to it.
                 is_attachment = active.type == 'EMPTY' and getattr(active.vs, 'dmx_attachment', False)
+                allowed = {'HITBOXES'}
+                if is_attachment:
+                    allowed.add('ATTACHMENTS')
 
-                if is_hitbox and get_hitboxes(arm) and arm.vs.hitbox_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Hitboxes ({len(get_hitboxes(arm))}) \"{arm.name}\"", icon='MESH_CUBE').export_type = 'HITBOXES'
-                if is_attachment and get_attachments(arm) and arm.vs.attachment_prefabfile:
-                    l.operator(PrefabExporter.bl_idname, text=f"Attachments ({len(get_attachments(arm))}) \"{arm.name}\"", icon='EMPTY_ARROWS').export_type = 'ATTACHMENTS'
+            entries = [(t, c) for t, c in available if t in allowed]
+            if entries:
+                l.separator()
+                for ptype, count in entries:
+                    icon, label = prefab_type_info[ptype]
+                    l.operator(PrefabExporter.bl_idname,
+                               text=f"{label} ({count}) \"{arm.name}\"",
+                               icon=icon).export_type = ptype
 
 
 class SMD_MT_KitsuneCompileChoice(Menu):
@@ -144,6 +144,25 @@ class SMD_MT_FlexControllerSpecials(Menu):
         layout.operator(SMD_OT_CopyFlexControllers.bl_idname,   icon='PASTEDOWN')
         layout.separator()
         layout.operator(SMD_OT_ClearFlexControllers.bl_idname,  icon='TRASH',       text="Delete All")
+
+
+class SMD_MT_HitboxSpecials(Menu):
+    bl_label = "Hitbox Specials"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(SMD_OT_HitboxDuplicate.bl_idname,      icon='DUPLICATE')
+        layout.separator()
+        layout.operator(SMD_OT_HitboxCopyEntry.bl_idname,      icon='COPYDOWN')
+        layout.operator(SMD_OT_HitboxCopyAll.bl_idname,        icon='COPYDOWN')
+        layout.operator(SMD_OT_HitboxPasteEntries.bl_idname,   icon='PASTEDOWN')
+        layout.operator(SMD_OT_HitboxPasteValues.bl_idname,    icon='PASTEDOWN')
+        layout.separator()
+        layout.operator(SMD_OT_HitboxCopyToArmature.bl_idname, icon='ARMATURE_DATA')
+        layout.separator()
+        layout.operator(SMD_OT_HitboxMirror.bl_idname, text=get_id('op_hitbox_mirror_x'), icon='MOD_MIRROR').axis = 'X'
+        layout.operator(SMD_OT_HitboxMirror.bl_idname, text=get_id('op_hitbox_mirror_y'), icon='MOD_MIRROR').axis = 'Y'
+        layout.operator(SMD_OT_HitboxMirror.bl_idname, text=get_id('op_hitbox_mirror_z'), icon='MOD_MIRROR').axis = 'Z'
 
 
 class SMD_MT_ProcBoneSpecials(Menu):

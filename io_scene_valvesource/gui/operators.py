@@ -771,6 +771,280 @@ class SMD_OT_AssignBoneRotExportOffset(Operator):
         return {'FINISHED'}
 
 
+class SMD_OT_HitboxAdd(Operator):
+    bl_idname  = "smd.hitbox_add"
+    bl_label   = get_id('op_hitbox_add')
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context) -> set:
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return {'CANCELLED'}
+        avs = arm_ob.data.vs
+        entry = avs.hitboxes.add()
+        if context.active_pose_bone:
+            entry.bone_name = context.active_pose_bone.name
+        avs.hitboxes_index = len(avs.hitboxes) - 1
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxRemove(Operator):
+    bl_idname  = "smd.hitbox_remove"
+    bl_label   = get_id('op_hitbox_remove')
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context) -> set:
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return {'CANCELLED'}
+        avs = arm_ob.data.vs
+        idx = avs.hitboxes_index
+        if 0 <= idx < len(avs.hitboxes):
+            avs.hitboxes.remove(idx)
+            avs.hitboxes_index = max(0, min(idx, len(avs.hitboxes) - 1))
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxFromBone(Operator):
+    bl_idname   = "smd.hitbox_from_bone"
+    bl_label    = get_id('op_hitbox_from_bone')
+    bl_options  = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'POSE' and context.selected_pose_bones
+
+    def execute(self, context) -> set:
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return {'CANCELLED'}
+        avs = arm_ob.data.vs
+        for pb in context.selected_pose_bones:
+            entry = avs.hitboxes.add()
+            entry.bone_name = pb.name
+        avs.hitboxes_index = len(avs.hitboxes) - 1
+        return {'FINISHED'}
+
+
+_hitbox_clipboard: list[dict] | None = None
+
+
+def _hitbox_entry_to_dict(entry) -> dict:
+    return {
+        'bone_name': entry.bone_name,
+        'group':     entry.group,
+        'vec_min':   tuple(entry.vec_min),
+        'vec_max':   tuple(entry.vec_max),
+        'rotation':  tuple(entry.rotation),
+        'scale':     entry.scale,
+    }
+
+
+def _hitbox_entry_from_dict(entry, d: dict):
+    entry.bone_name   = d['bone_name']
+    entry.group       = d['group']
+    entry.vec_min[:]  = d['vec_min']
+    entry.vec_max[:]  = d['vec_max']
+    entry.rotation[:] = d['rotation']
+    entry.scale       = d['scale']
+
+
+class SMD_OT_HitboxDuplicate(Operator):
+    bl_idname  = "smd.hitbox_duplicate"
+    bl_label   = get_id('op_hitbox_duplicate')
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return False
+        avs = arm_ob.data.vs
+        return 0 <= avs.hitboxes_index < len(avs.hitboxes)
+
+    def execute(self, context) -> set:
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return {'CANCELLED'}
+        avs = arm_ob.data.vs
+        idx = avs.hitboxes_index
+        if not (0 <= idx < len(avs.hitboxes)):
+            return {'CANCELLED'}
+        _hitbox_entry_from_dict(avs.hitboxes.add(), _hitbox_entry_to_dict(avs.hitboxes[idx]))
+        avs.hitboxes_index = len(avs.hitboxes) - 1
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxCopyEntry(Operator):
+    bl_idname      = "smd.hitbox_copy_entry"
+    bl_label       = get_id('op_hitbox_copy_entry')
+    bl_description = get_id('op_hitbox_copy_entry_tip')
+    bl_options     = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return False
+        avs = arm_ob.data.vs
+        return 0 <= avs.hitboxes_index < len(avs.hitboxes)
+
+    def execute(self, context):
+        global _hitbox_clipboard
+        arm_ob = get_armature(context.object)
+        avs    = arm_ob.data.vs
+        _hitbox_clipboard = [_hitbox_entry_to_dict(avs.hitboxes[avs.hitboxes_index])]
+        self.report({'INFO'}, "Copied 1 hitbox entry")
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxCopyAll(Operator):
+    bl_idname      = "smd.hitbox_copy_all"
+    bl_label       = get_id('op_hitbox_copy_all')
+    bl_description = get_id('op_hitbox_copy_all_tip')
+    bl_options     = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return False
+        return len(arm_ob.data.vs.hitboxes) > 0
+
+    def execute(self, context):
+        global _hitbox_clipboard
+        arm_ob = get_armature(context.object)
+        avs    = arm_ob.data.vs
+        _hitbox_clipboard = [_hitbox_entry_to_dict(e) for e in avs.hitboxes]
+        n = len(_hitbox_clipboard)
+        self.report({'INFO'}, f"Copied {n} hitbox entr{'y' if n == 1 else 'ies'}")
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxPasteEntries(Operator):
+    bl_idname      = "smd.hitbox_paste_entries"
+    bl_label       = get_id('op_hitbox_paste_entries')
+    bl_description = get_id('op_hitbox_paste_entries_tip')
+    bl_options     = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(_hitbox_clipboard) and bool(get_armature(context.object))
+
+    def execute(self, context):
+        arm_ob = get_armature(context.object)
+        avs    = arm_ob.data.vs
+        for d in _hitbox_clipboard:
+            _hitbox_entry_from_dict(avs.hitboxes.add(), d)
+        avs.hitboxes_index = len(avs.hitboxes) - 1
+        n = len(_hitbox_clipboard)
+        self.report({'INFO'}, f"Pasted {n} hitbox entr{'y' if n == 1 else 'ies'}")
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxPasteValues(Operator):
+    bl_idname      = "smd.hitbox_paste_values"
+    bl_label       = get_id('op_hitbox_paste_values')
+    bl_description = get_id('op_hitbox_paste_values_tip')
+    bl_options     = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        if not _hitbox_clipboard:
+            return False
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return False
+        avs = arm_ob.data.vs
+        return 0 <= avs.hitboxes_index < len(avs.hitboxes)
+
+    def execute(self, context):
+        arm_ob = get_armature(context.object)
+        avs    = arm_ob.data.vs
+        entry  = avs.hitboxes[avs.hitboxes_index]
+        d = _hitbox_clipboard[0]
+        entry.group       = d['group']
+        entry.vec_min[:]  = d['vec_min']
+        entry.vec_max[:]  = d['vec_max']
+        entry.rotation[:] = d['rotation']
+        entry.scale       = d['scale']
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxCopyToArmature(Operator):
+    bl_idname      = "smd.hitbox_copy_to_armature"
+    bl_label       = get_id('op_hitbox_copy_to_armature')
+    bl_description = get_id('op_hitbox_copy_to_armature_tip')
+    bl_options     = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        active_arm = get_armature(context.object)
+        if not active_arm or len(active_arm.data.vs.hitboxes) == 0:
+            return False
+        return any(is_armature(ob) and ob != active_arm for ob in context.selected_objects)
+
+    def execute(self, context):
+        active_arm = get_armature(context.object)
+        if not active_arm:
+            return {'CANCELLED'}
+        src_dicts  = [_hitbox_entry_to_dict(e) for e in active_arm.data.vs.hitboxes]
+        if not src_dicts:
+            return {'CANCELLED'}
+        targets = [ob for ob in context.selected_objects if is_armature(ob) and ob != active_arm]
+        if not targets:
+            return {'CANCELLED'}
+        for target in targets:
+            target.data.vs.hitboxes.clear()
+            for d in src_dicts:
+                _hitbox_entry_from_dict(target.data.vs.hitboxes.add(), d)
+        n = len(src_dicts)
+        self.report({'INFO'}, f"Copied {n} hitbox entr{'y' if n == 1 else 'ies'} to {len(targets)} armature(s)")
+        return {'FINISHED'}
+
+
+class SMD_OT_HitboxMirror(Operator):
+    bl_idname      = "smd.hitbox_mirror"
+    bl_label       = "Mirror Hitbox"
+    bl_description = "Mirror the active hitbox along an axis"
+    bl_options     = {'REGISTER', 'UNDO'}
+
+    axis: bpy.props.EnumProperty(
+        items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")],
+        default='X',
+    )
+
+    @classmethod
+    def poll(cls, context):
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return False
+        avs = arm_ob.data.vs
+        return 0 <= avs.hitboxes_index < len(avs.hitboxes)
+
+    def execute(self, context):
+        arm_ob = get_armature(context.object)
+        avs    = arm_ob.data.vs
+        entry  = avs.hitboxes[avs.hitboxes_index]
+        mn = list(entry.vec_min)
+        mx = list(entry.vec_max)
+        i  = 'XYZ'.index(self.axis)
+        if entry.scale < 0:
+            # Box: swap negated extents on the chosen axis to preserve min/max convention
+            mn[i], mx[i] = -mx[i], -mn[i]
+        else:
+            # Capsule: negate each endpoint independently on the chosen axis
+            mn[i] = -mn[i]
+            mx[i] = -mx[i]
+        entry.vec_min = mn
+        entry.vec_max = mx
+        return {'FINISHED'}
+
+
+# Keep old idname as a thin shim so any existing keymap/operator calls still work
+SMD_OT_HitboxMirrorX = SMD_OT_HitboxMirror
+
+
 class SMD_OT_ProcBoneAdd(Operator):
     bl_idname  = "smd.proc_bone_add"
     bl_label   = "Add Procedural Bone"
@@ -951,6 +1225,43 @@ class SMD_OT_ProcBoneSetTolerance(Operator):
         fc.keyframe_points.insert(frame, self.value, options={'NEEDED', 'FAST'})
         fc.update()
         _procbones_sim.invalidate_proc_cache(arm_ob.name)
+        return {'FINISHED'}
+
+
+class SMD_OT_ProcBoneNavigateFrame(Operator):
+    bl_idname  = "smd.proc_bone_navigate_frame"
+    bl_label   = "Navigate Proc Bone Frame"
+    bl_options = {'REGISTER', 'INTERNAL'}
+
+    direction: EnumProperty(items=[
+        ('FIRST', "First",    "Jump to the first frame of the trigger range"),
+        ('PREV',  "Previous", "Go one frame back"),
+        ('NEXT',  "Next",     "Go one frame forward"),
+        ('LAST',  "Last",     "Jump to the last frame of the trigger range"),
+    ], default='FIRST')
+
+    @classmethod
+    def poll(cls, context):
+        arm_ob = get_armature(context.object)
+        if not arm_ob:
+            return False
+        avs = arm_ob.data.vs
+        idx = avs.proc_bones_index
+        return 0 <= idx < len(avs.proc_bones)
+
+    def execute(self, context):
+        arm_ob = get_armature(context.object)
+        avs    = arm_ob.data.vs
+        entry  = avs.proc_bones[avs.proc_bones_index]
+        fs, fe, valid = _procbones_sim._get_proc_trigger_frame_range(entry, arm_ob)
+        if not valid:
+            return {'CANCELLED'}
+        pf = max(fs, min(fe, entry.trigger_preview_frame))
+        if   self.direction == 'FIRST': pf = fs
+        elif self.direction == 'PREV':  pf = max(fs, pf - 1)
+        elif self.direction == 'NEXT':  pf = min(fe, pf + 1)
+        elif self.direction == 'LAST':  pf = fe
+        entry.trigger_preview_frame = pf
         return {'FINISHED'}
 
 
@@ -1206,6 +1517,7 @@ class SMD_OT_CopySourceBoneProps(Operator):
                 'export_rotation_offset_x',
                 'export_rotation_offset_y',
                 'export_rotation_offset_z',
+                'rotation_copy_target',
             ]
         if self.copy_location:
             props += [

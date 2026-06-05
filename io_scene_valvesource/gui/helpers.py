@@ -33,31 +33,7 @@ def _ensure_cloth_remaps():
     return None
 
 
-def _get_or_create_proc_tol_fcurve(entry, dp: str):
-    """Find or create the proc_tolerance fcurve in entry.action. Returns None on failure."""
-    action = entry.action
-    if getattr(action, 'is_action_legacy', True):
-        fc = action.fcurves.find(dp, index=0)
-        return fc if fc is not None else action.fcurves.new(dp, index=0)
-    target_slot = _procbones_sim._find_action_slot(action, entry.action_slot_name)
-    if target_slot is None:
-        return None
-    for layer in action.layers:
-        for strip in layer.strips:
-            cb_fn = getattr(strip, 'channelbag', None)
-            if cb_fn and callable(cb_fn):
-                try:
-                    bag = cb_fn(target_slot)
-                    if bag is not None:
-                        fc = bag.fcurves.find(dp, index=0)
-                        return fc if fc is not None else bag.fcurves.new(dp, index=0)
-                except Exception:
-                    pass
-            for bag in getattr(strip, 'channelbags', ()):
-                if getattr(bag, 'slot_handle', None) == target_slot.handle:
-                    fc = bag.fcurves.find(dp, index=0)
-                    return fc if fc is not None else bag.fcurves.new(dp, index=0)
-    return None
+_get_or_create_proc_tol_fcurve = _procbones_sim._get_or_create_proc_tol_fcurve
 
 
 def _get_entry_proc_tol(entry, frame: float, arm_ob=None) -> float:

@@ -8,7 +8,7 @@ class SMD_MT_BoneToolsPie(bpy.types.Menu):
 
     @classmethod
     def poll(cls, context):
-        return not context.mode.startswith('EDIT_')
+        return context.mode == 'EDIT_ARMATURE' or not context.mode.startswith('EDIT_')
 
     def draw(self, context):
         pie = self.layout.menu_pie()
@@ -31,3 +31,6 @@ class SMD_MT_BoneToolsPie(bpy.types.Menu):
         box.operator("wm.context_toggle", text=get_id('prop_preview_export_pose'), icon='AXIS_SIDE').data_path = "scene.vs.preview_export_pose"
         box.operator("wm.context_toggle", text=get_id('prop_preview_proc_bones'), icon='AXIS_SIDE').data_path = "scene.vs.sim_proc_bones"
         box.operator("wm.context_toggle", text=get_id('prop_preview_jigglebone_constraints'), icon='AXIS_SIDE').data_path = "scene.vs.preview_jigglebone_constraints"
+        box.label(text=get_id('prop_preview_hitboxes'))
+        row = box.row(align=True)
+        row.prop(context.scene.vs, 'preview_hitboxes', expand=True)

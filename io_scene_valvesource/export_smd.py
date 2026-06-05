@@ -21,7 +21,7 @@
 import bpy, bmesh, collections, dataclasses, re, typing, os
 from bpy import ops
 from bpy.app.translations import pgettext
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix, Euler
 from math import * # pyright: ignore
 from bpy.types import Collection
 
@@ -757,6 +757,7 @@ class ExportPlanner:
         self._owned_objects: list[bpy.types.Object] = []
         self._owned_collections: list[bpy.types.Collection] = []
         self._name_map: dict[int, str] = {}
+        self._original_ob_map: dict[int, bpy.types.Object] = {}
 
     def original_name(self, uid: int) -> str | None:
         return self._name_map.get(uid)
@@ -912,6 +913,7 @@ class ExportPlanner:
             copy.data = ob.data.copy()
         bpy.context.scene.collection.objects.link(copy)
         self._owned_objects.append(copy)
+        self._original_ob_map[copy.session_uid] = ob
         return copy
 
     def _apply_edgeline(
@@ -1331,6 +1333,37 @@ class Baker:
                 self._triangulate()
         else:
             baked = None
+
+        # Zero-state basis normal capture: when the user has shape keys at non-zero
+        # default values, normals from the regular bake are shape-deformed.
+        # Re-evaluate with all values at 0 and override the baked normals.
+        # The zero-state mesh goes through _put_in_object so face filtering matches baked.
+        if hasShapes(ob) and baked and getattr(ob.data.vs, 'bake_shapekey_as_basis_normals', False):
+            keys = ob.data.shape_keys.key_blocks
+            has_nonzero = any(sk.value != 0.0 for sk in keys[1:])
+            if has_nonzero:
+                saved_values = [(sk, sk.value) for sk in keys[1:]]
+                for sk, _ in saved_values:
+                    sk.value = 0.0
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                zero_data = bpy.data.meshes.new_from_object(
+                    ob.evaluated_get(depsgraph), preserve_all_data_layers=True, depsgraph=depsgraph
+                )
+                zero_data.name = ob.name + "_zero_normals"
+                zero_ob = self._put_in_object(ob, zero_data, solidify_fill_rim, quiet=True)
+                if should_tri:
+                    prev_active = bpy.context.view_layer.objects.active
+                    bpy.context.view_layer.objects.active = zero_ob
+                    select_only(zero_ob)
+                    self._triangulate()
+                    bpy.context.view_layer.objects.active = prev_active
+                zero_loop_normals = [tuple(l.normal) for l in zero_ob.data.loops]
+                bpy.context.scene.collection.objects.unlink(zero_ob)
+                bpy.data.objects.remove(zero_ob, do_unlink=True)
+                baked.data.normals_split_custom_set(zero_loop_normals)
+                print(f"- Applied zero-state basis normals to '{result.name}'")
+                for sk, v in saved_values:
+                    sk.value = v
 
         if duplis:
             if not ob.type in exportable_types:
@@ -1793,6 +1826,8 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         ids = []
         if self.export_scene:
             for exportable in context.scene.vs.export_list:
+                if exportable.prefab_type:
+                    continue
                 id = exportable.item
                 if isinstance(id, Collection):
                     if shouldExportGroup(id):
@@ -1855,37 +1890,33 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
 
     def _auto_export_prefabs_for_armature(self, arm: bpy.types.Object, context) -> None:
         runner = _PrefabRunnerAdapter(self.report)
-        vs = arm.vs
-        prefab_types = [
-            ('JIGGLEBONES', vs.jigglebone_prefabfile),
-            ('ATTACHMENTS', vs.attachment_prefabfile),
-            ('HITBOXES',    vs.hitbox_prefabfile),
-        ]
-        for export_type, raw_path in prefab_types:
-            if not raw_path:
+        avs = getattr(arm.data, 'vs', None)
+        prefab_items = {p.prefab_type: p for p in avs.prefab_items} if avs else {}
+
+        for export_type, _count in prefab_available_types(arm):
+            pitem = prefab_items.get(export_type)
+            if pitem is not None and not pitem.export:
+                print(f"  - {export_type}: skipped - export disabled")
                 continue
-            try:
-                export_path, filename, ext = runner.get_filepath(raw_path)
-            except ValueError as e:
-                print(f"  - {export_type}: skipped - {e}")
+
+            resolved = resolve_prefab_output(arm, export_type, context.scene)
+            if resolved is None:
+                print(f"  - {export_type}: skipped - could not resolve output path")
                 continue
-            ext_lower = ext.lower()
-            if ext_lower in {'.qc', '.qci'}:
-                fmt = 'QC'
-            elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
-                fmt = 'VMDL'
-            else:
-                print(f"  - {export_type}: skipped - unsupported extension '{ext_lower}'")
-                continue
+            export_path, fmt = resolved
+
             warnings = None
             if export_type == 'JIGGLEBONES':
                 compiled = runner._run_jigglebones(arm, fmt, export_path)
             elif export_type == 'ATTACHMENTS':
                 compiled = runner._run_attachments(arm, fmt, export_path, context)
             elif export_type == 'HITBOXES':
-                compiled, warnings = runner._run_hitboxes(arm)
+                compiled, warnings = runner._run_hitboxes(arm, fmt, export_path)
+            elif export_type == 'PROCEDURAL':
+                compiled = runner._run_procedural(arm, context)
             else:
                 continue
+
             if compiled is None:
                 print(f"  - {export_type}: nothing to export")
                 continue
@@ -2050,6 +2081,11 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     self.armature_src = result.armature.src
                 elif self.armature != result.armature.object:
                     self.warning(get_id("exporter_warn_multiarmature"))
+
+        if planner and self.armature_src:
+            self.armature_src = planner._original_ob_map.get(
+                self.armature_src.session_uid, self.armature_src
+            )
 
         if self.armature_src:
             if not self._setup_skeleton(source, bake_results, baker):
@@ -3661,6 +3697,94 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         return written
 
 
+def _s2_prefab_bonename(bone) -> str:
+    # I don't know if ValveBiped. is only stripped or it applies to any with . separator
+    # TODO: Confirm.
+    name = get_bone_exportname(bone)
+    prefix = "ValveBiped."
+    return name[len(prefix):] if name.startswith(prefix) else name
+
+
+# Default output filename suffix per prefab type. The full default name is
+# "<armature name>_<suffix><ext>".
+PREFAB_FILENAME_SUFFIX = {
+    'JIGGLEBONES': 'jigglebones',
+    'ATTACHMENTS': 'attachments',
+    'HITBOXES':    'hitbox',
+    'PROCEDURAL':  'procedural',
+}
+
+_PREFAB_EXTENSIONS = {'.qc', '.qci', '.vmdl', '.vmdl_prefab', '.vrd'}
+
+
+def _prefab_extension(prefab_type: str) -> str:
+    """File extension for a prefab type: .vrd for procedural (Source 1 only),
+    otherwise .vmdl for Source 2 (ModelDoc) and .qci for Source 1."""
+    if prefab_type == 'PROCEDURAL':
+        return '.vrd'
+    return '.vmdl' if State.compiler == Compiler.MODELDOC else '.qci'
+
+
+def _prefab_format_from_ext(ext: str) -> str | None:
+    ext = ext.lower()
+    if ext in {'.qc', '.qci'}:
+        return 'QC'
+    if ext in {'.vmdl', '.vmdl_prefab'}:
+        return 'VMDL'
+    if ext == '.vrd':
+        return 'VRD'
+    return None
+
+
+def resolve_prefab_output(arm: bpy.types.Object, prefab_type: str, scene) -> tuple[str, str] | None:
+    """Resolve the output path and format for an armature's prefab.
+
+    The path comes from the matching PrefabItem.filepath:
+      - blank            -> "<export_path>/<armature>_<suffix><ext>"
+      - a directory      -> "<that dir>/<armature>_<suffix><ext>"
+      - a full file path -> used as-is (relative paths resolve against export_path)
+    Relative paths are taken relative to the scene export path; "//" and absolute
+    paths resolve normally. Returns (abs_path, fmt) or None if unresolvable.
+    """
+    suffix = PREFAB_FILENAME_SUFFIX[prefab_type]
+    ext = _prefab_extension(prefab_type)
+    default_name = f"{sanitize_string(arm.name, allow_unicode=True)}_{suffix}{ext}"
+
+    raw = ''
+    avs = getattr(arm.data, 'vs', None)
+    if avs is not None:
+        for p in avs.prefab_items:
+            if p.prefab_type == prefab_type:
+                raw = (p.filepath or '').strip()
+                break
+
+    base_dir = bpy.path.abspath(scene.vs.export_path) if scene.vs.export_path else ''
+
+    if not raw:
+        if not base_dir:
+            return None
+        full = os.path.join(base_dir, default_name)
+    else:
+        raw_norm = raw.replace('\\', '/')
+        if raw_norm.startswith('//') or os.path.isabs(raw_norm):
+            expanded = bpy.path.abspath(raw_norm)
+        elif base_dir:
+            expanded = os.path.join(base_dir, raw_norm)
+        else:
+            expanded = bpy.path.abspath(raw_norm)
+
+        if os.path.splitext(expanded)[1].lower() in _PREFAB_EXTENSIONS:
+            full = expanded
+        else:
+            full = os.path.join(expanded, default_name)
+
+    full = os.path.normpath(full)
+    fmt = _prefab_format_from_ext(os.path.splitext(full)[1])
+    if fmt is None:
+        return None
+    return full, fmt
+
+
 class PrefabExporter(bpy.types.Operator, ExportCheck):
     bl_idname = "smd.export_prefab"
     bl_label = "Export Prefab"
@@ -3678,32 +3802,6 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
     def poll(cls, context):
         return context.active_object is not None and get_armature(context.active_object) is not None
     
-    def get_filepath(self, path: str | None):
-        if not path or not isinstance(path, str):
-            raise ValueError(f"Invalid path: {path!r}")
-
-        path = path.replace("\\", "/")
-        path = path.replace("//..", "//../")
-
-        export_path = bpy.path.abspath(path)
-        if not export_path:
-            raise ValueError(f"bpy.path.abspath() failed to resolve: {path!r}")
-
-        filename = os.path.basename(export_path)
-        root, ext = os.path.splitext(filename)
-        return export_path, filename, ext
-
-
-    def _get_export_path(self, context):
-        arm = get_armature(context.active_object)
-        vs = arm.vs
-        return {
-            'JIGGLEBONES': vs.jigglebone_prefabfile,
-            'ATTACHMENTS': vs.attachment_prefabfile,
-            'HITBOXES':    vs.hitbox_prefabfile,
-            'PROCEDURAL':  vs.procedural_prefabfile,
-        }.get(self.export_type, "")
-
     def _write_output(self, compiled, export_path=None, warnings=None):
         if not compiled:
             return False
@@ -3752,26 +3850,11 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             fmt = None
 
             if not self.to_clipboard:
-                raw_path = self._get_export_path(context)
-                if not raw_path:
-                    self.report({'ERROR'}, "No export path set on object")
+                resolved = resolve_prefab_output(arm, self.export_type, context.scene)
+                if resolved is None:
+                    self.report({'ERROR'}, "Could not resolve prefab output path. Set a Scene export path or a prefab filepath.")
                     return {'CANCELLED'}
-
-                export_path, filename, ext = self.get_filepath(raw_path)
-                if not filename or not ext:
-                    self.report({'ERROR'}, "Invalid export path: must include filename and extension")
-                    return {'CANCELLED'}
-
-                ext_lower = ext.lower()
-                if ext_lower in {'.qc', '.qci'}:
-                    fmt = 'QC'
-                elif ext_lower in {'.vmdl', '.vmdl_prefab'}:
-                    fmt = 'VMDL'
-                elif ext_lower == '.vrd':
-                    fmt = 'VRD'
-                else:
-                    self.report({'ERROR'}, f"Unsupported file extension '{ext_lower}'")
-                    return {'CANCELLED'}
+                export_path, fmt = resolved
 
             warnings = None
             if self.export_type == 'JIGGLEBONES':
@@ -3779,7 +3862,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             elif self.export_type == 'ATTACHMENTS':
                 compiled = self._run_attachments(arm, fmt, export_path, context)
             elif self.export_type == 'HITBOXES':
-                compiled, warnings = self._run_hitboxes(arm)
+                compiled, warnings = self._run_hitboxes(arm, fmt, export_path)
             elif self.export_type == 'PROCEDURAL':
                 compiled = self._run_procedural(arm, context)
             else:
@@ -3892,8 +3975,8 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                 jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
                 folder.add_child(KVNode(
                     _class="JiggleBone",
-                    name=f"JiggleBone_{get_bone_exportname(bone)}",
-                    jiggle_root_bone=get_bone_exportname(bone),
+                    name=f"JiggleBone_{_s2_prefab_bonename(bone)}",
+                    jiggle_root_bone=_s2_prefab_bonename(bone),
                     jiggle_type=flex_type,
                     has_yaw_constraint=KVBool(bone.vs.jiggle_has_yaw_constraint),
                     has_pitch_constraint=KVBool(bone.vs.jiggle_has_pitch_constraint),
@@ -3927,6 +4010,11 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                     pitch_damping=bone.vs.jiggle_pitch_damping,
                     along_stiffness=bone.vs.jiggle_along_stiffness,
                     along_damping=bone.vs.jiggle_along_damping,
+                    has_collision=KVBool(bone.vs.jiggle_has_collision),
+                    radius0=bone.vs.jiggle_collision_radius0,
+                    radius1=bone.vs.jiggle_collision_radius1,
+                    point0=KVVector3(*bone.vs.jiggle_collision_point0),
+                    point1=KVVector3(*bone.vs.jiggle_collision_point1),
                 ))
             folder_nodes.append(folder)
 
@@ -4031,7 +4119,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             nodes.append(KVNode(
                 _class="Attachment",
                 name=empty.name,
-                parent_bone=get_bone_exportname(bone),
+                parent_bone=_s2_prefab_bonename(bone),
                 relative_origin=KVVector3(position.x, position.y, position.z),
                 relative_angles=KVVector3(math.degrees(rotation.y), math.degrees(rotation.z), math.degrees(rotation.x)),
                 weight=1.0,
@@ -4051,59 +4139,150 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
 
     # Hitboxes
 
-    def _run_hitboxes(self, arm):
-        hitbox_data = []
-        rotated = []
+    def _run_hitboxes(self, arm, fmt=None, export_path=None):
+        avs = getattr(arm.data, 'vs', None)
+        entries = list(getattr(avs, 'hitboxes', [])) if avs else []
+        valid = [e for e in entries if e.bone_name and arm.data.bones.get(e.bone_name)]
 
-        for obj in bpy.data.objects:
-            if obj.type != 'EMPTY' or obj.empty_display_type != 'CUBE':
-                continue
-            if not hasattr(obj, 'vs') or not obj.vs.smd_hitbox:
-                continue
-            if not (obj.parent and obj.parent == arm and obj.parent_type == 'BONE' and obj.parent_bone):
-                continue
-
-            original_pose_mode = arm.data.pose_position
-            arm.data.pose_position = 'REST'
-            bpy.context.view_layer.update()
-
-            rot = obj.rotation_euler
-            if abs(rot.x) > 0.0001 or abs(rot.y) > 0.0001 or abs(rot.z) > 0.0001:
-                rotated.append(obj.name)
-
-            bounds = self._hitbox_bounds(obj, arm)
-            if not bounds:
-                continue
-
-            bone = arm.data.bones.get(obj.parent_bone)
-            if not bone:
-                continue
-
-            hitbox_data.append({
-                'bone':      bone,
-                'bone_name': get_bone_exportname(bone),
-                'group':     getattr(obj.vs, 'smd_hitbox_group', 0),
-                'min':       bounds[0],
-                'max':       bounds[1],
-            })
-
-            arm.data.pose_position = original_pose_mode
-            bpy.context.view_layer.update()
-
-        if not hitbox_data:
+        if not valid:
             self.report({'WARNING'}, "No hitboxes found")
             return None, None
 
-        sorted_bones = sort_bone_by_hierarchy([hb['bone'] for hb in hitbox_data])
-        bone_to_hb = {hb['bone']: hb for hb in hitbox_data}
+        hboxset = getattr(avs, 'hboxset_name', '').strip()
+        if not hboxset:
+            self.report({'WARNING'},
+                "Hitbox export skipped: no HBox Set name is configured. "
+                "Set a HBox Set name on the armature to export hitboxes.")
+            return None, None
+
+        if self.to_clipboard:
+            use_vmdl = (State.compiler == Compiler.MODELDOC)
+        else:
+            use_vmdl = (fmt == 'VMDL')
+
+        if use_vmdl:
+            return self._hitboxes_vmdl(arm, valid, hboxset, export_path)
+        return self._hitboxes_qc(arm, valid, hboxset)
+
+    def _hitboxes_qc(self, arm, valid, hboxset):
+        avs = getattr(arm.data, 'vs', None)
+        bones_for_sort = []
+        seen_bones = {}
+        for e in valid:
+            bone = arm.data.bones[e.bone_name]
+            if bone not in seen_bones:
+                bones_for_sort.append(bone)
+                seen_bones[bone] = []
+            seen_bones[bone].append(e)
+
+        inverted = [e.bone_name for e in valid
+                    if e.scale < 0.0 and any(e.vec_min[i] > e.vec_max[i] for i in range(3))]
+        if inverted:
+            self.report({'WARNING'},
+                f"Hitbox min/max are inverted on {len(inverted)} box hitbox(es) : Source Engine will "
+                f"invert hit registration. Swap Min and Max for: {', '.join(inverted)}")
+
+        sorted_bones = sort_bone_by_hierarchy(bones_for_sort)
+        capsule_support = getattr(avs, 'hbox_capsule_support', False)
+
+        if not capsule_support:
+            skipped_capsules  = [e.bone_name for e in valid if e.scale >= 0.0]
+            skipped_rotations = [e.bone_name for e in valid
+                                 if any(abs(r) > 1e-6 for r in e.rotation)]
+            if skipped_capsules:
+                self.report({'WARNING'},
+                    f"Capsule Support is disabled : {len(skipped_capsules)} capsule hitbox(es) will be "
+                    f"exported as boxes (bones: {', '.join(skipped_capsules)})")
+            if skipped_rotations:
+                self.report({'WARNING'},
+                    f"Capsule Support is disabled : rotation is ignored on {len(skipped_rotations)} "
+                    f"hitbox(es) (bones: {', '.join(skipped_rotations)})")
 
         lines = []
+        lines.append(f'$hboxset\t"{hboxset}"')
         for bone in sorted_bones:
-            hb = bone_to_hb[bone]
-            lines.append(f'$hbox\t{hb["group"]}\t"{hb["bone_name"]}"\t\t{hb["min"].x:.2f}\t{hb["min"].y:.2f}\t{hb["min"].z:.2f}\t{hb["max"].x:.2f}\t{hb["max"].y:.2f}\t{hb["max"].z:.2f}')
+            for e in seen_bones[bone]:
+                bn  = get_bone_exportname(bone)
+                grp = int(e.group) if e.group.isdigit() else 0
+                base = (
+                    f'$hbox\t{grp}\t"{bn}"\t\t'
+                    f'{e.vec_min[0]:.4f}\t{e.vec_min[1]:.4f}\t{e.vec_min[2]:.4f}\t'
+                    f'{e.vec_max[0]:.4f}\t{e.vec_max[1]:.4f}\t{e.vec_max[2]:.4f}'
+                )
+                if capsule_support:
+                    rx  = degrees(e.rotation[0])
+                    ry  = degrees(e.rotation[1])
+                    rz  = degrees(e.rotation[2])
+                    scl = e.scale if e.scale >= 0.0 else -1.0
+                    lines.append(f'{base}\t{rx:.4f}\t{ry:.4f}\t{rz:.4f}\t{scl:.4f}')
+                else:
+                    lines.append(base)
+        lines.append('$skipboneinbbox')
 
-        warnings = [f"{n} has rotation (ignored in Source 1 hitboxes)" for n in rotated] if rotated else None
-        return '\n'.join(lines), warnings
+        return '\n'.join(lines), None
+
+    def _hitboxes_vmdl(self, arm, valid, hboxset, export_path):
+        # Source 2 / ModelDoc only supports capsule hitboxes. A hitbox is a capsule
+        # when its scale (capsule radius) is >= 0; scale < 0 means an oriented box.
+        capsules = [e for e in valid if e.scale >= 0.0]
+        boxes    = [e for e in valid if e.scale < 0.0]
+
+        if boxes:
+            bnames = ', '.join(sorted({e.bone_name for e in boxes}))
+            self.report({'WARNING'},
+                f"Source 2 hitboxes only support capsules : skipping {len(boxes)} box hitbox(es) "
+                f"(bones: {bnames}). Give them a capsule radius (scale >= 0) to export them.")
+
+        if not capsules:
+            self.report({'WARNING'},
+                "No capsule hitboxes to export (Source 2 supports capsules only)")
+            return None, None
+
+        bones_for_sort = []
+        seen_bones = {}
+        for e in capsules:
+            bone = arm.data.bones[e.bone_name]
+            if bone not in seen_bones:
+                bones_for_sort.append(bone)
+                seen_bones[bone] = []
+            seen_bones[bone].append(e)
+        sorted_bones = sort_bone_by_hierarchy(bones_for_sort)
+
+        hbset_node = KVNode(_class="HitboxSet", name=sanitize_string(hboxset))
+        for bone in sorted_bones:
+            for e in seen_bones[bone]:
+                # Convert the box+rotation representation into the two capsule
+                # endpoints, mirroring the viewport draw in viewport_draw.py.
+                mn  = Vector(e.vec_min)
+                mx  = Vector(e.vec_max)
+                ctr = (mn + mx) * 0.5
+                rot_mat = Euler((e.rotation[0], e.rotation[1], e.rotation[2]), 'XYZ').to_matrix()
+                p0 = ctr + rot_mat @ (mn - ctr)
+                p1 = ctr + rot_mat @ (mx - ctr)
+                grp = int(e.group) if e.group.lstrip('-').isdigit() else 0
+                hbset_node.add_child(KVNode(
+                    _class="HitboxCapsule",
+                    parent_bone=_s2_prefab_bonename(bone),
+                    surface_property="",
+                    translation_only=KVBool(False),
+                    group_id=grp,
+                    radius=e.scale,
+                    point0=KVVector3(p0.x, p0.y, p0.z),
+                    point1=KVVector3(p1.x, p1.y, p1.z),
+                ))
+
+        # update_vmdl_container matches the HitboxSet by name inside HitboxSetList and
+        # replaces its children, so an existing set with this name is overwritten in full.
+        kv_doc = update_vmdl_container(
+            container_class="HitboxSetList" if not self.to_clipboard else "ScratchArea",
+            nodes=hbset_node,
+            export_path=export_path,
+            to_clipboard=self.to_clipboard,
+        )
+        if kv_doc is False:
+            self.report({"WARNING"}, 'Existing file may not be a valid KeyValues3')
+            return None, None
+        return kv_doc.to_text(), None
 
     # Procedural VRD
 
@@ -4229,13 +4408,6 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                     lines.append('')
                     continue
 
-                fcurves = _pbsim._get_action_fcurves(action, entry.action_slot_name)
-                frames  = _pbsim._bone_keyframes(fcurves, driver_name)
-                if not frames:
-                    self.report({'WARNING'}, f"Procedural entry '{helper_name}': no keyframes for driver '{driver_name}'")
-                    lines.append('')
-                    continue
-
                 tol_deg  = degrees(arm.data.bones[driver_name].vs.proc_tolerance)
                 d_pb = arm.pose.bones.get(driver_name)
                 h_pb = arm.pose.bones.get(helper_name)
@@ -4258,17 +4430,41 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
                     else:
                         d_rest_rot = _d_bone_data.matrix_local.to_3x3().normalized().to_4x4()
 
-                triggers = _pbsim._build_proc_triggers(arm, entry, entry_idx, scene)
+                triggers = _pbsim._build_proc_triggers(arm, entry, entry_idx, scene, export_print=True)
 
-                print(f"[VRD DEBUG] {len(triggers)} triggers for '{entry.helper_bone}'")
-                for i, (dq, hloc, hq, tol) in enumerate(triggers):
-                    print(f"  [{i}] dq={dq} hloc={hloc}")
+                #print(f"[VRD DEBUG] {len(triggers)} triggers for '{entry.helper_bone}'")
+                #for i, (dq, dloc, hloc, hq, tol) in enumerate(triggers):
+                #    print(f"  [{i}] dq={dq} dloc={dloc} hloc={hloc}")
 
                 if not triggers:
                     lines.append('')
                     continue
 
-                for dq, hloc, hq, tol in triggers:
+                # Warn when two triggers share a nearly-identical driver state.
+                # Both rotation and location are checked: purely positional drivers
+                # will have near-zero rotation on every trigger, so the position
+                # distance is needed to avoid false positives in that case.
+                # VRD only uses rotation for trigger selection, so two triggers that
+                # are close in rotation AND location are genuinely indistinguishable.
+                NEAR_TRIGGER_DEG  = 1.0
+                NEAR_TRIGGER_DIST = 0.001
+                for _ti in range(len(triggers)):
+                    for _tj in range(_ti + 1, len(triggers)):
+                        _dq_i,   _dloc_i = triggers[_ti][0], triggers[_ti][1]
+                        _dq_j,   _dloc_j = triggers[_tj][0], triggers[_tj][1]
+                        _dot   = abs(_dq_i.dot(_dq_j))
+                        _angle = degrees(2.0 * acos(min(_dot, 1.0)))
+                        _pdist = (_dloc_i - _dloc_j).length
+                        if _angle < NEAR_TRIGGER_DEG and _pdist < NEAR_TRIGGER_DIST:
+                            self.report(
+                                {'WARNING'},
+                                f"Procedural bone '{helper_name}' (driver '{driver_name}'): "
+                                f"triggers {_ti} and {_tj} have nearly identical driver "
+                                f"state (rotation {_angle:.3f}°, position {_pdist:.5f} apart)"
+                                f"- VRD may not distinguish them."
+                            )
+
+                for dq, dloc, hloc, hq, tol in triggers:
                     tol_deg = degrees(tol)
 
                     # parent_off.inv @ rest_local @ delta @ own_off
@@ -4310,26 +4506,6 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
 
         return '\n'.join(lines)
 
-    def _hitbox_bounds(self, obj, arm):
-        half = mathutils.Vector((obj.empty_display_size * obj.scale.x, obj.empty_display_size * obj.scale.y, obj.empty_display_size * obj.scale.z))
-        world_loc = obj.matrix_world.translation
-
-        if obj.parent and obj.parent.type == 'ARMATURE' and obj.parent_bone:
-            pose_bone = arm.pose.bones[obj.parent_bone]
-            base_mat = arm.matrix_world @ pose_bone.bone.matrix_local
-            local_loc = base_mat.inverted() @ world_loc
-            offset = pose_bone.bone.matrix_local.inverted() @ get_bone_matrix(pose_bone, rest_space=True)
-            local_loc = offset.inverted() @ local_loc
-            half = offset.inverted().to_3x3() @ half
-        else:
-            local_loc = obj.location
-
-        c1, c2 = local_loc - half, local_loc + half
-        return (
-            mathutils.Vector((min(c1.x, c2.x), min(c1.y, c2.y), min(c1.z, c2.z))),
-            mathutils.Vector((max(c1.x, c2.x), max(c1.y, c2.y), max(c1.z, c2.z))),
-        )
-
 # -----------------------------------------------------------------------------
 # Adapter used by SmdExporter._auto_export_prefabs_for_armature to invoke
 # PrefabExporter logic without needing a live Blender operator instance.
@@ -4344,18 +4520,19 @@ class _PrefabRunnerAdapter(ExportCheck):
     def report(self, level, msg):
         self._report_fn(level, msg)
 
-    get_filepath             = PrefabExporter.get_filepath
-    _write_output            = PrefabExporter._write_output
-    _run_jigglebones         = PrefabExporter._run_jigglebones
-    _jigglebones_qc          = PrefabExporter._jigglebones_qc
-    _jigglebones_vmdl        = PrefabExporter._jigglebones_vmdl
-    _run_attachments         = PrefabExporter._run_attachments
-    _attachments_qc          = PrefabExporter._attachments_qc
-    _attachments_vmdl        = PrefabExporter._attachments_vmdl
-    _run_hitboxes            = PrefabExporter._run_hitboxes
-    _hitbox_bounds           = PrefabExporter._hitbox_bounds
-    _run_procedural          = PrefabExporter._run_procedural
-    _write_proc_vrd          = PrefabExporter._write_proc_vrd
+    _write_output               = PrefabExporter._write_output
+    _run_jigglebones            = PrefabExporter._run_jigglebones
+    _jigglebones_qc             = PrefabExporter._jigglebones_qc
+    _jigglebones_vmdl           = PrefabExporter._jigglebones_vmdl
+    _run_attachments            = PrefabExporter._run_attachments
+    _attachments_qc             = PrefabExporter._attachments_qc
+    _attachments_vmdl           = PrefabExporter._attachments_vmdl
+    _run_hitboxes               = PrefabExporter._run_hitboxes
+    _hitboxes_qc                = PrefabExporter._hitboxes_qc
+    _hitboxes_vmdl              = PrefabExporter._hitboxes_vmdl
+    _run_procedural             = PrefabExporter._run_procedural
+    _write_proc_vrd             = PrefabExporter._write_proc_vrd
+    _collect_lookat_attachments = staticmethod(PrefabExporter._collect_lookat_attachments)
 
 
 # -----------------------------------------------------------------------------
@@ -4416,4 +4593,4 @@ class KitsuneResourceCompile(bpy.types.Operator):
                 self.report({'WARNING'}, "No entries checked for export.")
                 return {'CANCELLED'}
 
-        return run_and_report(self, cmd, basedir)
+        return run_and_report(self, cmd, basedir, external_console=vs.kitsuneresource_external_console)

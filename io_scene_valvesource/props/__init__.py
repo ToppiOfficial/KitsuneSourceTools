@@ -7,6 +7,7 @@ __all__ = [
     'DmeFlexRuleItem',
     'VertexAnimation',
     'ArmatureItemEntry',
+    'HitboxEntry',
     'ProcBoneEntry',
     # mixins
     'ShapeTypeProps',
@@ -25,6 +26,8 @@ __all__ = [
     # armature
     'ValveSource_BoneProps',
     'ValveSource_ArmatureProps',
+    '_on_armature_data_updated',
+    '_on_blend_load_refresh_hitbox_snapshot',
     # collection
     'ValveSource_CollectionProps',
     # material

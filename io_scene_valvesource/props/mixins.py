@@ -3,7 +3,7 @@ __all__ = ['ShapeTypeProps', 'CurveTypeProps', 'JiggleBoneProps', 'ExportablePro
 import bpy
 from math import radians
 from bpy.props import (StringProperty, BoolProperty, EnumProperty, IntProperty,
-                       FloatProperty, CollectionProperty)
+                       FloatProperty, FloatVectorProperty, CollectionProperty)
 from ..utils import get_id, axes
 from .items import VertexAnimation
 
@@ -81,6 +81,13 @@ class JiggleBoneProps():
     jiggle_frequency : FloatProperty(name=get_id('prop_jiggle_frequency'), description=get_id('prop_jiggle_frequency_tip'), precision=3, default=0.0, min=0, soft_max=1000)
     jiggle_amplitude : FloatProperty(name=get_id('prop_jiggle_amplitude'), description=get_id('prop_jiggle_amplitude_tip'), precision=3, default=0.0, min=0, soft_max=1000)
 
+    # Collider (Source 2): tapered collision capsule with independently-scaled endpoints
+    jiggle_has_collision : BoolProperty(name=get_id('prop_jiggle_has_collision'), description=get_id('prop_jiggle_has_collision_tip'), default=False)
+    jiggle_collision_radius0 : FloatProperty(name=get_id('prop_jiggle_collision_radius0'), description=get_id('prop_jiggle_collision_radius0_tip'), default=1.0, min=0.0, precision=4)
+    jiggle_collision_radius1 : FloatProperty(name=get_id('prop_jiggle_collision_radius1'), description=get_id('prop_jiggle_collision_radius1_tip'), default=1.0, min=0.0, precision=4)
+    jiggle_collision_point0 : FloatVectorProperty(name=get_id('prop_jiggle_collision_point0'), description=get_id('prop_jiggle_collision_point0_tip'), size=3, subtype='XYZ', default=(0.0, 0.0, 0.0), precision=4)
+    jiggle_collision_point1 : FloatVectorProperty(name=get_id('prop_jiggle_collision_point1'), description=get_id('prop_jiggle_collision_point1_tip'), size=3, subtype='XYZ', default=(10.0, 0.0, 0.0), precision=4)
+
 
 class ExportableProps():
     flex_controller_modes = (
@@ -92,7 +99,7 @@ class ExportableProps():
 
     export : BoolProperty(name=get_id("scene_export"), description=get_id("use_scene_export_tip"), default=True)
     subdir : StringProperty(name=get_id("subdir"), description=get_id("subdir_tip"))
-    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"), description=get_id("controllers_mode_tip"), items=flex_controller_modes, default='DME')
+    flex_controller_mode : EnumProperty(name=get_id("controllers_mode"), description=get_id("controllers_mode_tip"), items=flex_controller_modes, default='BUILDER')
     flex_controller_source : StringProperty(name=get_id("controller_source"), description=get_id("controllers_source_tip"), subtype='FILE_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
 
     vertex_animations : CollectionProperty(name=get_id("vca_group_props"), type=VertexAnimation)

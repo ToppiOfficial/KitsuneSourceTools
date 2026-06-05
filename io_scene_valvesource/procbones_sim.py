@@ -21,6 +21,7 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #   SOFTWARE.
 
+import re as _re
 import time
 import math
 import bpy
@@ -501,6 +502,62 @@ def _bone_keyframes(fcurves, bone_name: str) -> list[float]:
     return sorted(frames)
 
 
+_BONE_XFORM_RE = _re.compile(r'^pose\.bones\["([^"]+)"\]\.(?:rotation|location|scale)')
+
+def _get_proc_trigger_frame_range(entry, arm_ob) -> tuple[int, int, bool]:
+    """Return (frame_start, frame_end, is_valid) for a TRIGGER proc bone entry.
+
+    Manual mode uses the stored frame range props.  Auto mode scans the action
+    for the first/last keyframe of any transform channel on a bone that still
+    exists in the armature (excluding property paths like vs.proc_tolerance)."""
+    if getattr(entry, 'use_manual_frame_range', False):
+        fs = entry.trigger_frame_start
+        fe = entry.trigger_frame_end
+        return fs, fe, (fs < fe)
+
+    action = entry.action
+    if not action:
+        return 0, 0, False
+    fcurves  = _get_action_fcurves(action, entry.action_slot_name)
+    existing = {b.name for b in arm_ob.data.bones} if arm_ob else set()
+    frames: list[float] = []
+    for fc in fcurves:
+        m = _BONE_XFORM_RE.match(fc.data_path)
+        if m and m.group(1) in existing:
+            for kp in fc.keyframe_points:
+                frames.append(kp.co[0])
+    if not frames:
+        return 0, 0, False
+    return int(min(frames)), int(max(frames)), True
+
+
+def _get_or_create_proc_tol_fcurve(entry, dp: str):
+    """Find or create the proc_tolerance fcurve in entry.action. Returns None on failure."""
+    action = entry.action
+    if getattr(action, 'is_action_legacy', True):
+        fc = action.fcurves.find(dp, index=0)
+        return fc if fc is not None else action.fcurves.new(dp, index=0)
+    target_slot = _find_action_slot(action, entry.action_slot_name)
+    if target_slot is None:
+        return None
+    for layer in action.layers:
+        for strip in layer.strips:
+            cb_fn = getattr(strip, 'channelbag', None)
+            if cb_fn and callable(cb_fn):
+                try:
+                    bag = cb_fn(target_slot)
+                    if bag is not None:
+                        fc = bag.fcurves.find(dp, index=0)
+                        return fc if fc is not None else bag.fcurves.new(dp, index=0)
+                except Exception:
+                    pass
+            for bag in getattr(strip, 'channelbags', ()):
+                if getattr(bag, 'slot_handle', None) == target_slot.handle:
+                    fc = bag.fcurves.find(dp, index=0)
+                    return fc if fc is not None else bag.fcurves.new(dp, index=0)
+    return None
+
+
 def _set_helper_mute(arm_ob, bone_name: str, mute: bool) -> None:
     """Mute or restore constraints and driver fcurves on a helper bone.
     Original states are saved on first mute and restored on unmute."""
@@ -544,7 +601,7 @@ def _temp_unmute_helper(arm_ob, bone_name: str) -> None:
                 fc.mute = False
 
 
-def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene) -> list:
+def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene, export_print = False) -> list:
     """Sample trigger-target pairs from the action by evaluating the scene at each
     driver bone keyframe frame. Returns list of (driver_quat, helper_quat)."""
     global _building_proc_cache
@@ -559,28 +616,19 @@ def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene) -> list:
     if anim is None:
         return []
 
-    # Get keyframe times from driver bone's channels in the action
-    fcurves = _get_action_fcurves(action, entry.action_slot_name)
-    frames  = _bone_keyframes(fcurves, entry.driver_bone)
+    # Determine frame range via shared helper (respects manual vs auto mode).
+    fs, fe, valid = _get_proc_trigger_frame_range(entry, arm_ob)
+    if not valid:
+        print(f"[ProcBones] No valid frame range for '{entry.helper_bone}' "
+              f"in action '{action.name}' : check action has bone keyframes")
+        return []
+    frames = list(range(fs, fe + 1))
 
-    # Find per-trigger tolerance fcurve once; avoids re-driving edit bone props per frame.
+    # Find per-trigger tolerance fcurve once (keyed on driver bone).
+    fcurves = _get_action_fcurves(action, entry.action_slot_name)
     _tol_dp = f'bones["{entry.driver_bone}"].vs.proc_tolerance'
     _tol_fc = next((fc for fc in fcurves
                     if fc.data_path == _tol_dp and fc.array_index == 0), None)
-
-    # Fallback: sample every integer frame in the action's frame range
-    if not frames:
-        try:
-            fr = action.frame_range
-            start, end = int(fr.x), int(fr.y)
-            frames = list(range(start, min(end + 1, start + 51)))
-        except Exception:
-            pass
-
-    if not frames:
-        print(f"[ProcBones] No keyframes found for driver bone '{entry.driver_bone}' "
-              f"in action '{action.name}' (slot '{entry.action_slot_name}')")
-        return []
 
     # Resolve target slot for assignment
     is_legacy     = getattr(action, 'is_action_legacy', True)
@@ -622,7 +670,11 @@ def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene) -> list:
             d_pb = arm_ob.pose.bones.get(entry.driver_bone)
             h_pb = arm_ob.pose.bones.get(entry.helper_bone)
             if d_pb and h_pb:
-                dq = d_pb.matrix_basis.to_quaternion().normalized()
+                d_local = arm_ob.convert_space(
+                    pose_bone=d_pb, matrix=d_pb.matrix,
+                    from_space='POSE', to_space='LOCAL')
+                dq   = d_local.to_quaternion().normalized()
+                dloc = d_local.to_translation()
                 # Read the full constraint/driver-evaluated pose in local space.
                 h_local = arm_ob.convert_space(
                     pose_bone=h_pb, matrix=h_pb.matrix,
@@ -631,7 +683,7 @@ def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene) -> list:
                 hq   = h_local.to_quaternion().normalized()
                 tol = (_tol_fc.evaluate(frame) if _tol_fc is not None
                        else d_pb.bone.vs.proc_tolerance)
-                triggers.append((dq, hloc, hq, tol))
+                triggers.append((dq, dloc, hloc, hq, tol))
     finally:
         anim.action  = orig_action
         anim.use_nla = orig_use_nla
@@ -652,8 +704,12 @@ def _build_proc_triggers(arm_ob, entry, entry_idx: int, scene) -> list:
             _set_helper_mute(arm_ob, entry.helper_bone, True)
         _building_proc_cache = False
 
-    print(f"[ProcBones] Cached {len(triggers)} triggers for '{entry.helper_bone}' "
-          f"driven by '{entry.driver_bone}' via '{action.name}'")
+    if not export_print:
+        print(f"[ProcBones] Cached {len(triggers)} triggers for '{entry.helper_bone}' "
+            f"driven by '{entry.driver_bone}' via '{action.name}'")
+    else:
+        print(f"  - Cached {len(triggers)} triggers for '{entry.helper_bone}' "
+            f"driven by '{entry.driver_bone}' via '{action.name}'")
     return triggers
 
 
@@ -814,10 +870,13 @@ def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> None
         _overridden_helpers.add(override_key)
 
         driver_pb    = arm_ob.pose.bones[entry.driver_bone]
-        current_quat = driver_pb.matrix_basis.to_quaternion().normalized()
+        d_local      = arm_ob.convert_space(
+            pose_bone=driver_pb, matrix=driver_pb.matrix,
+            from_space='POSE', to_space='LOCAL')
+        current_quat = d_local.to_quaternion().normalized()
 
         weights = []
-        for trig_q, _loc, _rot, trig_tol in triggers:
+        for trig_q, _dloc, _loc, _rot, trig_tol in triggers:
             dot   = abs(current_quat.dot(trig_q))
             dot   = max(-1.0, min(1.0, dot))
             angle = 2.0 * math.acos(dot)
@@ -825,12 +884,12 @@ def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> None
 
         total = sum(weights)
         if total <= 1e-4:
-            blended_loc = Vector(triggers[0][1])
-            blended_rot = Quaternion(triggers[0][2])
+            blended_loc = Vector(triggers[0][2])
+            blended_rot = Quaternion(triggers[0][3])
         else:
             blended_loc = Vector((0.0, 0.0, 0.0))
             blended_rot = Quaternion((0.0, 0.0, 0.0, 0.0))
-            for w, (_drv, tloc, trot, _tol) in zip(weights, triggers):
+            for w, (_drv, _dloc, tloc, trot, _tol) in zip(weights, triggers):
                 nw = w / total
                 blended_loc        += nw * tloc
                 blended_rot.x      += nw * trot.x
