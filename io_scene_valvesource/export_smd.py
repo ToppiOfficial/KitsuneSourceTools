@@ -2833,7 +2833,6 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             DmeAxisSystem["forwardParity"] = 1
             DmeAxisSystem["coordSys"] = 0
 
-        DmeModel["transform"] = makeTransform("", Matrix(), (DmeModel.name or "") + "transform")
         keywords = getDmxKeywords(dm.format_ver)
 
         is_anim = bool(len(bake_results) == 1 and bake_results[0].object.type == "ARMATURE")
