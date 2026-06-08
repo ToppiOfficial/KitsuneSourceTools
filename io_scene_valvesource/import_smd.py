@@ -123,6 +123,8 @@ class SmdImporter(bpy.types.Operator, Logger):
 
         self.errorReport(report_message)
         if self.num_files_imported:
+            if bpy.context.active_object and bpy.context.active_object.mode != 'OBJECT':
+                ops.object.mode_set(mode='OBJECT')
             ops.object.select_all(action='DESELECT')
             new_obs = set(bpy.context.scene.objects).difference(pre_obs)
             xy = xyz = 0
