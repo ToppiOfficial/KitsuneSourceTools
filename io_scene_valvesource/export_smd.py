@@ -3126,6 +3126,26 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 for vgroup in cloth_groups:
                     cloth_weights[vgroup.name] = [0.0] * num_verts
 
+            # Stereo flex (balance) setup
+            if bake.shapes and bake.src and hasattr(bake.src, 'data') and hasattr(bake.src.data, 'vs'):
+                stereo_mode = bake.src.data.vs.flex_stereo_mode
+                if stereo_mode == 'VGROUP':
+                    vg_name = bake.src.data.vs.flex_stereo_vg
+                    if not vg_name:
+                        self.warning(f"'{bake.name}': stereo mode is VGROUP but no vertex group is specified")
+                    else:
+                        bake.balance_vg = ob.vertex_groups.get(vg_name)
+                        if bake.balance_vg is None:
+                            self.warning(f"'{bake.name}': stereo vertex group '{vg_name}' not found")
+                elif stereo_mode in axes_lookup:
+                    axis = axes_lookup[stereo_mode]
+                    sharpness = bake.src.data.vs.flex_stereo_sharpness
+                    balance_width = ob.dimensions[axis] * (1 - (sharpness / 100))
+                    if balance_width:
+                        for _v in ob.data.vertices:
+                            balance[_v.index] = max(0.0, min(1.0, 0.5 + _v.co[axis] / balance_width))
+                    bake.balance_vg = True  # sentinel: balance[] is pre-populated
+
             uv_layer = ob.data.uv_layers.active.data
 
             def remap(val, a, b, c, d):
@@ -3136,10 +3156,12 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             for v in ob.data.vertices:
                 v.select = False
                 if bake.shapes and bake.balance_vg:
-                    try:
-                        balance[v.index] = bake.balance_vg.weight(v.index)
-                    except Exception:
-                        pass
+                    if isinstance(bake.balance_vg, bpy.types.VertexGroup):
+                        try:
+                            balance[v.index] = bake.balance_vg.weight(v.index)
+                        except Exception:
+                            pass
+                    # else: balance[] was pre-populated by axis-based stereo setup
 
                 if cloth_groups:
                     for vgroup in cloth_groups:
