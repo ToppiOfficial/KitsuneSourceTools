@@ -1828,13 +1828,64 @@ def get_attachments(ob : bpy.types.Object | None) -> list[bpy.types.Object | Non
         
     return attchs
 
+# I forgot what I even made this for??? Unused function
+#def get_collision_cloth_bone_uses(arm_ob: bpy.types.Object, weight_threshold: float) -> set[str]:
+#    """Return names of bones that have at least one vertex with weight > weight_threshold
+#    in any COLLISION or CLOTHPROXY mesh associated with arm_ob (via Armature modifier
+#    or direct parenting).  Uses the evaluated (post-modifier) mesh so Mirror and other
+#    modifiers that affect vertex group assignments are respected."""
+#    result: set[str] = set()
+#    bone_names = {b.name for b in arm_ob.data.bones}
+#
+#    try:
+#        depsgraph = bpy.context.evaluated_depsgraph_get()
+#    except Exception:
+#        depsgraph = None
+#
+#    for obj in bpy.data.objects:
+#        if obj.type != 'MESH':
+#            continue
+#        if getattr(getattr(obj, 'vs', None), 'mesh_type', 'DEFAULT') not in ('COLLISION', 'CLOTHPROXY'):
+#            continue
+#        associated = obj.parent is arm_ob
+#        if not associated:
+#            for mod in obj.modifiers:
+#                if mod.type == 'ARMATURE' and mod.object is arm_ob:
+#                    associated = True
+#                    break
+#        if not associated:
+#            continue
+#
+#        eval_obj = obj.evaluated_get(depsgraph) if depsgraph is not None else None
+#        mesh_data = eval_obj.to_mesh() if eval_obj is not None else obj.data
+#        vg_source = eval_obj if eval_obj is not None else obj
+#
+#        try:
+#            vg_to_bone = {
+#                vg.index: vg.name
+#                for vg in vg_source.vertex_groups
+#                if vg.name in bone_names
+#            }
+#            if not vg_to_bone:
+#                continue
+#            for vert in mesh_data.vertices:
+#                for ge in vert.groups:
+#                    if ge.group in vg_to_bone and ge.weight > weight_threshold:
+#                        result.add(vg_to_bone[ge.group])
+#        finally:
+#            if eval_obj is not None:
+#                eval_obj.to_mesh_clear()
+#
+#    return result
+
+
 # Display metadata for each prefab type: (icon, singular label). The default
 # output filename suffix and file extension are resolved in export_smd.py.
 prefab_type_info = {
-    'JIGGLEBONES': ('BONE_DATA',    'Jigglebones'),
-    'ATTACHMENTS': ('EMPTY_ARROWS', 'Attachments'),
-    'HITBOXES':    ('MESH_CUBE',    'Hitboxes'),
-    'PROCEDURAL':  ('CON_TRACKTO',  'Procedural'),
+    'JIGGLEBONES':   ('BONE_DATA',        'Jigglebones'),
+    'ATTACHMENTS':   ('EMPTY_ARROWS',     'Attachments'),
+    'HITBOXES':      ('MESH_CUBE',        'Hitboxes'),
+    'PROCEDURAL':    ('CON_TRACKTO',      'Procedural'),
 }
 
 
@@ -1985,9 +2036,35 @@ def get_dme_corrective_delta_names(ob) -> set:
     return result
 
 
-def sanitize_flex_expression_deltas(expr: str) -> str:
-    """Sanitize %name delta tokens inside a DME flex expression string."""
-    return re.sub(r'%(\w+)', lambda m: '%' + sanitize_string_for_delta(m.group(1)), expr)
+def sanitize_flex_expression_deltas(expr: str, delta_map: dict | None = None) -> str:
+    """Sanitize %name delta tokens inside a DME flex expression string.
+    If delta_map is provided, shapekey names are remapped to their export delta names first."""
+    def _replace(m):
+        name = m.group(1)
+        if delta_map and name in delta_map:
+            return '%' + delta_map[name]
+        return '%' + sanitize_string_for_delta(name)
+    return re.sub(r'%(\w+)', _replace, expr)
+
+
+def get_dme_delta_name_map(ob) -> dict:
+    """Return a mapping of shapekey_name -> sanitized export delta name.
+    Standalone dme_delta_overrides take precedence over per-controller raw_delta_name."""
+    if not hasattr(ob, "vs"):
+        return {}
+    result = {}
+    vs = ob.vs
+    if hasattr(vs, "dme_flexcontrollers"):
+        for fc in vs.dme_flexcontrollers:
+            if not fc.shapekey:
+                continue
+            raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+            result[fc.shapekey] = sanitize_string_for_delta(raw)
+    if hasattr(vs, "dme_delta_overrides"):
+        for ov in vs.dme_delta_overrides:
+            if ov.shapekey and ov.delta_name and ov.delta_name.strip():
+                result[ov.shapekey] = sanitize_string_for_delta(ov.delta_name.strip())
+    return result
 
 _FLEX_MATH_KEYWORDS = frozenset({
     'min', 'max', 'sqrt', 'abs', 'pow', 'clamp', 'atan2', 'log', 'sin', 'cos',
@@ -2010,11 +2087,13 @@ def validate_flex_expression(expr: str, sk_names: set, ctrl_names: set, localvar
     expanded_sk = sk_names | {part for name in sk_names for part in name.split('+')}
     delta_errors = []
     controller_errors = []
-    for m in re.finditer(r'%(\w+)', expr):
+    # $name$ is a compiler definevariable reference - always valid, strip before parsing
+    expr_no_defvar = re.sub(r'\$\w+\$', '', expr)
+    for m in re.finditer(r'%(\w+)', expr_no_defvar):
         name = m.group(1)
         if name not in expanded_sk and name not in localvar_names:
             delta_errors.append(name)
-    stripped = re.sub(r'%\w+', '', expr)
+    stripped = re.sub(r'%\w+', '', expr_no_defvar)
     for m in re.finditer(r'\b([a-zA-Z_]\w*)\b', stripped):
         name = m.group(1)
         if name not in _FLEX_MATH_KEYWORDS and name not in ctrl_names:
@@ -2232,3 +2311,43 @@ def is_empty(ob : bpy.types.Object | None) -> bool:
 
 def is_curve(ob : bpy.types.Object | None) -> bool:
     return ob is not None and ob.type == 'CURVE'
+
+
+KST_ATTACHMENT_COLL = "KST Attachment References"
+
+
+def _find_layer_collection(layer_coll, name: str):
+    if layer_coll.name == name:
+        return layer_coll
+    for child in layer_coll.children:
+        found = _find_layer_collection(child, name)
+        if found:
+            return found
+    return None
+
+
+def ensure_kst_collection_at_top(scene, view_layer):
+    """Get (or create) the hidden KST attachment collection and move it to the
+    very top of the outliner, above all other scene children."""
+    scene_coll = scene.collection
+    coll = bpy.data.collections.get(KST_ATTACHMENT_COLL)
+    if coll is None:
+        coll = bpy.data.collections.new(KST_ATTACHMENT_COLL)
+
+    children = list(scene_coll.children)
+    if not (children and children[0] == coll):
+        if coll in children:
+            scene_coll.children.unlink(coll)
+            children.remove(coll)
+        for c in children:
+            scene_coll.children.unlink(c)
+        scene_coll.children.link(coll)
+        for c in children:
+            scene_coll.children.link(c)
+
+    coll.hide_render = True
+    lc = _find_layer_collection(view_layer.layer_collection, KST_ATTACHMENT_COLL)
+    if lc:
+        lc.exclude = True
+
+    return coll

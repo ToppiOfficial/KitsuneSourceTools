@@ -1036,12 +1036,12 @@ _data = {
         'ja': "クリップボードに名前をコピー",
     },
     'op_copy_flex_controllers': {
-        'en': "Copy Flex Controllers to Selected",
-        'ja': "選択オブジェクトにフレックスコントローラーをコピー",
+        'en': "Copy Flex Data to Selected",
+        'ja': "選択オブジェクトにフレックスデータをコピー",
     },
     'op_copy_flex_controllers_tip': {
-        'en': "Copy all flex controller entries from the active object to other selected mesh objects",
-        'ja': "アクティブオブジェクトのすべてのフレックスコントローラーを選択メッシュにコピー",
+        'en': "Copy flex controllers, rules, and delta overrides from the active object to other selected mesh objects",
+        'ja': "アクティブオブジェクトのフレックスコントローラー、ルール、デルタ上書きを選択メッシュにコピー",
     },
     'op_copy_jigglebone_props': {
         'en': "Copy Jigglebone Properties",
@@ -1294,6 +1294,14 @@ _data = {
     'prop_delta_name_tip': {
         'en': "Name of the delta shape key referenced by this controller",
         'ja': "このコントローラーが参照するデルタシェイプキー名",
+    },
+    'prop_delta_override_shapekey_tip': {
+        'en': "Blender shape key to rename on export",
+        'ja': "エクスポート時にリネームするBlenderシェイプキー",
+    },
+    'prop_delta_override_name_tip': {
+        'en': "Delta name to use in the exported DMX instead of the shape key name",
+        'ja': "シェイプキー名の代わりにDMXエクスポートで使用するデルタ名",
     },
     'prop_dme_flexcontrollers': {
         'en': "Flex Controllers",
@@ -2179,6 +2187,24 @@ _data = {
     'prop_preview_edgeline_tip': {
         'en': "Draw edgeline shell in the viewport, approximating the exported result",
         'ja': "エクスポート結果に近いエッジラインシェルをビューポートに描画",
+    },
+    'prop_preview_attachment_mesh': {
+        'en': "Attachment Mesh Preview",
+    },
+    'prop_preview_attachment_mesh_tip': {
+        'en': "Draw the assigned display mesh as a ghost at attachment empties",
+    },
+    'prop_attachment_display_mesh': {
+        'en': "Display Mesh",
+    },
+    'prop_attachment_display_mesh_tip': {
+        'en': "Mesh to display as a ghost at this attachment point",
+    },
+    'prop_attachment_display_mesh_color': {
+        'en': "Ghost Color",
+    },
+    'prop_attachment_display_mesh_color_tip': {
+        'en': "Color and opacity of the attachment mesh ghost",
     },
     'warn_dme_dmx_only_panel': {
         'en': "DME mode is DMX-only - ignored for SMD export.",

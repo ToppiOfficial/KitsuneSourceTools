@@ -6,12 +6,12 @@ from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh
                      is_curve, is_mesh_compatible, modifier_compatible, vertex_maps, vertex_float_maps,
                      cloth_map_groups, hasFlexControllerSource, get_armature, countShapes,
                      MakeObjectIcon, get_active_exportable, get_valid_vertexanimation_object,
-                     get_bone_exportname, get_jigglebones, get_hitboxes, get_attachments,
+                     get_bone_exportname,
                      sanitize_string_for_delta, _build_dme_ctrl_names)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from ..import_smd import SmdImporter
 from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
-from .helpers import _mesh_type_allows, _ensure_cloth_remaps, validate_flex_expression, validate_corrective_components
+from .helpers import _mesh_type_allows, _ensure_cloth_remaps, validate_flex_expression, validate_corrective_components, _count_flex_rule_errors
 from .operators import (
     SMD_OT_KitsuneResourceLoadEntries,
     SMD_OT_AssignBoneRotExportOffset,
@@ -22,6 +22,9 @@ from .operators import (
     SMD_OT_AddFlexRule,
     SMD_OT_RemoveFlexRule,
     SMD_OT_MoveFlexRule,
+    SMD_OT_FlexRuleRegexReplace,
+    SMD_OT_AddDeltaOverride,
+    SMD_OT_RemoveDeltaOverride,
     SMD_OT_AddVertexAnimation,
     SMD_OT_RemoveVertexAnimation,
     SMD_OT_GenerateVertexAnimationQCSnippet,
@@ -74,6 +77,7 @@ class SMD_PT_ViewportSimulation(Panel):
         box2.prop(vs, 'preview_proc_bones')
         box2.prop(vs, 'preview_hitboxes')
         box2.prop(vs, 'preview_edgeline')
+        box2.prop(vs, 'preview_attachment_mesh')
         if vs.preview_edgeline:
             if vs.jiggle_sim_enabled:
                 row = box2.row()
@@ -171,9 +175,9 @@ class SMD_PT_Scene(Panel):
 
 class SMD_PT_KitsuneResource(Panel):
     bl_label = 'Kitsune Resource Compile'
-    bl_category = 'KitsuneSrcTool'
-    bl_region_type = 'UI'
-    bl_space_type = 'VIEW_3D'
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'scene'
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context) -> None:
@@ -260,7 +264,25 @@ class SMD_PT_Exportables(Panel):
 
         layout.template_list("SMD_UL_ExportItems","",scene.vs,"export_list",scene.vs,"export_list_active",rows=3,maxrows=8)
 
-        if active_exportable and active_exportable.is_prefab: return
+        if active_exportable and active_exportable.is_prefab:
+            arm_ob = active_exportable.obj
+            if arm_ob and arm_ob.type == 'ARMATURE':
+                armvs = arm_ob.data.vs
+                ptype = active_exportable.prefab_type
+                if ptype == 'JIGGLEBONES':
+                    layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_jigglebone_entries",
+                                         armvs, "arm_jigglebone_index", rows=3)
+                elif ptype == 'ATTACHMENTS':
+                    layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_attachment_entries",
+                                         armvs, "arm_attachment_index", rows=3)
+                elif ptype == 'HITBOXES':
+                    layout.template_list("SMD_UL_Hitboxes", "", armvs, "hitboxes",
+                                         armvs, "hitboxes_index", rows=3)
+                elif ptype == 'PROCEDURAL':
+                    layout.template_list("SMD_UL_ProcBones", "", armvs, "proc_bones",
+                                         armvs, "proc_bones_index", rows=3)
+            return
+
         if not item or not self.is_collection(item): return
 
         vs = item.vs
@@ -1060,12 +1082,22 @@ class SMD_PT_Shapekey(Properties_Panel):
                     range_row.prop(item, 'flex_min', text='Min')
                     range_row.prop(item, 'flex_max', text='Max')
 
+                    r = item_col.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='Flex Group')
+                    r.prop(item, 'flexgroup', text='')
+
             # --- Flex Rules & Domination ---
             rules_header = box.row()
             rules_header.prop(context.scene.vs, "show_flex_rules_items",
                               icon='TRIA_DOWN' if context.scene.vs.show_flex_rules_items else 'TRIA_RIGHT',
                               icon_only=True, emboss=False)
             rules_header.label(text=get_id("label_dme_flex_rules"), icon='DRIVER')
+            rule_err_count = _count_flex_rule_errors(active_object)
+            if rule_err_count:
+                err_label = rules_header.row()
+                err_label.alert = True
+                err_label.label(text=str(rule_err_count), icon='ERROR')
 
             if context.scene.vs.show_flex_rules_items:
                 rules_col = box.column()
@@ -1084,6 +1116,8 @@ class SMD_PT_Shapekey(Properties_Panel):
                 up.direction = 'UP'
                 dn = rules_btn_col.operator(SMD_OT_MoveFlexRule.bl_idname, icon='TRIA_DOWN', text='')
                 dn.direction = 'DOWN'
+                rules_btn_col.separator()
+                rules_btn_col.operator(SMD_OT_FlexRuleRegexReplace.bl_idname, icon='VIEWZOOM', text='')
 
                 ridx = active_object.vs.dme_flex_rules_index
                 if len(active_object.vs.dme_flex_rules) > 0 and ridx != -1:
@@ -1169,6 +1203,45 @@ class SMD_PT_Shapekey(Properties_Panel):
                                     err_row = rule_col.row()
                                     err_row.alert = True
                                     err_row.label(text=get_id("label_dme_unknown_controller", True).format(name), icon='ERROR')
+
+            # --- Delta Name Overrides ---
+            ov_header = box.row()
+            ov_header.prop(context.scene.vs, "show_flex_delta_overrides",
+                           icon='TRIA_DOWN' if context.scene.vs.show_flex_delta_overrides else 'TRIA_RIGHT',
+                           icon_only=True, emboss=False)
+            ov_header.label(text="Delta Name Overrides", icon='SORTALPHA')
+
+            if context.scene.vs.show_flex_delta_overrides:
+                ov_col = box.column()
+                ov_row = ov_col.row()
+                ov_list_col = ov_row.column()
+                ov_list_col.template_list(
+                    "SMD_UL_DmeDeltaOverrides", "",
+                    active_object.vs, "dme_delta_overrides",
+                    active_object.vs, "dme_delta_overrides_index",
+                )
+                ov_btn_col = ov_row.column(align=True)
+                ov_btn_col.operator(SMD_OT_AddDeltaOverride.bl_idname, icon='ADD', text='')
+                ov_btn_col.operator(SMD_OT_RemoveDeltaOverride.bl_idname, icon='REMOVE', text='')
+
+                ovidx = active_object.vs.dme_delta_overrides_index
+                if len(active_object.vs.dme_delta_overrides) > 0 and ovidx != -1:
+                    ov_item = active_object.vs.dme_delta_overrides[ovidx]
+                    ov_col.separator(factor=0.5)
+                    ov_detail = ov_col.column(align=True)
+
+                    r = ov_detail.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='Shape Key')
+                    if active_object.data.shape_keys:
+                        r.prop_search(ov_item, 'shapekey', active_object.data.shape_keys, 'key_blocks', text='')
+                    else:
+                        r.prop(ov_item, 'shapekey', text='')
+
+                    r = ov_detail.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='Delta Name')
+                    r.prop(ov_item, 'delta_name', text='')
 
             insertStereoSplitUi(box.column())
         else:
@@ -1497,11 +1570,36 @@ class SMD_PT_Empty(Properties_Panel):
         box = layout.box()
 
         col = box.column()
-        col.prop(active_object.vs, 'dmx_attachment', toggle=False)
+        vs_ob = active_object.vs
+        col.prop(vs_ob, 'dmx_attachment', toggle=False)
 
-        if active_object.vs.dmx_attachment and active_object.children:
+        if vs_ob.dmx_attachment and active_object.children:
             col.alert = True
-            col.box().label(text="Attachment cannot be a parent",icon='WARNING_LARGE')
+            col.box().label(text="Attachment cannot be a parent", icon='WARNING_LARGE')
+            col.alert = False
+
+        if vs_ob.dmx_attachment:
+            col.separator()
+            col.label(text="Display Meshes", icon='MESH_DATA')
+            row = col.row()
+            row.template_list(
+                "SMD_UL_AttachmentDisplayMeshes", "",
+                vs_ob, "attachment_display_meshes",
+                vs_ob, "attachment_display_meshes_index",
+                rows=3,
+            )
+            btn_col = row.column(align=True)
+            btn_col.operator('smd.add_attachment_display_mesh',    icon='ADD',    text='')
+            btn_col.operator('smd.remove_attachment_display_mesh', icon='REMOVE', text='')
+            btn_col.separator()
+            btn_col.operator('smd.select_attachment_blend', text='', icon='ASSET_MANAGER')
+
+            idx = vs_ob.attachment_display_meshes_index
+            if 0 <= idx < len(vs_ob.attachment_display_meshes):
+                item = vs_ob.attachment_display_meshes[idx]
+                box = col.box()
+                box.prop(item, 'mesh', text="")
+                box.prop(item, 'color')
 
 
 class SMD_PT_Curve(Properties_Panel):
@@ -1528,39 +1626,3 @@ class SMD_PT_Curve(Properties_Panel):
         row.label(text=context.object.data.name + ":",icon=MakeObjectIcon(context.object,suffix='_DATA'),translate=False) # type: ignore
         row.prop(context.object.data.vs,"faces",text="")
         done.add(context.object.data)
-
-
-class SMD_PT_ArmatureItems(Properties_Panel):
-    bl_label = ''
-    bl_parent_id = 'SMD_PT_Armature'
-    bl_options = {'DEFAULT_CLOSED'}
-
-    @classmethod
-    def poll(cls, context):
-        return bool(get_armature(context.object))
-
-    def draw_header(self, context):
-        arm = get_armature(context.object)
-        mode = context.scene.vs.arm_items_view
-        if mode == 'JIGGLEBONES':
-            label, items = get_id('label_all_jigglebones', True), get_jigglebones(arm)
-        else:
-            label, items = get_id('label_all_attachments', True), get_attachments(arm)
-        label = '{} ({})'.format(label, len(items))
-        self.layout.label(text=label, icon='EMPTY_DATA')
-
-    def draw(self, context):
-        layout = self.layout
-        armvs = get_armature(context.object).data.vs
-        vs = context.scene.vs
-
-        row = layout.row(align=True)
-        row.prop(vs, 'arm_items_view')
-
-        mode = vs.arm_items_view
-        if mode == 'JIGGLEBONES':
-            layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_jigglebone_entries",
-                                 armvs, "arm_jigglebone_index", rows=3)
-        else:
-            layout.template_list("SMD_UL_ArmatureItems", "", armvs, "arm_attachment_entries",
-                                 armvs, "arm_attachment_index", rows=3)

@@ -4,10 +4,12 @@ __all__ = [
     'PrefabItem',
     'FlexControllerItem',
     'DmeFlexRuleItem',
+    'DmeDeltaNameOverride',
     'VertexAnimation',
     'ArmatureItemEntry',
     'HitboxEntry',
     'ProcBoneEntry',
+    'AttachmentDisplayMeshItem',
 ]
 
 import bpy, re, math as _math
@@ -37,6 +39,21 @@ class ValveSource_FloatMapRemap(bpy.types.PropertyGroup):
     max : FloatProperty(name="Max", description="Maps to 1.0", default=1.0)
 
 
+class AttachmentDisplayMeshItem(bpy.types.PropertyGroup):
+    mesh : PointerProperty(
+        type=bpy.types.Object,
+        name=get_id('prop_attachment_display_mesh'),
+        description=get_id('prop_attachment_display_mesh_tip'),
+        poll=lambda self, ob: ob.type == 'MESH',
+    )
+    color : FloatVectorProperty(
+        name=get_id('prop_attachment_display_mesh_color'),
+        description=get_id('prop_attachment_display_mesh_color_tip'),
+        subtype='COLOR_GAMMA', size=4,
+        default=(0.3, 0.9, 1.0, 0.45), min=0.0, max=1.0,
+    )
+
+
 class KitsuneResourceItem(bpy.types.PropertyGroup):
     name       : StringProperty(name="Name")
     export     : BoolProperty(name="Export", description=get_id("prop_kr_entry_export_tip"), default=True)
@@ -50,10 +67,10 @@ class KitsuneResourceItem(bpy.types.PropertyGroup):
 # Prefab types that can be auto-exported alongside an armature. The order here is
 # the order they appear in the exportables list.
 prefab_type_items = [
-    ('JIGGLEBONES', "Jigglebones", ""),
-    ('ATTACHMENTS', "Attachments", ""),
-    ('HITBOXES',    "Hitboxes",    ""),
-    ('PROCEDURAL',  "Procedural",  ""),
+    ('JIGGLEBONES',   "Jigglebones",   ""),
+    ('ATTACHMENTS',   "Attachments",   ""),
+    ('HITBOXES',      "Hitboxes",      ""),
+    ('PROCEDURAL',    "Procedural",    ""),
 ]
 
 
@@ -80,6 +97,11 @@ class FlexControllerItem(bpy.types.PropertyGroup):
     ], default='NONE')
     flex_min : FloatProperty(name='Flex Min', description=get_id("prop_flex_min_tip"), default=0.0, soft_min=-1.0, soft_max=1.0, precision=3)
     flex_max : FloatProperty(name='Flex Max', description=get_id("prop_flex_max_tip"), default=1.0, soft_min=0.0, soft_max=2.0, precision=3)
+
+
+class DmeDeltaNameOverride(bpy.types.PropertyGroup):
+    shapekey   : StringProperty(name='Shape Key', description=get_id("prop_delta_override_shapekey_tip"))
+    delta_name : StringProperty(name='Delta Name', description=get_id("prop_delta_override_name_tip"))
 
 
 class DmeFlexRuleItem(bpy.types.PropertyGroup):

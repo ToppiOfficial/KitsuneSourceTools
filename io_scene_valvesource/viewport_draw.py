@@ -14,6 +14,9 @@ _handle_2d       = None
 _hud_handle      = None
 _edgeline_handle = None
 _hitbox_sync_handle = None
+_attachment_mesh_handle = None
+_attachment_mesh_depsgraph_handle = None
+_attachment_mesh_cache: dict = {}   # mesh.data.session_uid -> (data_uid, [(x,y,z), ...]) flat tris
 _last_active_bone_key: str = ''
 _edgeline_cache: dict    = {}   # ob.session_uid -> (cache_key, [(color, verts)])
 _edgeline_mesh_map: dict = {}   # mesh.session_uid -> ob.session_uid (for weight-paint invalidation)
@@ -1247,8 +1250,102 @@ def _draw_sim_hud():
         pass
 
 
+def _build_attachment_mesh_tris(mesh_ob):
+    mesh = mesh_ob.data
+    mesh.calc_loop_triangles()
+    verts = mesh.vertices
+    tris = []
+    for lt in mesh.loop_triangles:
+        for vi in lt.vertices:
+            co = verts[vi].co
+            tris.append((co.x, co.y, co.z))
+    return tris
+
+
+@persistent
+def _on_attachment_mesh_depsgraph_update(scene, depsgraph):
+    for update in depsgraph.updates:
+        if isinstance(update.id, bpy.types.Mesh):
+            uid = update.id.session_uid
+            _attachment_mesh_cache.pop(uid, None)
+
+
+def _draw_attachment_mesh_preview():
+    context = bpy.context
+    if not hasattr(context, 'scene') or not context.scene:
+        return
+    try:
+        vs = context.scene.vs
+    except AttributeError:
+        return
+    preview_mode = vs.preview_attachment_mesh
+    if preview_mode == 'NONE':
+        return
+    if context.mode.startswith('EDIT'):
+        return
+    if context.screen.is_animation_playing:
+        return
+
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    shader.bind()
+
+    selected = {ob.session_uid for ob in context.selected_objects}
+
+    for ob in context.scene.objects:
+        if preview_mode == 'SELECTED' and ob.session_uid not in selected:
+            continue
+        if ob.type != 'EMPTY':
+            continue
+        vs_ob = ob.vs
+        if not vs_ob.dmx_attachment:
+            continue
+        render_idx = vs_ob.attachment_display_mesh_render_index
+        meshes = vs_ob.attachment_display_meshes
+        if render_idx < 0 or render_idx >= len(meshes):
+            continue
+        item = meshes[render_idx]
+        mesh_ob = item.mesh
+        if mesh_ob is None or mesh_ob.type != 'MESH':
+            continue
+
+        data_uid = mesh_ob.data.session_uid
+        cached = _attachment_mesh_cache.get(data_uid)
+        if cached is None or cached[0] != data_uid:
+            try:
+                tris = _build_attachment_mesh_tris(mesh_ob)
+            except Exception:
+                continue
+            _attachment_mesh_cache[data_uid] = (data_uid, tris)
+            local_verts = tris
+        else:
+            local_verts = cached[1]
+
+        if not local_verts:
+            continue
+
+        mat = ob.matrix_world
+        world_verts = [mat @ Vector(v) for v in local_verts]
+
+        color = item.color
+        try:
+            is_wireframe = False
+            try:
+                is_wireframe = context.space_data.shading.type == 'WIREFRAME'
+            except Exception:
+                pass
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_test_set('ALWAYS' if is_wireframe else 'LESS_EQUAL')
+            gpu.state.depth_mask_set(False)
+            gpu.state.face_culling_set('NONE')
+            shader.uniform_float('color', (color[0], color[1], color[2], color[3]))
+            batch_for_shader(shader, 'TRIS', {'pos': world_verts}).draw(shader)
+        finally:
+            gpu.state.blend_set('NONE')
+            gpu.state.depth_mask_set(True)
+
+
 def register_draw_handler():
-    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle, _hitbox_sync_handle
+    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle, _hitbox_sync_handle, _attachment_mesh_handle, _attachment_mesh_depsgraph_handle
     if _handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
         except Exception: pass
@@ -1267,8 +1364,15 @@ def register_draw_handler():
     if _hitbox_sync_handle is not None:
         try: bpy.app.handlers.depsgraph_update_post.remove(_hitbox_sync_handle)
         except Exception: pass
+    if _attachment_mesh_handle is not None:
+        try: bpy.types.SpaceView3D.draw_handler_remove(_attachment_mesh_handle, 'WINDOW')
+        except Exception: pass
+    if _attachment_mesh_depsgraph_handle is not None:
+        try: bpy.app.handlers.depsgraph_update_post.remove(_attachment_mesh_depsgraph_handle)
+        except Exception: pass
     _edgeline_cache.clear()
     _edgeline_mesh_map.clear()
+    _attachment_mesh_cache.clear()
     _handle    = bpy.types.SpaceView3D.draw_handler_add(
         _draw_export_pose_preview, (), 'WINDOW', 'POST_VIEW'
     )
@@ -1281,14 +1385,19 @@ def register_draw_handler():
     _edgeline_handle = bpy.types.SpaceView3D.draw_handler_add(
         _draw_edgeline_preview, (), 'WINDOW', 'POST_VIEW'
     )
+    _attachment_mesh_handle = bpy.types.SpaceView3D.draw_handler_add(
+        _draw_attachment_mesh_preview, (), 'WINDOW', 'POST_VIEW'
+    )
     bpy.app.handlers.depsgraph_update_post.append(_on_edgeline_depsgraph_update)
     _edgeline_depsgraph_handle = _on_edgeline_depsgraph_update
     bpy.app.handlers.depsgraph_update_post.append(_on_hitbox_sync_depsgraph)
     _hitbox_sync_handle = _on_hitbox_sync_depsgraph
+    bpy.app.handlers.depsgraph_update_post.append(_on_attachment_mesh_depsgraph_update)
+    _attachment_mesh_depsgraph_handle = _on_attachment_mesh_depsgraph_update
 
 
 def unregister_draw_handler():
-    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle, _hitbox_sync_handle
+    global _handle, _handle_2d, _hud_handle, _edgeline_handle, _edgeline_depsgraph_handle, _hitbox_sync_handle, _attachment_mesh_handle, _attachment_mesh_depsgraph_handle
     if _handle is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
         except Exception: pass
@@ -1313,5 +1422,14 @@ def unregister_draw_handler():
         try: bpy.app.handlers.depsgraph_update_post.remove(_hitbox_sync_handle)
         except Exception: pass
         _hitbox_sync_handle = None
+    if _attachment_mesh_handle is not None:
+        try: bpy.types.SpaceView3D.draw_handler_remove(_attachment_mesh_handle, 'WINDOW')
+        except Exception: pass
+        _attachment_mesh_handle = None
+    if _attachment_mesh_depsgraph_handle is not None:
+        try: bpy.app.handlers.depsgraph_update_post.remove(_attachment_mesh_depsgraph_handle)
+        except Exception: pass
+        _attachment_mesh_depsgraph_handle = None
     _edgeline_cache.clear()
     _edgeline_mesh_map.clear()
+    _attachment_mesh_cache.clear()

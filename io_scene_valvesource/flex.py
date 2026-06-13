@@ -20,7 +20,7 @@
 
 import bpy, re
 from . import datamodel, utils
-from .utils import get_id, getCorrectiveShapeSeparator, get_flexcontrollers, sanitize_string_for_delta, sanitize_flex_expression_deltas, get_dme_corrective_delta_names
+from .utils import get_id, getCorrectiveShapeSeparator, get_flexcontrollers, sanitize_string_for_delta, sanitize_flex_expression_deltas, get_dme_corrective_delta_names, get_dme_delta_name_map
 
 class DmxWriteFlexControllers(bpy.types.Operator):
     bl_idname = "export_scene.dmx_flex_controller"
@@ -102,6 +102,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
 
             elif ob.vs.flex_controller_mode == 'DME':
                 corrective_names = get_dme_corrective_delta_names(ob)
+                delta_name_map = get_dme_delta_name_map(ob)
 
                 for fc in ob.vs.dme_flexcontrollers:
                     if not fc.controller_name or not fc.controller_name.strip():
@@ -110,26 +111,26 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                     ctrl = dm.add_element(fc.controller_name, "DmeCombinationInputControl",
                                          id=ob.name + fc.controller_name + "inputcontrol")
                     controls.append(ctrl)
-                    raw = fc.shapekey if fc.shapekey else ''
+                    raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else (fc.shapekey or '')
                     if raw and raw not in corrective_names:
                         raw = sanitize_string_for_delta(raw)
                     ctrl["rawControlNames"] = datamodel.make_array([raw] if raw else [], str)
                     ctrl["stereo"]   = bool(fc.stereo)
                     ctrl["eyelid"]   = bool(fc.eyelid)
-                    ctrl["flexgroup"] = ""
+                    ctrl["flexgroup"] = fc.flexgroup.lower() if fc.flexgroup != 'NONE' else ""
                     ctrl["flexMin"]  = float(fc.flex_min)
                     ctrl["flexMax"]  = float(fc.flex_max)
                     if shape:
                         shapes.add(shape.name)
 
                 # Domination rules - dominator_names are controller names (not sanitized),
-                # suppressed_names are delta references (sanitized)
+                # suppressed_names are delta references (remapped then sanitized)
                 dom_array = DmeCombinationOperator["dominators"]
                 for rule in ob.vs.dme_flex_rules:
                     if rule.rule_type != 'DOMINATION':
                         continue
                     d_names = [n.strip() for n in rule.dominator_names.split(',') if n.strip()]
-                    s_names = [sanitize_string_for_delta(n.strip()) for n in rule.suppressed_names.split(',') if n.strip()]
+                    s_names = [delta_name_map.get(n.strip(), sanitize_string_for_delta(n.strip())) for n in rule.suppressed_names.split(',') if n.strip()]
                     if not d_names or not s_names:
                         continue
                     dom_elem = dm.add_element("", "DmeCombinationDominationRule",
@@ -148,16 +149,16 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                     targets.append(flex_rules_elem)
                     for rule in non_dom:
                         if rule.rule_type == 'PASSTHROUGH':
-                            delta_name = sanitize_string_for_delta(rule.name)
+                            delta_name = delta_name_map.get(rule.name, sanitize_string_for_delta(rule.name))
                             rule_elem = dm.add_element(delta_name, "DmeFlexRulePassThrough",
                                                        id=ob.name + delta_name + "passthrough")
                             rule_elem["result"] = 0.0
                         elif rule.rule_type == 'EXPRESSION':
-                            delta_name = sanitize_string_for_delta(rule.name)
+                            delta_name = delta_name_map.get(rule.name, sanitize_string_for_delta(rule.name))
                             rule_elem = dm.add_element(delta_name, "DmeFlexRuleExpression",
                                                        id=ob.name + delta_name + "expression")
                             rule_elem["result"] = 0.0
-                            rule_elem["expr"]   = sanitize_flex_expression_deltas(rule.expression.strip())
+                            rule_elem["expr"]   = sanitize_flex_expression_deltas(rule.expression.strip(), delta_name_map)
                         else:  # LOCALVAR - name is a variable, not a delta; don't sanitize it
                             rule_elem = dm.add_element(rule.name, "DmeFlexRuleLocalVar",
                                                        id=ob.name + rule.name + "localvar")

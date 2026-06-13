@@ -101,7 +101,7 @@ class ValveSource_SceneProps(bpy.types.PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"), description=get_id("exportroot_tip"), subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     engine_path : StringProperty(name=get_id("engine_path"), description=get_id("engine_path_tip"), subtype='DIR_PATH', update=State.onEnginePathChanged)
 
-    dmx_encoding : EnumProperty(name=get_id("dmx_encoding"), description=get_id("dmx_encoding_tip"), items=tuple(encodings), default='2')
+    dmx_encoding : EnumProperty(name=get_id("dmx_encoding"), description=get_id("dmx_encoding_tip"), items=tuple(encodings), default='kv2')
     dmx_format : EnumProperty(name=get_id("dmx_format"), description=get_id("dmx_format_tip"), items=tuple(formats), default='1')
 
     smd_format : EnumProperty(name=get_id("smd_format"), description=get_id("smd_format_tip"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)"), ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
@@ -149,6 +149,16 @@ class ValveSource_SceneProps(bpy.types.PropertyGroup):
     sim_jiggle_bones : BoolProperty(name=get_id('prop_sim_jiggle_bones'), description=get_id('prop_sim_jiggle_bones_tip'), default=True)
     sim_proc_bones   : BoolProperty(name=get_id('prop_sim_proc_bones'), description=get_id('prop_sim_proc_bones_tip'), default=True)
     preview_edgeline : BoolProperty(name=get_id('prop_preview_edgeline'), description=get_id('prop_preview_edgeline_tip'), default=False)
+    preview_attachment_mesh : EnumProperty(
+        name=get_id('prop_preview_attachment_mesh'),
+        description=get_id('prop_preview_attachment_mesh_tip'),
+        items=[
+            ('ALL',      'All',      'Show ghost mesh for all attachment empties in the scene'),
+            ('SELECTED', 'Selected', 'Show ghost mesh only for selected attachment empties'),
+            ('NONE',     'None',     'Hide attachment mesh preview'),
+        ],
+        default='SELECTED',
+    )
     hitbox_sync_pose : BoolProperty(name=get_id('prop_hitbox_sync_pose'), description=get_id('prop_hitbox_sync_pose_tip'), default=True)
     hitbox_sync_propagate : BoolProperty(name=get_id('prop_hitbox_sync_propagate'), description=get_id('prop_hitbox_sync_propagate_tip'), default=False)
 
@@ -166,6 +176,7 @@ class ValveSource_SceneProps(bpy.types.PropertyGroup):
 
     show_flex_items : BoolProperty(default=False)
     show_flex_rules_items : BoolProperty(default=True)
+    show_flex_delta_overrides : BoolProperty(default=False)
 
     arm_items_view : EnumProperty(name=get_id('prop_arm_items_view'), items=[
         ('JIGGLEBONES', get_id('label_all_jigglebones'), '', 'BONE_DATA',  0),

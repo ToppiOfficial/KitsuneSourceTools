@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import UIList, UILayout, Collection, Object, UI_UL_list
-from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group
+from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names
 
 
 class SMD_UL_KitsuneResourceEntries(UIList):
@@ -200,36 +200,54 @@ class SMD_UL_DmeFlexRules(UIList):
         type_icon = self._ICONS.get(item.rule_type, 'QUESTION')
         row.label(text="", icon=type_icon)
 
+        sk = ob.data.shape_keys if (ob.data and hasattr(ob.data, 'shape_keys')) else None
+        sk_names = set(sk.key_blocks.keys()) if sk else set()
+        ctrl_names = _build_dme_ctrl_names(ob.vs)
+        localvar_names = {r.name for r in ob.vs.dme_flex_rules if r.rule_type == 'LOCALVAR' and r.name}
+
+        has_error = False
+
         if item.rule_type == 'CORRECTIVE':
+            comp_str = item.components.strip()
+            has_error = not comp_str or bool(validate_corrective_components(comp_str, sk_names))
             name_row = row.row(align=True)
-            name_row.alert = not item.components
+            name_row.alert = has_error
             name_row.label(text=item.components if item.components else "(no components)")
 
         elif item.rule_type == 'DOMINATION':
+            has_error = not item.dominator_names or not item.suppressed_names
             dom_label = item.dominator_names[:24] + ("…" if len(item.dominator_names) > 24 else "") if item.dominator_names else "(no dominators)"
             sup_label = item.suppressed_names[:20] + ("…" if len(item.suppressed_names) > 20 else "") if item.suppressed_names else ""
             name_col = row.row(align=True)
-            name_col.alert = not item.dominator_names or not item.suppressed_names
+            name_col.alert = has_error
             name_col.label(text=dom_label)
             if sup_label:
                 right = row.row(align=True)
                 right.alignment = 'RIGHT'
-                right.label(text="→ " + sup_label)
+                right.label(text="-> " + sup_label)
         else:
-            # PASSTHROUGH names must be a controller; EXPRESSION names must be a delta or local var
             name_alert = False
-            if item.name:
-                if item.rule_type == 'PASSTHROUGH':
-                    ctrl_names = {fc.controller_name for fc in ob.vs.dme_flexcontrollers if fc.controller_name and fc.controller_name.strip()}
-                    name_alert = item.name not in ctrl_names
-                elif item.rule_type == 'EXPRESSION':
-                    sk = ob.data.shape_keys if ob.data and hasattr(ob.data, 'shape_keys') else None
+            if item.rule_type == 'PASSTHROUGH':
+                name_alert = not item.name or item.name not in ctrl_names
+                has_error = name_alert
+            elif item.rule_type == 'EXPRESSION':
+                if not item.name:
+                    name_alert = True
+                else:
                     in_shapekeys = sk is not None and (
                         item.name in sk.key_blocks or
                         any(item.name in key.name.split('+') for key in sk.key_blocks)
                     )
-                    in_localvars = any(r.rule_type == 'LOCALVAR' and r.name == item.name for r in ob.vs.dme_flex_rules)
-                    name_alert = not in_shapekeys and not in_localvars
+                    name_alert = not in_shapekeys and item.name not in localvar_names
+                if name_alert:
+                    has_error = True
+                elif item.expression:
+                    d_errs, c_errs = validate_flex_expression(item.expression.strip(), sk_names, ctrl_names, localvar_names)
+                    has_error = bool(d_errs or c_errs)
+            elif item.rule_type == 'LOCALVAR':
+                name_alert = not item.name
+                has_error = name_alert
+
             name_row = row.row(align=True)
             name_row.alert = name_alert
             display_name = item.name if item.name else ("(unnamed)" if item.rule_type != 'LOCALVAR' else "(local var)")
@@ -245,6 +263,25 @@ class SMD_UL_DmeFlexRules(UIList):
                 pass_row.alignment = 'RIGHT'
                 pass_row.enabled = False
                 pass_row.label(text="pass-through")
+
+        if has_error:
+            err_col = row.row(align=True)
+            err_col.alert = True
+            err_col.label(text="", icon='ERROR')
+
+
+class SMD_UL_DmeDeltaOverrides(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        ob = context.object
+        row = layout.row(align=True)
+        sk = ob.data.shape_keys if ob and ob.data and hasattr(ob.data, 'shape_keys') else None
+        sk_missing = sk is None or item.shapekey not in sk.key_blocks
+        sk_row = row.row(align=True)
+        sk_row.alert = bool(item.shapekey and sk_missing)
+        sk_row.label(text=item.shapekey if item.shapekey else "(no key)", icon='SHAPEKEY_DATA')
+        right = row.row(align=True)
+        right.alignment = 'RIGHT'
+        right.label(text=sanitize_string_for_delta(item.delta_name) if item.delta_name else "")
 
 
 class SMD_UL_VertexAnimationItem(UIList):
@@ -312,3 +349,16 @@ class SMD_UL_ProcBones(UIList):
         row.label(text=item.driver_bone if item.driver_bone else "", icon='DRIVER')
         if proc_type == 'TRIGGER':
             row.label(text=item.action.name if item.action else "", icon='ACTION')
+
+
+class SMD_UL_AttachmentDisplayMeshes(UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row = layout.row(align=True)
+        mesh_name = item.mesh.name if item.mesh else "(No Mesh)"
+        mesh_icon = 'MESH_DATA' if item.mesh else 'GHOST_DISABLED'
+        row.label(text=mesh_name, icon=mesh_icon)
+        is_rendered = data.attachment_display_mesh_render_index == index
+        cam_icon = 'RESTRICT_RENDER_OFF' if is_rendered else 'RESTRICT_RENDER_ON'
+        op = row.operator('smd.set_attachment_mesh_render', text="", icon=cam_icon, emboss=False)
+        op.index = index
+

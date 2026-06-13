@@ -5,10 +5,12 @@ __all__ = [
     'PrefabItem',
     'FlexControllerItem',
     'DmeFlexRuleItem',
+    'DmeDeltaNameOverride',
     'VertexAnimation',
     'ArmatureItemEntry',
     'HitboxEntry',
     'ProcBoneEntry',
+    'AttachmentDisplayMeshItem',
     # mixins
     'ShapeTypeProps',
     'CurveTypeProps',

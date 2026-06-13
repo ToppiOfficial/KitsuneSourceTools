@@ -9,6 +9,7 @@ from .operators import (
     SMD_OT_AutoAssignFlexGroups,
     SMD_OT_CopyFlexControllers,
     SMD_OT_ClearFlexControllers,
+    SMD_OT_MigrateQCDeltasToOverrides,
     SMD_OT_ProcBoneDuplicate,
     SMD_OT_ProcBoneCopyActive,
     SMD_OT_ProcBoneCopyByDriverBone,
@@ -93,14 +94,31 @@ class SMD_MT_ExportChoice(Menu):
 
 
 class SMD_MT_KitsuneCompileChoice(Menu):
-    bl_label  = "KitsuneResource"
+    bl_label = "KitsuneResource"
 
     def draw(self, context):
         layout = self.layout
-        vs     = context.scene.vs
-        checked_model_count = sum(1 for e in vs.kitsuneresource_model_entries if e.export)
-        checked_data_count  = sum(1 for e in vs.kitsuneresource_data_entries if e.export)
-        checked_count = checked_model_count + checked_data_count
+        vs = context.scene.vs
+
+        layout.operator("smd.kitsuneresource_configure", text="Configure...", icon='SETTINGS')
+
+        has_valid_config = (
+            len(vs.kitsuneresource_app_path) > 0
+            and len(vs.kitsuneresource_config) > 0
+            and len(vs.kitsuneresource_project_path) > 0
+            and (len(vs.kitsuneresource_model_entries) > 0 or len(vs.kitsuneresource_data_entries) > 0)
+        )
+
+        if not has_valid_config:
+            return
+
+        layout.separator()
+        layout.operator_context = 'EXEC_DEFAULT'
+
+        checked_count = (
+            sum(1 for e in vs.kitsuneresource_model_entries if e.export)
+            + sum(1 for e in vs.kitsuneresource_data_entries if e.export)
+        )
 
         op = layout.operator(KitsuneResourceCompile.bl_idname, text="Compile All", icon='WORLD')
         op.export_choice = 'ALL'
@@ -110,21 +128,19 @@ class SMD_MT_KitsuneCompileChoice(Menu):
         op.export_choice = 'CHECKED'
         op.entry_index   = -1
 
-        if vs.kitsuneresource_model_entries or vs.kitsuneresource_data_entries:
-            layout.separator()
-            for i, entry in enumerate(vs.kitsuneresource_model_entries):
-                op = layout.operator(KitsuneResourceCompile.bl_idname, text=entry.name, icon='MESH_DATA')
-                op.export_choice = 'ENTRY'
-                op.entry_index   = i
-                op.entry_type    = 'MODEL'
+        layout.separator()
+        for i, entry in enumerate(vs.kitsuneresource_model_entries):
+            op = layout.operator(KitsuneResourceCompile.bl_idname, text=entry.name, icon='MESH_DATA')
+            op.export_choice = 'ENTRY'
+            op.entry_index   = i
+            op.entry_type    = 'MODEL'
 
-            layout.separator()
-
-            for i, entry in enumerate(vs.kitsuneresource_data_entries):
-                op = layout.operator(KitsuneResourceCompile.bl_idname, text=entry.name, icon='FILE_CACHE')
-                op.export_choice = 'ENTRY'
-                op.entry_index   = i
-                op.entry_type    = 'DATA'
+        layout.separator()
+        for i, entry in enumerate(vs.kitsuneresource_data_entries):
+            op = layout.operator(KitsuneResourceCompile.bl_idname, text=entry.name, icon='FILE_CACHE')
+            op.export_choice = 'ENTRY'
+            op.entry_index   = i
+            op.entry_type    = 'DATA'
 
 
 class SMD_MT_ConfigureScene(Menu):
@@ -142,6 +158,8 @@ class SMD_MT_FlexControllerSpecials(Menu):
         layout.operator(SMD_OT_SortFlexControllers.bl_idname,   icon='SORTALPHA',   text=get_id('label_sort_by_name', True))
         layout.operator(SMD_OT_AutoAssignFlexGroups.bl_idname,  icon='GROUP')
         layout.operator(SMD_OT_CopyFlexControllers.bl_idname,   icon='PASTEDOWN')
+        layout.separator()
+        layout.operator(SMD_OT_MigrateQCDeltasToOverrides.bl_idname, icon='FORWARD', text="Migrate QC Deltas to Overrides")
         layout.separator()
         layout.operator(SMD_OT_ClearFlexControllers.bl_idname,  icon='TRASH',       text="Delete All")
 

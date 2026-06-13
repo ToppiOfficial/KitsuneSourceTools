@@ -221,7 +221,6 @@ class ValveSource_ArmatureProps(bpy.types.PropertyGroup):
     arm_attachment_index : IntProperty(default=-1)
     arm_jigglebone_entries : CollectionProperty(type=ArmatureItemEntry)
     arm_jigglebone_index : IntProperty(default=-1)
-
     ignore_bone_exportnames : BoolProperty(name=get_id("ignore_bone_exportnames"), description=get_id("ignore_bone_exportnames_tip"))
     bone_direction_naming_left : StringProperty(name=get_id('prop_bone_dir_left'), description=get_id('prop_bone_dir_left_tip'), default='L')
     bone_direction_naming_right : StringProperty(name=get_id('prop_bone_dir_right'), description=get_id('prop_bone_dir_right_tip'), default='R')

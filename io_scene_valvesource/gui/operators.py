@@ -1,4 +1,4 @@
-import bpy, sys, os, subprocess, json, math
+import bpy, sys, os, subprocess, json, math, re as _re
 from bpy.types import Operator, MeshLoopColorLayer, LoopColors
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty, StringProperty
 from ..utils import (get_id, get_armature, is_mesh, is_armature, vertex_maps, vertex_float_maps,
@@ -69,6 +69,59 @@ class SMD_OT_KitsuneResourceLoadEntries(Operator):
         vs.kitsuneresource_entry_index = 0
 
         self.report({'INFO'}, f"Loaded {len(vs.kitsuneresource_model_entries)} models, {len(vs.kitsuneresource_data_entries)} data")
+        return {'FINISHED'}
+
+
+class SMD_OT_KitsuneResourceConfigure(Operator):
+    bl_idname = "smd.kitsuneresource_configure"
+    bl_label = "Configure Kitsune Resource"
+    bl_options = {'REGISTER'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_popup(self, width=420)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        vs = context.scene.vs
+
+        col = layout.column()
+        col.alert = len(vs.kitsuneresource_app_path) == 0
+        col.prop(vs, 'kitsuneresource_app_path')
+
+        col = layout.column()
+        col.enabled = len(vs.kitsuneresource_app_path) > 0
+        col.prop(vs, 'kitsuneresource_config')
+
+        col = layout.column()
+        col.enabled = len(vs.kitsuneresource_config) > 0
+        col.prop(vs, 'kitsuneresource_project_path')
+
+        col = layout.column()
+        col.enabled = len(vs.kitsuneresource_app_path) > 0
+        col.row(align=True).prop(vs, 'kitsuneresource_flag_game_or_package', expand=True)
+
+        if vs.kitsuneresource_flag_game_or_package == 'PACKAGE':
+            col.prop(vs, 'kitsuneresource_flag_single_addon')
+            col.prop(vs, 'kitsuneresource_flag_no_mat_local')
+            col.prop(vs, 'kitsuneresource_flag_archive_old')
+
+        col.prop(vs, 'kitsuneresource_args', text=get_id('label_extra_args', True))
+        col.prop(vs, 'kitsuneresource_external_console')
+
+        layout.separator()
+
+        row = layout.row()
+        col2 = row.column()
+        col2.enabled = len(vs.kitsuneresource_config) > 0
+        col2.template_list("SMD_UL_KitsuneResourceEntries", "", vs, "kitsuneresource_entries",
+                           vs, "kitsuneresource_entry_index", rows=6)
+        sub = row.column(align=True)
+        sub.enabled = len(vs.kitsuneresource_config) > 0
+        sub.operator("smd.kitsuneresource_load_entries", text="", icon='FILE_REFRESH')
+
+    def execute(self, context):
         return {'FINISHED'}
 
 
@@ -357,43 +410,63 @@ class SMD_OT_AutoAssignFlexGroups(Operator):
 
 class SMD_OT_CopyFlexControllers(Operator):
     bl_idname = "smd.copy_flexcontrollers"
-    bl_label = "Copy Flex Controllers to Selected"
-    bl_description = "Copy all flex controller entries from the active object to other selected mesh objects"
+    bl_label = "Copy Flex Data to Selected"
+    bl_description = "Copy flex controllers, rules, and delta overrides from the active object to other selected mesh objects"
     bl_options = {'UNDO'}
 
     @classmethod
     def poll(cls, context) -> bool:
-        return bool(context.active_object and
-                hasattr(context.active_object, "vs") and
-                len(context.active_object.vs.dme_flexcontrollers) > 0 and
-                len(context.selected_objects) > 1)
+        ob = context.active_object
+        if not (ob and hasattr(ob, "vs") and len(context.selected_objects) > 1):
+            return False
+        vs = ob.vs
+        return bool(vs.dme_flexcontrollers or vs.dme_flex_rules or vs.dme_delta_overrides)
 
     def execute(self, context) -> set:
         active_ob = context.active_object
         targets = [ob for ob in context.selected_objects if ob != active_ob]
-        src_controllers = active_ob.vs.dme_flexcontrollers
+        src_vs = active_ob.vs
 
         for target in targets:
-            target.vs.dme_flexcontrollers.clear()
+            tvs = target.vs
+            tvs.dme_flexcontrollers.clear()
+            tvs.dme_flex_rules.clear()
+            tvs.dme_delta_overrides.clear()
             missing_keys = []
 
-            for src_item in src_controllers:
-                new_item = target.vs.dme_flexcontrollers.add()
-                new_item.controller_name = src_item.controller_name
-                new_item.raw_delta_name  = src_item.raw_delta_name
-                new_item.shapekey        = src_item.shapekey
-                new_item.eyelid          = src_item.eyelid
-                new_item.stereo          = src_item.stereo
-                new_item.flexgroup       = src_item.flexgroup
+            for src in src_vs.dme_flexcontrollers:
+                dst = tvs.dme_flexcontrollers.add()
+                dst.controller_name = src.controller_name
+                dst.raw_delta_name  = src.raw_delta_name
+                dst.shapekey        = src.shapekey
+                dst.eyelid          = src.eyelid
+                dst.stereo          = src.stereo
+                dst.flexgroup       = src.flexgroup
+                dst.flex_min        = src.flex_min
+                dst.flex_max        = src.flex_max
 
-                if src_item.shapekey:
-                    if not (hasattr(target.data, "shape_keys") and target.data.shape_keys and src_item.shapekey in target.data.shape_keys.key_blocks):
-                        missing_keys.append(src_item.shapekey)
+                if src.shapekey:
+                    if not (hasattr(target.data, "shape_keys") and target.data.shape_keys and src.shapekey in target.data.shape_keys.key_blocks):
+                        missing_keys.append(src.shapekey)
+
+            for src in src_vs.dme_flex_rules:
+                dst = tvs.dme_flex_rules.add()
+                dst.rule_type       = src.rule_type
+                dst.name            = src.name
+                dst.expression      = src.expression
+                dst.components      = src.components
+                dst.dominator_names = src.dominator_names
+                dst.suppressed_names = src.suppressed_names
+
+            for src in src_vs.dme_delta_overrides:
+                dst = tvs.dme_delta_overrides.add()
+                dst.shapekey   = src.shapekey
+                dst.delta_name = src.delta_name
 
             if missing_keys:
                 self.report({'WARNING'}, f"'{target.name}' is missing shape keys: {', '.join(missing_keys)}")
 
-        self.report({'INFO'}, f"Copied controllers to {len(targets)} object(s)")
+        self.report({'INFO'}, f"Copied controllers, rules, and delta overrides to {len(targets)} object(s)")
         return {'FINISHED'}
 
 
@@ -485,6 +558,52 @@ class SMD_OT_ClearFlexControllers(Operator):
         return {'FINISHED'}
 
 
+class SMD_OT_MigrateQCDeltasToOverrides(Operator):
+    bl_idname = "smd.migrate_qc_deltas_to_overrides"
+    bl_label = "Migrate QC Deltas to Overrides"
+    bl_description = "Convert unnamed controller entries that have a delta name set into standalone delta name overrides and remove them from the controllers list"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        ob = context.object
+        if not ob:
+            return False
+        return any(
+            not (fc.controller_name and fc.controller_name.strip()) and fc.raw_delta_name and fc.raw_delta_name.strip()
+            for fc in ob.vs.dme_flexcontrollers
+        )
+
+    def execute(self, context) -> set:
+        ob = context.object
+        converted = 0
+        to_remove = []
+        existing_overrides = {ov.shapekey for ov in ob.vs.dme_delta_overrides}
+
+        for i, fc in enumerate(ob.vs.dme_flexcontrollers):
+            if fc.controller_name and fc.controller_name.strip():
+                continue
+            if not (fc.raw_delta_name and fc.raw_delta_name.strip()):
+                continue
+            to_remove.append(i)
+            if fc.shapekey and fc.shapekey not in existing_overrides:
+                ov = ob.vs.dme_delta_overrides.add()
+                ov.shapekey = fc.shapekey
+                ov.delta_name = fc.raw_delta_name.strip()
+                existing_overrides.add(fc.shapekey)
+                converted += 1
+
+        for i in reversed(to_remove):
+            ob.vs.dme_flexcontrollers.remove(i)
+
+        ob.vs.dme_flexcontrollers_index = min(
+            max(0, ob.vs.dme_flexcontrollers_index),
+            len(ob.vs.dme_flexcontrollers) - 1
+        )
+        self.report({'INFO'}, f"Migrated {converted} delta name(s) to overrides, removed {len(to_remove)} controller entries")
+        return {'FINISHED'}
+
+
 class SMD_OT_AddFlexRule(Operator):
     bl_idname = "smd.add_flex_rule"
     bl_label = "Add Flex Rule"
@@ -536,6 +655,111 @@ class SMD_OT_MoveFlexRule(Operator):
         elif self.direction == 'DOWN' and index < len(rules) - 1:
             rules.move(index, index + 1)
             ob.vs.dme_flex_rules_index += 1
+        return {'FINISHED'}
+
+
+class SMD_OT_FlexRuleRegexReplace(Operator):
+    bl_idname = "smd.flex_rule_regex_replace"
+    bl_label = "Regex Find/Replace in Flex Rules"
+    bl_description = "Apply a regex find/replace across all flex rule fields on the active object"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    pattern     : StringProperty(name="Pattern",     description="Regex pattern to search for")
+    replacement : StringProperty(name="Replacement", description="Replacement string (supports back-references like \\1)")
+    field_name         : BoolProperty(name="Name",           description="Apply to Name / Variable Name / Controller fields", default=True)
+    field_expression   : BoolProperty(name="Expression",     description="Apply to Expression fields", default=True)
+    field_components   : BoolProperty(name="Components",     description="Apply to Corrective Components fields", default=False)
+    field_dominator    : BoolProperty(name="Dominators",     description="Apply to Dominator Names fields", default=False)
+    field_suppressed   : BoolProperty(name="Suppressed",     description="Apply to Suppressed Names fields", default=False)
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and getattr(context.object, 'vs', None) and len(context.object.vs.dme_flex_rules) > 0)
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=360)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.prop(self, 'pattern')
+        layout.prop(self, 'replacement')
+        layout.separator(factor=0.5)
+        layout.label(text="Apply to fields:")
+        col = layout.column(align=True)
+        col.prop(self, 'field_name')
+        col.prop(self, 'field_expression')
+        col.prop(self, 'field_components')
+        col.prop(self, 'field_dominator')
+        col.prop(self, 'field_suppressed')
+
+    def execute(self, context) -> set:
+        if not self.pattern:
+            self.report({'WARNING'}, "Pattern is empty")
+            return {'CANCELLED'}
+        try:
+            compiled = _re.compile(self.pattern)
+        except _re.error as e:
+            self.report({'ERROR'}, f"Invalid regex: {e}")
+            return {'CANCELLED'}
+
+        fields = []
+        if self.field_name:       fields.append('name')
+        if self.field_expression: fields.append('expression')
+        if self.field_components: fields.append('components')
+        if self.field_dominator:  fields.append('dominator_names')
+        if self.field_suppressed: fields.append('suppressed_names')
+
+        if not fields:
+            self.report({'WARNING'}, "No fields selected")
+            return {'CANCELLED'}
+
+        total = 0
+        for rule in context.object.vs.dme_flex_rules:
+            for field in fields:
+                old_val = getattr(rule, field, '')
+                new_val, n = compiled.subn(self.replacement, old_val)
+                if n:
+                    setattr(rule, field, new_val)
+                    total += n
+
+        if total:
+            self.report({'INFO'}, f"Made {total} substitution(s) across flex rules")
+        else:
+            self.report({'INFO'}, "No matches found")
+        return {'FINISHED'}
+
+
+class SMD_OT_AddDeltaOverride(Operator):
+    bl_idname = "smd.add_delta_override"
+    bl_label = "Add Delta Override"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context) -> set:
+        ob = context.object
+        new_item = ob.vs.dme_delta_overrides.add()
+        ob.vs.dme_delta_overrides_index = len(ob.vs.dme_delta_overrides) - 1
+        if ob.data and hasattr(ob.data, 'shape_keys') and ob.data.shape_keys and ob.active_shape_key_index > 0:
+            new_item.shapekey = ob.data.shape_keys.key_blocks[ob.active_shape_key_index].name
+        return {'FINISHED'}
+
+
+class SMD_OT_RemoveDeltaOverride(Operator):
+    bl_idname = "smd.remove_delta_override"
+    bl_label = "Remove Delta Override"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and len(context.object.vs.dme_delta_overrides) > 0)
+
+    def execute(self, context) -> set:
+        ob = context.object
+        ob.vs.dme_delta_overrides.remove(ob.vs.dme_delta_overrides_index)
+        ob.vs.dme_delta_overrides_index = min(
+            max(0, ob.vs.dme_delta_overrides_index - 1),
+            len(ob.vs.dme_delta_overrides) - 1
+        )
         return {'FINISHED'}
 
 
@@ -1601,4 +1825,186 @@ class SMD_OT_ResetJiggleSimulation(Operator):
         _procbones_sim._states.clear()
         _procbones_sim._proc_trigger_cache.clear()
         _procbones_sim._restore_jiggle_bones()
+        return {'FINISHED'}
+
+
+from ..utils import KST_ATTACHMENT_COLL as _KST_ATTACHMENT_COLL, ensure_kst_collection_at_top as _ensure_kst_collection_at_top, _find_layer_collection
+
+
+def _get_attachment_blend_items(self, context):
+    assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+    if not os.path.isdir(assets_dir):
+        return [('NONE', "No assets directory found", "", 'ERROR', 0)]
+    items = []
+    for fname in sorted(os.listdir(assets_dir)):
+        if fname.endswith('.blend'):
+            fpath = os.path.join(assets_dir, fname)
+            label = fname[:-6]
+            items.append((fpath, label, fname, 'BLENDER', len(items)))
+    return items or [('NONE', "No .blend files found", "", 'ERROR', 0)]
+
+
+def _get_attachment_mesh_items(self, context):
+    fpath = self.blend_path
+    if not fpath or not os.path.isfile(fpath):
+        return [('NONE', "No file selected", "", 'ERROR', 0)]
+    try:
+        with bpy.data.libraries.load(fpath, link=False, assets_only=True) as (data_from, _):
+            items = [(name, name, '', 'MESH_DATA', i) for i, name in enumerate(sorted(data_from.objects))]
+        return items or [('NONE', "No asset meshes in this file", "", 'ERROR', 0)]
+    except Exception:
+        return [('NONE', "Failed to read library", "", 'ERROR', 0)]
+
+
+class SMD_OT_SelectAttachmentBlend(Operator):
+    bl_idname = 'smd.select_attachment_blend'
+    bl_label = "Select Library File"
+    bl_description = "Choose a .blend library file to browse attachment meshes from"
+    bl_property = 'file_choice'
+    bl_options = {'INTERNAL'}
+
+    file_choice: EnumProperty(name="Library", items=_get_attachment_blend_items)
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return ob is not None and ob.type == 'EMPTY' and ob.vs.dmx_attachment
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if not self.file_choice or self.file_choice == 'NONE':
+            return {'CANCELLED'}
+        bpy.ops.smd.browse_attachment_mesh_library('INVOKE_DEFAULT', blend_path=self.file_choice)
+        return {'FINISHED'}
+
+
+class SMD_OT_BrowseAttachmentMeshLibrary(Operator):
+    bl_idname = 'smd.browse_attachment_mesh_library'
+    bl_label = "Select Attachment Mesh"
+    bl_description = "Pick an asset mesh from the selected library and assign it"
+    bl_property = 'mesh_choice'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    blend_path: StringProperty(options={'HIDDEN'})
+    mesh_choice: EnumProperty(name="Mesh", items=_get_attachment_mesh_items)
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return ob is not None and ob.type == 'EMPTY' and ob.vs.dmx_attachment
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if not self.mesh_choice or self.mesh_choice == 'NONE':
+            return {'CANCELLED'}
+
+        existing = bpy.data.objects.get(self.mesh_choice)
+        if existing and existing.type == 'MESH':
+            mesh_ob = existing
+        else:
+            with bpy.data.libraries.load(self.blend_path, link=False) as (data_from, data_to):
+                if self.mesh_choice not in data_from.objects:
+                    self.report({'ERROR'}, f"'{self.mesh_choice}' not found in library")
+                    return {'CANCELLED'}
+                data_to.objects = [self.mesh_choice]
+
+            mesh_ob = bpy.data.objects.get(self.mesh_choice)
+            if mesh_ob is None:
+                self.report({'ERROR'}, f"Failed to load '{self.mesh_choice}'")
+                return {'CANCELLED'}
+
+            mesh_ob.hide_render = True
+            coll = _ensure_kst_collection_at_top(context.scene, context.view_layer)
+            coll.objects.link(mesh_ob)
+
+        vs = context.object.vs
+        idx = vs.attachment_display_meshes_index
+        meshes = vs.attachment_display_meshes
+        if 0 <= idx < len(meshes):
+            meshes[idx].mesh = mesh_ob
+        else:
+            was_empty = len(meshes) == 0
+            item = meshes.add()
+            item.mesh = mesh_ob
+            new_idx = len(meshes) - 1
+            vs.attachment_display_meshes_index = new_idx
+            if was_empty:
+                vs.attachment_display_mesh_render_index = new_idx
+        return {'FINISHED'}
+
+
+class SMD_OT_AddAttachmentDisplayMesh(Operator):
+    bl_idname = 'smd.add_attachment_display_mesh'
+    bl_label = "Add Display Mesh Slot"
+    bl_description = "Add an empty display mesh slot to this attachment"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return ob is not None and ob.type == 'EMPTY' and ob.vs.dmx_attachment
+
+    def execute(self, context):
+        vs = context.object.vs
+        was_empty = len(vs.attachment_display_meshes) == 0
+        vs.attachment_display_meshes.add()
+        new_idx = len(vs.attachment_display_meshes) - 1
+        vs.attachment_display_meshes_index = new_idx
+        if was_empty:
+            vs.attachment_display_mesh_render_index = new_idx
+        return {'FINISHED'}
+
+
+class SMD_OT_RemoveAttachmentDisplayMesh(Operator):
+    bl_idname = 'smd.remove_attachment_display_mesh'
+    bl_label = "Remove Display Mesh Slot"
+    bl_description = "Remove the selected display mesh slot from this attachment"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        if ob is None or ob.type != 'EMPTY' or not ob.vs.dmx_attachment:
+            return False
+        vs = ob.vs
+        return 0 <= vs.attachment_display_meshes_index < len(vs.attachment_display_meshes)
+
+    def execute(self, context):
+        vs = context.object.vs
+        idx = vs.attachment_display_meshes_index
+        vs.attachment_display_meshes.remove(idx)
+        new_len = len(vs.attachment_display_meshes)
+        vs.attachment_display_meshes_index = min(idx, new_len - 1)
+        if vs.attachment_display_mesh_render_index == idx:
+            vs.attachment_display_mesh_render_index = -1
+        elif vs.attachment_display_mesh_render_index > idx:
+            vs.attachment_display_mesh_render_index -= 1
+        return {'FINISHED'}
+
+
+class SMD_OT_SetAttachmentMeshRender(Operator):
+    bl_idname = 'smd.set_attachment_mesh_render'
+    bl_label = "Toggle Render"
+    bl_description = "Set this mesh as the one rendered in the viewport (click again to disable)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index : IntProperty(options={'HIDDEN'})
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.object
+        return ob is not None and ob.type == 'EMPTY' and ob.vs.dmx_attachment
+
+    def execute(self, context):
+        vs = context.object.vs
+        if vs.attachment_display_mesh_render_index == self.index:
+            vs.attachment_display_mesh_render_index = -1
+        else:
+            vs.attachment_display_mesh_render_index = self.index
         return {'FINISHED'}

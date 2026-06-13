@@ -3385,6 +3385,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 num_correctives = num_wrinkles = 0
 
                 dme_corrective_names = get_dme_corrective_delta_names(bake.src) if self.flex_controller_mode == 'DME' else None
+                dme_delta_map = get_dme_delta_name_map(bake.src) if self.flex_controller_mode == 'DME' else None
 
                 for shape_name, shape in bake.shapes.items():
                     wrinkle_scale = 0
@@ -3396,11 +3397,11 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             num_correctives += 1
                         elif '+' in shape_name:
                             # Compound "nameL+nameR" shape key - write one delta per component
-                            parts = [sanitize_string_for_delta(c) for c in shape_name.split('+') if c.strip()]
+                            parts = [dme_delta_map.get(c.strip(), sanitize_string_for_delta(c.strip())) for c in shape_name.split('+') if c.strip()]
                             shape_name = parts[0]
                             _extra_delta_names = parts[1:]
                         else:
-                            shape_name = sanitize_string_for_delta(shape_name)
+                            shape_name = dme_delta_map.get(shape_name, sanitize_string_for_delta(shape_name))
                     else:
                         corrective = getCorrectiveShapeSeparator() in shape_name
 
@@ -3729,10 +3730,10 @@ def _s2_prefab_bonename(bone) -> str:
 # Default output filename suffix per prefab type. The full default name is
 # "<armature name>_<suffix><ext>".
 PREFAB_FILENAME_SUFFIX = {
-    'JIGGLEBONES': 'jigglebones',
-    'ATTACHMENTS': 'attachments',
-    'HITBOXES':    'hitbox',
-    'PROCEDURAL':  'procedural',
+    'JIGGLEBONES':   'jigglebones',
+    'ATTACHMENTS':   'attachments',
+    'HITBOXES':      'hitbox',
+    'PROCEDURAL':    'procedural',
 }
 
 _PREFAB_EXTENSIONS = {'.qc', '.qci', '.vmdl', '.vmdl_prefab', '.vrd'}
@@ -3812,10 +3813,10 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
 
     export_type: bpy.props.EnumProperty(
         items=[
-            ('JIGGLEBONES', "Jigglebones", ""),
-            ('ATTACHMENTS', "Attachments", ""),
-            ('HITBOXES',    "Hitboxes",    ""),
-            ('PROCEDURAL',  "Procedural",  ""),
+            ('JIGGLEBONES',   "Jigglebones",   ""),
+            ('ATTACHMENTS',   "Attachments",   ""),
+            ('HITBOXES',      "Hitboxes",      ""),
+            ('PROCEDURAL',    "Procedural",    ""),
         ]
     )
 
@@ -4316,6 +4317,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             return None
         return self._write_proc_vrd(arm, valid, context.scene)
 
+
     def _write_proc_vrd(self, arm, entries, scene):
         from . import procbones_sim as _pbsim
 
@@ -4554,7 +4556,6 @@ class _PrefabRunnerAdapter(ExportCheck):
     _run_procedural             = PrefabExporter._run_procedural
     _write_proc_vrd             = PrefabExporter._write_proc_vrd
     _collect_lookat_attachments = staticmethod(PrefabExporter._collect_lookat_attachments)
-
 
 # -----------------------------------------------------------------------------
 # KitsuneResource compile operator

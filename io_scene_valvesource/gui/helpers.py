@@ -1,5 +1,5 @@
 import bpy, math
-from ..utils import get_armature, vertex_float_maps, validate_corrective_components, validate_flex_expression
+from ..utils import get_armature, vertex_float_maps, validate_corrective_components, validate_flex_expression, _build_dme_ctrl_names
 from .. import procbones_sim as _procbones_sim
 
 
@@ -31,6 +31,43 @@ def _ensure_cloth_remaps():
                 remap.min = 0.0
                 remap.max = 1.0
     return None
+
+
+def _count_flex_rule_errors(ob) -> int:
+    if not ob or not hasattr(ob, 'vs'):
+        return 0
+    vs = ob.vs
+    rules = getattr(vs, 'dme_flex_rules', None)
+    if not rules:
+        return 0
+    sk = ob.data.shape_keys if (ob.data and hasattr(ob.data, 'shape_keys')) else None
+    sk_names = set(sk.key_blocks.keys()) if sk else set()
+    ctrl_names = _build_dme_ctrl_names(vs)
+    localvar_names = {r.name for r in rules if r.rule_type == 'LOCALVAR' and r.name}
+    count = 0
+    for rule in rules:
+        rt = rule.rule_type
+        if rt == 'CORRECTIVE':
+            comp_str = rule.components.strip()
+            if not comp_str or validate_corrective_components(comp_str, sk_names):
+                count += 1
+        elif rt == 'DOMINATION':
+            if not rule.dominator_names or not rule.suppressed_names:
+                count += 1
+        elif rt == 'PASSTHROUGH':
+            if not rule.name or rule.name not in ctrl_names:
+                count += 1
+        elif rt == 'EXPRESSION':
+            if not rule.name:
+                count += 1
+            elif rule.expression:
+                d_errs, c_errs = validate_flex_expression(rule.expression.strip(), sk_names, ctrl_names, localvar_names)
+                if d_errs or c_errs:
+                    count += 1
+        elif rt == 'LOCALVAR':
+            if not rule.name:
+                count += 1
+    return count
 
 
 _get_or_create_proc_tol_fcurve = _procbones_sim._get_or_create_proc_tol_fcurve

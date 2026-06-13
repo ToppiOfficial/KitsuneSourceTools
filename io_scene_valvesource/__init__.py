@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, math
+import bpy, math, os
 from bpy.props import PointerProperty
 
 # Python doesn't reload package sub-modules at the same time as __init__.py!
@@ -54,6 +54,9 @@ def menu_func_import(self, context):
 def menu_func_export(self, context):
     self.layout.menu("SMD_MT_ExportChoice", text=get_id("export_menuitem"))
 
+def menu_func_kitsune_compile(self, context):
+    self.layout.menu("SMD_MT_KitsuneCompileChoice", text="Kitsune Resource Compile", icon='EXPORT')
+
 def menu_func_shapekeys(self,context):
     self.layout.operator(flex.ActiveDependencyShapes.bl_idname, text=get_id("activate_dependency_shapes",True), icon='SHAPEKEY_DATA')
 
@@ -82,12 +85,14 @@ _classes = (
     # Simple Item Classes
     FlexControllerItem,
     DmeFlexRuleItem,
+    DmeDeltaNameOverride,
     VertexAnimation,
     ProcBoneEntry,
     HitboxEntry,
     ArmatureItemEntry,
     KitsuneResourceItem,
     PrefabItem,
+    AttachmentDisplayMeshItem,
 
     # Material Classes
     ValveSource_MaterialProps,
@@ -114,6 +119,7 @@ _classes = (
     GUI.SMD_MT_KitsuneCompileChoice,
     GUI.SMD_UL_KitsuneResourceEntries,
     GUI.SMD_OT_KitsuneResourceLoadEntries,
+    GUI.SMD_OT_KitsuneResourceConfigure,
     GUI.SMD_PT_KitsuneResource,
 
     # GUI - Scene
@@ -172,8 +178,7 @@ _classes = (
     GUI.SMD_OT_ProcBonePasteEntries,
     GUI.SMD_PT_Hitboxes,
     GUI.SMD_PT_ProcBones,
-    GUI.SMD_PT_ArmatureItems,
-    GUI.SMD_PT_Jigglebones,
+GUI.SMD_PT_Jigglebones,
 
     # Properties Operators
     GUI.SMD_UL_FlexControllers,
@@ -189,9 +194,14 @@ _classes = (
     GUI.SMD_OT_CopyFlexControllers,
     GUI.SMD_OT_ClearFlexControllers,
     GUI.SMD_OT_PreviewFlexController,
+    GUI.SMD_OT_MigrateQCDeltasToOverrides,
     GUI.SMD_OT_AddFlexRule,
     GUI.SMD_OT_RemoveFlexRule,
     GUI.SMD_OT_MoveFlexRule,
+    GUI.SMD_OT_FlexRuleRegexReplace,
+    GUI.SMD_UL_DmeDeltaOverrides,
+    GUI.SMD_OT_AddDeltaOverride,
+    GUI.SMD_OT_RemoveDeltaOverride,
     GUI.SMD_OT_AddVertexMapRemap,
     GUI.SMD_UL_VertexAnimationItem,
     GUI.SMD_OT_AddVertexAnimation,
@@ -202,6 +212,12 @@ _classes = (
     GUI.SMD_OT_AssignBoneRotExportOffset,
     GUI.SMD_OT_CopySourceBoneProps,
     GUI.SMD_OT_ResetJiggleSimulation,
+    GUI.SMD_UL_AttachmentDisplayMeshes,
+    GUI.SMD_OT_AddAttachmentDisplayMesh,
+    GUI.SMD_OT_RemoveAttachmentDisplayMesh,
+    GUI.SMD_OT_SetAttachmentMeshRender,
+    GUI.SMD_OT_SelectAttachmentBlend,
+    GUI.SMD_OT_BrowseAttachmentMeshLibrary,
     GUI.SMD_MT_BoneToolsPie,
 
     # Flex
@@ -218,6 +234,25 @@ _classes = (
     import_smd.SmdImporter,
 )
 
+def _register_asset_library():
+    try:
+        assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+        if not os.path.isdir(assets_dir):
+            return None
+        prefs = bpy.context.preferences.filepaths
+        assets_dir_norm = os.path.normpath(assets_dir)
+        for lib in prefs.asset_libraries:
+            if os.path.normpath(bpy.path.abspath(lib.path)) == assets_dir_norm:
+                return None
+        bpy.ops.preferences.asset_library_add('EXEC_DEFAULT', directory=assets_dir)
+        if prefs.asset_libraries:
+            lib = prefs.asset_libraries[-1]
+            lib.name = "KitsuneSourceTools"
+    except Exception:
+        pass
+    return None
+
+
 def register():
     for cls in _classes:
         bpy.utils.register_class(cls)
@@ -231,6 +266,7 @@ def register():
 
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func_kitsune_compile)
     bpy.types.MESH_MT_shape_key_context_menu.append(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
@@ -262,6 +298,8 @@ def register():
     from . import viewport_draw as _vd
     _vd.register_draw_handler()
 
+    bpy.app.timers.register(_register_asset_library, first_interval=0.5)
+
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if kc:
@@ -288,6 +326,7 @@ def unregister():
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func_kitsune_compile)
     bpy.types.MESH_MT_shape_key_context_menu.remove(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)

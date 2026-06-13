@@ -34,3 +34,6 @@ class SMD_MT_BoneToolsPie(bpy.types.Menu):
         box.label(text=get_id('prop_preview_hitboxes'))
         row = box.row(align=True)
         row.prop(context.scene.vs, 'preview_hitboxes', expand=True)
+        box.label(text=get_id('prop_preview_attachment_mesh'))
+        row = box.row(align=True)
+        row.prop(context.scene.vs, 'preview_attachment_mesh', expand=True)
