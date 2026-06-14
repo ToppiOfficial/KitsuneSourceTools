@@ -120,48 +120,6 @@ class SMD_UL_GroupItems(UIList):
         return cache.filter, cache.order if self.use_filter_sort_alpha else []
 
 
-class SMD_UL_FlexControllers(UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
-        ob = context.object
-
-        is_basis = False
-        if ob.data and ob.data.shape_keys and item.shapekey and len(ob.data.shape_keys.key_blocks) > 0:
-            if item.shapekey == ob.data.shape_keys.key_blocks[0].name:
-                is_basis = True
-
-        controller_name = item.controller_name.strip() if item.controller_name and item.controller_name.strip() else item.shapekey if item.shapekey else "Null Flexcontroller"
-
-        has_duplicate_controller = sum(1 for fc in ob.vs.dme_flexcontrollers
-                                       if (fc.controller_name.strip() if fc.controller_name and fc.controller_name.strip() else fc.shapekey) == controller_name) > 1
-
-        main_split = layout.split(factor=0.15, align=True)
-
-        group_text = item.flexgroup.title() if item.flexgroup != 'NONE' else "-"
-        main_split.label(text=group_text)
-
-        name_split = main_split.split(factor=0.55, align=True)
-        name_row = name_split.row(align=True)
-
-        if has_duplicate_controller or not item.shapekey or is_basis:
-            name_row.alert = True
-
-        name_row.label(text=controller_name, icon='SHAPEKEY_DATA')
-
-        info_row = name_split.row(align=True)
-        info_row.alignment = 'RIGHT'
-
-        if len(item.raw_delta_name.strip()) > 0 and item.shapekey in ob.data.shape_keys.key_blocks:
-            info_row.label(text=sanitize_string_for_delta(item.raw_delta_name))
-        elif item.shapekey in ob.data.shape_keys.key_blocks:
-            info_row.label(text=sanitize_string_for_delta(item.shapekey))
-
-        if item.stereo:
-            info_row.label(text="", icon='MOD_MIRROR')
-
-        if item.eyelid:
-            info_row.label(text="", icon='HIDE_OFF')
-
-
 class SMD_UL_DmeFlexControllers(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index, flt_flag):
         row = layout.row(align=True)

@@ -111,9 +111,13 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                     ctrl = dm.add_element(fc.controller_name, "DmeCombinationInputControl",
                                          id=ob.name + fc.controller_name + "inputcontrol")
                     controls.append(ctrl)
-                    raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else (fc.shapekey or '')
-                    if raw and raw not in corrective_names:
-                        raw = sanitize_string_for_delta(raw)
+                    shapekey_ref = fc.shapekey or ''
+                    if shapekey_ref in corrective_names:
+                        raw = shapekey_ref
+                    elif shapekey_ref:
+                        raw = delta_name_map.get(shapekey_ref, sanitize_string_for_delta(shapekey_ref))
+                    else:
+                        raw = ''
                     ctrl["rawControlNames"] = datamodel.make_array([raw] if raw else [], str)
                     ctrl["stereo"]   = bool(fc.stereo)
                     ctrl["eyelid"]   = bool(fc.eyelid)

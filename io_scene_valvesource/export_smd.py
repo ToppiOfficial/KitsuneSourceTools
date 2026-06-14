@@ -3384,14 +3384,15 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 num_shapes = len(bake.shapes)
                 num_correctives = num_wrinkles = 0
 
-                dme_corrective_names = get_dme_corrective_delta_names(bake.src) if self.flex_controller_mode == 'DME' else None
-                dme_delta_map = get_dme_delta_name_map(bake.src) if self.flex_controller_mode == 'DME' else None
+                bake_flex_mode = getattr(getattr(bake.src, 'vs', None), 'flex_controller_mode', 'DME')
+                dme_corrective_names = get_dme_corrective_delta_names(bake.src) if bake_flex_mode == 'DME' else None
+                dme_delta_map = get_dme_delta_name_map(bake.src) if bake_flex_mode == 'DME' else None
 
                 for shape_name, shape in bake.shapes.items():
                     wrinkle_scale = 0
                     _extra_delta_names = []
 
-                    if self.flex_controller_mode == 'DME':
+                    if bake_flex_mode == 'DME':
                         corrective = shape_name in dme_corrective_names
                         if corrective:
                             num_correctives += 1
@@ -3423,7 +3424,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                                 shape_name = generated
                             num_correctives += 1
                         else:
-                            if self.flex_controller_mode == "ADVANCED":
+                            if bake_flex_mode == "ADVANCED":
                                 def _find_scale():
                                     for ctrl in controller_dm.root["combinationOperator"]["controls"]:
                                         for i in range(len(ctrl["rawControlNames"])):

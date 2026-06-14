@@ -2005,7 +2005,11 @@ def sanitize_string(data: typing.Union[str, list], allow_unicode: bool = False) 
     _data = data.strip()
 
     if State.compiler == Compiler.MODELDOC and not allow_unicode:
-        _data = re.sub(r'[^a-zA-Z0-9_]+', '_', _data)
+        _VALVEBIPED = "ValveBiped."
+        if _data.startswith(_VALVEBIPED):
+            _data = _VALVEBIPED + re.sub(r'[^a-zA-Z0-9_]+', '_', _data[len(_VALVEBIPED):])
+        else:
+            _data = re.sub(r'[^a-zA-Z0-9_]+', '_', _data)
     else:
         _data = re.sub(r'[^\w.]+', '_', _data, flags=re.UNICODE)
 

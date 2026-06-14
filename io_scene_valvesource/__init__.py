@@ -181,7 +181,6 @@ _classes = (
 GUI.SMD_PT_Jigglebones,
 
     # Properties Operators
-    GUI.SMD_UL_FlexControllers,
     GUI.SMD_UL_DmeFlexControllers,
     GUI.SMD_UL_DmeFlexRules,
     GUI.SMD_MT_FlexControllerSpecials,
