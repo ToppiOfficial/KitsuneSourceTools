@@ -101,7 +101,7 @@ class ValveSource_SceneProps(bpy.types.PropertyGroup):
     export_path : StringProperty(name=get_id("exportroot"), description=get_id("exportroot_tip"), subtype='DIR_PATH', options={'PATH_SUPPORTS_BLEND_RELATIVE'})
     engine_path : StringProperty(name=get_id("engine_path"), description=get_id("engine_path_tip"), subtype='DIR_PATH', update=State.onEnginePathChanged)
 
-    dmx_encoding : EnumProperty(name=get_id("dmx_encoding"), description=get_id("dmx_encoding_tip"), items=tuple(encodings), default='kv2')
+    dmx_encoding : EnumProperty(name=get_id("dmx_encoding"), description=get_id("dmx_encoding_tip"), items=tuple(encodings), default='2')
     dmx_format : EnumProperty(name=get_id("dmx_format"), description=get_id("dmx_format_tip"), items=tuple(formats), default='1')
 
     smd_format : EnumProperty(name=get_id("smd_format"), description=get_id("smd_format_tip"), items=(('SOURCE', "Source", "Source Engine (Half-Life 2)"), ("GOLDSOURCE", "GoldSrc", "GoldSrc engine (Half-Life 1)")), default="SOURCE")
