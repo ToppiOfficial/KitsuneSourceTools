@@ -1,5 +1,5 @@
 import bpy, math
-from ..utils import get_armature, vertex_float_maps, validate_corrective_components, validate_flex_expression, _build_dme_ctrl_names
+from ..utils import get_armature, vertex_float_maps, validate_corrective_components, validate_flex_expression, _build_dme_ctrl_names, _build_stereo_delta_names
 from .. import procbones_sim as _procbones_sim
 
 
@@ -44,6 +44,7 @@ def _count_flex_rule_errors(ob) -> int:
     sk_names = set(sk.key_blocks.keys()) if sk else set()
     ctrl_names = _build_dme_ctrl_names(vs)
     localvar_names = {r.name for r in rules if r.rule_type == 'LOCALVAR' and r.name}
+    stereo_delta_names = _build_stereo_delta_names(vs)
     count = 0
     for rule in rules:
         rt = rule.rule_type
@@ -61,7 +62,7 @@ def _count_flex_rule_errors(ob) -> int:
             if not rule.name:
                 count += 1
             elif rule.expression:
-                d_errs, c_errs = validate_flex_expression(rule.expression.strip(), sk_names, ctrl_names, localvar_names)
+                d_errs, c_errs = validate_flex_expression(rule.expression.strip(), sk_names, ctrl_names, localvar_names, stereo_delta_names)
                 if d_errs or c_errs:
                     count += 1
         elif rt == 'LOCALVAR':

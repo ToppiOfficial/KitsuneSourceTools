@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import UIList, UILayout, Collection, Object, UI_UL_list
-from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names
+from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names, _build_stereo_delta_names
 
 
 class SMD_UL_KitsuneResourceEntries(UIList):
@@ -162,6 +162,7 @@ class SMD_UL_DmeFlexRules(UIList):
         sk_names = set(sk.key_blocks.keys()) if sk else set()
         ctrl_names = _build_dme_ctrl_names(ob.vs)
         localvar_names = {r.name for r in ob.vs.dme_flex_rules if r.rule_type == 'LOCALVAR' and r.name}
+        stereo_delta_names = _build_stereo_delta_names(ob.vs)
 
         has_error = False
 
@@ -196,11 +197,11 @@ class SMD_UL_DmeFlexRules(UIList):
                         item.name in sk.key_blocks or
                         any(item.name in key.name.split('+') for key in sk.key_blocks)
                     )
-                    name_alert = not in_shapekeys and item.name not in localvar_names
+                    name_alert = not in_shapekeys and item.name not in localvar_names and item.name not in stereo_delta_names
                 if name_alert:
                     has_error = True
                 elif item.expression:
-                    d_errs, c_errs = validate_flex_expression(item.expression.strip(), sk_names, ctrl_names, localvar_names)
+                    d_errs, c_errs = validate_flex_expression(item.expression.strip(), sk_names, ctrl_names, localvar_names, stereo_delta_names)
                     has_error = bool(d_errs or c_errs)
             elif item.rule_type == 'LOCALVAR':
                 name_alert = not item.name

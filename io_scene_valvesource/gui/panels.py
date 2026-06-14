@@ -7,7 +7,7 @@ from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh
                      cloth_map_groups, hasFlexControllerSource, get_armature, countShapes,
                      MakeObjectIcon, get_active_exportable, get_valid_vertexanimation_object,
                      get_bone_exportname,
-                     sanitize_string_for_delta, _build_dme_ctrl_names)
+                     sanitize_string_for_delta, _build_dme_ctrl_names, _build_stereo_delta_names)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from ..import_smd import SmdImporter
 from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
@@ -1120,7 +1120,8 @@ class SMD_PT_Shapekey(Properties_Panel):
                                 r.name for r in active_object.vs.dme_flex_rules
                                 if r.rule_type == 'LOCALVAR' and r.name
                             )
-                            delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names)
+                            stereo_delta_names = _build_stereo_delta_names(active_object.vs)
+                            delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names, stereo_delta_names)
                             if not delta_errs and not ctrl_errs:
                                 rule_col.label(text=get_id("label_dme_expression_valid"), icon='CHECKMARK')
                             else:

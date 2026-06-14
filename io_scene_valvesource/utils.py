@@ -2082,13 +2082,13 @@ def validate_corrective_components(components_str: str, sk_names: set) -> list:
     return [c for c in (t.strip() for t in components_str.split('+')) if c and c not in sk_names]
 
 
-def validate_flex_expression(expr: str, sk_names: set, ctrl_names: set, localvar_names: set = frozenset()) -> tuple:
+def validate_flex_expression(expr: str, sk_names: set, ctrl_names: set, localvar_names: set = frozenset(), stereo_delta_names: set = frozenset()) -> tuple:
     """Parse a DME flex expression and return (delta_errors, controller_errors).
 
-    %name  -> must match a shape key, a component of a compound "L+R" shape key, or a local var
+    %name  -> must match a shape key, a component of a compound "L+R" shape key, a local var, or a stereo-generated delta name
     name   -> must match a flex controller, ignoring math keywords
     """
-    expanded_sk = sk_names | {part for name in sk_names for part in name.split('+')}
+    expanded_sk = sk_names | {part for name in sk_names for part in name.split('+')} | stereo_delta_names
     delta_errors = []
     controller_errors = []
     # $name$ is a compiler definevariable reference - always valid, strip before parsing
@@ -2118,6 +2118,22 @@ def _build_dme_ctrl_names(vs) -> set:
     return ctrl_names
 
 
+def _build_stereo_delta_names(vs) -> set:
+    """Return stereo-generated delta name variants for all stereo flex controllers.
+
+    Uses the sanitized shapekey/raw_delta_name as the base (same as the exporter),
+    so eye_shrink controller with eyeshrink shapekey produces eyeshrinkL/eyeshrinkR.
+    """
+    names = set()
+    for fc in vs.dme_flexcontrollers:
+        if not fc.stereo or not fc.shapekey:
+            continue
+        raw = fc.raw_delta_name.strip() if fc.raw_delta_name and fc.raw_delta_name.strip() else fc.shapekey
+        base = sanitize_string_for_delta(raw)
+        names |= {f"{base}L", f"{base}R", f"left_{base}", f"right_{base}"}
+    return names
+
+
 def validate_dme_flex_for_export(ob) -> list:
     """Return a list of error strings for DME flex data on *ob*. Empty list = valid."""
     errors = []
@@ -2136,6 +2152,7 @@ def validate_dme_flex_for_export(ob) -> list:
             ctrl_names |= {f"left_{name}", f"right_{name}", f"{name}L", f"{name}R"}
 
     localvar_names = {r.name for r in vs.dme_flex_rules if r.rule_type == 'LOCALVAR' and r.name}
+    stereo_delta_names = _build_stereo_delta_names(vs)
 
     for rule in vs.dme_flex_rules:
         if rule.rule_type == 'PASSTHROUGH':
@@ -2147,11 +2164,11 @@ def validate_dme_flex_for_export(ob) -> list:
         elif rule.rule_type == 'EXPRESSION':
             if not rule.name:
                 errors.append(get_id('exporter_err_dme_expression_no_name', True).format(ob.name))
-            elif rule.name not in sk_names and rule.name not in localvar_names:
+            elif rule.name not in sk_names and rule.name not in localvar_names and rule.name not in stereo_delta_names:
                 errors.append(get_id('exporter_err_dme_expression_unknown_target', True).format(ob.name, rule.name))
             expr = rule.expression.strip()
             if expr:
-                delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names)
+                delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names, stereo_delta_names)
                 for n in delta_errs:
                     errors.append(get_id('exporter_err_dme_expression_unknown_delta', True).format(ob.name, n))
                 for n in ctrl_errs:
