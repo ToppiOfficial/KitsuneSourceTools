@@ -298,12 +298,7 @@ class Element(collections.OrderedDict):
 
 	@property
 	def id(self): return self._id
-	@id.setter
-	def id(self,value):
-		if isinstance(value,uuid.UUID): self._id = value
-		elif isinstance(value,str): self._id = uuid.uuid3(uuid.UUID('20ba94f8-59f0-4579-9e01-50aac4567d3b'),value)
-		else: raise ValueError("id must be uuid.UUID or str")
-
+	
 	def __init__(self,datamodel,name,elemtype="DmElement",id=None,_is_placeholder=False):			
 		self.name = name
 		self.type = elemtype
@@ -312,7 +307,9 @@ class Element(collections.OrderedDict):
 		self._datamodels.add(datamodel)
 		
 		if id:
-			self.id = id
+			if isinstance(id,uuid.UUID): self._id = id
+			elif isinstance(id,str): self._id = uuid.uuid3(uuid.UUID('20ba94f8-59f0-4579-9e01-50aac4567d3b'),id)
+			else: raise ValueError("id must be uuid.UUID or str")
 		else:
 			self._id = uuid.uuid4()
 		
@@ -332,8 +329,10 @@ class Element(collections.OrderedDict):
 		
 	def __getitem__(self,item):
 		if type(item) != str: raise TypeError("Attribute name must be a string, not {}".format(type(item)))
-		if item not in super().keys(): raise AttributeError("No attribute \"{}\" on {}".format(item,self))
-		return super().__getitem__(item)
+		try:
+			return super().__getitem__(item)
+		except KeyError as e:
+			raise AttributeError("No attribute \"{}\" on {}".format(item,self)) from e
 			
 	def __setitem__(self,key,item):
 		key = str(key)
@@ -387,7 +386,7 @@ class Element(collections.OrderedDict):
 				return "{}\"{}\" {}\n".format(_kv2_indent,name,dm_type)
 		
 		out += _make_attr_str("id", "elementid", self.id)
-		out += _make_attr_str("name", "string", self.name if self.name is not None else "")
+		out += _make_attr_str("name", "string", self.name)
 		
 		for name in self:
 			attr = self[name]
@@ -515,7 +514,7 @@ class _StringDictionary(list):
 			string_set = set()
 			def process_element(elem):
 				checked.add(elem)
-				string_set.add(elem.name if elem.name is not None else "")
+				if elem.name : string_set.add(elem.name)
 				string_set.add(elem.type)
 				for name in elem:
 					attr = elem[name]
@@ -541,12 +540,12 @@ class _StringDictionary(list):
 		if self.dummy:
 			out_file.write( _encode_binary_string(string) )
 		else:
-			assert(string in self)
-			out_file.write( struct.pack("H" if self.indice_size == shortsize else "i", self.index(string) ) )
+			assert(string is None or string in self)
+			out_file.write( struct.pack("h" if self.indice_size == shortsize else "i", self.index(string) if string else -1 ) )
 		
 	def write_dictionary(self,out_file):
 		if not self.dummy:
-			out_file.write( struct.pack("H" if self.length_size == shortsize else "i", len(self) ) )
+			out_file.write( struct.pack("h" if self.length_size == shortsize else "i", len(self) ) )
 			for string in self:
 				out_file.write( _encode_binary_string(string) )
 	
@@ -673,7 +672,7 @@ class DataModel:
 	def _write_element_index(self,elem):
 		if elem._is_placeholder or hasattr(elem,"_index"): return
 		self._writeString(elem.type, suppress_dict = False)
-		self._writeString(elem.name if elem.name is not None else "")
+		self._writeString(elem.name)
 		self._write(elem.id)
 		
 		elem._index = len(self.elem_chain)
@@ -843,6 +842,7 @@ def load(path = None, in_file = None, element_path = None):
 				return re.findall("\"(.*?)\"",line.strip("\n\t ") )
 				
 			def read_element(elem_type, line_tracker):
+				name = None
 				prefix = elem_type == "$prefix_element$"
 				if prefix: element_chain.append(dm.prefix_attributes)
 				
@@ -865,9 +865,6 @@ def load(path = None, in_file = None, element_path = None):
 					elif type_str == 'binary': return Binary(binascii.unhexlify(kv2_value))
 				
 				new_elem = None
-				if not prefix:
-					new_elem = dm.add_element(None, elemtype=elem_type)
-					element_chain.append(new_elem)
 				for line_raw in in_file:
 					next(line_tracker)
 					if line_raw.strip("\n\t, ").endswith("}"):
@@ -879,18 +876,20 @@ def load(path = None, in_file = None, element_path = None):
 						continue
 					
 					if line[0] == 'id':
-						assert(not prefix)
-						new_elem.id = uuid.UUID(hex=line[2])
+						if not prefix:
+							new_elem = dm.add_element(name,elem_type,uuid.UUID(hex=line[2]))
+							element_chain.append(new_elem)
 						continue
 					elif line[0] == 'name':
 						if len(line) > 2: # unnamed element?
-							new_elem.name = line[2]
+							if new_elem: new_elem.name = line[2]
+							else: name = line[2]
 						continue
 					
 					# don't read elements outside the element path
-					if max_elem_path and new_elem.name and len(dm.elements):
+					if max_elem_path and name and len(dm.elements):
 						if len(element_path):
-							skip = new_elem.name.lower() != element_path[0].lower()
+							skip = name.lower() != element_path[0].lower()
 						else:
 							skip = len(element_chain) < max_elem_path
 						if skip:
@@ -904,6 +903,9 @@ def load(path = None, in_file = None, element_path = None):
 							return
 						elif len(element_path):
 							del element_path[0]
+					
+					if new_elem == None and not prefix:
+						continue
 					
 					if len(line) >= 2:
 						if line[1] == "element_array":
