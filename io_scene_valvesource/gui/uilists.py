@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import UIList, UILayout, Collection, Object, UI_UL_list
-from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names, _build_stereo_delta_names
+from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names, _build_stereo_delta_names, get_dme_delta_override_conflicts, get_dme_renamed_delta_names
 
 
 class SMD_UL_KitsuneResourceEntries(UIList):
@@ -163,6 +163,7 @@ class SMD_UL_DmeFlexRules(UIList):
         ctrl_names = _build_dme_ctrl_names(ob.vs)
         localvar_names = {r.name for r in ob.vs.dme_flex_rules if r.rule_type == 'LOCALVAR' and r.name}
         stereo_delta_names = _build_stereo_delta_names(ob.vs)
+        renamed_delta_names = get_dme_renamed_delta_names(ob)
 
         has_error = False
 
@@ -197,11 +198,13 @@ class SMD_UL_DmeFlexRules(UIList):
                         item.name in sk.key_blocks or
                         any(item.name in key.name.split('+') for key in sk.key_blocks)
                     )
-                    name_alert = not in_shapekeys and item.name not in localvar_names and item.name not in stereo_delta_names
+                    name_alert = (not in_shapekeys and item.name not in localvar_names
+                                  and item.name not in stereo_delta_names
+                                  and item.name not in renamed_delta_names)
                 if name_alert:
                     has_error = True
                 elif item.expression:
-                    d_errs, c_errs = validate_flex_expression(item.expression.strip(), sk_names, ctrl_names, localvar_names, stereo_delta_names)
+                    d_errs, c_errs = validate_flex_expression(item.expression.strip(), sk_names, ctrl_names, localvar_names, stereo_delta_names, renamed_delta_names)
                     has_error = bool(d_errs or c_errs)
             elif item.rule_type == 'LOCALVAR':
                 name_alert = not item.name
@@ -230,8 +233,17 @@ class SMD_UL_DmeFlexRules(UIList):
 
 
 class SMD_UL_DmeDeltaOverrides(UIList):
+    # Live text filter typed into the UIList search box; substring-matched against the
+    # source shapekey and the override delta name.
+    filter_name_search: bpy.props.StringProperty(
+        name="Filter", default="",
+        description=get_id("delta_override_filter_tip"),
+    )
+
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         ob = context.object
+        conflicts = get_dme_delta_override_conflicts(ob) if ob else set()
+
         row = layout.row(align=True)
         sk = ob.data.shape_keys if ob and ob.data and hasattr(ob.data, 'shape_keys') else None
         sk_missing = sk is None or item.shapekey not in sk.key_blocks
@@ -240,7 +252,30 @@ class SMD_UL_DmeDeltaOverrides(UIList):
         sk_row.label(text=item.shapekey if item.shapekey else "(no key)", icon='SHAPEKEY_DATA')
         right = row.row(align=True)
         right.alignment = 'RIGHT'
-        right.label(text=sanitize_string_for_delta(item.delta_name) if item.delta_name else "")
+        is_conflict = index in conflicts
+        right.alert = is_conflict
+        right.label(
+            text=sanitize_string_for_delta(item.delta_name) if item.delta_name else "",
+            icon='ERROR' if is_conflict else 'NONE',
+        )
+
+    def draw_filter(self, context, layout):
+        row = layout.row(align=True)
+        row.prop(self, "filter_name_search", text="", icon='VIEWZOOM')
+
+    def filter_items(self, context, data, propname):
+        items = getattr(data, propname)
+        flags = []
+        search = self.filter_name_search.strip().lower()
+        if search:
+            for item in items:
+                hay = f"{item.shapekey} {item.delta_name}".lower()
+                flags.append(self.bitflag_filter_item if search in hay else 0)
+        else:
+            flags = [self.bitflag_filter_item] * len(items)
+        # No custom ordering; keep collection order.
+        order = []
+        return flags, order
 
 
 class SMD_UL_VertexAnimationItem(UIList):

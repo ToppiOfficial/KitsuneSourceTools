@@ -322,6 +322,55 @@ class SMD_OT_AddAllFlexControllers(Operator):
         return {'FINISHED'}
 
 
+class SMD_OT_ImportFlexControllersFromText(Operator):
+    bl_idname = "smd.import_flex_from_text"
+    bl_label = "Import from Text Block"
+    bl_description = get_id("op_import_flex_text_tip")
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    text_block: StringProperty(name="Text Block", description=get_id("op_import_flex_text_block_tip"))
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and hasattr(context.object, "vs")
+                    and hasattr(context.object.vs, "dme_flexcontrollers") and len(bpy.data.texts))
+
+    def invoke(self, context, event):
+        # Prefill with the text block shown in an open Text Editor, if any.
+        if not self.text_block:
+            for area in context.screen.areas:
+                if area.type == 'TEXT_EDITOR' and area.spaces.active.text:
+                    self.text_block = area.spaces.active.text.name
+                    break
+            if not self.text_block and len(bpy.data.texts) == 1:
+                self.text_block = bpy.data.texts[0].name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop_search(self, "text_block", bpy.data, "texts", text="")
+
+    def execute(self, context) -> set:
+        from ..import_smd import parse_flex_text, apply_flex_text_to_object
+
+        text = bpy.data.texts.get(self.text_block)
+        if not text:
+            self.report({'ERROR'}, "Select a text block to import from")
+            return {'CANCELLED'}
+
+        parsed = parse_flex_text(text.as_string())
+        n_controllers, n_rules = apply_flex_text_to_object(context.object, parsed)
+
+        if context.object.vs.dme_flexcontrollers:
+            context.object.vs.dme_flexcontrollers_index = len(context.object.vs.dme_flexcontrollers) - 1
+
+        if not n_controllers and not n_rules:
+            self.report({'WARNING'}, "No flex controllers or rules found in the text block")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Imported {n_controllers} controller(s), {n_rules} rule(s)")
+        return {'FINISHED'}
+
+
 class SMD_OT_RemoveFlexController(Operator):
     bl_idname = "smd.remove_flexcontroller"
     bl_label = "Remove Flex Controller"
@@ -442,6 +491,7 @@ class SMD_OT_CopyFlexControllers(Operator):
                 dst.eyelid          = src.eyelid
                 dst.stereo          = src.stereo
                 dst.flexgroup       = src.flexgroup
+                dst.flexgroup_custom = src.flexgroup_custom
                 dst.flex_min        = src.flex_min
                 dst.flex_max        = src.flex_max
 
@@ -638,6 +688,24 @@ class SMD_OT_RemoveFlexRule(Operator):
         return {'FINISHED'}
 
 
+class SMD_OT_ClearFlexRules(Operator):
+    bl_idname = "smd.clear_flex_rules"
+    bl_label = "Clear All Flex Rules"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and len(context.object.vs.dme_flex_rules) > 0)
+
+    def invoke(self, context, event) -> set:
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context) -> set:
+        context.object.vs.dme_flex_rules.clear()
+        context.object.vs.dme_flex_rules_index = 0
+        return {'FINISHED'}
+
+
 class SMD_OT_MoveFlexRule(Operator):
     bl_idname = "smd.move_flex_rule"
     bl_label = "Move Flex Rule"
@@ -760,6 +828,24 @@ class SMD_OT_RemoveDeltaOverride(Operator):
             max(0, ob.vs.dme_delta_overrides_index - 1),
             len(ob.vs.dme_delta_overrides) - 1
         )
+        return {'FINISHED'}
+
+
+class SMD_OT_ClearDeltaOverrides(Operator):
+    bl_idname = "smd.clear_delta_overrides"
+    bl_label = "Clear All Delta Overrides"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and len(context.object.vs.dme_delta_overrides) > 0)
+
+    def invoke(self, context, event) -> set:
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context) -> set:
+        context.object.vs.dme_delta_overrides.clear()
+        context.object.vs.dme_delta_overrides_index = 0
         return {'FINISHED'}
 
 

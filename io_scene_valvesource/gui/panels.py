@@ -7,7 +7,8 @@ from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh
                      cloth_map_groups, hasFlexControllerSource, get_armature, countShapes,
                      MakeObjectIcon, get_active_exportable, get_valid_vertexanimation_object,
                      get_bone_exportname,
-                     sanitize_string_for_delta, _build_dme_ctrl_names, _build_stereo_delta_names)
+                     sanitize_string_for_delta, _build_dme_ctrl_names, _build_stereo_delta_names,
+                     get_dme_renamed_delta_names, get_dme_delta_override_conflicts)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from ..import_smd import SmdImporter
 from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
@@ -21,10 +22,12 @@ from .operators import (
     SMD_OT_PreviewFlexController,
     SMD_OT_AddFlexRule,
     SMD_OT_RemoveFlexRule,
+    SMD_OT_ClearFlexRules,
     SMD_OT_MoveFlexRule,
     SMD_OT_FlexRuleRegexReplace,
     SMD_OT_AddDeltaOverride,
     SMD_OT_RemoveDeltaOverride,
+    SMD_OT_ClearDeltaOverrides,
     SMD_OT_AddVertexAnimation,
     SMD_OT_RemoveVertexAnimation,
     SMD_OT_GenerateVertexAnimationQCSnippet,
@@ -1016,6 +1019,14 @@ class SMD_PT_Shapekey(Properties_Panel):
                     r.label(text='Flex Group')
                     r.prop(item, 'flexgroup', text='')
 
+                    if item.flexgroup == 'CUSTOM':
+                        r = item_col.split(factor=0.33, align=True)
+                        r.alignment = 'RIGHT'
+                        r.label(text='Custom Group')
+                        cr = r.row()
+                        cr.alert = not bool(item.flexgroup_custom and item.flexgroup_custom.strip())
+                        cr.prop(item, 'flexgroup_custom', text='')
+
             # --- Flex Rules & Domination ---
             rules_header = box.row()
             rules_header.prop(context.scene.vs, "show_flex_rules_items",
@@ -1047,6 +1058,8 @@ class SMD_PT_Shapekey(Properties_Panel):
                 dn.direction = 'DOWN'
                 rules_btn_col.separator()
                 rules_btn_col.operator(SMD_OT_FlexRuleRegexReplace.bl_idname, icon='VIEWZOOM', text='')
+                rules_btn_col.separator()
+                rules_btn_col.operator(SMD_OT_ClearFlexRules.bl_idname, icon='TRASH', text='')
 
                 ridx = active_object.vs.dme_flex_rules_index
                 if len(active_object.vs.dme_flex_rules) > 0 and ridx != -1:
@@ -1121,7 +1134,8 @@ class SMD_PT_Shapekey(Properties_Panel):
                                 if r.rule_type == 'LOCALVAR' and r.name
                             )
                             stereo_delta_names = _build_stereo_delta_names(active_object.vs)
-                            delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names, stereo_delta_names)
+                            renamed_delta_names = get_dme_renamed_delta_names(active_object)
+                            delta_errs, ctrl_errs = validate_flex_expression(expr, sk_names, ctrl_names, localvar_names, stereo_delta_names, renamed_delta_names)
                             if not delta_errs and not ctrl_errs:
                                 rule_col.label(text=get_id("label_dme_expression_valid"), icon='CHECKMARK')
                             else:
@@ -1140,6 +1154,11 @@ class SMD_PT_Shapekey(Properties_Panel):
                            icon='TRIA_DOWN' if context.scene.vs.show_flex_delta_overrides else 'TRIA_RIGHT',
                            icon_only=True, emboss=False)
             ov_header.label(text="Delta Name Overrides", icon='SORTALPHA')
+            ov_conflicts = get_dme_delta_override_conflicts(active_object)
+            if ov_conflicts:
+                ov_err = ov_header.row()
+                ov_err.alert = True
+                ov_err.label(text=str(len(ov_conflicts)), icon='ERROR')
 
             if context.scene.vs.show_flex_delta_overrides:
                 ov_col = box.column()
@@ -1153,6 +1172,8 @@ class SMD_PT_Shapekey(Properties_Panel):
                 ov_btn_col = ov_row.column(align=True)
                 ov_btn_col.operator(SMD_OT_AddDeltaOverride.bl_idname, icon='ADD', text='')
                 ov_btn_col.operator(SMD_OT_RemoveDeltaOverride.bl_idname, icon='REMOVE', text='')
+                ov_btn_col.separator()
+                ov_btn_col.operator(SMD_OT_ClearDeltaOverrides.bl_idname, icon='TRASH', text='')
 
                 ovidx = active_object.vs.dme_delta_overrides_index
                 if len(active_object.vs.dme_delta_overrides) > 0 and ovidx != -1:
@@ -1172,6 +1193,11 @@ class SMD_PT_Shapekey(Properties_Panel):
                     r.alignment = 'RIGHT'
                     r.label(text='Delta Name')
                     r.prop(ov_item, 'delta_name', text='')
+
+                    if ovidx in ov_conflicts:
+                        err_row = ov_detail.row()
+                        err_row.alert = True
+                        err_row.label(text=get_id("label_dme_override_conflict"), icon='ERROR')
 
             insertStereoSplitUi(box.column())
         else:

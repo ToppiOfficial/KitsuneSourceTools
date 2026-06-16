@@ -682,6 +682,18 @@ _data = {
         'en': "Add All",
         'ja': "すべて追加",
     },
+    'label_import_flex_text': {
+        'en': "Import from Text Block",
+        'ja': "テキストブロックからインポート",
+    },
+    'op_import_flex_text_tip': {
+        'en': "Import flex controllers and rules from QC-style text in a Blender text block",
+        'ja': "BlenderのテキストブロックのQC形式テキストからフレックスコントローラーとルールをインポート",
+    },
+    'op_import_flex_text_block_tip': {
+        'en': "Blender text block containing the flexcontroller / localvar / %expression definitions",
+        'ja': "flexcontroller / localvar / %式の定義を含むBlenderテキストブロック",
+    },
     'label_all_attachments': {
         'en': "All Attachments",
         'ja': "すべてのアタッチメント",
@@ -736,6 +748,14 @@ _data = {
     },
     'label_dme_components_valid': {
         'en': "Components valid",
+    },
+    'label_dme_override_conflict': {
+        'en': "Conflict: renames to an existing or duplicated delta name",
+        'ja': "競合: 既存または重複したデルタ名へのリネーム",
+    },
+    'delta_override_filter_tip': {
+        'en': "Filter overrides by shape key or delta name",
+        'ja': "シェイプキーまたはデルタ名で上書きをフィルター",
     },
     'label_dme_corrective_hint': {
         'en': "component shape keys separated by +",
@@ -1370,6 +1390,10 @@ _data = {
     'prop_flex_type_tip': {
         'en': "Flex group category used for QC organization",
         'ja': "QC整理に使用されるフレックスグループカテゴリー",
+    },
+    'prop_flex_group_custom_tip': {
+        'en': "Custom flex group name exported when Flex Group is set to CUSTOM",
+        'ja': "フレックスグループがCUSTOMの場合にエクスポートされるカスタムフレックスグループ名",
     },
     'prop_flex_min_tip': {
         'en': "Minimum value for this flex controller",

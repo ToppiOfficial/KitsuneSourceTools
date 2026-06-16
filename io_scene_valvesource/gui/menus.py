@@ -5,6 +5,7 @@ from ..utils import (get_id, getSelectedExportables, count_exports, is_armature,
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from .operators import (
     SMD_OT_AddAllFlexControllers,
+    SMD_OT_ImportFlexControllersFromText,
     SMD_OT_SortFlexControllers,
     SMD_OT_AutoAssignFlexGroups,
     SMD_OT_CopyFlexControllers,
@@ -155,6 +156,7 @@ class SMD_MT_FlexControllerSpecials(Menu):
     def draw(self, context):
         layout = self.layout
         layout.operator(SMD_OT_AddAllFlexControllers.bl_idname, icon='IMPORT',      text=get_id('label_add_all', True))
+        layout.operator(SMD_OT_ImportFlexControllersFromText.bl_idname, icon='TEXT', text=get_id('label_import_flex_text', True))
         layout.operator(SMD_OT_SortFlexControllers.bl_idname,   icon='SORTALPHA',   text=get_id('label_sort_by_name', True))
         layout.operator(SMD_OT_AutoAssignFlexGroups.bl_idname,  icon='GROUP')
         layout.operator(SMD_OT_CopyFlexControllers.bl_idname,   icon='PASTEDOWN')

@@ -87,16 +87,28 @@ class FlexControllerItem(bpy.types.PropertyGroup):
     eyelid : BoolProperty(name='Eyelid', description=get_id("prop_eyelid_tip"))
     stereo : BoolProperty(name='Stereo', description=get_id("prop_stereo_tip"))
     flexgroup : EnumProperty(name='Flex Type', description=get_id("prop_flex_type_tip"), items=[
-        ('NONE', 'NONE', ''),
+        ('DEFAULT', 'DEFAULT', ''),
         ('EYES', 'EYES', ''),
         ('EYELID', 'EYELID', ''),
         ('BROW', 'BROW', ''),
         ('MOUTH', 'MOUTH', ''),
         ('MISC', 'MISC', ''),
         ('CHEEK', 'CHEEK', ''),
-    ], default='NONE')
+        ('CUSTOM', 'CUSTOM', ''),
+    ], default='DEFAULT')
+    flexgroup_custom : StringProperty(name='Custom Flex Group', description=get_id("prop_flex_group_custom_tip"))
     flex_min : FloatProperty(name='Flex Min', description=get_id("prop_flex_min_tip"), default=0.0, soft_min=-1.0, soft_max=1.0, precision=3)
     flex_max : FloatProperty(name='Flex Max', description=get_id("prop_flex_max_tip"), default=1.0, soft_min=0.0, soft_max=2.0, precision=3)
+
+    def resolved_flexgroup(self) -> str:
+        """Return the flexgroup string to export. Always non-empty: DEFAULT -> 'default',
+        CUSTOM -> the custom string (falling back to 'default' if blank), else the lowercased enum."""
+        if self.flexgroup == 'CUSTOM':
+            custom = self.flexgroup_custom.strip().lower()
+            return custom if custom else 'default'
+        if self.flexgroup == 'DEFAULT':
+            return 'default'
+        return self.flexgroup.lower()
 
 
 class DmeDeltaNameOverride(bpy.types.PropertyGroup):

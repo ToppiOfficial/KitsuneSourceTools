@@ -64,7 +64,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                 controller_name = name
                 eyelid = False
                 stereo = False
-                flextype = ""
+                flextype = "default"
                 raw_control_names = deltas
 
             DmeCombinationInputControl = dm.add_element(controller_name, "DmeCombinationInputControl", id=namespace + controller_name + "inputcontrol")
@@ -121,7 +121,7 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                     ctrl["rawControlNames"] = datamodel.make_array([raw] if raw else [], str)
                     ctrl["stereo"]   = bool(fc.stereo)
                     ctrl["eyelid"]   = bool(fc.eyelid)
-                    ctrl["flexgroup"] = fc.flexgroup.lower() if fc.flexgroup != 'NONE' else ""
+                    ctrl["flexgroup"] = fc.resolved_flexgroup()
                     ctrl["flexMin"]  = float(fc.flex_min)
                     ctrl["flexMax"]  = float(fc.flex_max)
                     if shape:
