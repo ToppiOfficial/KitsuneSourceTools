@@ -8,7 +8,8 @@ from ..utils import (get_id, State, Compiler, ExportFormat, is_armature, is_mesh
                      MakeObjectIcon, get_active_exportable, get_valid_vertexanimation_object,
                      get_bone_exportname,
                      sanitize_string_for_delta, _build_dme_ctrl_names, _build_stereo_delta_names,
-                     get_dme_renamed_delta_names, get_dme_delta_override_conflicts)
+                     get_dme_renamed_delta_names, get_dme_delta_override_conflicts,
+                     get_dme_split_delta_conflicts)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from ..import_smd import SmdImporter
 from ..flex import AddCorrectiveShapeDrivers, RenameShapesToMatchCorrectiveDrivers, DmxWriteFlexControllers
@@ -96,9 +97,10 @@ class SMD_PT_ViewportSimulation(Panel):
 
 class SMD_PT_Scene(Panel):
     bl_label = get_id("exportpanel_title")
-    bl_category = 'KitsuneSrcTool'
-    bl_region_type = 'UI'
-    bl_space_type = 'VIEW_3D'
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'scene'
+    bl_order = 0
 
     def draw(self, context) -> None:
         l = self.layout
@@ -181,6 +183,7 @@ class SMD_PT_KitsuneResource(Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'scene'
+    bl_order = 2
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context) -> None:
@@ -231,13 +234,10 @@ class SMD_PT_KitsuneResource(Panel):
 
 class SMD_PT_Exportables(Panel):
     bl_label = get_id('exportables_title')
-    bl_category = 'KitsuneSrcTool'
-    bl_region_type = 'UI'
-    bl_space_type = 'VIEW_3D'
-
-    @classmethod
-    def poll(cls, context):
-        return context.object is not None
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'scene'
+    bl_order = 1
 
     @classmethod
     def get_item(cls, context):
@@ -1153,7 +1153,7 @@ class SMD_PT_Shapekey(Properties_Panel):
             ov_header.prop(context.scene.vs, "show_flex_delta_overrides",
                            icon='TRIA_DOWN' if context.scene.vs.show_flex_delta_overrides else 'TRIA_RIGHT',
                            icon_only=True, emboss=False)
-            ov_header.label(text="Delta Name Overrides", icon='SORTALPHA')
+            ov_header.label(text="Delta Map", icon='SORTALPHA')
             ov_conflicts = get_dme_delta_override_conflicts(active_object)
             if ov_conflicts:
                 ov_err = ov_header.row()
@@ -1194,10 +1194,26 @@ class SMD_PT_Shapekey(Properties_Panel):
                     r.label(text='Delta Name')
                     r.prop(ov_item, 'delta_name', text='')
 
+                    r = ov_detail.split(factor=0.33, align=True)
+                    r.alignment = 'RIGHT'
+                    r.label(text='')
+                    r.prop(ov_item, 'split_lr', text='Split to L/R', toggle=True)
+
+                    if ov_item.split_lr and ov_item.delta_name.strip():
+                        base = sanitize_string_for_delta(ov_item.delta_name.strip())
+                        if base:
+                            hint = ov_detail.row()
+                            hint.label(text=get_id("label_dme_split_hint", True).format(base), icon='MOD_MIRROR')
+
                     if ovidx in ov_conflicts:
                         err_row = ov_detail.row()
                         err_row.alert = True
                         err_row.label(text=get_id("label_dme_override_conflict"), icon='ERROR')
+
+                    if ovidx in get_dme_split_delta_conflicts(active_object):
+                        err_row = ov_detail.row()
+                        err_row.alert = True
+                        err_row.label(text=get_id("label_dme_split_on_controller"), icon='ERROR')
 
             insertStereoSplitUi(box.column())
         else:

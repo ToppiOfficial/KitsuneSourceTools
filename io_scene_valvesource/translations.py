@@ -686,6 +686,14 @@ _data = {
         'en': "Import from Text Block",
         'ja': "テキストブロックからインポート",
     },
+    'label_combine_stereo': {
+        'en': "Combine L/R into Stereo",
+        'ja': "左右をステレオに統合",
+    },
+    'op_combine_stereo_tip': {
+        'en': "Merge left_/right_ controller pairs into a single base-named stereo controller (e.g. left_lid_raise + right_lid_raise -> lid_raise)",
+        'ja': "left_/right_ コントローラーのペアを単一のベース名ステレオコントローラーに統合 (例: left_lid_raise + right_lid_raise -> lid_raise)",
+    },
     'op_import_flex_text_tip': {
         'en': "Import flex controllers and rules from QC-style text in a Blender text block",
         'ja': "BlenderのテキストブロックのQC形式テキストからフレックスコントローラーとルールをインポート",
@@ -752,6 +760,26 @@ _data = {
     'label_dme_override_conflict': {
         'en': "Conflict: renames to an existing or duplicated delta name",
         'ja': "競合: 既存または重複したデルタ名へのリネーム",
+    },
+    'prop_delta_override_split_tip': {
+        'en': "On export, split this shape key into separate <delta>L and <delta>R deltas using the mesh stereo balance, instead of one whole delta. Does not work if the shape key is assigned directly to a flex controller",
+        'ja': "エクスポート時に、このシェイプキーを1つのデルタではなく、メッシュのステレオバランスを使用して <delta>L と <delta>R の個別のデルタに分割します。シェイプキーがフレックスコントローラーに直接割り当てられている場合は機能しません",
+    },
+    'label_dme_split_hint': {
+        'en': "Exports as {0}L and {0}R",
+        'ja': "{0}L と {0}R としてエクスポート",
+    },
+    'label_dme_split_on_controller': {
+        'en': "Split ignored: shape key is assigned to a flex controller",
+        'ja': "分割は無視されました: シェイプキーがフレックスコントローラーに割り当てられています",
+    },
+    'exporter_warn_dme_split_no_balance': {
+        'en': "'{0}': L/R delta split requested but no stereo balance is configured; the split will be lopsided",
+        'ja': "'{0}': L/Rデルタ分割が要求されましたが、ステレオバランスが設定されていません。分割が偏ります",
+    },
+    'exporter_warn_dme_split_on_controller': {
+        'en': "'{0}': shape key '{1}' is split to L/R but is assigned to a flex controller; exporting it whole instead",
+        'ja': "'{0}': シェイプキー '{1}' はL/Rに分割されますが、フレックスコントローラーに割り当てられています。代わりに全体をエクスポートします",
     },
     'delta_override_filter_tip': {
         'en': "Filter overrides by shape key or delta name",
@@ -942,6 +970,14 @@ _data = {
     'label_sim_keyframe_warning_2': {
         'en': "Unlink the active action to pose bones manually for testing.",
         'ja': "テスト時に手動でポーズを調整するには、アクティブアクションのリンクを解除してください。",
+    },
+    'label_sim_hud_jiggle_count': {
+        'en': "Jigglebones: {}",
+        'ja': "ジグルボーン: {}",
+    },
+    'label_sim_hud_proc_count': {
+        'en': "Procedural Bones: {}",
+        'ja': "プロシージャルボーン: {}",
     },
     'label_simulate_jigglebones': {
         'en': "Simulate JiggleBones",

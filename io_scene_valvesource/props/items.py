@@ -114,6 +114,7 @@ class FlexControllerItem(bpy.types.PropertyGroup):
 class DmeDeltaNameOverride(bpy.types.PropertyGroup):
     shapekey   : StringProperty(name='Shape Key', description=get_id("prop_delta_override_shapekey_tip"))
     delta_name : StringProperty(name='Delta Name', description=get_id("prop_delta_override_name_tip"))
+    split_lr   : BoolProperty(name='Split to L/R', description=get_id("prop_delta_override_split_tip"), default=False)
 
 
 class DmeFlexRuleItem(bpy.types.PropertyGroup):

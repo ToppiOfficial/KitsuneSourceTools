@@ -1245,6 +1245,38 @@ def _draw_sim_hud():
             blf.draw(font_id, text)
             y += h + gap
 
+        # Bottom-left textbox: live count of simulated jiggle / procedural bones.
+        from . import procbones_sim
+        jiggle_n, proc_n = procbones_sim.get_sim_counts()
+        count_lines = [
+            get_id('label_sim_hud_jiggle_count', format_string=True).format(jiggle_n),
+            get_id('label_sim_hud_proc_count',   format_string=True).format(proc_n),
+        ]
+        c_dims  = [blf.dimensions(font_id, l) for l in count_lines]
+        c_max_w = max(w for w, h in c_dims)
+        c_tot_h = sum(h for _, h in c_dims) + gap * (len(c_dims) - 1)
+        cb_x0 = pad
+        cb_y0 = y_base - pad
+        cb_x1 = pad + c_max_w + pad * 2
+        cb_y1 = y_base + c_tot_h + pad
+
+        # blf.draw above may leave the GPU blend state altered; re-assert ALPHA
+        # and re-bind our shader so this box matches the center box exactly.
+        gpu.state.blend_set('ALPHA')
+        shader.bind()
+        shader.uniform_float('color', (0.05, 0.05, 0.05, 0.68))
+        batch_for_shader(shader, 'TRIS', {'pos': [
+            (cb_x0, cb_y0), (cb_x1, cb_y0), (cb_x1, cb_y1),
+            (cb_x0, cb_y0), (cb_x1, cb_y1), (cb_x0, cb_y1),
+        ]}).draw(shader)
+
+        blf.color(font_id, 1.0, 0.88, 0.55, 0.90)
+        cy = y_base
+        for text, (w, h) in zip(reversed(count_lines), reversed(c_dims)):
+            blf.position(font_id, cb_x0 + pad, cy, 0)
+            blf.draw(font_id, text)
+            cy += h + gap
+
         gpu.state.blend_set('NONE')
     except Exception:
         pass

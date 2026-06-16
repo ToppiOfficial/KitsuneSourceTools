@@ -676,11 +676,7 @@ def countShapes(*objects):
             flattened_objects.append(ob)
 
     for ob in [o for o in flattened_objects if o.vs.export and hasShapes(o)]:
-        if ob.vs.flex_controller_mode == 'BUILDER':
-            flex_controllers = get_flexcontrollers(ob)
-            unique_names = set(fc[4] for fc in flex_controllers)
-            num_shapes += len(unique_names)
-        elif ob.vs.flex_controller_mode == 'DME':
+        if ob.vs.flex_controller_mode == 'DME':
             num_shapes += sum(1 for fc in ob.vs.dme_flexcontrollers if fc.controller_name and fc.controller_name.strip())
             num_correctives += sum(1 for r in ob.vs.dme_flex_rules if r.rule_type == 'CORRECTIVE' and r.components.strip())
         else:
@@ -2071,11 +2067,65 @@ def get_dme_delta_name_map(ob) -> dict:
     return result
 
 
+def get_dme_controller_shapekeys(ob) -> set:
+    """Return the set of shape key names referenced directly by a DME flex controller.
+    A controller cannot take a split (L/R) delta, so split overrides on these are invalid."""
+    if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_flexcontrollers"):
+        return set()
+    return {fc.shapekey for fc in ob.vs.dme_flexcontrollers if fc.shapekey}
+
+
+def get_dme_split_delta_map(ob) -> dict:
+    """Return {shapekey: sanitized base delta name} for delta overrides that request an
+    L/R split AND are eligible (the shape key is not assigned to a flex controller).
+
+    The exporter splits each such shape key into '<base>L' and '<base>R' deltas using the
+    mesh stereo balance, doing ahead of time what the compiler would do."""
+    if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_delta_overrides"):
+        return {}
+    controller_keys = get_dme_controller_shapekeys(ob)
+    result = {}
+    for ov in ob.vs.dme_delta_overrides:
+        if not (getattr(ov, "split_lr", False) and ov.shapekey and ov.delta_name and ov.delta_name.strip()):
+            continue
+        if ov.shapekey in controller_keys:
+            continue  # ineligible: controllers can't take split deltas (exporter warns + falls back)
+        base = sanitize_string_for_delta(ov.delta_name.strip())
+        if base:
+            result[ov.shapekey] = base
+    return result
+
+
+def get_dme_split_delta_conflicts(ob) -> set:
+    """Return indices of dme_delta_overrides that request split_lr but whose shape key is
+    assigned to a flex controller (so the split cannot be performed)."""
+    conflicts = set()
+    if not hasattr(ob, "vs") or not hasattr(ob.vs, "dme_delta_overrides"):
+        return conflicts
+    controller_keys = get_dme_controller_shapekeys(ob)
+    for i, ov in enumerate(ob.vs.dme_delta_overrides):
+        if getattr(ov, "split_lr", False) and ov.shapekey and ov.shapekey in controller_keys:
+            conflicts.add(i)
+    return conflicts
+
+
 def get_dme_renamed_delta_names(ob) -> set:
     """Return the set of sanitized export delta names produced by renaming (per-controller
     raw_delta_name and dme_delta_overrides). These are valid %delta references in expressions
-    even though they don't match a raw shape key name."""
-    return set(get_dme_delta_name_map(ob).values())
+    even though they don't match a raw shape key name.
+
+    For overrides flagged to split into L/R, the base name is replaced by its '<base>L' and
+    '<base>R' variants (the names the split actually produces on export)."""
+    split_map = get_dme_split_delta_map(ob)
+    names = set()
+    for shapekey, delta in get_dme_delta_name_map(ob).items():
+        if shapekey in split_map:
+            base = split_map[shapekey]
+            names.add(f"{base}L")
+            names.add(f"{base}R")
+        else:
+            names.add(delta)
+    return names
 
 
 def get_dme_delta_override_conflicts(ob) -> set:

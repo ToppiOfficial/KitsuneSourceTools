@@ -188,6 +188,7 @@ GUI.SMD_PT_Jigglebones,
     GUI.SMD_OT_AddFlexController,
     GUI.SMD_OT_AddAllFlexControllers,
     GUI.SMD_OT_ImportFlexControllersFromText,
+    GUI.SMD_OT_CombineStereoFlexControllers,
     GUI.SMD_OT_RemoveFlexController,
     GUI.SMD_OT_MoveFlexController,
     GUI.SMD_OT_SortFlexControllers,
@@ -268,7 +269,6 @@ def register():
 
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
-    bpy.types.TOPBAR_MT_file_export.append(menu_func_kitsune_compile)
     bpy.types.MESH_MT_shape_key_context_menu.append(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.append(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.append(draw_copy_bone_props)
@@ -328,7 +328,6 @@ def unregister():
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
-    bpy.types.TOPBAR_MT_file_export.remove(menu_func_kitsune_compile)
     bpy.types.MESH_MT_shape_key_context_menu.remove(menu_func_shapekeys)
     bpy.types.TEXT_MT_edit.remove(menu_func_textedit)
     bpy.types.VIEW3D_MT_bone_options_toggle.remove(draw_copy_bone_props)

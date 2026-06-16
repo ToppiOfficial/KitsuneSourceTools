@@ -409,6 +409,59 @@ class SMD_OT_MoveFlexController(Operator):
         return {'FINISHED'}
 
 
+class SMD_OT_CombineStereoFlexControllers(Operator):
+    bl_idname = "smd.combine_stereo_flexcontrollers"
+    bl_label = "Combine L/R into Stereo"
+    bl_description = get_id("op_combine_stereo_tip")
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context) -> bool:
+        return bool(context.object and hasattr(context.object, "vs")
+                    and len(context.object.vs.dme_flexcontrollers) > 0)
+
+    def execute(self, context) -> set:
+        ob = context.object
+        controllers = ob.vs.dme_flexcontrollers
+
+        # Map controller_name -> index for sibling lookup. Names are already lowercased
+        # and sanitized by update_sanitize_name, so prefixes are reliably "left_"/"right_".
+        by_name = {fc.controller_name: i for i, fc in enumerate(controllers) if fc.controller_name}
+
+        to_remove = []   # indices of the redundant "left_" entries
+        merged = 0
+        for i, fc in enumerate(controllers):
+            name = fc.controller_name
+            if not name or not name.startswith("right_"):
+                continue
+            base = name[len("right_"):]
+            if not base:
+                continue
+            left_idx = by_name.get("left_" + base)
+            if left_idx is None or left_idx == i:
+                continue
+            # Promote the right_ entry to the base-named stereo controller; the left_
+            # entry is dropped. Shape key references are left untouched (no rename).
+            fc.controller_name = base
+            fc.stereo = True
+            to_remove.append(left_idx)
+            merged += 1
+
+        # Remove the redundant left_ entries from the end so earlier indices stay valid.
+        for idx in sorted(set(to_remove), reverse=True):
+            controllers.remove(idx)
+
+        if controllers:
+            ob.vs.dme_flexcontrollers_index = min(ob.vs.dme_flexcontrollers_index, len(controllers) - 1)
+
+        if not merged:
+            self.report({'WARNING'}, "No left_/right_ controller pairs found to combine")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Combined {merged} L/R pair(s) into stereo controllers")
+        return {'FINISHED'}
+
+
 class SMD_OT_AutoAssignFlexGroups(Operator):
     bl_idname = "smd.auto_assign_flexgroups"
     bl_label = "Auto Assign Flex Groups"
@@ -512,6 +565,7 @@ class SMD_OT_CopyFlexControllers(Operator):
                 dst = tvs.dme_delta_overrides.add()
                 dst.shapekey   = src.shapekey
                 dst.delta_name = src.delta_name
+                dst.split_lr   = src.split_lr
 
             if missing_keys:
                 self.report({'WARNING'}, f"'{target.name}' is missing shape keys: {', '.join(missing_keys)}")

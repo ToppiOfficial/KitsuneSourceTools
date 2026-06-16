@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import UIList, UILayout, Collection, Object, UI_UL_list
-from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names, _build_stereo_delta_names, get_dme_delta_override_conflicts, get_dme_renamed_delta_names
+from ..utils import State, get_armature, countShapes, MakeObjectIcon, sanitize_string_for_delta, get_id, get_jigglebones, get_hitboxes, get_attachments, hitbox_group, validate_flex_expression, validate_corrective_components, _build_dme_ctrl_names, _build_stereo_delta_names, get_dme_delta_override_conflicts, get_dme_renamed_delta_names, get_dme_split_delta_conflicts
 
 
 class SMD_UL_KitsuneResourceEntries(UIList):
@@ -243,6 +243,7 @@ class SMD_UL_DmeDeltaOverrides(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         ob = context.object
         conflicts = get_dme_delta_override_conflicts(ob) if ob else set()
+        split_conflicts = get_dme_split_delta_conflicts(ob) if ob else set()
 
         row = layout.row(align=True)
         sk = ob.data.shape_keys if ob and ob.data and hasattr(ob.data, 'shape_keys') else None
@@ -250,14 +251,20 @@ class SMD_UL_DmeDeltaOverrides(UIList):
         sk_row = row.row(align=True)
         sk_row.alert = bool(item.shapekey and sk_missing)
         sk_row.label(text=item.shapekey if item.shapekey else "(no key)", icon='SHAPEKEY_DATA')
+
+        if getattr(item, 'split_lr', False):
+            mirror = row.row(align=True)
+            mirror.alert = index in split_conflicts
+            mirror.label(text="", icon='MOD_MIRROR')
+
         right = row.row(align=True)
         right.alignment = 'RIGHT'
-        is_conflict = index in conflicts
+        is_conflict = index in conflicts or index in split_conflicts
         right.alert = is_conflict
-        right.label(
-            text=sanitize_string_for_delta(item.delta_name) if item.delta_name else "",
-            icon='ERROR' if is_conflict else 'NONE',
-        )
+        base = sanitize_string_for_delta(item.delta_name) if item.delta_name else ""
+        # Show the L/R deltas that the split will actually produce.
+        disp = f"{base}L / {base}R" if (base and getattr(item, 'split_lr', False)) else base
+        right.label(text=disp, icon='ERROR' if is_conflict else 'NONE')
 
     def draw_filter(self, context, layout):
         row = layout.row(align=True)

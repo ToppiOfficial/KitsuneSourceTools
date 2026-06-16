@@ -17,6 +17,7 @@ def _draw_proc_bone_context_menu(self, context):
         arm_ob = get_armature(context.object)
         if arm_ob:
             self.layout.operator_context = 'INVOKE_DEFAULT'
+            self.layout.operator("smd.copy_bone_export_name", icon='TEXT')
             self.layout.operator("smd.proc_bone_add_from_selected", icon='DRIVER')
 
 

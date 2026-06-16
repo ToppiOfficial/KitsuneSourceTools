@@ -3387,15 +3387,28 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 bake_flex_mode = getattr(getattr(bake.src, 'vs', None), 'flex_controller_mode', 'DME')
                 dme_corrective_names = get_dme_corrective_delta_names(bake.src) if bake_flex_mode == 'DME' else None
                 dme_delta_map = get_dme_delta_name_map(bake.src) if bake_flex_mode == 'DME' else None
+                # Shape keys flagged to split into <base>L / <base>R deltas (eligible only when
+                # not assigned to a flex controller). Keyed by raw shape key name.
+                dme_split_map = get_dme_split_delta_map(bake.src) if bake_flex_mode == 'DME' else {}
+                if dme_split_map and not bake.balance_vg:
+                    self.warning(get_id("exporter_warn_dme_split_no_balance", True).format(bake.name))
+                for _idx in get_dme_split_delta_conflicts(bake.src) if bake_flex_mode == 'DME' else ():
+                    _ov = bake.src.vs.dme_delta_overrides[_idx]
+                    self.warning(get_id("exporter_warn_dme_split_on_controller", True).format(bake.name, _ov.shapekey))
 
                 for shape_name, shape in bake.shapes.items():
                     wrinkle_scale = 0
                     _extra_delta_names = []
+                    _split_base = None  # set to the base delta name when this shape splits into <base>L/<base>R
 
                     if bake_flex_mode == 'DME':
                         corrective = shape_name in dme_corrective_names
                         if corrective:
                             num_correctives += 1
+                        elif shape_name in dme_split_map:
+                            # Split into <base>L / <base>R deltas using the mesh stereo balance.
+                            _split_base = dme_split_map[shape_name]
+                            shape_name = _split_base + "L"
                         elif '+' in shape_name:
                             # Compound "nameL+nameR" shape key - write one delta per component
                             parts = [dme_delta_map.get(c.strip(), sanitize_string_for_delta(c.strip())) for c in shape_name.split('+') if c.strip()]
@@ -3495,10 +3508,43 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                         if mod != 1:
                             wrinkle = [w * mod for w in wrinkle]
 
-                    DmeVertexDeltaData[keywords["pos"]] = datamodel.make_array(shape_pos, datamodel.Vector3)
-                    DmeVertexDeltaData[keywords["pos"] + "Indices"] = datamodel.make_array(shape_posIdx, int)
-                    DmeVertexDeltaData[keywords["norm"]] = datamodel.make_array(shape_norms, datamodel.Vector3)
-                    DmeVertexDeltaData[keywords["norm"] + "Indices"] = datamodel.make_array(shape_normIdx, int)
+                    if _split_base is not None:
+                        # Split the whole delta into <base>L (scaled by balance) and <base>R
+                        # (scaled by 1-balance), per the mesh stereo balance. balance[v]==1 is
+                        # full-left, ==0 full-right. This is what the compiler does at compile time.
+                        def _scaled(vecs, idxs, vert_of, left):
+                            out_v, out_i = [], []
+                            for vec, idx in zip(vecs, idxs):
+                                b = balance[vert_of(idx)]
+                                w = b if left else (1.0 - b)
+                                if w <= 1e-6:
+                                    continue
+                                out_v.append(datamodel.Vector3([vec[0] * w, vec[1] * w, vec[2] * w]))
+                                out_i.append(idx)
+                            return out_v, out_i
+
+                        def _emit_split(elem, left):
+                            lp, lpi = _scaled(shape_pos, shape_posIdx, lambda i: i, left)
+                            ln, lni = _scaled(shape_norms, shape_normIdx, lambda i: ob.data.loops[i].vertex_index, left)
+                            elem[keywords["pos"]] = datamodel.make_array(lp, datamodel.Vector3)
+                            elem[keywords["pos"] + "Indices"] = datamodel.make_array(lpi, int)
+                            elem[keywords["norm"]] = datamodel.make_array(ln, datamodel.Vector3)
+                            elem[keywords["norm"] + "Indices"] = datamodel.make_array(lni, int)
+
+                        # DmeVertexDeltaData was created as "<base>L"; fill it with the left half.
+                        _emit_split(DmeVertexDeltaData, left=True)
+
+                        _r_name = _split_base + "R"
+                        shape_names.append(_r_name)
+                        _rvdd = dm.add_element(_r_name, "DmeVertexDeltaData", id=ob.name + _r_name)
+                        delta_states.append(_rvdd)
+                        _rvdd["vertexFormat"] = datamodel.make_array([keywords["pos"], keywords["norm"]], str)
+                        _emit_split(_rvdd, left=False)
+                    else:
+                        DmeVertexDeltaData[keywords["pos"]] = datamodel.make_array(shape_pos, datamodel.Vector3)
+                        DmeVertexDeltaData[keywords["pos"] + "Indices"] = datamodel.make_array(shape_posIdx, int)
+                        DmeVertexDeltaData[keywords["norm"]] = datamodel.make_array(shape_norms, datamodel.Vector3)
+                        DmeVertexDeltaData[keywords["norm"] + "Indices"] = datamodel.make_array(shape_normIdx, int)
 
                     if wrinkle_scale:
                         vtxFmt.append(keywords["wrinkle"])

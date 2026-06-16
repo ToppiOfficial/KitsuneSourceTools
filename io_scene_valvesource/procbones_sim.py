@@ -57,6 +57,18 @@ _tick_sim_world: dict[tuple[str, str], Matrix] = {}
 _timer_handle = None
 _last_real_time: float = 0.0
 
+# Live counts of bones simulated in the most recent pass, for the viewport HUD.
+# Accumulated across all armatures per pass; _live_* are the published totals.
+_jiggle_count_acc: int = 0
+_proc_count_acc: int = 0
+_live_jiggle_count: int = 0
+_live_proc_count: int = 0
+
+
+def get_sim_counts() -> tuple[int, int]:
+    """(jiggle_bones, proc_bones) actually simulated in the latest tick."""
+    return _live_jiggle_count, _live_proc_count
+
 # arm_name -> depth-sorted list of jiggle bone names (rebuilt on reset / rig change)
 _jiggle_bone_cache: dict[str, list[str]] = {}
 # scene_name -> list of armature object names that have jiggle/proc bones
@@ -812,11 +824,13 @@ def _sim_lookat_entry(arm_ob, entry, is_s2: bool, arm_world_inv: Matrix) -> None
     helper_pb.matrix_basis = local_mat.to_3x3().to_4x4()
 
 
-def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> None:
+def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> int:
+    """Drive procedural (helper) bones. Returns the number of helpers simulated."""
     jiggle_helpers: set[str] = {
         pb.name for pb in arm_ob.pose.bones if pb.bone.vs.bone_is_jigglebone
     }
     seen_helpers: set[str] = set()
+    sim_count = 0
 
     for entry_idx, entry in enumerate(arm_ob.data.vs.proc_bones):
         is_lookat = getattr(entry, 'proc_type', 'TRIGGER') == 'LOOKAT'
@@ -845,6 +859,7 @@ def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> None
 
         if is_lookat:
             _sim_lookat_entry(arm_ob, entry, is_s2, arm_world_inv)
+            sim_count += 1
             continue
 
         cache_key = (arm_ob.name, entry_idx,
@@ -902,11 +917,15 @@ def _sim_proc_entries(arm_ob, scene, is_s2: bool, arm_world_inv: Matrix) -> None
         mat = blended_rot.to_matrix().to_4x4()
         mat.translation = blended_loc
         helper_pb.matrix_basis = mat
+        sim_count += 1
+
+    return sim_count
 
 
 # -- Armature-level simulation -------------------------------------------------
 
 def simulate_armature(arm_ob, scene, dt: float, skip_selected: bool = False) -> None:
+    global _jiggle_count_acc, _proc_count_acc
     if not arm_ob.pose or _building_proc_cache:
         return
     _tick_sim_world.clear()
@@ -931,10 +950,11 @@ def simulate_armature(arm_ob, scene, dt: float, skip_selected: bool = False) -> 
             except Exception:
                 import traceback
                 traceback.print_exc()
+        _jiggle_count_acc += len(jiggle_pbs)
 
     if getattr(scene.vs, 'sim_proc_bones', True):
         try:
-            _sim_proc_entries(arm_ob, scene, is_s2, arm_world_inv)
+            _proc_count_acc += _sim_proc_entries(arm_ob, scene, is_s2, arm_world_inv)
         except Exception:
             import traceback
             traceback.print_exc()
@@ -984,7 +1004,8 @@ def _get_rate() -> float:
 
 
 def _timer_callback():
-    global _last_real_time
+    global _last_real_time, _jiggle_count_acc, _proc_count_acc
+    global _live_jiggle_count, _live_proc_count
     try:
         ctx = bpy.context
         if ctx is None:
@@ -1001,6 +1022,8 @@ def _timer_callback():
         dt  = min(now - _last_real_time, 0.1)
         _last_real_time = now
 
+        _jiggle_count_acc = 0
+        _proc_count_acc   = 0
         for scene in bpy.data.scenes:
             if not getattr(scene.vs, 'jiggle_sim_enabled', False):
                 continue
@@ -1011,6 +1034,9 @@ def _timer_callback():
                 ob = bpy.data.objects.get(arm_name)
                 if ob and ob.pose and not ob.hide_render and ob.visible_get():
                     simulate_armature(ob, scene, dt, skip_selected=True)
+
+        _live_jiggle_count = _jiggle_count_acc
+        _live_proc_count   = _proc_count_acc
 
     except Exception:
         import traceback
@@ -1038,6 +1064,7 @@ def _stop_timer() -> None:
 
 @bpy.app.handlers.persistent
 def _frame_change_post(scene, depsgraph):
+    global _jiggle_count_acc, _proc_count_acc, _live_jiggle_count, _live_proc_count
     if not getattr(scene.vs, 'jiggle_sim_enabled', False):
         return
     fps = scene.render.fps / scene.render.fps_base
@@ -1045,10 +1072,14 @@ def _frame_change_post(scene, depsgraph):
     arm_names = _sim_arm_cache.get(scene.name)
     if arm_names is None:
         arm_names = _rebuild_sim_arm_cache(scene)
+    _jiggle_count_acc = 0
+    _proc_count_acc   = 0
     for arm_name in arm_names:
         ob = bpy.data.objects.get(arm_name)
         if ob and ob.pose and not ob.hide_render and ob.visible_get():
             simulate_armature(ob, scene, dt)
+    _live_jiggle_count = _jiggle_count_acc
+    _live_proc_count   = _proc_count_acc
 
 
 # -- Bone restore helper -------------------------------------------------------
