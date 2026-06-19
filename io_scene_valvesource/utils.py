@@ -1318,6 +1318,161 @@ def parse_hitbox_line(line: str):
     }
 
 
+def import_jigglebones_from_dmx_elements(elements, armature: bpy.types.Object) -> tuple[int, list[str]]:
+    import math as _math
+
+    imported_count = 0
+    missing_bones: list[str] = []
+
+    # Match by exported name first, then by raw bone name (case-insensitive fallback).
+    bone_by_export = {get_bone_exportname(b): b for b in armature.data.bones}
+    bone_by_name = {b.name: b for b in armature.data.bones}
+    bone_by_name_lower = {b.name.lower(): b for b in armature.data.bones}
+
+    for elem, bone_name in elements:
+        bone = None
+        if bone_name:
+            bone = bone_by_name.get(bone_name)
+        if bone is None:
+            name = elem.name or ""
+            bone = (bone_by_export.get(name) or bone_by_name.get(name)
+                    or bone_by_name_lower.get(name.lower()))
+        if bone is None:
+            missing_bones.append(elem.name or "<unnamed>")
+            continue
+
+        vs_bone = bone.vs
+        vs_bone.bone_is_jigglebone = True
+        imported_count += 1
+
+        if elem.get("flexible"):
+            vs_bone.jiggle_flex_type = 'FLEXIBLE'
+        elif elem.get("rigid"):
+            vs_bone.jiggle_flex_type = 'RIGID'
+        else:
+            vs_bone.jiggle_flex_type = 'NONE'
+
+        vs_bone.jiggle_length = float(elem.get("length", 0.0))
+        vs_bone.use_bone_length_for_jigglebone_length = vs_bone.jiggle_length == 0.0
+        vs_bone.jiggle_tip_mass = float(elem.get("tipMass", 0.0))
+
+        if vs_bone.jiggle_flex_type == 'FLEXIBLE':
+            vs_bone.jiggle_yaw_stiffness = float(elem.get("yawStiffness", 0.0))
+            vs_bone.jiggle_yaw_damping = float(elem.get("yawDamping", 0.0))
+            vs_bone.jiggle_pitch_stiffness = float(elem.get("pitchStiffness", 0.0))
+            vs_bone.jiggle_pitch_damping = float(elem.get("pitchDamping", 0.0))
+
+            vs_bone.jiggle_has_yaw_constraint = bool(elem.get("yawConstrained"))
+            if vs_bone.jiggle_has_yaw_constraint:
+                vs_bone.jiggle_yaw_constraint_min = abs(_math.radians(float(elem.get("yawMin", 0.0))))
+                vs_bone.jiggle_yaw_constraint_max = abs(_math.radians(float(elem.get("yawMax", 0.0))))
+                vs_bone.jiggle_yaw_friction = float(elem.get("yawFriction", 0.0))
+
+            vs_bone.jiggle_has_pitch_constraint = bool(elem.get("pitchConstrained"))
+            if vs_bone.jiggle_has_pitch_constraint:
+                vs_bone.jiggle_pitch_constraint_min = abs(_math.radians(float(elem.get("pitchMin", 0.0))))
+                vs_bone.jiggle_pitch_constraint_max = abs(_math.radians(float(elem.get("pitchMax", 0.0))))
+                vs_bone.jiggle_pitch_friction = float(elem.get("pitchFriction", 0.0))
+
+            # Flexible jigglebones constrain length by default; export writes lengthConstrained,
+            # so "allow length flex" is its inverse.
+            vs_bone.jiggle_allow_length_flex = not bool(elem.get("lengthConstrained", True))
+            if vs_bone.jiggle_allow_length_flex:
+                vs_bone.jiggle_along_stiffness = float(elem.get("alongStiffness", 0.0))
+                vs_bone.jiggle_along_damping = float(elem.get("alongDamping", 0.0))
+
+            vs_bone.jiggle_has_angle_constraint = bool(elem.get("angleConstrained"))
+            if vs_bone.jiggle_has_angle_constraint:
+                vs_bone.jiggle_angle_constraint = _math.radians(float(elem.get("angleLimit", 0.0)))
+
+        if elem.get("baseSpring"):
+            vs_bone.jiggle_base_type = 'BASESPRING'
+            vs_bone.jiggle_base_stiffness = float(elem.get("baseStiffness", 0.0))
+            vs_bone.jiggle_base_damping = float(elem.get("baseDamping", 0.0))
+            vs_bone.jiggle_base_mass = int(float(elem.get("baseMass", 0)))
+
+            # Base constraints are written without degree conversion on export - read raw.
+            has_left = elem.get("baseYawMin") is not None or elem.get("baseYawMax") is not None
+            vs_bone.jiggle_has_left_constraint = has_left
+            if has_left:
+                vs_bone.jiggle_left_constraint_min = abs(float(elem.get("baseYawMin", 0.0)))
+                vs_bone.jiggle_left_constraint_max = abs(float(elem.get("baseYawMax", 0.0)))
+                vs_bone.jiggle_left_friction = float(elem.get("baseYawFriction", 0.0))
+
+            has_up = elem.get("basePitchMin") is not None or elem.get("basePitchMax") is not None
+            vs_bone.jiggle_has_up_constraint = has_up
+            if has_up:
+                vs_bone.jiggle_up_constraint_min = abs(float(elem.get("basePitchMin", 0.0)))
+                vs_bone.jiggle_up_constraint_max = abs(float(elem.get("basePitchMax", 0.0)))
+                vs_bone.jiggle_up_friction = float(elem.get("basePitchFriction", 0.0))
+
+            has_forward = elem.get("baseAlongMin") is not None or elem.get("baseAlongMax") is not None
+            vs_bone.jiggle_has_forward_constraint = has_forward
+            if has_forward:
+                vs_bone.jiggle_forward_constraint_min = abs(float(elem.get("baseAlongMin", 0.0)))
+                vs_bone.jiggle_forward_constraint_max = abs(float(elem.get("baseAlongMax", 0.0)))
+                vs_bone.jiggle_forward_friction = float(elem.get("baseAlongFriction", 0.0))
+        elif elem.get("boing"):
+            vs_bone.jiggle_base_type = 'BOING'
+            vs_bone.jiggle_impact_speed = int(float(elem.get("boingImpactSpeed", 0)))
+            vs_bone.jiggle_impact_angle = _math.radians(float(elem.get("boingImpactAngle", 0.0)))
+            vs_bone.jiggle_damping_rate = float(elem.get("boingDampingRate", 0.0))
+            vs_bone.jiggle_frequency = float(elem.get("boingFrequency", 0.0))
+            vs_bone.jiggle_amplitude = float(elem.get("boingAmplitude", 0.0))
+        else:
+            vs_bone.jiggle_base_type = 'NONE'
+
+    return imported_count, missing_bones
+
+
+def import_hitboxes_from_dmx_root(dm_root, armature: bpy.types.Object) -> tuple[int, int, list[str]]:
+    import math as _math
+
+    hbox_set_list = dm_root.get("hitboxSetList") if dm_root is not None else None
+    if hbox_set_list is None:
+        return (0, 0, [])
+    sets = hbox_set_list.get("hitboxSetList") or []
+    if not sets:
+        return (0, 0, [])
+
+    avs = getattr(armature.data, 'vs', None)
+    if avs is None:
+        return (0, 0, [])
+
+    bone_by_export = {get_bone_exportname(b): b for b in armature.data.bones}
+    bone_by_name = {b.name: b for b in armature.data.bones}
+
+    created_count = 0
+    skipped_count = 0
+    skipped_bones: list[str] = []
+
+    first_set_name = (sets[0].name or "").strip()
+    if first_set_name:
+        avs.hboxset_name = first_set_name
+
+    for hbox_set in sets:
+        for hb in (hbox_set.get("hitboxList") or []):
+            bone_export = hb.get("boneName") or hb.name or ""
+            bone = bone_by_export.get(bone_export) or bone_by_name.get(bone_export)
+            if bone is None:
+                skipped_bones.append(bone_export or "<unnamed>")
+                skipped_count += 1
+                continue
+
+            entry = avs.hitboxes.add()
+            entry.bone_name = bone.name
+            entry.group = str(min(max(int(hb.get("groupId", 0)), 0), 8))
+            entry.vec_min = tuple(hb.get("minBounds", (0.0, 0.0, 0.0)))
+            entry.vec_max = tuple(hb.get("maxBounds", (0.0, 0.0, 0.0)))
+            orient = hb.get("orientation", (0.0, 0.0, 0.0))
+            entry.rotation = (_math.radians(orient[0]), _math.radians(orient[1]), _math.radians(orient[2]))
+            entry.scale = float(hb.get("radius", -1.0))
+            avs.hitboxes_index = len(avs.hitboxes) - 1
+            created_count += 1
+
+    return (created_count, skipped_count, skipped_bones)
+
+
 def import_hitboxes_from_content(content: str, armature: bpy.types.Object, context: bpy.types.Context, create_collection: bool = False, hboxset_name: str = ''):
     """Import hitboxes from $hbox lines into the armature's hitboxes collection.
     Returns (created_count, skipped_count, skipped_bones list)
@@ -1883,6 +2038,14 @@ prefab_type_info = {
     'HITBOXES':      ('MESH_CUBE',        'Hitboxes'),
     'PROCEDURAL':    ('CON_TRACKTO',      'Procedural'),
 }
+
+
+def prefab_mode_is_dme(scene) -> bool:
+    """True when prefabs should be encoded into the model DMX (DME mode) rather than
+    written to .qci files. DME embedding is a Source 1 concept only - it is always
+    False for ModelDoc / Source 2, which keeps jigglebones and hitboxes in .vmdl."""
+    return (State.compiler != Compiler.MODELDOC
+            and getattr(scene.vs, 'prefab_export_mode', 'QCI') == 'DME')
 
 
 def prefab_available_types(arm: bpy.types.Object) -> list[tuple[str, int]]:

@@ -1267,6 +1267,22 @@ _data = {
         'en': "Copy prefab export content to clipboard instead of to a file",
         'ja': "プレハブエクスポートのコンテンツをファイルではなくクリップボードにコピー",
     },
+    'prefab_export_mode': {
+        'en': "Prefab Mode",
+        'ja': "プレハブモード",
+    },
+    'prefab_export_mode_tip': {
+        'en': "How jigglebones, attachments and hitboxes are exported (Source 1 only). QCI writes them to .qci prefab files; DME encodes jigglebones and hitboxes into the model .dmx instead (procedural bones still export as .vrd)",
+        'ja': "ジグルボーン・アタッチメント・ヒットボックスのエクスポート方法 (Source 1 のみ)。QCI は .qci プレハブファイルに書き出し、DME はジグルボーンとヒットボックスをモデルの .dmx に埋め込みます (プロシージャルボーンは引き続き .vrd)",
+    },
+    'prefab_export_mode_qci_tip': {
+        'en': "Write jigglebones, attachments and hitboxes to separate .qci prefab files",
+        'ja': "ジグルボーン・アタッチメント・ヒットボックスを個別の .qci プレハブファイルに書き出します",
+    },
+    'prefab_export_mode_dme_tip': {
+        'en': "Encode jigglebones and hitboxes into the exported model .dmx (no .qci is written); attachments are embedded in the model .dmx. Procedural bones still export as .vrd. Requires a DME-capable Source 1 compiler (KitsuneMDL)",
+        'ja': "ジグルボーンとヒットボックスをエクスポートされるモデルの .dmx に埋め込みます (.qci は書き出されません)。アタッチメントもモデルの .dmx に埋め込まれます。プロシージャルボーンは引き続き .vrd。DME 対応の Source 1 コンパイラ (KitsuneMDL) が必要です",
+    },
     'prop_arm_items_view': {
         'en': "View",
         'ja': "表示",

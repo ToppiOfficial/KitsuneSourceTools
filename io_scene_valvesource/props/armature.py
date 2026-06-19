@@ -229,7 +229,4 @@ class ValveSource_ArmatureProps(bpy.types.PropertyGroup):
     proc_bones       : CollectionProperty(type=ProcBoneEntry)
     proc_bones_index : IntProperty(default=-1)
 
-    # Prefab export entries (jigglebones / attachments / hitboxes / procedural).
-    # Synced to the available content by make_export_list(); per-entry export
-    # toggle and output path are preserved across syncs.
     prefab_items : CollectionProperty(type=PrefabItem)

@@ -1,7 +1,7 @@
 import bpy
 from bpy.types import Menu
 from ..utils import (get_id, getSelectedExportables, count_exports, is_armature,
-                     prefab_available_types, prefab_type_info)
+                     prefab_available_types, prefab_type_info, prefab_mode_is_dme)
 from ..export_smd import SmdExporter, PrefabExporter, KitsuneResourceCompile
 from .operators import (
     SMD_OT_AddAllFlexControllers,
@@ -84,6 +84,12 @@ class SMD_MT_ExportChoice(Menu):
                 allowed = {'HITBOXES'}
                 if is_attachment:
                     allowed.add('ATTACHMENTS')
+
+            # In DME mode jigglebones/attachments/hitboxes are encoded into the model DMX,
+            # so their standalone .qci export buttons are dead-ends - hide them. Procedural
+            # bones still export as a .vrd, so they stay.
+            if prefab_mode_is_dme(context.scene):
+                allowed -= {'JIGGLEBONES', 'ATTACHMENTS', 'HITBOXES'}
 
             entries = [(t, c) for t, c in available if t in allowed]
             if entries:

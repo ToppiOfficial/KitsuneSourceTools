@@ -1622,7 +1622,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 return out
 
             def isBone(elem) -> bool:
-                return elem.type in ["DmeDag", "DmeJoint"]
+                return elem.type in ["DmeDag", "DmeJoint", "DmeJiggleBone"]
 
             def getBoneForElement(elem) -> bpy.types.EditBone:
                 return smd.a.data.edit_bones[smd.boneIDs[elem.id]]
@@ -1764,15 +1764,42 @@ class SmdImporter(bpy.types.Operator, Logger):
                         self.applyFrames(restData, 1)
 
             # -----------------------------------------------------------------
+            # Jigglebones & hitboxes (DME / model-DMX mode, Source 1)
+            # -----------------------------------------------------------------
+            # These are no-ops when the DMX lacks DmeJiggleBone joints / a hitboxSetList, so
+            # they are safe to attempt on any reference. Only for skeletal reference imports.
+            if smd.a and smd.jobType != ANIM:
+                jiggle_elems = [
+                    (elem, smd.boneIDs.get(elem.id))
+                    for (elem, _parent) in enumerateBonesAndAttachments(DmeModel)
+                    if elem.type == "DmeJiggleBone"
+                ]
+                if jiggle_elems:
+                    jb_count, jb_missing = import_jigglebones_from_dmx_elements(jiggle_elems, smd.a)
+                    print(f"- Imported {jb_count} jigglebone(s) from DMX")
+                    if jb_missing:
+                        self.warning(
+                            f"DMX jigglebones: {len(jb_missing)} bone(s) not found on "
+                            f"'{smd.a.name}': {', '.join(jb_missing)}")
+
+                hb_created, hb_skipped, hb_bones = import_hitboxes_from_dmx_root(dm.root, smd.a)
+                if hb_created or hb_skipped:
+                    print(f"- Imported {hb_created} hitbox(es) from DMX")
+                    if hb_skipped:
+                        self.warning(
+                            f"DMX hitboxes: {hb_skipped} skipped, bone(s) not found on "
+                            f"'{smd.a.name}': {', '.join(hb_bones)}")
+
+            # -----------------------------------------------------------------
             # Mesh parser (nested helper)
             # -----------------------------------------------------------------
 
             def parseModel(elem, matrix=Matrix(), last_bone=None):
-                if elem.type in ["DmeModel", "DmeDag", "DmeJoint"]:
+                if elem.type in ["DmeModel", "DmeDag", "DmeJoint", "DmeJiggleBone"]:
                     if elem.type == "DmeDag":
                         matrix = matrix @ get_transform_matrix(elem)
                     if elem.get("children") and elem["children"]:
-                        if elem.type == "DmeJoint":
+                        if elem.type in ["DmeJoint", "DmeJiggleBone"]:
                             last_bone = elem
                         subelems = elem["children"]
                     elif elem.get("shape"):

@@ -1893,7 +1893,15 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         avs = getattr(arm.data, 'vs', None)
         prefab_items = {p.prefab_type: p for p in avs.prefab_items} if avs else {}
 
+        # In DME mode jigglebones/attachments/hitboxes are encoded into the model DMX, so we
+        # skip their .qci output here. Procedural bones always export as a .vrd.
+        dme = prefab_mode_is_dme(context.scene)
+
         for export_type, _count in prefab_available_types(arm):
+            if dme and export_type in ('JIGGLEBONES', 'ATTACHMENTS', 'HITBOXES'):
+                print(f"  - {export_type}: skipped - encoded into model DMX (DME mode)")
+                continue
+
             pitem = prefab_items.get(export_type)
             if pitem is not None and not pitem.export:
                 print(f"  - {export_type}: skipped - export disabled")
@@ -2818,6 +2826,12 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         dm.allow_random_ids = False
         source2 = dm.format_ver >= 22
 
+        # DME prefab mode: encode jigglebones + hitboxes (and keep attachments) inside the
+        # model DMX instead of writing .qci prefabs. This is a Source 1 concept only - the
+        # `not source2` guard guarantees no DmeJiggleBone/hitboxSetList is ever written into
+        # a format-22 (Source 2) DMX, regardless of the prefab_export_mode setting.
+        dme_mode = (not source2) and prefab_mode_is_dme(bpy.context.scene)
+
         root = dm.add_element(bpy.context.scene.name, id="Scene" + bpy.context.scene.name)
         DmeModel = dm.add_element(armature_name, "DmeModel", id="Object" + armature_name)
         DmeModel_children = DmeModel["children"] = datamodel.make_array([], datamodel.Element)
@@ -2878,7 +2892,15 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 bone_name = bone.name
 
             bone_exportname = self.exportable_boneNames[bone.name] if bone else bone_name
-            bone_elements[bone_name] = bone_elem = dm.add_element(bone_exportname, "DmeJoint", id=bone_name)
+            # In DME mode a jigglebone is a skeleton joint of element type DmeJiggleBone
+            # (a DmeJoint subclass); KitsuneMDL's HandleDmeJiggleBone casts each dag joint.
+            # `bone` here is a PoseBone; the .vs props live on the data Bone (bone.bone).
+            data_bone = bone.bone if bone is not None else None
+            is_dme_jiggle = dme_mode and not is_anim and data_bone is not None and data_bone.vs.bone_is_jigglebone
+            bone_elem_type = "DmeJiggleBone" if is_dme_jiggle else "DmeJoint"
+            bone_elements[bone_name] = bone_elem = dm.add_element(bone_exportname, bone_elem_type, id=bone_name)
+            if is_dme_jiggle:
+                _apply_dme_jigglebone_attrs(bone_elem, data_bone)
             if want_jointlist:
                 jointList.append(bone_elem)
             self.bone_ids[bone_name] = len(bone_elements) - (0 if source2 else 1)
@@ -2974,12 +2996,15 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             relMat = pmat.inverted() @ empty_matrix
             return _write_attach(empty.name, relMat, bone_elements[exportable_parent.name])
 
-        if not is_anim and self.exportable_empties and self.armature:
+        # Source 2 (.vmdl workflow) always embeds attachments in the DMX. For Source 1, they
+        # are embedded only in DME mode; in QCI mode they are exported via the .qci prefab.
+        embed_attachments = source2 or dme_mode
+        if embed_attachments and not is_anim and self.exportable_empties and self.armature:
             for empty, world_matrix in self.exportable_empties:
                 writeattachment(empty, world_matrix)
             bench.report("Empties")
 
-        if not is_anim and not source2 and self.armature and self.armature_src:
+        if dme_mode and not is_anim and not source2 and self.armature and self.armature_src:
             avs = getattr(self.armature_src.data, 'vs', None)
             proc_bones_list = list(getattr(avs, 'proc_bones', [])) if avs else []
 
@@ -3006,6 +3031,52 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                 for idx, off in enumerate(offsets, start=1):
                     attach_name = f"{attach_base}_lookat{idx}" if multiple else f"{attach_base}_lookat"
                     _write_attach(attach_name, Matrix.Translation(Vector(off)), bone_elements[driver_name])
+
+        # Hitboxes are encoded into the model DMX in DME mode (root.hitboxSetList), matching
+        # KitsuneMDL's LoadHitboxSetList. In QCI mode they are written to the .qci instead.
+        if dme_mode and not is_anim and self.armature and self.armature_src:
+            arm_data = self.armature_src.data
+            havs = getattr(arm_data, 'vs', None)
+            hbox_entries = list(getattr(havs, 'hitboxes', [])) if havs else []
+            valid_hbox = [e for e in hbox_entries if e.bone_name and arm_data.bones.get(e.bone_name)]
+            hboxset_name = getattr(havs, 'hboxset_name', '').strip() if havs else ''
+
+            if valid_hbox and hboxset_name:
+                inverted = [e.bone_name for e in valid_hbox
+                            if e.scale < 0.0 and any(e.vec_min[i] > e.vec_max[i] for i in range(3))]
+                if inverted:
+                    self.warning(
+                        f"Hitbox min/max are inverted on {len(inverted)} box hitbox(es): Source Engine "
+                        f"will invert hit registration. Swap Min and Max for: {', '.join(inverted)}")
+
+                hbox_set_list = dm.add_element("hitboxSetList", "DmeHitboxSetList", id="hitboxSetList")
+                hbox_set_list["hitboxSetList"] = datamodel.make_array([], datamodel.Element)
+
+                hbox_set = dm.add_element(hboxset_name, "DmeHitboxSet", id="hitboxSet_" + hboxset_name)
+                hbox_set["hitboxList"] = datamodel.make_array([], datamodel.Element)
+                hbox_set_list["hitboxSetList"].append(hbox_set)
+
+                for hi, e in enumerate(valid_hbox):
+                    bone = arm_data.bones[e.bone_name]
+                    bone_export = self.exportable_boneNames.get(e.bone_name, get_bone_exportname(bone))
+                    hb = dm.add_element(bone_export, "DmeHitbox", id=f"hitbox_{hboxset_name}_{hi}_{e.bone_name}")
+                    hb["boneName"]   = bone_export
+                    hb["groupId"]    = int(e.group) if e.group.isdigit() else 0
+                    hb["minBounds"]  = datamodel.Vector3(e.vec_min)
+                    hb["maxBounds"]  = datamodel.Vector3(e.vec_max)
+                    # scale: -1 = OBB box, >= 0 = capsule radius (matches flCapsuleRadius).
+                    hb["radius"]      = float(e.scale)
+                    # orientation is a plain vector3 of Euler degrees (pitch, yaw, roll),
+                    # read into angOffsetOrientation on the compiler. Vector3 (not Angle)
+                    # avoids the "angle" vs "qangle" DMX type-name mismatch with KitsuneMDL.
+                    hb["orientation"] = datamodel.Vector3((
+                        math.degrees(e.rotation[0]),
+                        math.degrees(e.rotation[1]),
+                        math.degrees(e.rotation[2])))
+                    hbox_set["hitboxList"].append(hb)
+
+                root["hitboxSetList"] = hbox_set_list
+                bench.report("Hitboxes")
 
         for vca in bake_results[0].vertex_animations:
             DmeModel_children.extend(writeBone(f"vcabone_{vca}"))
@@ -3766,6 +3837,82 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         return written
 
 
+def _apply_dme_jigglebone_attrs(elem, bone) -> None:
+    """Populate a DmeJiggleBone element's attributes from a bone's jiggle_* properties.
+
+    Mirrors the flag-gating and unit conversions of PrefabExporter._jigglebones_qc so the
+    DME (model-DMX) encoding matches the .qci output. Attribute names and degree units
+    match KitsuneMDL's CDmeJiggleBone (libs/mdlobjects/dmejigglebone.cpp) /
+    HandleDmeJiggleBone (studiomdl/dmxsupport.cpp). The loader only reads constraint values
+    when the corresponding *Constrained flag is set, but we mirror the QCI gating for clarity.
+    """
+    bvs = bone.vs
+    jiggle_length = bone.length if bvs.use_bone_length_for_jigglebone_length else bvs.jiggle_length
+
+    is_flexible = bvs.jiggle_flex_type == 'FLEXIBLE'
+    is_rigid    = bvs.jiggle_flex_type == 'RIGID'
+
+    elem["flexible"] = is_flexible
+    elem["rigid"]    = is_rigid
+    elem["length"]   = float(jiggle_length)
+    elem["tipMass"]  = float(bvs.jiggle_tip_mass)
+
+    if is_flexible:
+        elem["yawStiffness"]   = float(bvs.jiggle_yaw_stiffness)
+        elem["yawDamping"]     = float(bvs.jiggle_yaw_damping)
+        elem["pitchStiffness"] = float(bvs.jiggle_pitch_stiffness)
+        elem["pitchDamping"]   = float(bvs.jiggle_pitch_damping)
+
+        elem["yawConstrained"] = bool(bvs.jiggle_has_yaw_constraint)
+        if bvs.jiggle_has_yaw_constraint:
+            elem["yawMin"]      = -abs(math.degrees(bvs.jiggle_yaw_constraint_min))
+            elem["yawMax"]      =  abs(math.degrees(bvs.jiggle_yaw_constraint_max))
+            elem["yawFriction"] = float(bvs.jiggle_yaw_friction)
+
+        elem["pitchConstrained"] = bool(bvs.jiggle_has_pitch_constraint)
+        if bvs.jiggle_has_pitch_constraint:
+            elem["pitchMin"]      = -abs(math.degrees(bvs.jiggle_pitch_constraint_min))
+            elem["pitchMax"]      =  abs(math.degrees(bvs.jiggle_pitch_constraint_max))
+            elem["pitchFriction"] = float(bvs.jiggle_pitch_friction)
+
+        # Flexible jigglebones constrain length by DEFAULT; "allow length flex" RELEASES it.
+        # The QC parser sets JIGGLE_HAS_LENGTH_CONSTRAINT on entry and clears it on
+        # "allow_length_flex", so lengthConstrained is the inverse of jiggle_allow_length_flex.
+        elem["lengthConstrained"] = not bvs.jiggle_allow_length_flex
+        if bvs.jiggle_allow_length_flex:
+            elem["alongStiffness"] = float(bvs.jiggle_along_stiffness)
+            elem["alongDamping"]   = float(bvs.jiggle_along_damping)
+
+        elem["angleConstrained"] = bool(bvs.jiggle_has_angle_constraint)
+        if bvs.jiggle_has_angle_constraint:
+            elem["angleLimit"] = math.degrees(bvs.jiggle_angle_constraint)
+
+    if bvs.jiggle_base_type == 'BASESPRING':
+        elem["baseSpring"]    = True
+        elem["baseStiffness"] = float(bvs.jiggle_base_stiffness)
+        elem["baseDamping"]   = float(bvs.jiggle_base_damping)
+        elem["baseMass"]      = float(bvs.jiggle_base_mass)
+        if bvs.jiggle_has_left_constraint:
+            elem["baseYawMin"]      = -abs(bvs.jiggle_left_constraint_min)
+            elem["baseYawMax"]      =  abs(bvs.jiggle_left_constraint_max)
+            elem["baseYawFriction"] = float(bvs.jiggle_left_friction)
+        if bvs.jiggle_has_up_constraint:
+            elem["basePitchMin"]      = -abs(bvs.jiggle_up_constraint_min)
+            elem["basePitchMax"]      =  abs(bvs.jiggle_up_constraint_max)
+            elem["basePitchFriction"] = float(bvs.jiggle_up_friction)
+        if bvs.jiggle_has_forward_constraint:
+            elem["baseAlongMin"]      = -abs(bvs.jiggle_forward_constraint_min)
+            elem["baseAlongMax"]      =  abs(bvs.jiggle_forward_constraint_max)
+            elem["baseAlongFriction"] = float(bvs.jiggle_forward_friction)
+    elif bvs.jiggle_base_type == 'BOING':
+        elem["boing"]            = True
+        elem["boingImpactSpeed"] = float(bvs.jiggle_impact_speed)
+        elem["boingImpactAngle"] = math.degrees(bvs.jiggle_impact_angle)
+        elem["boingDampingRate"] = float(bvs.jiggle_damping_rate)
+        elem["boingFrequency"]   = float(bvs.jiggle_frequency)
+        elem["boingAmplitude"]   = float(bvs.jiggle_amplitude)
+
+
 def _s2_prefab_bonename(bone) -> str:
     # I don't know if ValveBiped. is only stripped or it applies to any with . separator
     # TODO: Confirm.
@@ -3917,6 +4064,15 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
 
             export_path = None
             fmt = None
+
+            # In DME mode these prefabs are embedded into the model DMX, not written to .qci.
+            # Block file export (clipboard copy of the QC text stays allowed for convenience).
+            if (not self.to_clipboard and prefab_mode_is_dme(context.scene)
+                    and self.export_type in ('JIGGLEBONES', 'ATTACHMENTS', 'HITBOXES')):
+                self.report({'ERROR'},
+                    f"{self.export_type.title()} are embedded into the model DMX in DME mode. "
+                    f"Export the model instead, or switch Prefab Mode to QCI.")
+                return {'CANCELLED'}
 
             if not self.to_clipboard:
                 resolved = resolve_prefab_output(arm, self.export_type, context.scene)

@@ -140,6 +140,11 @@ class SMD_PT_Scene(Panel):
                 col1 = box.column()
                 col1.scale_y = 1.2
                 col1.prop(scene.vs, "material_path")
+
+                if State.compiler != Compiler.MODELDOC:
+                    row = box.row().split(factor=0.33)
+                    row.label(text=get_id("prefab_export_mode", True) + ":")
+                    row.row().prop(scene.vs, "prefab_export_mode", expand=True)
         else:
             row = box.split(factor=0.33)
             row.label(text=get_id("smd_format", True) + ":")
