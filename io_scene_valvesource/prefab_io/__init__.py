@@ -1,0 +1,21 @@
+"""Prefab serialization for jigglebones and hitboxes.
+
+Each feature module owns both directions (import + export) for all three on-disk
+formats (QC text, DME model-DMX, KV3 .vmdl), so a format's writer and reader can
+no longer drift apart across files. ``export_smd`` calls the ``*_kwargs`` /
+``qc_*`` / ``write_dme_*`` builders; ``import_smd`` (via ``utils``) calls the
+``import_*`` entry points.
+"""
+
+from . import jigglebone, hitbox
+
+from .jigglebone import (
+    import_jigglebones_from_dmx_elements,
+    import_jigglebones_from_content,
+    import_jigglebones_from_kv3,
+)
+from .hitbox import (
+    import_hitboxes_from_dmx_root,
+    import_hitboxes_from_content,
+    import_hitboxes_from_kv3,
+)

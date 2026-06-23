@@ -1032,7 +1032,7 @@ class SMD_OT_CopyBoneExportName(Operator):
 
     @classmethod
     def poll(cls, context):
-        return bool(context.object and context.mode == 'POSE' and context.object.type == 'ARMATURE' and context.active_bone and context.active_bone.select == True)
+        return bool(context.object and context.mode == 'POSE' and context.object.type == 'ARMATURE' and (context.selected_pose_bones or context.selected_bones))
 
     def execute(self, context) -> set:
         bones = context.object.data.bones
@@ -1869,27 +1869,66 @@ class SMD_OT_CopySourceBoneProps(Operator):
         row.prop(self, "copy_jigglebone")
         row.enabled = context.active_pose_bone.bone.vs.bone_is_jigglebone
 
+    def _copy_rotation(self, src, pb, arm_ob):
+        """Copy rotation-offset settings to target bone pb.
+
+        rotation_copy_target and the offset values are rest-pose dependent, so when the
+        source follows a copy target we recompute the offset for pb's own rest matrix
+        instead of copying the source's numbers verbatim. Uses dict-style assignment to
+        bypass the update callbacks (which would recompute against the active bone)."""
+        from ..props.armature import _compute_rotation_sync
+        bvs = pb.bone.vs
+        bvs.ignore_rotation_offset = src.ignore_rotation_offset
+        tgt_name = src.rotation_copy_target
+        target_pb = arm_ob.pose.bones.get(tgt_name) if (tgt_name and arm_ob) else None
+        if target_pb is not None and target_pb != pb:
+            bvs['rotation_copy_target'] = tgt_name
+            euler = _compute_rotation_sync(pb, target_pb)
+            bvs['export_rotation_offset_x'] = euler.x
+            bvs['export_rotation_offset_y'] = euler.y
+            bvs['export_rotation_offset_z'] = euler.z
+        else:
+            bvs['rotation_copy_target'] = ""
+            bvs['export_rotation_offset_x'] = src.export_rotation_offset_x
+            bvs['export_rotation_offset_y'] = src.export_rotation_offset_y
+            bvs['export_rotation_offset_z'] = src.export_rotation_offset_z
+
+    def _copy_location(self, src, pb):
+        """Copy location-offset settings to target bone pb.
+
+        When the source uses armature space, the same armature-space offset is applied to
+        each target and its local-space equivalent is recomputed from the target's own rest
+        matrix. Local and armature-space values are kept in sync. Dict-style assignment
+        bypasses the _sync_* update callbacks so we control the conversion explicitly."""
+        from mathutils import Vector
+        bvs = pb.bone.vs
+        rot = pb.bone.matrix_local.to_3x3()
+        bvs.ignore_location_offset = src.ignore_location_offset
+        bvs['location_offset_in_armature_space'] = src.location_offset_in_armature_space
+        if src.location_offset_in_armature_space:
+            arm_vec = Vector((src.export_location_offset_arm_x,
+                              src.export_location_offset_arm_y,
+                              src.export_location_offset_arm_z))
+            local_vec = rot.inverted() @ arm_vec
+        else:
+            local_vec = Vector((src.export_location_offset_x,
+                                src.export_location_offset_y,
+                                src.export_location_offset_z))
+            arm_vec = rot @ local_vec
+        bvs['export_location_offset_x'] = local_vec.x
+        bvs['export_location_offset_y'] = local_vec.y
+        bvs['export_location_offset_z'] = local_vec.z
+        bvs['export_location_offset_arm_x'] = arm_vec.x
+        bvs['export_location_offset_arm_y'] = arm_vec.y
+        bvs['export_location_offset_arm_z'] = arm_vec.z
+
     def execute(self, context) -> set:
         src = context.active_pose_bone.bone.vs
+        arm_ob = context.active_object
 
         props = []
         if self.copy_name:
             props.append('export_name')
-        if self.copy_rotation:
-            props += [
-                'ignore_rotation_offset',
-                'export_rotation_offset_x',
-                'export_rotation_offset_y',
-                'export_rotation_offset_z',
-                'rotation_copy_target',
-            ]
-        if self.copy_location:
-            props += [
-                'ignore_location_offset',
-                'export_location_offset_x',
-                'export_location_offset_y',
-                'export_location_offset_z',
-            ]
         if self.copy_jigglebone:
             if not src.bone_is_jigglebone:
                 self.report({'WARNING'}, "Active bone is not a jigglebone")
@@ -1940,7 +1979,7 @@ class SMD_OT_CopySourceBoneProps(Operator):
                 'jiggle_amplitude',
             ]
 
-        if not props:
+        if not props and not self.copy_rotation and not self.copy_location:
             self.report({'WARNING'}, "Nothing selected to copy")
             return {'CANCELLED'}
 
@@ -1951,6 +1990,10 @@ class SMD_OT_CopySourceBoneProps(Operator):
                     setattr(pb.bone.vs, prop, getattr(src, prop))
                 except AttributeError:
                     continue
+            if self.copy_rotation:
+                self._copy_rotation(src, pb, arm_ob)
+            if self.copy_location:
+                self._copy_location(src, pb)
 
         self.report({'INFO'}, f"Copied bone properties to {len(targets)} bone(s)")
         return {'FINISHED'}
@@ -1965,117 +2008,6 @@ class SMD_OT_ResetJiggleSimulation(Operator):
         _procbones_sim._states.clear()
         _procbones_sim._proc_trigger_cache.clear()
         _procbones_sim._restore_jiggle_bones()
-        return {'FINISHED'}
-
-
-from ..utils import KST_ATTACHMENT_COLL as _KST_ATTACHMENT_COLL, ensure_kst_collection_at_top as _ensure_kst_collection_at_top, _find_layer_collection
-
-
-def _get_attachment_blend_items(self, context):
-    assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
-    if not os.path.isdir(assets_dir):
-        return [('NONE', "No assets directory found", "", 'ERROR', 0)]
-    items = []
-    for fname in sorted(os.listdir(assets_dir)):
-        if fname.endswith('.blend'):
-            fpath = os.path.join(assets_dir, fname)
-            label = fname[:-6]
-            items.append((fpath, label, fname, 'BLENDER', len(items)))
-    return items or [('NONE', "No .blend files found", "", 'ERROR', 0)]
-
-
-def _get_attachment_mesh_items(self, context):
-    fpath = self.blend_path
-    if not fpath or not os.path.isfile(fpath):
-        return [('NONE', "No file selected", "", 'ERROR', 0)]
-    try:
-        with bpy.data.libraries.load(fpath, link=False, assets_only=True) as (data_from, _):
-            items = [(name, name, '', 'MESH_DATA', i) for i, name in enumerate(sorted(data_from.objects))]
-        return items or [('NONE', "No asset meshes in this file", "", 'ERROR', 0)]
-    except Exception:
-        return [('NONE', "Failed to read library", "", 'ERROR', 0)]
-
-
-class SMD_OT_SelectAttachmentBlend(Operator):
-    bl_idname = 'smd.select_attachment_blend'
-    bl_label = "Select Library File"
-    bl_description = "Choose a .blend library file to browse attachment meshes from"
-    bl_property = 'file_choice'
-    bl_options = {'INTERNAL'}
-
-    file_choice: EnumProperty(name="Library", items=_get_attachment_blend_items)
-
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return ob is not None and ob.type == 'EMPTY' and ob.vs.dmx_attachment
-
-    def invoke(self, context, event):
-        context.window_manager.invoke_search_popup(self)
-        return {'RUNNING_MODAL'}
-
-    def execute(self, context):
-        if not self.file_choice or self.file_choice == 'NONE':
-            return {'CANCELLED'}
-        bpy.ops.smd.browse_attachment_mesh_library('INVOKE_DEFAULT', blend_path=self.file_choice)
-        return {'FINISHED'}
-
-
-class SMD_OT_BrowseAttachmentMeshLibrary(Operator):
-    bl_idname = 'smd.browse_attachment_mesh_library'
-    bl_label = "Select Attachment Mesh"
-    bl_description = "Pick an asset mesh from the selected library and assign it"
-    bl_property = 'mesh_choice'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    blend_path: StringProperty(options={'HIDDEN'})
-    mesh_choice: EnumProperty(name="Mesh", items=_get_attachment_mesh_items)
-
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return ob is not None and ob.type == 'EMPTY' and ob.vs.dmx_attachment
-
-    def invoke(self, context, event):
-        context.window_manager.invoke_search_popup(self)
-        return {'RUNNING_MODAL'}
-
-    def execute(self, context):
-        if not self.mesh_choice or self.mesh_choice == 'NONE':
-            return {'CANCELLED'}
-
-        existing = bpy.data.objects.get(self.mesh_choice)
-        if existing and existing.type == 'MESH':
-            mesh_ob = existing
-        else:
-            with bpy.data.libraries.load(self.blend_path, link=False) as (data_from, data_to):
-                if self.mesh_choice not in data_from.objects:
-                    self.report({'ERROR'}, f"'{self.mesh_choice}' not found in library")
-                    return {'CANCELLED'}
-                data_to.objects = [self.mesh_choice]
-
-            mesh_ob = bpy.data.objects.get(self.mesh_choice)
-            if mesh_ob is None:
-                self.report({'ERROR'}, f"Failed to load '{self.mesh_choice}'")
-                return {'CANCELLED'}
-
-            mesh_ob.hide_render = True
-            coll = _ensure_kst_collection_at_top(context.scene, context.view_layer)
-            coll.objects.link(mesh_ob)
-
-        vs = context.object.vs
-        idx = vs.attachment_display_meshes_index
-        meshes = vs.attachment_display_meshes
-        if 0 <= idx < len(meshes):
-            meshes[idx].mesh = mesh_ob
-        else:
-            was_empty = len(meshes) == 0
-            item = meshes.add()
-            item.mesh = mesh_ob
-            new_idx = len(meshes) - 1
-            vs.attachment_display_meshes_index = new_idx
-            if was_empty:
-                vs.attachment_display_mesh_render_index = new_idx
         return {'FINISHED'}
 
 

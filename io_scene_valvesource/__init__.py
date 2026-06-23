@@ -219,8 +219,6 @@ GUI.SMD_PT_Jigglebones,
     GUI.SMD_OT_AddAttachmentDisplayMesh,
     GUI.SMD_OT_RemoveAttachmentDisplayMesh,
     GUI.SMD_OT_SetAttachmentMeshRender,
-    GUI.SMD_OT_SelectAttachmentBlend,
-    GUI.SMD_OT_BrowseAttachmentMeshLibrary,
     GUI.SMD_MT_BoneToolsPie,
 
     # Flex
@@ -236,25 +234,6 @@ GUI.SMD_PT_Jigglebones,
     export_smd.KitsuneResourceCompile,
     import_smd.SmdImporter,
 )
-
-def _register_asset_library():
-    try:
-        assets_dir = os.path.join(os.path.dirname(__file__), "assets")
-        if not os.path.isdir(assets_dir):
-            return None
-        prefs = bpy.context.preferences.filepaths
-        assets_dir_norm = os.path.normpath(assets_dir)
-        for lib in prefs.asset_libraries:
-            if os.path.normpath(bpy.path.abspath(lib.path)) == assets_dir_norm:
-                return None
-        bpy.ops.preferences.asset_library_add('EXEC_DEFAULT', directory=assets_dir)
-        if prefs.asset_libraries:
-            lib = prefs.asset_libraries[-1]
-            lib.name = "KitsuneSourceTools"
-    except Exception:
-        pass
-    return None
-
 
 def register():
     for cls in _classes:
@@ -299,8 +278,6 @@ def register():
 
     from . import viewport_draw as _vd
     _vd.register_draw_handler()
-
-    bpy.app.timers.register(_register_asset_library, first_interval=0.5)
 
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon

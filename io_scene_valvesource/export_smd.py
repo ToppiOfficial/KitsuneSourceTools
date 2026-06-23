@@ -28,6 +28,7 @@ from bpy.types import Collection
 from .utils import *
 from .keyvalues3 import *
 from . import datamodel, ordered_set, flex
+from .prefab_io import jigglebone as _jigglebone, hitbox as _hitbox
 
 
 # -----------------------------------------------------------------------------
@@ -2900,7 +2901,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             bone_elem_type = "DmeJiggleBone" if is_dme_jiggle else "DmeJoint"
             bone_elements[bone_name] = bone_elem = dm.add_element(bone_exportname, bone_elem_type, id=bone_name)
             if is_dme_jiggle:
-                _apply_dme_jigglebone_attrs(bone_elem, data_bone)
+                _jigglebone.write_dme_attrs(bone_elem, data_bone)
             if want_jointlist:
                 jointList.append(bone_elem)
             self.bone_ids[bone_name] = len(bone_elements) - (0 if source2 else 1)
@@ -3060,19 +3061,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     bone = arm_data.bones[e.bone_name]
                     bone_export = self.exportable_boneNames.get(e.bone_name, get_bone_exportname(bone))
                     hb = dm.add_element(bone_export, "DmeHitbox", id=f"hitbox_{hboxset_name}_{hi}_{e.bone_name}")
-                    hb["boneName"]   = bone_export
-                    hb["groupId"]    = int(e.group) if e.group.isdigit() else 0
-                    hb["minBounds"]  = datamodel.Vector3(e.vec_min)
-                    hb["maxBounds"]  = datamodel.Vector3(e.vec_max)
-                    # scale: -1 = OBB box, >= 0 = capsule radius (matches flCapsuleRadius).
-                    hb["radius"]      = float(e.scale)
-                    # orientation is a plain vector3 of Euler degrees (pitch, yaw, roll),
-                    # read into angOffsetOrientation on the compiler. Vector3 (not Angle)
-                    # avoids the "angle" vs "qangle" DMX type-name mismatch with KitsuneMDL.
-                    hb["orientation"] = datamodel.Vector3((
-                        math.degrees(e.rotation[0]),
-                        math.degrees(e.rotation[1]),
-                        math.degrees(e.rotation[2])))
+                    _hitbox.write_dme_attrs(hb, e, bone_export)
                     hbox_set["hitboxList"].append(hb)
 
                 root["hitboxSetList"] = hbox_set_list
@@ -3837,82 +3826,6 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         return written
 
 
-def _apply_dme_jigglebone_attrs(elem, bone) -> None:
-    """Populate a DmeJiggleBone element's attributes from a bone's jiggle_* properties.
-
-    Mirrors the flag-gating and unit conversions of PrefabExporter._jigglebones_qc so the
-    DME (model-DMX) encoding matches the .qci output. Attribute names and degree units
-    match KitsuneMDL's CDmeJiggleBone (libs/mdlobjects/dmejigglebone.cpp) /
-    HandleDmeJiggleBone (studiomdl/dmxsupport.cpp). The loader only reads constraint values
-    when the corresponding *Constrained flag is set, but we mirror the QCI gating for clarity.
-    """
-    bvs = bone.vs
-    jiggle_length = bone.length if bvs.use_bone_length_for_jigglebone_length else bvs.jiggle_length
-
-    is_flexible = bvs.jiggle_flex_type == 'FLEXIBLE'
-    is_rigid    = bvs.jiggle_flex_type == 'RIGID'
-
-    elem["flexible"] = is_flexible
-    elem["rigid"]    = is_rigid
-    elem["length"]   = float(jiggle_length)
-    elem["tipMass"]  = float(bvs.jiggle_tip_mass)
-
-    if is_flexible:
-        elem["yawStiffness"]   = float(bvs.jiggle_yaw_stiffness)
-        elem["yawDamping"]     = float(bvs.jiggle_yaw_damping)
-        elem["pitchStiffness"] = float(bvs.jiggle_pitch_stiffness)
-        elem["pitchDamping"]   = float(bvs.jiggle_pitch_damping)
-
-        elem["yawConstrained"] = bool(bvs.jiggle_has_yaw_constraint)
-        if bvs.jiggle_has_yaw_constraint:
-            elem["yawMin"]      = -abs(math.degrees(bvs.jiggle_yaw_constraint_min))
-            elem["yawMax"]      =  abs(math.degrees(bvs.jiggle_yaw_constraint_max))
-            elem["yawFriction"] = float(bvs.jiggle_yaw_friction)
-
-        elem["pitchConstrained"] = bool(bvs.jiggle_has_pitch_constraint)
-        if bvs.jiggle_has_pitch_constraint:
-            elem["pitchMin"]      = -abs(math.degrees(bvs.jiggle_pitch_constraint_min))
-            elem["pitchMax"]      =  abs(math.degrees(bvs.jiggle_pitch_constraint_max))
-            elem["pitchFriction"] = float(bvs.jiggle_pitch_friction)
-
-        # Flexible jigglebones constrain length by DEFAULT; "allow length flex" RELEASES it.
-        # The QC parser sets JIGGLE_HAS_LENGTH_CONSTRAINT on entry and clears it on
-        # "allow_length_flex", so lengthConstrained is the inverse of jiggle_allow_length_flex.
-        elem["lengthConstrained"] = not bvs.jiggle_allow_length_flex
-        if bvs.jiggle_allow_length_flex:
-            elem["alongStiffness"] = float(bvs.jiggle_along_stiffness)
-            elem["alongDamping"]   = float(bvs.jiggle_along_damping)
-
-        elem["angleConstrained"] = bool(bvs.jiggle_has_angle_constraint)
-        if bvs.jiggle_has_angle_constraint:
-            elem["angleLimit"] = math.degrees(bvs.jiggle_angle_constraint)
-
-    if bvs.jiggle_base_type == 'BASESPRING':
-        elem["baseSpring"]    = True
-        elem["baseStiffness"] = float(bvs.jiggle_base_stiffness)
-        elem["baseDamping"]   = float(bvs.jiggle_base_damping)
-        elem["baseMass"]      = float(bvs.jiggle_base_mass)
-        if bvs.jiggle_has_left_constraint:
-            elem["baseYawMin"]      = -abs(bvs.jiggle_left_constraint_min)
-            elem["baseYawMax"]      =  abs(bvs.jiggle_left_constraint_max)
-            elem["baseYawFriction"] = float(bvs.jiggle_left_friction)
-        if bvs.jiggle_has_up_constraint:
-            elem["basePitchMin"]      = -abs(bvs.jiggle_up_constraint_min)
-            elem["basePitchMax"]      =  abs(bvs.jiggle_up_constraint_max)
-            elem["basePitchFriction"] = float(bvs.jiggle_up_friction)
-        if bvs.jiggle_has_forward_constraint:
-            elem["baseAlongMin"]      = -abs(bvs.jiggle_forward_constraint_min)
-            elem["baseAlongMax"]      =  abs(bvs.jiggle_forward_constraint_max)
-            elem["baseAlongFriction"] = float(bvs.jiggle_forward_friction)
-    elif bvs.jiggle_base_type == 'BOING':
-        elem["boing"]            = True
-        elem["boingImpactSpeed"] = float(bvs.jiggle_impact_speed)
-        elem["boingImpactAngle"] = math.degrees(bvs.jiggle_impact_angle)
-        elem["boingDampingRate"] = float(bvs.jiggle_damping_rate)
-        elem["boingFrequency"]   = float(bvs.jiggle_frequency)
-        elem["boingAmplitude"]   = float(bvs.jiggle_amplitude)
-
-
 def _s2_prefab_bonename(bone) -> str:
     # I don't know if ValveBiped. is only stripped or it applies to any with . separator
     # TODO: Confirm.
@@ -4133,62 +4046,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
             entries.append(f"// Jigglebones: {group_name}")
             entries.append("")
             for bone in group_bones:
-                d = []
-                d.append(f'$jigglebone "{get_bone_exportname(bone)}"')
-                d.append('{')
-                jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
-
-                if bone.vs.jiggle_flex_type in ['FLEXIBLE', 'RIGID']:
-                    d.append('\tis_flexible' if bone.vs.jiggle_flex_type == 'FLEXIBLE' else '\tis_rigid')
-                    d.append('\t{')
-                    d.append(f'\t\tlength {jiggle_length:.4f}')
-                    d.append(f'\t\ttip_mass {bone.vs.jiggle_tip_mass:.2f}')
-                    if bone.vs.jiggle_flex_type == 'FLEXIBLE':
-                        d.append(f'\t\tyaw_stiffness {bone.vs.jiggle_yaw_stiffness:.4f}')
-                        d.append(f'\t\tyaw_damping {bone.vs.jiggle_yaw_damping:.4f}')
-                        if bone.vs.jiggle_has_yaw_constraint:
-                            d.append(f'\t\tyaw_constraint {-abs(math.degrees(bone.vs.jiggle_yaw_constraint_min)):.4f} {abs(math.degrees(bone.vs.jiggle_yaw_constraint_max)):.4f}')
-                            d.append(f'\t\tyaw_friction {bone.vs.jiggle_yaw_friction:.3f}')
-                        d.append(f'\t\tpitch_stiffness {bone.vs.jiggle_pitch_stiffness:.4f}')
-                        d.append(f'\t\tpitch_damping {bone.vs.jiggle_pitch_damping:.4f}')
-                        if bone.vs.jiggle_has_pitch_constraint:
-                            d.append(f'\t\tpitch_constraint {-abs(math.degrees(bone.vs.jiggle_pitch_constraint_min)):.4f} {abs(math.degrees(bone.vs.jiggle_pitch_constraint_max)):.4f}')
-                            d.append(f'\t\tpitch_friction {bone.vs.jiggle_pitch_friction:.3f}')
-                        if bone.vs.jiggle_allow_length_flex:
-                            d.append('\t\tallow_length_flex')
-                            d.append(f'\t\talong_stiffness {bone.vs.jiggle_along_stiffness:.4f}')
-                        if bone.vs.jiggle_has_angle_constraint:
-                            d.append(f'\t\tangle_constraint {math.degrees(bone.vs.jiggle_angle_constraint):.4f}')
-                    d.append('\t}')
-
-                if bone.vs.jiggle_base_type == 'BASESPRING':
-                    d.append('\thas_base_spring')
-                    d.append('\t{')
-                    d.append(f'\t\tstiffness {bone.vs.jiggle_base_stiffness:.4f}')
-                    d.append(f'\t\tdamping {bone.vs.jiggle_base_damping:.4f}')
-                    d.append(f'\t\tbase_mass {bone.vs.jiggle_base_mass}')
-                    if bone.vs.jiggle_has_left_constraint:
-                        d.append(f'\t\tleft_constraint {-abs(bone.vs.jiggle_left_constraint_min):.2f} {abs(bone.vs.jiggle_left_constraint_max):.2f}')
-                        d.append(f'\t\tleft_friction {bone.vs.jiggle_left_friction:.3f}')
-                    if bone.vs.jiggle_has_up_constraint:
-                        d.append(f'\t\tup_constraint {-abs(bone.vs.jiggle_up_constraint_min):.2f} {abs(bone.vs.jiggle_up_constraint_max):.2f}')
-                        d.append(f'\t\tup_friction {bone.vs.jiggle_up_friction:.3f}')
-                    if bone.vs.jiggle_has_forward_constraint:
-                        d.append(f'\t\tforward_constraint {-abs(bone.vs.jiggle_forward_constraint_min):.2f} {abs(bone.vs.jiggle_forward_constraint_max):.2f}')
-                        d.append(f'\t\tforward_friction {bone.vs.jiggle_forward_friction:.3f}')
-                    d.append('\t}')
-                elif bone.vs.jiggle_base_type == 'BOING':
-                    d.append('\tis_boing')
-                    d.append('\t{')
-                    d.append(f'\t\timpact_speed {bone.vs.jiggle_impact_speed}')
-                    d.append(f'\t\timpact_angle {math.degrees(bone.vs.jiggle_impact_angle):.4f}')
-                    d.append(f'\t\tdamping_rate {bone.vs.jiggle_damping_rate:.3f}')
-                    d.append(f'\t\tfrequency {bone.vs.jiggle_frequency:.3f}')
-                    d.append(f'\t\tamplitude {bone.vs.jiggle_amplitude:.3f}')
-                    d.append('\t}')
-                d.append('}')
-                d.append('\n')
-                entries.append("\n".join(d))
+                entries.append("\n".join(_jigglebone.qc_block_lines(bone)))
         return "\n".join(entries)
 
     def _jigglebones_vmdl(self, collection_groups, export_path):
@@ -4196,50 +4054,12 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         for group_name, group_bones in collection_groups.items():
             folder = KVNode(_class="Folder", name=sanitize_string(group_name))
             for bone in group_bones:
-                flex_type = 2 if bone.vs.jiggle_flex_type not in ['FLEXIBLE', 'RIGID'] else (1 if bone.vs.jiggle_flex_type == 'FLEXIBLE' else 0)
+                s2name = _s2_prefab_bonename(bone)
                 jiggle_length = bone.length if bone.vs.use_bone_length_for_jigglebone_length else bone.vs.jiggle_length
                 folder.add_child(KVNode(
                     _class="JiggleBone",
-                    name=f"JiggleBone_{_s2_prefab_bonename(bone)}",
-                    jiggle_root_bone=_s2_prefab_bonename(bone),
-                    jiggle_type=flex_type,
-                    has_yaw_constraint=KVBool(bone.vs.jiggle_has_yaw_constraint),
-                    has_pitch_constraint=KVBool(bone.vs.jiggle_has_pitch_constraint),
-                    has_angle_constraint=KVBool(bone.vs.jiggle_has_angle_constraint),
-                    has_base_spring=KVBool(bone.vs.jiggle_base_type == 'BASESPRING'),
-                    allow_flex_length=KVBool(bone.vs.jiggle_allow_length_flex),
-                    length=jiggle_length,
-                    tip_mass=bone.vs.jiggle_tip_mass,
-                    angle_limit=math.degrees(bone.vs.jiggle_angle_constraint),
-                    min_yaw=math.degrees(bone.vs.jiggle_yaw_constraint_min),
-                    max_yaw=math.degrees(bone.vs.jiggle_yaw_constraint_max),
-                    yaw_friction=bone.vs.jiggle_yaw_friction,
-                    min_pitch=math.degrees(bone.vs.jiggle_pitch_constraint_min),
-                    max_pitch=math.degrees(bone.vs.jiggle_pitch_constraint_max),
-                    pitch_friction=bone.vs.jiggle_pitch_friction,
-                    base_mass=bone.vs.jiggle_base_mass,
-                    base_stiffness=bone.vs.jiggle_base_stiffness,
-                    base_damping=bone.vs.jiggle_base_damping,
-                    base_left_min=bone.vs.jiggle_left_constraint_min,
-                    base_left_max=bone.vs.jiggle_left_constraint_max,
-                    base_left_friction=bone.vs.jiggle_left_friction,
-                    base_up_min=bone.vs.jiggle_up_constraint_min,
-                    base_up_max=bone.vs.jiggle_up_constraint_max,
-                    base_up_friction=bone.vs.jiggle_up_friction,
-                    base_forward_min=bone.vs.jiggle_forward_constraint_min,
-                    base_forward_max=bone.vs.jiggle_forward_constraint_max,
-                    base_forward_friction=bone.vs.jiggle_forward_friction,
-                    yaw_stiffness=bone.vs.jiggle_yaw_stiffness,
-                    yaw_damping=bone.vs.jiggle_yaw_damping,
-                    pitch_stiffness=bone.vs.jiggle_pitch_stiffness,
-                    pitch_damping=bone.vs.jiggle_pitch_damping,
-                    along_stiffness=bone.vs.jiggle_along_stiffness,
-                    along_damping=bone.vs.jiggle_along_damping,
-                    has_collision=KVBool(bone.vs.jiggle_has_collision),
-                    radius0=bone.vs.jiggle_collision_radius0,
-                    radius1=bone.vs.jiggle_collision_radius1,
-                    point0=KVVector3(*bone.vs.jiggle_collision_point0),
-                    point1=KVVector3(*bone.vs.jiggle_collision_point1),
+                    name=f"JiggleBone_{s2name}",
+                    **_jigglebone.kv3_kwargs(bone.vs, s2name, jiggle_length),
                 ))
             folder_nodes.append(folder)
 
@@ -4427,21 +4247,7 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         lines.append(f'$hboxset\t"{hboxset}"')
         for bone in sorted_bones:
             for e in seen_bones[bone]:
-                bn  = get_bone_exportname(bone)
-                grp = int(e.group) if e.group.isdigit() else 0
-                base = (
-                    f'$hbox\t{grp}\t"{bn}"\t\t'
-                    f'{e.vec_min[0]:.4f}\t{e.vec_min[1]:.4f}\t{e.vec_min[2]:.4f}\t'
-                    f'{e.vec_max[0]:.4f}\t{e.vec_max[1]:.4f}\t{e.vec_max[2]:.4f}'
-                )
-                if capsule_support:
-                    rx  = degrees(e.rotation[0])
-                    ry  = degrees(e.rotation[1])
-                    rz  = degrees(e.rotation[2])
-                    scl = e.scale if e.scale >= 0.0 else -1.0
-                    lines.append(f'{base}\t{rx:.4f}\t{ry:.4f}\t{rz:.4f}\t{scl:.4f}')
-                else:
-                    lines.append(base)
+                lines.append(_hitbox.qc_line(e, get_bone_exportname(bone), capsule_support))
         lines.append('$skipboneinbbox')
 
         return '\n'.join(lines), None
@@ -4476,24 +4282,9 @@ class PrefabExporter(bpy.types.Operator, ExportCheck):
         hbset_node = KVNode(_class="HitboxSet", name=sanitize_string(hboxset))
         for bone in sorted_bones:
             for e in seen_bones[bone]:
-                # Convert the box+rotation representation into the two capsule
-                # endpoints, mirroring the viewport draw in viewport_draw.py.
-                mn  = Vector(e.vec_min)
-                mx  = Vector(e.vec_max)
-                ctr = (mn + mx) * 0.5
-                rot_mat = Euler((e.rotation[0], e.rotation[1], e.rotation[2]), 'XYZ').to_matrix()
-                p0 = ctr + rot_mat @ (mn - ctr)
-                p1 = ctr + rot_mat @ (mx - ctr)
-                grp = int(e.group) if e.group.lstrip('-').isdigit() else 0
                 hbset_node.add_child(KVNode(
                     _class="HitboxCapsule",
-                    parent_bone=_s2_prefab_bonename(bone),
-                    surface_property="",
-                    translation_only=KVBool(False),
-                    group_id=grp,
-                    radius=e.scale,
-                    point0=KVVector3(p0.x, p0.y, p0.z),
-                    point1=KVVector3(p1.x, p1.y, p1.z),
+                    **_hitbox.kv3_capsule_kwargs(e, _s2_prefab_bonename(bone)),
                 ))
 
         # update_vmdl_container matches the HitboxSet by name inside HitboxSetList and

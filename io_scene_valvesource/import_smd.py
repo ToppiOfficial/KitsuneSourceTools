@@ -18,7 +18,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import bpy, bmesh, random, collections, os, colorsys
+import bpy, bmesh, random, collections, os
 from bpy import ops
 from bpy.app.translations import pgettext
 from bpy.props import StringProperty, CollectionProperty, BoolProperty, EnumProperty
@@ -29,18 +29,6 @@ from .utils import *
 from . import datamodel, ordered_set, flex, keyvalues3
 
 from .utils import KST_ATTACHMENT_COLL as _KST_ATTACHMENT_COLL, ensure_kst_collection_at_top as _ensure_kst_collection_at_top
-
-
-def _kst_attachment_library_items(self, context):
-    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
-    if not os.path.isdir(assets_dir):
-        return [('NONE', "None", "No KST assets directory found")]
-    items = [('NONE', "None", "Do not auto-import display meshes")]
-    for fname in sorted(os.listdir(assets_dir)):
-        if fname.lower().endswith('.blend'):
-            fpath = os.path.join(assets_dir, fname)
-            items.append((fpath, fname[:-6], fname, 'BLENDER', len(items)))
-    return items
 
 
 # QC flex type keywords that map directly onto a real flexgroup enum option. Anything not
@@ -254,13 +242,6 @@ class SmdImporter(bpy.types.Operator, Logger):
         default='SPHERE',
         description=get_id("importer_bonemode_tip"),
     )
-    attachment_library_blend: EnumProperty(
-        name="Attachment Library",
-        description="KST asset library to auto-populate attachment display meshes from. Objects are grouped by their first underscore-separated prefix and matched against each imported attachment name",
-        items=_kst_attachment_library_items,
-        default=0,
-    )
-
     def __init__(self, *args, **kwargs):
         bpy.types.Operator.__init__(self, *args, **kwargs)
         Logger.__init__(self)
@@ -310,13 +291,6 @@ class SmdImporter(bpy.types.Operator, Logger):
                 ops.object.mode_set(mode='OBJECT')
             ops.object.select_all(action='DESELECT')
             new_obs = set(bpy.context.scene.objects).difference(pre_obs)
-            if self.attachment_library_blend != 'NONE':
-                new_attachments = [
-                    ob for ob in new_obs
-                    if ob.type == 'EMPTY' and getattr(ob.vs, 'dmx_attachment', False)
-                ]
-                if new_attachments:
-                    self._assign_attachment_library_meshes(context, new_attachments, self.attachment_library_blend)
             xy = xyz = 0
             for ob in new_obs:
                 ob.select_set(True)
@@ -341,55 +315,6 @@ class SmdImporter(bpy.types.Operator, Logger):
         self.properties.upAxis = context.scene.vs.up_axis
         bpy.context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
-    def _assign_attachment_library_meshes(self, context, attachments, blend_path):
-        # Read all object names from the library (assets_only for enumeration)
-        try:
-            with bpy.data.libraries.load(blend_path, link=False, assets_only=True) as (data_from, _):
-                all_lib_names = list(data_from.objects)
-        except Exception:
-            return
-
-        # Build prefix -> [names] map using the first underscore-separated token
-        prefix_map: dict[str, list[str]] = {}
-        for name in all_lib_names:
-            prefix = name.split('_', 1)[0]
-            prefix_map.setdefault(prefix, []).append(name)
-
-        kst_coll = _ensure_kst_collection_at_top(context.scene, context.view_layer)
-
-        for atch in attachments:
-            att_name = atch.name
-            matching = sorted(prefix_map.get(att_name, []))
-            if not matching:
-                continue
-
-            # Import any names not already in bpy.data.objects
-            to_load = [n for n in matching if bpy.data.objects.get(n) is None]
-            if to_load:
-                try:
-                    with bpy.data.libraries.load(blend_path, link=False) as (data_from, data_to):
-                        data_to.objects = [n for n in to_load if n in data_from.objects]
-                except Exception:
-                    continue
-
-            vs = atch.vs
-            for name in matching:
-                mesh_ob = bpy.data.objects.get(name)
-                if mesh_ob is None or mesh_ob.type != 'MESH':
-                    continue
-                if kst_coll.objects.get(mesh_ob.name) is None:
-                    mesh_ob.hide_render = True
-                    kst_coll.objects.link(mesh_ob)
-                was_empty = len(vs.attachment_display_meshes) == 0
-                item = vs.attachment_display_meshes.add()
-                item.mesh = mesh_ob
-                r, g, b = colorsys.hsv_to_rgb(random.random(), 0.75, 0.90)
-                item.color = (r, g, b, 0.45)
-                new_idx = len(vs.attachment_display_meshes) - 1
-                vs.attachment_display_meshes_index = new_idx
-                if was_empty:
-                    vs.attachment_display_mesh_render_index = 0
 
     def ensureAnimationBonesValidated(self):
         if self.smd.jobType == ANIM and self.append == 'APPEND' and (hasattr(self.smd, "a") or self.findArmature()):

@@ -835,6 +835,10 @@ _data = {
         'en': "Forward",
         'ja': "前方",
     },
+    'label_forward_limits': {
+        'en': "Forward Limits:",
+        'ja': "前方の制限:",
+    },
     'label_friction': {
         'en': "Friction",
         'ja': "摩擦",
@@ -955,6 +959,10 @@ _data = {
         'en': "Side Constraints:",
         'ja': "サイド制約:",
     },
+    'label_side_limits': {
+        'en': "Side Limits:",
+        'ja': "サイドの制限:",
+    },
     'label_sim_gizmo_disabled': {
         'en': "Viewport gizmo posing is unusable while simulation is active.",
         'ja': "シミュレーション実行中は、ビューポートギズモでのポージングが使用できません。",
@@ -1002,6 +1010,10 @@ _data = {
     'label_up': {
         'en': "Up",
         'ja': "上",
+    },
+    'label_up_limits': {
+        'en': "Up Limits:",
+        'ja': "上の制限:",
     },
     'label_use_bone_length': {
         'en': "Use Bone Length",

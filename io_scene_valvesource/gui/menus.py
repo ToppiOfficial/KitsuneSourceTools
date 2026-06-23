@@ -65,7 +65,7 @@ class SMD_MT_ExportChoice(Menu):
         row.operator(SmdExporter.bl_idname, text=get_id("exportmenu_scene", True).format(num_scene_exports), icon='SCENE_DATA').export_scene = True
         row.enabled = num_scene_exports > 0
 
-        active = context.object
+        active = context.active_object
 
         arm = None
         if active:
