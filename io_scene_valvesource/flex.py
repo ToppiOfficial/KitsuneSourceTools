@@ -163,9 +163,12 @@ class DmxWriteFlexControllers(bpy.types.Operator):
                                                        id=ob.name + delta_name + "expression")
                             rule_elem["result"] = 0.0
                             rule_elem["expr"]   = sanitize_flex_expression_deltas(rule.expression.strip(), delta_name_map)
-                        else:  # LOCALVAR - name is a variable, not a delta; don't sanitize it
-                            rule_elem = dm.add_element(rule.name, "DmeFlexRuleLocalVar",
-                                                       id=ob.name + rule.name + "localvar")
+                        else:  # LOCALVAR - sanitize the name the same way as expression
+                            # names and %-references, so the declaration stays consistent
+                            # with how the variable is referenced (e.g. "ud_norm" -> "udnorm").
+                            delta_name = delta_name_map.get(rule.name, sanitize_string_for_delta(rule.name))
+                            rule_elem = dm.add_element(delta_name, "DmeFlexRuleLocalVar",
+                                                       id=ob.name + delta_name + "localvar")
                             rule_elem["result"] = 0.0
                         rule_deltas.append(rule_elem)
                         rule_weights.append(datamodel.Vector2([0.0, 0.0]))

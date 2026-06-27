@@ -1031,6 +1031,18 @@ _data = {
         'en': "Vertex Maps:",
         'ja': "頂点マップ:",
     },
+    'valvesource_vertex_paint': {
+        'en': "Paint Tint Color",
+        'ja': "ペイントの色合い",
+    },
+    'valvesource_vertex_blend': {
+        'en': "Paint Blend Params",
+        'ja': "ペイントブレンドパラメータ",
+    },
+    'valvesource_vertex_blend1': {
+        'en': "Paint Blend Params 1",
+        'ja': "ペイントブレンドパラメータ 1",
+    },
     'label_y_to': {
         'en': "Y to...",
         'ja': "Yを...",

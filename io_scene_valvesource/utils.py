@@ -1085,11 +1085,13 @@ class QcInfo:
     localvars_pending: list = None
     expressions_pending: list = None
     stereo_flex_names_pending: set = None
-    
+
     def __init__(self):
         self.imported_smds = []
         self.vars = {}
         self.dir_stack = []
+        # Every imported mesh with shape keys; global flex data is applied to all of them.
+        self.flex_meshes = []
 
     def cd(self):
         return os.path.join(self.root_filedir,*self.dir_stack)
@@ -1097,7 +1099,7 @@ class QcInfo:
 class KeyFrame:
     def __init__(self):
         self.frame = None
-        self.pos = self.rot = False
+        self.pos = self.rot = self.scale = False
         self.matrix = Matrix()
 
 #   ---------------------------------

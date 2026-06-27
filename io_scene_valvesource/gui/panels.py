@@ -43,7 +43,7 @@ from .operators import (
 
 class Properties_Panel(Panel):
     bl_label = 'sample_propertiessub'
-    bl_category = 'KitsuneSrcTool'
+    bl_category = 'PulseSrcOps'
     bl_region_type = 'UI'
     bl_space_type = 'VIEW_3D'
     bl_options = {'DEFAULT_CLOSED'}
@@ -54,7 +54,7 @@ class Properties_Panel(Panel):
 
 class SMD_PT_ViewportSimulation(Panel):
     bl_label = get_id('panel_viewport_simulation')
-    bl_category = 'KitsuneSrcTool'
+    bl_category = 'PulseSrcOps'
     bl_region_type = 'UI'
     bl_space_type = 'VIEW_3D'
     bl_options = {'DEFAULT_CLOSED'}

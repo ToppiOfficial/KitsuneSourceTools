@@ -1037,6 +1037,7 @@ class ExportPlanner:
         needs_temp = any(p.target is not p.source for p in plans.values())
         if needs_temp:
             target_col = self._make_collection(col.name + "_temp_base", base_obs)
+            self._copy_collection_export_settings(col, target_col)
         else:
             target_col = col
             effective_objects = {ob: ob for ob in col.objects}
@@ -1136,6 +1137,24 @@ class ExportPlanner:
             col.objects.link(ob)
             State.exportableObjects.add(ob.session_uid)
         return col
+
+    def _copy_collection_export_settings(self, src: Collection, dst: Collection) -> None:
+        # The temp "_temp_base" collection is created fresh, so it carries default
+        # .vs settings. Propagate the collection-level export settings that the
+        # exporter reads off the source collection (vertex animations, automerge,
+        # flex controller config); otherwise features like VCA export silently
+        # no-op because dst.vs.vertex_animations is empty.
+        dst.vs.automerge = src.vs.automerge
+        dst.vs.flex_controller_mode = src.vs.flex_controller_mode
+        dst.vs.flex_controller_source = src.vs.flex_controller_source
+
+        dst.vs.vertex_animations.clear()
+        for src_va in src.vs.vertex_animations:
+            dst_va = dst.vs.vertex_animations.add()
+            dst_va.name = src_va.name
+            dst_va.start = src_va.start
+            dst_va.end = src_va.end
+            dst_va.export_sequence = src_va.export_sequence
 
     # -- object planning ------------------------------------------------------
 
@@ -1866,7 +1885,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         valid_arms = []
         for arm in arms:
             if not getattr(arm.vs, 'export', False):
-                #print(f"\nKitsune Source Tools skipping prefab export for armature '{arm.name}'")
+                #print(f"\nPulseSrcOps skipping prefab export for armature '{arm.name}'")
                 continue
 
             if arm.users_collection:
@@ -1875,7 +1894,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     for col in arm.users_collection
                 )
                 if not has_exportable_col:
-                    #print(f"\nKitsune Source Tools skipping prefab export for armature '{arm.name}'")
+                    #print(f"\nPulseSrcOps skipping prefab export for armature '{arm.name}'")
                     continue
                     
             valid_arms.append(arm)
@@ -1884,7 +1903,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             return
             
         for arm in valid_arms:
-            print(f"\nKitsune Source Tools auto-exporting prefabs for armature '{arm.name}'")
+            print(f"\nPulseSrcOps auto-exporting prefabs for armature '{arm.name}'")
             self._auto_export_prefabs_for_armature(arm, context)
         
         print("\n")
@@ -1939,7 +1958,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         self._last_bake_results = []
         bench = BenchMarker()
         subdir = id.vs.subdir.lstrip("/")
-        print(f"\nKitsune Source Tools exporting {id.name}")
+        print(f"\nPulseSrcOps exporting {id.name}")
 
         path = os.path.join(bpy.path.abspath(context.scene.vs.export_path), subdir)
         if not os.path.exists(path):
@@ -2817,15 +2836,22 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
         materials = {}
         written = 0
 
+        dm = datamodel.DataModel("model", State.datamodelFormat)
+        dm.allow_random_ids = False
+        source2 = dm.format_ver >= 22
+
+        # Source 2 supports a per-bone scale on the DmeTransform (a single uniform float).
+        # Source 1 studiomdl ignores it, so only emit it for format 22+.
+        export_bone_scale = source2
+
         def makeTransform(name, matrix, object_name):
             trfm = dm.add_element(name, "DmeTransform", id=object_name + "transform")
             trfm["position"] = datamodel.Vector3(matrix.to_translation())
             trfm["orientation"] = getDatamodelQuat(matrix.to_quaternion())
+            if export_bone_scale:
+                s = matrix.to_scale()
+                trfm["scale"] = (s.x + s.y + s.z) / 3.0
             return trfm
-
-        dm = datamodel.DataModel("model", State.datamodelFormat)
-        dm.allow_random_ids = False
-        source2 = dm.format_ver >= 22
 
         # DME prefab mode: encode jigglebones + hitboxes (and keep attachments) inside the
         # model DMX instead of writing .qci prefabs. This is a Source 1 concept only - the
@@ -3324,23 +3350,32 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     vertex_data[layer.name + "Indices"] = loop_indices
                     fmt.append(layer.name)
 
-                for layer in get_bmesh_layers(layerGroups.color):
-                    make_vertex_layer(layer, datamodel.Vector4)
+                # Vertex colour layers. Every colour attribute is exported, choosing its
+                # Source 2 DMX stream name as follows (in priority order):
+                #   1. A VertexPaint map listed in vertex_maps -> its mapped DMX name.
+                #   2. The default Blender attribute named "Color" -> the primary color$0
+                #      stream (so a freshly-painted mesh just works).
+                #   3. Anything else -> its original layer name (expected to already carry
+                #      a $N suffix for Source 2).
+                # Both byte (`color`) and float (`float_color`, Blender 3.2+) layers count.
+                _color_groups = [layerGroups.color]
+                if hasattr(layerGroups, "float_color"):
+                    _color_groups.append(layerGroups.float_color)
 
-                # color: map Blender vertex colour layer names to their Source 2 DMX
-                # attribute names using the shared vertex_maps dict (defined in utils.py).
-                # Layers already captured by the $-naming convention are skipped.
-                _exported_color_dmx_names = {l.name for l in get_bmesh_layers(layerGroups.color)}
-                for _blender_name, _vp_dmx_name in vertex_maps.items():
-                    _vp_dmx_name = _vp_dmx_name.lower()
-                    if _vp_dmx_name in _exported_color_dmx_names:
-                        continue 
-                    # Check byte-color layers first, then float-color (Blender 3.2+).
-                    _vp_bm_layer = layerGroups.color.get(_blender_name)
-                    if _vp_bm_layer is None and hasattr(layerGroups, "float_color"):
-                        _vp_bm_layer = layerGroups.float_color.get(_blender_name)
-                    if _vp_bm_layer is not None:
-                        make_vertex_layer(exportLayer(_vp_bm_layer, _vp_dmx_name), datamodel.Vector4)
+                _seen_color_dmx = set()
+                for _color_group in _color_groups:
+                    for _color_layer in _color_group:
+                        _blender_name = _color_layer.name
+                        if _blender_name in vertex_maps:
+                            _export_name = vertex_maps[_blender_name].lower()
+                        elif _blender_name.lower() == "color":
+                            _export_name = "color$0"
+                        else:
+                            _export_name = _blender_name
+                        if _export_name in _seen_color_dmx:
+                            continue
+                        _seen_color_dmx.add(_export_name)
+                        make_vertex_layer(exportLayer(_color_layer, _export_name), datamodel.Vector4)
 
                 for layer in get_bmesh_layers(layerGroups.float):
                     make_vertex_layer(layer, float)
@@ -3747,18 +3782,26 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
             channels = DmeChannelsClip["channels"] = datamodel.make_array([], datamodel.Element)
             bone_channels = {}
 
+            channel_template = [
+                ("_p", "position", "Vector3", datamodel.Vector3),
+                ("_o", "orientation", "Quaternion", datamodel.Quaternion),
+            ]
+            if export_bone_scale:
+                channel_template.append(("_s", "scale", "Float", float))
+
             def makeChannel(bone):
                 export_name = self.exportable_boneNames[bone.name]
                 bone_channels[bone.name] = []
-                for suffix, attr, type_name, dm_type in [
-                    ("_p", "position", "Vector3", datamodel.Vector3),
-                    ("_o", "orientation", "Quaternion", datamodel.Quaternion),
-                ]:
+                for suffix, attr, type_name, dm_type in channel_template:
                     ch_name = export_name + suffix
                     cur = dm.add_element(ch_name, "DmeChannel", id=bone.name + suffix)
                     cur["toAttribute"] = attr
                     cur["toElement"] = (bone_elements[bone.name] if bone else DmeModel)["transform"]
                     cur["mode"] = 1
+                    if attr == "scale":
+                        # scale is a single float on the transform, not an indexed vector component
+                        cur["fromIndex"] = 0
+                        cur["toIndex"] = 0
                     layer = dm.add_element(type_name + " log", f"Dme{type_name}LogLayer", ch_name + "loglayer")
                     cur["log"] = dm.add_element(type_name + " log", f"Dme{type_name}Log", ch_name + "log")
                     cur["log"]["layers"] = datamodel.make_array([layer], datamodel.Element)
@@ -3802,6 +3845,10 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     channel[0]["values"].append(datamodel.Vector3(pos))
                     channel[1]["times"].append(keyframe_time)
                     channel[1]["values"].append(getDatamodelQuat(relMat.to_quaternion()))
+                    if export_bone_scale:
+                        s = relMat.to_scale()
+                        channel[2]["times"].append(keyframe_time)
+                        channel[2]["values"].append((s.x + s.y + s.z) / 3.0)
 
                 if two_percent and frame % two_percent:
                     print(".", debug_only=True, newline=False)

@@ -200,7 +200,7 @@ def import_hitboxes_from_kv3(kv_doc, armature: 'object') -> 'tuple[int, int, lis
     """Import Source 2 capsule hitboxes from a parsed VMDL KV3 document.
 
     Source 2 only supports capsule hitboxes, defined by two bone-local endpoints
-    and a radius. The KitsuneSrcTool hitbox entry stores the same data as
+    and a radius. The PulseSrcOps hitbox entry stores the same data as
     vec_min/vec_max with an identity rotation and scale=radius, which round-trips
     back to the exact same capsule on export.
 

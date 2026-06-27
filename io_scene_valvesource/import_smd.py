@@ -672,6 +672,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 if keys:
                     curvesLoc = None
                     curvesRot = None
+                    curvesScale = None
                     bone_string = f"pose.bones[\"{bone.name}\"]."
                     group = groups.new(name=bone.name)
 
@@ -712,6 +713,17 @@ class SmdImporter(bpy.types.Operator, Logger):
                                     curvesRot[i].keyframe_points.add(1)
                                     curvesRot[i].keyframe_points[-1].co = [keyframe.frame, bone.rotation_quaternion[i]]
 
+                        if keyframe.scale:
+                            if curvesScale is None:
+                                curvesScale = []
+                                for i in range(3):
+                                    curve = fcurves.new(data_path=bone_string + "scale", index=i)
+                                    curve.group = group
+                                    curvesScale.append(curve)
+                            for i in range(3):
+                                curvesScale[i].keyframe_points.add(1)
+                                curvesScale[i].keyframe_points[-1].co = [keyframe.frame, bone.scale[i]]
+
                 for child in bone.children:
                     ApplyRecursive(child)
 
@@ -728,6 +740,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                 bone.rotation_euler.zero()
             else:
                 bone.rotation_quaternion.identity()
+            bone.scale = (1.0, 1.0, 1.0)
 
         scn = bpy.context.scene
         if scn.frame_current == 1:
@@ -1362,40 +1375,47 @@ class SmdImporter(bpy.types.Operator, Logger):
                     qc.origin.empty_display_size = size
 
         if outer_qc:
-            # Apply all accumulated flex data from this file and any $include children
-            if qc.flex_target_mesh and (qc.flex_controllers_pending or qc.localvars_pending
-                                        or qc.expressions_pending or qc.no_auto_dmx_rules
-                                        or qc.flex_target_combo_op):
-                ob = qc.flex_target_mesh
-                if qc.no_auto_dmx_rules:
-                    ob.vs.dme_flexcontrollers.clear()
-                    ob.vs.dme_flex_rules.clear()
-                    # Rename stereo shape keys from the DMX combo op: a controller with stereo=True
-                    # and exactly one rawControlName means a single shape key that should use the
-                    # compound L+R naming convention (e.g. "AU15" = "AU15L+AU15R").
-                    # Controllers with two rawControlNames already have separate L/R shape keys.
-                    if (qc.flex_target_combo_op
-                            and ob.data and hasattr(ob.data, 'shape_keys') and ob.data.shape_keys):
-                        _key_blocks = ob.data.shape_keys.key_blocks
-                        for _ctrl in qc.flex_target_combo_op.get("controls", []):
-                            _raw = _ctrl.get("rawControlNames", [])
-                            if bool(_ctrl.get("stereo", False)) and len(_raw) == 1:
-                                _sk = _key_blocks.get(_raw[0])
-                                if _sk:
-                                    _sk.name = f"{_raw[0]}L+{_raw[0]}R"
-                elif qc.flex_target_combo_op:
-                    self._populate_dme_flex_from_dmx(ob, qc.flex_target_combo_op)
+            # Apply all accumulated flex data from this file and any $include children.
+            # Flex controllers/rules are global model data, so they are applied to every
+            # imported mesh that has shape keys - not just a single target mesh.
+            target_meshes = [m for m in qc.flex_meshes if m and hasShapes(m)]
+            if qc.flex_target_mesh and qc.flex_target_mesh not in target_meshes:
+                if hasShapes(qc.flex_target_mesh) or not target_meshes:
+                    target_meshes.append(qc.flex_target_mesh)
 
-                apply_flex_text_to_object(ob, {
-                    'controllers': qc.flex_controllers_pending,
-                    'localvars': qc.localvars_pending,
-                    'expressions': qc.expressions_pending,
-                    'stereo_names': qc.stereo_flex_names_pending,
-                })
+            if target_meshes and (qc.flex_controllers_pending or qc.localvars_pending
+                                  or qc.expressions_pending or qc.no_auto_dmx_rules
+                                  or qc.flex_target_combo_op):
+                for ob in target_meshes:
+                    if qc.no_auto_dmx_rules:
+                        ob.vs.dme_flexcontrollers.clear()
+                        ob.vs.dme_flex_rules.clear()
+                        # Rename stereo shape keys from the DMX combo op: a controller with stereo=True
+                        # and exactly one rawControlName means a single shape key that should use the
+                        # compound L+R naming convention (e.g. "AU15" = "AU15L+AU15R").
+                        # Controllers with two rawControlNames already have separate L/R shape keys.
+                        if (qc.flex_target_combo_op
+                                and ob.data and hasattr(ob.data, 'shape_keys') and ob.data.shape_keys):
+                            _key_blocks = ob.data.shape_keys.key_blocks
+                            for _ctrl in qc.flex_target_combo_op.get("controls", []):
+                                _raw = _ctrl.get("rawControlNames", [])
+                                if bool(_ctrl.get("stereo", False)) and len(_raw) == 1:
+                                    _sk = _key_blocks.get(_raw[0])
+                                    if _sk:
+                                        _sk.name = f"{_raw[0]}L+{_raw[0]}R"
+                    elif qc.flex_target_combo_op:
+                        self._populate_dme_flex_from_dmx(ob, qc.flex_target_combo_op)
 
-                if ob.vs.dme_flexcontrollers:
-                    print(f"- Imported {len(ob.vs.dme_flexcontrollers)} flex controllers and "
-                          f"{len(ob.vs.dme_flex_rules)} flex rules from QC/DMX")
+                    apply_flex_text_to_object(ob, {
+                        'controllers': qc.flex_controllers_pending,
+                        'localvars': qc.localvars_pending,
+                        'expressions': qc.expressions_pending,
+                        'stereo_names': qc.stereo_flex_names_pending,
+                    })
+
+                    if ob.vs.dme_flexcontrollers:
+                        print(f"- Imported {len(ob.vs.dme_flexcontrollers)} flex controllers and "
+                              f"{len(ob.vs.dme_flex_rules)} flex rules from QC/DMX into '{ob.name}'")
 
             printTimeMessage(qc.startTime, filename, "import", "QC")
         return self.num_files_imported
@@ -1718,6 +1738,10 @@ class SmdImporter(bpy.types.Operator, Logger):
             # -----------------------------------------------------------------
             # Mesh parser (nested helper)
             # -----------------------------------------------------------------
+            # Every DmeMesh created during this import, so global flex data
+            # (combinationOperator / QC flex text) can be applied to all of
+            # them rather than only the last mesh parsed.
+            imported_meshes: list[bpy.types.Object] = []
 
             def parseModel(elem, matrix=Matrix(), last_bone=None):
                 if elem.type in ["DmeModel", "DmeDag", "DmeJoint", "DmeJiggleBone"]:
@@ -1803,6 +1827,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                         if not isinstance(values, list) or len(values) == 0:
                             continue
 
+                        is_color = False
                         if isinstance(values[0], float):
                             if isClothEnableMap(vertexMap):
                                 # Cloth-enable maps are imported as vertex groups below
@@ -1819,12 +1844,20 @@ class SmdImporter(bpy.types.Operator, Logger):
                             layers = bm.loops.layers.uv
                         elif isinstance(values[0], datamodel.Vector4) or isinstance(values[0], datamodel.Color):
                             layers = bm.loops.layers.color
+                            is_color = True
                         else:
                             self.warning(f"Could not import vertex data '{vertexMap}'; unsupported type {type(values[0]).__name__}")
                             continue
 
+                        # The primary Source 2 colour stream (color$0) maps back to Blender's
+                        # default "Color" attribute, mirroring the export naming so the layer
+                        # round-trips. All other streams keep their original name.
+                        layer_name = vertexMap
+                        if is_color and vertexMap.lower() == "color$0":
+                            layer_name = "Color"
+
                         vertex_layer_infos.append(VertexLayerInfo(
-                            layers.new(vertexMap),
+                            layers.new(layer_name),
                             DmeVertexData[vertexMap + "Indices"],
                             values,
                         ))
@@ -1991,21 +2024,30 @@ class SmdImporter(bpy.types.Operator, Logger):
                                     DmeVertexDeltaData.name.split(correctiveSeparator),
                                 )
 
+                    imported_meshes.append(ob)
+
             # Run mesh parser for reference / physics meshes
             if smd.jobType in [REF, PHYS]:
                 parseModel(DmeModel)
 
             # Import flex controllers from combinationOperator (REF meshes only).
             # When called from readQC, defer so readQC can merge QC data on top.
+            # Flex controllers/rules are global model data: apply them to every
+            # imported mesh that has shape keys, not just the last one parsed.
             if smd.jobType == REF and smd.m:
                 if self.qc:
                     self.qc.ref_mesh = smd.m
+                flex_meshes = [m for m in imported_meshes if hasShapes(m)]
                 _combo_op = dm.root.get("combinationOperator")
-                if _combo_op:
-                    if self.qc:
+                if self.qc:
+                    for m in flex_meshes:
+                        if m not in self.qc.flex_meshes:
+                            self.qc.flex_meshes.append(m)
+                    if _combo_op:
                         self.qc.pending_combo_op = _combo_op
-                    else:
-                        self._populate_dme_flex_from_dmx(smd.m, _combo_op)
+                elif _combo_op:
+                    for m in (flex_meshes or [smd.m]):
+                        self._populate_dme_flex_from_dmx(m, _combo_op)
 
             # -----------------------------------------------------------------
             # Animation
@@ -2054,7 +2096,8 @@ class SmdImporter(bpy.types.Operator, Logger):
 
                         is_position_channel = channel["toAttribute"] == "position"
                         is_rotation_channel = channel["toAttribute"] == "orientation"
-                        if not (is_position_channel or is_rotation_channel):
+                        is_scale_channel    = channel["toAttribute"] == "scale"
+                        if not (is_position_channel or is_rotation_channel or is_scale_channel):
                             continue
 
                         frame_log = channel["log"]["layers"][0]
@@ -2072,7 +2115,7 @@ class SmdImporter(bpy.types.Operator, Logger):
                             keyframe.frame = frame_time * frameRate
                             lastFrameIndex = max(lastFrameIndex, keyframe.frame)
 
-                            if not (bone.parent or keyframe.pos or keyframe.rot):
+                            if not (bone.parent or keyframe.pos or keyframe.rot or keyframe.scale):
                                 keyframe.matrix = getUpAxisMat(smd.upAxis).inverted()
 
                             if is_position_channel and not keyframe.pos:
@@ -2081,6 +2124,10 @@ class SmdImporter(bpy.types.Operator, Logger):
                             elif is_rotation_channel and not keyframe.rot:
                                 keyframe.matrix @= getBlenderQuat(frame_value).to_matrix().to_4x4()
                                 keyframe.rot = True
+                            elif is_scale_channel and not keyframe.scale:
+                                # Source 2 stores a single uniform scale float per bone transform
+                                keyframe.matrix @= Matrix.Scale(float(frame_value), 4)
+                                keyframe.scale = True
 
                     if smd.a is None:
                         self.warning(get_id("importer_err_noanimationbones", True).format(smd.jobName))
@@ -2113,7 +2160,15 @@ class SmdImporter(bpy.types.Operator, Logger):
         ob.vs.dme_flexcontrollers.clear()
         ob.vs.dme_flex_rules.clear()
 
+        # A DMX combinationOperator is global model data, but when it was exported
+        # from multiple meshes its "controls" list and its "targets" (one DmeFlexRules
+        # per mesh) hold the same controllers/rules repeated once per mesh. Deduplicate
+        # so each controller/rule is imported a single time.
+        seen_controllers: set[str] = set()
         for ctrl in combo_op.get("controls", []):
+            if ctrl.name in seen_controllers:
+                continue
+            seen_controllers.add(ctrl.name)
             item = ob.vs.dme_flexcontrollers.add()
             item.controller_name = ctrl.name
             raw = ctrl.get("rawControlNames", [])
@@ -2123,15 +2178,21 @@ class SmdImporter(bpy.types.Operator, Logger):
             item.flex_min = float(ctrl.get("flexMin", 0.0))
             item.flex_max = float(ctrl.get("flexMax", 1.0))
 
+        seen_doms: set[tuple] = set()
         for dom in combo_op.get("dominators", []):
             d_names = dom.get("dominators", [])
             s_names = dom.get("supressed", [])  # note: "supressed" is Valve's typo in the DMX format
             if d_names or s_names:
+                key = (tuple(d_names), tuple(s_names))
+                if key in seen_doms:
+                    continue
+                seen_doms.add(key)
                 item = ob.vs.dme_flex_rules.add()
                 item.rule_type = 'DOMINATION'
                 item.dominator_names = ", ".join(d_names)
                 item.suppressed_names = ", ".join(s_names)
 
+        seen_rules: set[tuple] = set()
         for target in combo_op.get("targets", []):
             if target.type != "DmeFlexRules":
                 continue
@@ -2139,6 +2200,10 @@ class SmdImporter(bpy.types.Operator, Logger):
                 rt = rule.type
                 if rt not in ("DmeFlexRulePassThrough", "DmeFlexRuleExpression", "DmeFlexRuleLocalVar"):
                     continue
+                key = (rt, rule.name)
+                if key in seen_rules:
+                    continue
+                seen_rules.add(key)
                 item = ob.vs.dme_flex_rules.add()
                 if rt == "DmeFlexRulePassThrough":
                     item.rule_type = 'PASSTHROUGH'
