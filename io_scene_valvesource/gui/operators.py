@@ -514,7 +514,11 @@ class SMD_OT_CopyFlexControllers(Operator):
     bl_idname = "smd.copy_flexcontrollers"
     bl_label = "Copy Flex Data to Selected"
     bl_description = "Copy flex controllers, rules, and delta overrides from the active object to other selected mesh objects"
-    bl_options = {'UNDO'}
+    bl_options = {'REGISTER', 'UNDO'}
+
+    copy_flexcontrollers: BoolProperty(name="Flex Controllers", default=True)
+    copy_flex_rules: BoolProperty(name="Flex Rules", default=True)
+    copy_delta_overrides: BoolProperty(name="Delta Overrides", default=True)
 
     @classmethod
     def poll(cls, context) -> bool:
@@ -523,6 +527,9 @@ class SMD_OT_CopyFlexControllers(Operator):
             return False
         vs = ob.vs
         return bool(vs.dme_flexcontrollers or vs.dme_flex_rules or vs.dme_delta_overrides)
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context) -> set:
         active_ob = context.active_object
@@ -531,46 +538,49 @@ class SMD_OT_CopyFlexControllers(Operator):
 
         for target in targets:
             tvs = target.vs
-            tvs.dme_flexcontrollers.clear()
-            tvs.dme_flex_rules.clear()
-            tvs.dme_delta_overrides.clear()
             missing_keys = []
 
-            for src in src_vs.dme_flexcontrollers:
-                dst = tvs.dme_flexcontrollers.add()
-                dst.controller_name = src.controller_name
-                dst.raw_delta_name  = src.raw_delta_name
-                dst.shapekey        = src.shapekey
-                dst.eyelid          = src.eyelid
-                dst.stereo          = src.stereo
-                dst.flexgroup       = src.flexgroup
-                dst.flexgroup_custom = src.flexgroup_custom
-                dst.flex_min        = src.flex_min
-                dst.flex_max        = src.flex_max
+            if self.copy_flexcontrollers:
+                tvs.dme_flexcontrollers.clear()
+                for src in src_vs.dme_flexcontrollers:
+                    dst = tvs.dme_flexcontrollers.add()
+                    dst.controller_name = src.controller_name
+                    dst.raw_delta_name  = src.raw_delta_name
+                    dst.shapekey        = src.shapekey
+                    dst.eyelid          = src.eyelid
+                    dst.stereo          = src.stereo
+                    dst.flexgroup       = src.flexgroup
+                    dst.flexgroup_custom = src.flexgroup_custom
+                    dst.flex_min        = src.flex_min
+                    dst.flex_max        = src.flex_max
 
-                if src.shapekey:
-                    if not (hasattr(target.data, "shape_keys") and target.data.shape_keys and src.shapekey in target.data.shape_keys.key_blocks):
-                        missing_keys.append(src.shapekey)
+                    if src.shapekey:
+                        if not (hasattr(target.data, "shape_keys") and target.data.shape_keys and src.shapekey in target.data.shape_keys.key_blocks):
+                            missing_keys.append(src.shapekey)
 
-            for src in src_vs.dme_flex_rules:
-                dst = tvs.dme_flex_rules.add()
-                dst.rule_type       = src.rule_type
-                dst.name            = src.name
-                dst.expression      = src.expression
-                dst.components      = src.components
-                dst.dominator_names = src.dominator_names
-                dst.suppressed_names = src.suppressed_names
+            if self.copy_flex_rules:
+                tvs.dme_flex_rules.clear()
+                for src in src_vs.dme_flex_rules:
+                    dst = tvs.dme_flex_rules.add()
+                    dst.rule_type       = src.rule_type
+                    dst.name            = src.name
+                    dst.expression      = src.expression
+                    dst.components      = src.components
+                    dst.dominator_names = src.dominator_names
+                    dst.suppressed_names = src.suppressed_names
 
-            for src in src_vs.dme_delta_overrides:
-                dst = tvs.dme_delta_overrides.add()
-                dst.shapekey   = src.shapekey
-                dst.delta_name = src.delta_name
-                dst.split_lr   = src.split_lr
+            if self.copy_delta_overrides:
+                tvs.dme_delta_overrides.clear()
+                for src in src_vs.dme_delta_overrides:
+                    dst = tvs.dme_delta_overrides.add()
+                    dst.shapekey   = src.shapekey
+                    dst.delta_name = src.delta_name
+                    dst.split_lr   = src.split_lr
 
             if missing_keys:
                 self.report({'WARNING'}, f"'{target.name}' is missing shape keys: {', '.join(missing_keys)}")
 
-        self.report({'INFO'}, f"Copied controllers, rules, and delta overrides to {len(targets)} object(s)")
+        self.report({'INFO'}, f"Copied data to {len(targets)} object(s)")
         return {'FINISHED'}
 
 
