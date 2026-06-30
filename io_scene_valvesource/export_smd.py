@@ -3611,7 +3611,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             out_v, out_i = [], []
                             for vec, idx in zip(vecs, idxs):
                                 b = balance[vert_of(idx)]
-                                w = (1.0 - b) if left else b
+                                w = b if left else (1.0 - b)
                                 if w <= 1e-6:
                                     continue
                                 out_v.append(datamodel.Vector3([vec[0] * w, vec[1] * w, vec[2] * w]))
