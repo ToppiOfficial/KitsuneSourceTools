@@ -3229,7 +3229,7 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                     balance_width = ob.dimensions[axis] * (1 - (sharpness / 100))
                     if balance_width:
                         for _v in ob.data.vertices:
-                            balance[_v.index] = max(0.0, min(1.0, 0.5 + _v.co[axis] / balance_width))
+                            balance[_v.index] = max(0.0, min(1.0, (-_v.co[axis] / balance_width / 2) + 0.5))
                     bake.balance_vg = True  # sentinel: balance[] is pre-populated
 
             uv_layer = ob.data.uv_layers.active.data
@@ -3604,14 +3604,14 @@ class SmdExporter(bpy.types.Operator, Logger, ExportCheck):
                             wrinkle = [w * mod for w in wrinkle]
 
                     if _split_base is not None:
-                        # Split the whole delta into <base>L (scaled by balance) and <base>R
-                        # (scaled by 1-balance), per the mesh stereo balance. balance[v]==1 is
-                        # full-left, ==0 full-right. This is what the compiler does at compile time.
+                        # Split the whole delta into <base>L (scaled by 1-balance) and <base>R
+                        # (scaled by balance), per the mesh stereo balance. balance[v]==1 is
+                        # full-right, ==0 full-left. This is what the compiler does at compile time.
                         def _scaled(vecs, idxs, vert_of, left):
                             out_v, out_i = [], []
                             for vec, idx in zip(vecs, idxs):
                                 b = balance[vert_of(idx)]
-                                w = b if left else (1.0 - b)
+                                w = (1.0 - b) if left else b
                                 if w <= 1e-6:
                                     continue
                                 out_v.append(datamodel.Vector3([vec[0] * w, vec[1] * w, vec[2] * w]))
